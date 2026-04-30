@@ -1,0 +1,18 @@
+# Secrets — never commit these
+.env
+client_secret.json
+youtube_token.pickle
+
+# Generated files
+bg_music.mp3
+bg_music.wav
+*.mp4
+*.m4a
+*.log
+tmp_*/
+__pycache__/
+*.pyc
+
+# Backups
+seo_backup_*.json
+theme_backup/

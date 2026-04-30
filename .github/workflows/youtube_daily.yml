@@ -1,0 +1,45 @@
+name: MeeeShop YouTube Shorts Daily
+
+on:
+  schedule:
+    - cron: '0 13 * * *'   # 8:00 AM EST (UTC-5) = 13:00 UTC
+  workflow_dispatch:         # allow manual trigger from GitHub UI
+
+jobs:
+  post_shorts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+
+      - name: Install Python dependencies
+        run: pip install -r requirements_youtube.txt scipy
+
+      - name: Run YouTube Shorts automation
+        env:
+          SHOPIFY_STORE:          ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_ACCESS_TOKEN:   ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+          YOUTUBE_CLIENT_ID:      ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET:  ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN:  ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: python youtube_shorts.py
+
+      - name: Upload log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-log
+          path: youtube_daily.log
