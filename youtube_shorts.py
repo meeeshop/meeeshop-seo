@@ -125,7 +125,7 @@ def generate_piano_track(fmt_name, duration=90, sr=22050, out_path=None):
             if s >= samples: break
             piano_note(mel_scale[idx % len(mel_scale)], s, beat, amp=0.07)
 
-    # Soft bass (root only, two octaves down)
+    # Warm bass line
     bass_root = prof["root"] / 2
     roots_seq = [bass_root, bass_root*3/2, bass_root*5/3, bass_root*4/3]
     for bar_i in range(0, samples, bar*4):
@@ -137,6 +137,33 @@ def generate_piano_track(fmt_name, duration=90, sr=22050, out_path=None):
             fl = max(1, n//6)
             fade = np.ones(n); fade[-fl:] = np.linspace(1, 0, fl)
             mix[s:s+n] += 0.18*np.sin(2*np.pi*bass*tl)*fade
+
+    # ── DRUM BEATS — pure sine, zero noise ──────────────────────────────────
+    # Kick: beats 1 & 3 (pitch sweep 110 → 30 Hz, punchy but clean)
+    for i in range(0, samples, beat * 2):
+        n = min(int(sr * 0.10), samples - i)
+        if n <= 0: continue
+        sweepf = np.linspace(110, 30, n)
+        kick   = np.sin(2*np.pi*np.cumsum(sweepf)/sr)
+        env    = np.exp(-np.linspace(0, 9, n))
+        mix[i:i+n] += 0.50 * kick * env
+
+    # Snare: beats 2 & 4 — two-tone sine (180 Hz + 290 Hz), rimshot style
+    for i in range(beat, samples, beat * 2):
+        n = min(int(sr * 0.055), samples - i)
+        if n <= 0: continue
+        tl  = np.arange(n) / sr
+        env = np.exp(-np.linspace(0, 20, n))
+        snare = 0.6*np.sin(2*np.pi*180*tl) + 0.4*np.sin(2*np.pi*290*tl)
+        mix[i:i+n] += 0.28 * snare * env
+
+    # Hi-hat: every 8th note — 2800 Hz sine, very short, very soft
+    for i in range(0, samples, beat // 2):
+        n = min(int(sr * 0.012), samples - i)
+        if n <= 0: continue
+        tl  = np.arange(n) / sr
+        env = np.exp(-np.linspace(0, 55, n))
+        mix[i:i+n] += 0.07 * np.sin(2*np.pi*2800*tl) * env
 
     # Normalize & fade edges
     mix = np.clip(mix/(np.max(np.abs(mix))+1e-6)*0.80, -1, 1)
@@ -320,36 +347,43 @@ SCENE_OVERLAYS = {
 }
 SCENE_NAMES = list(SCENE_OVERLAYS.keys())
 
+SCENE_GRADIENTS = {
+    "studio":  [(215, 225, 255), (140, 155, 210)],   # cool blue-white studio
+    "outdoor": [(110, 200, 85),  (35, 125, 40)],     # bright green outdoor
+    "home":    [(255, 205, 130), (195, 130, 55)],    # warm golden home
+    "park":    [(75, 200, 115),  (25, 135, 60)],     # fresh park green
+    "sunset":  [(255, 140, 60),  (185, 65, 30)],     # vivid sunset orange
+    "city":    [(100, 140, 230), (50, 80, 175)],     # urban blue city
+}
+
 def _compose_scene(img_path, scene_name, w=VIDEO_W, h=VIDEO_H):
     """
-    Foreground/background compositor:
-    - Background: product image heavily blurred + scene colour tint (feels like park/home/studio)
-    - Foreground: sharp product image centred, slightly smaller — model in front, scene behind
+    Sharp product image in foreground over a vivid colored gradient background.
+    Each scene is clearly a different environment (park=green, sunset=orange, etc.)
     """
-    from PIL import ImageFilter
-    scene_color = SCENE_OVERLAYS.get(scene_name, (220, 220, 255, 40))
-    raw = Image.open(img_path).convert("RGB")
+    colors = SCENE_GRADIENTS.get(scene_name, SCENE_GRADIENTS["studio"])
 
-    # ── BACKGROUND: fill frame, blur strongly, tint with scene colour ──
-    bg = _prep(img_path, w, h)
-    bg = bg.filter(ImageFilter.GaussianBlur(radius=22))
-    tint = Image.new("RGB", (w, h), scene_color[:3])
-    bg   = Image.blend(bg, tint, alpha=0.38)   # blend scene colour
+    # ── BUILD GRADIENT BACKGROUND ──
+    bg = Image.new("RGB", (w, h))
+    dr = ImageDraw.Draw(bg)
+    for y in range(h):
+        t = y / h
+        r = int(colors[0][0] + t*(colors[1][0]-colors[0][0]))
+        g = int(colors[0][1] + t*(colors[1][1]-colors[0][1]))
+        b = int(colors[0][2] + t*(colors[1][2]-colors[0][2]))
+        dr.line([(0, y), (w, y)], fill=(r, g, b))
 
-    # ── FOREGROUND: sharp product image, 88% of frame height, centered ──
-    fg_h = int(h * 0.88)
-    fg_w = int(fg_h * (raw.width / raw.height))
-    if fg_w > w:
-        fg_w = w; fg_h = int(fg_w * (raw.height / raw.width))
-    fg   = raw.resize((fg_w, fg_h), Image.LANCZOS)
-
-    # centre horizontally, push slightly up to leave room for text at bottom
-    x_off = (w - fg_w) // 2
-    y_off = max(0, int(h * 0.04))
-
-    canvas = bg.copy()
-    canvas.paste(fg, (x_off, y_off))
-    return canvas
+    # ── PLACE SHARP PRODUCT IMAGE ON TOP (foreground) ──
+    raw  = Image.open(img_path).convert("RGB")
+    ph   = int(h * 0.84)
+    pw   = int(ph * raw.width / raw.height)
+    if pw > int(w * 0.96):
+        pw = int(w * 0.96); ph = int(pw * raw.height / raw.width)
+    fg   = raw.resize((pw, ph), Image.LANCZOS)
+    x_off = (w - pw) // 2
+    y_off = int(h * 0.03)
+    bg.paste(fg, (x_off, y_off))
+    return bg
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -450,6 +484,8 @@ FORMAT_NAMES = list(CONTENT_FORMATS.keys())
 #  FRAME BUILDER — combines visual style + content format
 # ══════════════════════════════════════════════════════════════════════════════
 
+STYLE_TIP_LABELS = ["Dress It Up", "Keep It Casual", "Night Out Look"]
+
 def build_frame(img_path, product, style_name, fmt_name,
                 show_url=False, frame_idx=0, scene_name="studio",
                 w=VIDEO_W, h=VIDEO_H):
@@ -457,25 +493,95 @@ def build_frame(img_path, product, style_name, fmt_name,
     price  = product["variants"][0]["price"] if product.get("variants") else "0"
     handle = product.get("handle","")
     url    = f"u.meeeshop.com/products/{handle}" if handle else "u.meeeshop.com"
-    fmt    = CONTENT_FORMATS[fmt_name]
-    style  = VISUAL_STYLES[style_name]
 
-    img = _compose_scene(img_path, scene_name, w, h)   # bg blurred scene + fg sharp product
-    img = _gradient(img, style["grad_top"], style["grad_bot"], h-680, h)
+    img  = _compose_scene(img_path, scene_name, w, h)
     draw = ImageDraw.Draw(img)
-
     _logo(draw)
-    _format_badge(draw, fmt["badge"])
 
-    # Hook text on first frame
-    if frame_idx == 0:
-        hook_font = _font(FONT_BOLD, 52)
-        _pill(draw, fmt["hook"], w//2, h-570, hook_font,
-              (255,255,255,210), (20,20,20), 28, 14, 24)
+    if fmt_name == "ootd":
+        # ── OOTD: big "TODAY'S LOOK" header, warm gold accents ──────────────
+        img  = _gradient(img, (0,0,0,0), (20,10,5,220), h-700, h)
+        draw = ImageDraw.Draw(img)
+        _logo(draw)
+        _pill(draw, "✨  TODAY'S LOOK  ✨", w//2, 90, _font(FONT_BOLD,42),
+              (255,210,60), (20,20,20), 32, 14, 24)
+        _title_lines(draw, title, h-490, "white", 60)
+        draw.text((w//2, h-250), f"Complete this look for just ${price}",
+                  font=_font(FONT_REG,34), fill=(255,220,130), anchor="mm")
+        _cta(draw, "Shop The Look ->", (255,210,60), "black")
 
-    _title_lines(draw, title, h-480, style["title_color"])
-    _price_text(draw, price, h-215, style["price_color"])
-    _cta(draw, bg=style["cta_bg"], fg=style["cta_fg"])
+    elif fmt_name == "how_to_style":
+        # ── HOW TO STYLE: numbered tip per image, editorial feel ─────────────
+        img  = _gradient(img, (0,0,0,0), (10,15,30,215), h-700, h)
+        draw = ImageDraw.Draw(img)
+        _logo(draw)
+        _pill(draw, "HOW TO STYLE IT", w//2, 90, _font(FONT_BOLD,40),
+              (255,255,255), (20,20,20), 28, 12, 22)
+        tip_idx = frame_idx % len(STYLE_TIP_LABELS)
+        _pill(draw, f"  {tip_idx+1}  {STYLE_TIP_LABELS[tip_idx]}  ",
+              w//2, h-560, _font(FONT_BOLD,38), (80,160,255), "white", 22, 12, 20)
+        _title_lines(draw, title, h-470, "white", 56)
+        _price_text(draw, price, h-215, (130,210,255))
+        _cta(draw, "See All Styles ->", (80,160,255), "white")
+
+    elif fmt_name == "new_drop":
+        # ── NEW DROP: urgency, bold announcement, red accent ─────────────────
+        img  = _gradient(img, (0,0,0,0), (30,5,5,225), h-700, h)
+        draw = ImageDraw.Draw(img)
+        _logo(draw)
+        _pill(draw, "🆕  JUST DROPPED", w//2, 90, _font(FONT_BOLD,44),
+              (220,40,40), "white", 28, 14, 24)
+        _title_lines(draw, title, h-490, "white", 60)
+        if frame_idx == 0:
+            _pill(draw, "⚡ LIMITED STOCK — ACT FAST",
+                  w//2, h-280, _font(FONT_BOLD,32), (255,200,0), (30,0,0), 20,10,16)
+        _price_text(draw, price, h-215, (255,100,100))
+        _cta(draw, "Shop Before It's Gone ->", (220,40,40), "white")
+
+    elif fmt_name == "trend_alert":
+        # ── TREND ALERT: fire orange, viral energy ───────────────────────────
+        img  = _gradient(img, (0,0,0,0), (25,10,0,220), h-700, h)
+        draw = ImageDraw.Draw(img)
+        _logo(draw)
+        _pill(draw, "🔥  TRENDING NOW", w//2, 90, _font(FONT_BOLD,44),
+              (255,100,20), "white", 28, 14, 24)
+        draw.text((w//2, 155), "Seen all over the USA",
+                  font=_font(FONT_REG,34), fill=(255,180,100), anchor="mm")
+        _title_lines(draw, title, h-480, "white", 58)
+        _price_text(draw, price, h-215, (255,140,50))
+        _cta(draw, "Get The Trend ->", (255,100,20), "white")
+
+    elif fmt_name == "fashion_steal":
+        # ── FASHION STEAL: BIG price front-and-center, deal focus ────────────
+        img  = _gradient(img, (0,0,0,0), (5,20,5,220), h-700, h)
+        draw = ImageDraw.Draw(img)
+        _logo(draw)
+        _pill(draw, "💰  FASHION STEAL", w//2, 90, _font(FONT_BOLD,42),
+              (50,200,80), "white", 28, 14, 24)
+        # Giant price as headline
+        draw.text((w//2, h-540), f"ONLY", font=_font(FONT_BOLD,44),
+                  fill=(200,255,200), anchor="mm")
+        draw.text((w//2, h-470), f"${price}", font=_font(FONT_BOLD,100),
+                  fill=(50,230,90), anchor="mm",
+                  stroke_width=4, stroke_fill=(0,0,0))
+        draw.text((w//2, h-375), "Look like you spent $500",
+                  font=_font(FONT_REG,32), fill=(200,255,200), anchor="mm")
+        _title_lines(draw, title, h-310, "white", 46)
+        _cta(draw, "Grab This Deal ->", (50,200,80), "white")
+
+    else:  # styling_inspo — editorial/magazine minimal
+        # ── STYLING INSPO: magazine editorial, clean & aspirational ──────────
+        img  = _gradient(img, (0,0,0,0), (15,5,25,215), h-700, h)
+        draw = ImageDraw.Draw(img)
+        _logo(draw)
+        _pill(draw, "🌟  STYLE INSPO", w//2, 90, _font(FONT_BOLD,42),
+              (200,160,255), (10,0,20), 28, 14, 24)
+        draw.text((w//2, 155), "MeeeShop Curated Edit",
+                  font=_font(FONT_REG,32), fill=(200,180,255), anchor="mm")
+        _title_lines(draw, title, h-490, (240,225,255), 58)
+        _price_text(draw, price, h-215, (200,160,255))
+        _cta(draw, "Get The Look ->", (200,160,255), (10,0,20))
+
     if show_url:
         _url_bar(draw, url)
     return img
