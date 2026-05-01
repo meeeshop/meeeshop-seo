@@ -42,6 +42,10 @@ else:
     FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
     FONT_REG  = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
+# Set TESTING_MODE=true (env var or below) to upload as private drafts for review.
+# Set to False only after you have verified the videos look good.
+TESTING_MODE = os.getenv("TESTING_MODE", "true").lower() == "true"
+
 POSTING_SLOTS_EST = {
     0:[12,19,21], 1:[12,19,21], 2:[12,19,21],
     3:[12,19,21], 4:[12,19,21], 5:[11,14,20], 6:[11,14,20],
@@ -95,9 +99,9 @@ def generate_piano_track(fmt_name, duration=90, sr=22050, out_path=None):
                 0.25*np.sin(2*np.pi*freq*3*tl) +
                 0.12*np.sin(2*np.pi*freq*4*tl) +
                 0.06*np.sin(2*np.pi*freq*5*tl))
-        atk = max(1, int(sr*0.008))
-        dec = max(1, int(sr*0.10))
-        rel = max(1, int(sr*0.20))
+        atk = min(max(1, int(sr*0.008)), n)
+        dec = min(max(1, int(sr*0.10)),  max(0, n - atk))
+        rel = min(max(1, int(sr*0.20)),  n)
         env = np.full(n, 0.70)
         env[:atk] = np.linspace(0, 1, atk)
         if atk+dec < n: env[atk:atk+dec] = np.linspace(1, 0.70, dec)
@@ -523,9 +527,7 @@ def _vo(text, path):
 
 def build_audio(product, fmt_name, total_dur, tmp_dir, music_path):
     """Piano music throughout. Voiceover CTA only at the END (last ~5s)."""
-    title  = product["title"]
-    price  = product["variants"][0]["price"] if product.get("variants") else "0"
-    handle = product.get("handle", "")
+    price = product["variants"][0]["price"] if product.get("variants") else "0"
 
     # Single CTA voiceover — plays at the very end only
     cta = f"Shop this look at MeeeShop dot com. Only {price} dollars. Link in description!"
@@ -763,11 +765,18 @@ def _build_short_meta(product, fmt_name, prod_url):
 def upload_short(video_path, product, fmt_name, prod_url, slot_utc, slot_local):
     yt = get_youtube()
     yt_title, desc, tags = _build_short_meta(product, fmt_name, prod_url)
+    if TESTING_MODE:
+        # Draft mode: private, no publish date — review in YouTube Studio first
+        status = {"privacyStatus": "private", "selfDeclaredMadeForKids": False}
+        print("    [TESTING] Uploading as private draft for review.")
+    else:
+        status = {"privacyStatus": "private", "selfDeclaredMadeForKids": False,
+                  "publishAt": slot_utc}
+
     body = {
         "snippet": {"title":yt_title,"description":desc,"tags":tags,
                     "categoryId":"26","defaultLanguage":"en"},
-        "status":  {"privacyStatus":"private","selfDeclaredMadeForKids":False,
-                    "publishAt":slot_utc},
+        "status":  status,
     }
     media = MediaFileUpload(video_path, mimetype="video/mp4", resumable=True)
     req   = yt.videos().insert(part=",".join(body.keys()), body=body, media_body=media)
