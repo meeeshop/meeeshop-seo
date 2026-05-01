@@ -4,9 +4,10 @@ import requests
 import pickle
 import numpy as np
 import random
+import subprocess
 from datetime import datetime, timedelta, timezone, date
 from zoneinfo import ZoneInfo
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from moviepy.editor import (VideoClip, concatenate_videoclips,
                              AudioFileClip, CompositeAudioClip)
 from gtts import gTTS
@@ -177,20 +178,135 @@ def generate_piano_track(fmt_name, duration=90, sr=22050, out_path=None):
     return out_path
 
 
+# ── YouTube Audio Library mood → search terms ────────────────────────────────
+FORMAT_MOODS = {
+    "ootd":          "happy",
+    "how_to_style":  "inspirational",
+    "new_drop":      "funky",
+    "trend_alert":   "funky",
+    "fashion_steal": "happy",
+    "styling_inspo": "inspirational",
+}
+
+MOOD_QUERIES = {
+    "happy":         "happy upbeat background music no copyright royalty free",
+    "funky":         "funky groove upbeat background music no copyright",
+    "inspirational": "inspirational uplifting background music no copyright",
+}
+
+# YouTube Audio Library internal mood IDs (for the unofficial API)
+YT_MOOD_IDS = {"happy": "5", "funky": "4", "inspirational": "6"}
+
+
+def _yt_audio_library_tracks(mood):
+    """Try unofficial YouTube Audio Library API to get free track video IDs."""
+    mood_id = YT_MOOD_IDS.get(mood, "5")
+    url = (f"https://www.youtube.com/audiolibrary_ajax"
+           f"?action_load_tracks=1&filter=2&mood={mood_id}&per_page=20&page=1")
+    try:
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            tracks = data.get("tracks", [])
+            ids = [t.get("external_id") or t.get("id") for t in tracks if t.get("external_id") or t.get("id")]
+            return ids
+    except Exception:
+        pass
+    return []
+
+
+def _yt_dlp_download(url_or_search, out_base):
+    """
+    Download best audio via yt-dlp (no ffmpeg needed).
+    Returns path to downloaded file, or None.
+    AudioFileClip handles webm/opus/m4a/mp3 natively.
+    """
+    import glob as _glob
+    try:
+        import yt_dlp
+        ydl_opts = {
+            "format":      "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio",
+            "outtmpl":     out_base + ".%(ext)s",
+            "quiet":       True,
+            "no_warnings": True,
+            "noplaylist":  True,
+            "match_filter": lambda i, *, incomplete: None if (i.get("duration") or 0) < 600 else "too long",
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url_or_search])
+        except yt_dlp.utils.MaxDownloadsReached:
+            pass  # expected when playlist_items limits kick in
+
+        # Find whatever file yt-dlp created matching out_base.*
+        matches = _glob.glob(out_base + ".*")
+        for f in matches:
+            if not f.endswith(".wav") and os.path.getsize(f) > 10000:
+                return f
+    except Exception:
+        pass
+    return None
+
+
+def _find_cached_music(fmt_name):
+    """Return cached music path for this format (any extension)."""
+    import glob as _glob
+    matches = _glob.glob(f"music_{fmt_name}.*")
+    # Prefer non-wav (real downloaded track) over generated wav
+    for f in sorted(matches, key=lambda x: x.endswith(".wav")):
+        if os.path.getsize(f) > 10000:
+            return f
+    return None
+
+
 def get_music_for_format(fmt_name):
-    """Return path to cached piano track for this format, generating if needed."""
-    path = f"music_{fmt_name}.wav"
-    if not os.path.exists(path):
-        print(f"  Generating piano music for {fmt_name}...")
-        generate_piano_track(fmt_name, out_path=path)
-    return path
+    """
+    1. Try YouTube Audio Library unofficial API + yt-dlp
+    2. Fall back to yt-dlp YouTube search (no-copyright music)
+    3. Fall back to generated piano + drums track
+    """
+    cached = _find_cached_music(fmt_name)
+    if cached:
+        return cached
+
+    mood  = FORMAT_MOODS.get(fmt_name, "happy")
+    base  = f"music_{fmt_name}"
+    print(f"  Getting {mood} music for {fmt_name}...")
+
+    # ── Try 1: YouTube Audio Library ──
+    track_ids = _yt_audio_library_tracks(mood)
+    if track_ids:
+        vid_id = random.choice(track_ids[:8])
+        path = _yt_dlp_download(f"https://www.youtube.com/watch?v={vid_id}", base)
+        if path:
+            print(f"    YouTube Audio Library track downloaded")
+            return path
+
+    # ── Try 2: YouTube search (no-copyright) ──
+    query = MOOD_QUERIES.get(mood, MOOD_QUERIES["happy"])
+    path  = _yt_dlp_download(f"ytsearch1:{query}", base)
+    if path:
+        print(f"    YouTube no-copyright track downloaded")
+        return path
+
+    # ── Fallback: generated piano + drums ──
+    print(f"    Using generated piano music")
+    wav = f"{base}.wav"
+    generate_piano_track(fmt_name, out_path=wav)
+    return wav
 
 
-def get_bg_music():   # kept for long-video fallback
-    path = "music_ootd.wav"
-    if not os.path.exists(path):
-        generate_piano_track("ootd", out_path=path)
-    return path
+def get_bg_music():
+    """Long-video music."""
+    cached = _find_cached_music("long")
+    if cached:
+        return cached
+    path = _yt_dlp_download(f"ytsearch1:{MOOD_QUERIES['happy']}", "music_long")
+    if path:
+        return path
+    wav = "music_long.wav"
+    generate_piano_track("ootd", out_path=wav)
+    return wav
 
 
 
@@ -334,52 +450,76 @@ VISUAL_STYLES = {
 }
 STYLE_NAMES = list(VISUAL_STYLES.keys())
 
-# ── Scene overlays: subtle tinted vignette suggesting a location ──────────────
-# These paint a semi-transparent colour wash over the top 40% of the image
-# so it feels like different lighting environments (studio, outdoor, home, etc.)
-SCENE_OVERLAYS = {
-    "studio":  (220, 220, 255, 28),   # cool white studio light
-    "outdoor": (135, 190, 100, 32),   # fresh green/daylight
-    "home":    (255, 210, 160, 30),   # warm golden home light
-    "park":    (100, 180, 130, 28),   # green park light
-    "sunset":  (255, 160, 80,  35),   # warm sunset orange
-    "city":    (160, 180, 220, 30),   # cool city blue
+# ── Real-life scene backgrounds (Unsplash free source API) ───────────────────
+SCENE_QUERIES = {
+    "beach":       "tropical+beach+ocean+shore+sunny",
+    "park":        "green+park+nature+trees+sunlight",
+    "city":        "city+street+urban+road+buildings",
+    "building":    "modern+architecture+building+exterior",
+    "living_room": "modern+living+room+interior+cozy",
+    "studio":      "bright+minimalist+photography+studio+white",
 }
-SCENE_NAMES = list(SCENE_OVERLAYS.keys())
+SCENE_NAMES = list(SCENE_QUERIES.keys())
 
+# Colour-gradient fallbacks if Unsplash download fails
 SCENE_GRADIENTS = {
-    "studio":  [(215, 225, 255), (140, 155, 210)],   # cool blue-white studio
-    "outdoor": [(110, 200, 85),  (35, 125, 40)],     # bright green outdoor
-    "home":    [(255, 205, 130), (195, 130, 55)],    # warm golden home
-    "park":    [(75, 200, 115),  (25, 135, 60)],     # fresh park green
-    "sunset":  [(255, 140, 60),  (185, 65, 30)],     # vivid sunset orange
-    "city":    [(100, 140, 230), (50, 80, 175)],     # urban blue city
+    "beach":       [(255, 225, 140), (80, 175, 225)],
+    "park":        [(100, 195, 80),  (30, 120, 40)],
+    "city":        [(110, 140, 225), (45, 75, 170)],
+    "building":    [(175, 195, 220), (95, 115, 155)],
+    "living_room": [(255, 200, 130), (195, 130, 55)],
+    "studio":      [(240, 240, 255), (175, 180, 210)],
 }
+
+
+def fetch_background_photo(scene_name):
+    """Download real Unsplash photo for this scene, cache as bg_{scene}.jpg."""
+    cache = f"bg_{scene_name}.jpg"
+    if os.path.exists(cache) and os.path.getsize(cache) > 5000:
+        return cache
+    query = SCENE_QUERIES.get(scene_name, "outdoor+nature")
+    try:
+        r = requests.get(
+            f"https://source.unsplash.com/1080x1920/?{query}",
+            allow_redirects=True, timeout=20, stream=True)
+        if r.status_code == 200 and len(r.content) > 10000:
+            with open(cache, "wb") as f:
+                f.write(r.content)
+            return cache
+    except Exception:
+        pass
+    return None
+
 
 def _compose_scene(img_path, scene_name, w=VIDEO_W, h=VIDEO_H):
     """
-    Sharp product image in foreground over a vivid colored gradient background.
-    Each scene is clearly a different environment (park=green, sunset=orange, etc.)
+    Real background photo (beach / park / city etc.) blurred for depth-of-field.
+    Product image placed sharp in the foreground — model in front, scene behind.
     """
-    colors = SCENE_GRADIENTS.get(scene_name, SCENE_GRADIENTS["studio"])
+    bg_path = fetch_background_photo(scene_name)
 
-    # ── BUILD GRADIENT BACKGROUND ──
-    bg = Image.new("RGB", (w, h))
-    dr = ImageDraw.Draw(bg)
-    for y in range(h):
-        t = y / h
-        r = int(colors[0][0] + t*(colors[1][0]-colors[0][0]))
-        g = int(colors[0][1] + t*(colors[1][1]-colors[0][1]))
-        b = int(colors[0][2] + t*(colors[1][2]-colors[0][2]))
-        dr.line([(0, y), (w, y)], fill=(r, g, b))
+    if bg_path:
+        bg = _prep(bg_path, w, h)
+        bg = bg.filter(ImageFilter.GaussianBlur(radius=9))
+    else:
+        # Gradient fallback
+        colors = SCENE_GRADIENTS.get(scene_name, SCENE_GRADIENTS["studio"])
+        bg = Image.new("RGB", (w, h))
+        dr = ImageDraw.Draw(bg)
+        for y in range(h):
+            t = y / h
+            rv = int(colors[0][0] + t*(colors[1][0]-colors[0][0]))
+            gv = int(colors[0][1] + t*(colors[1][1]-colors[0][1]))
+            bv = int(colors[0][2] + t*(colors[1][2]-colors[0][2]))
+            dr.line([(0, y), (w, y)], fill=(rv, gv, bv))
 
-    # ── PLACE SHARP PRODUCT IMAGE ON TOP (foreground) ──
-    raw  = Image.open(img_path).convert("RGB")
-    ph   = int(h * 0.84)
-    pw   = int(ph * raw.width / raw.height)
+    # Sharp product image in front
+    raw   = Image.open(img_path).convert("RGB")
+    ph    = int(h * 0.84)
+    pw    = int(ph * raw.width / raw.height)
     if pw > int(w * 0.96):
         pw = int(w * 0.96); ph = int(pw * raw.height / raw.width)
-    fg   = raw.resize((pw, ph), Image.LANCZOS)
+    fg    = raw.resize((pw, ph), Image.LANCZOS)
     x_off = (w - pw) // 2
     y_off = int(h * 0.03)
     bg.paste(fg, (x_off, y_off))
