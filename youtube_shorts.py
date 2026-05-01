@@ -450,16 +450,17 @@ VISUAL_STYLES = {
 }
 STYLE_NAMES = list(VISUAL_STYLES.keys())
 
-# ── Real-life scene backgrounds (Unsplash free source API) ───────────────────
-SCENE_QUERIES = {
-    "beach":       "tropical+beach+ocean+shore+sunny",
-    "park":        "green+park+nature+trees+sunlight",
-    "city":        "city+street+urban+road+buildings",
-    "building":    "modern+architecture+building+exterior",
-    "living_room": "modern+living+room+interior+cozy",
-    "studio":      "bright+minimalist+photography+studio+white",
+# ── Real-life backgrounds via picsum.photos (free, no API key, always works) ─
+# Seeds are fixed so each scene always gets the same consistent photo.
+SCENE_PICSUM = {
+    "beach":       "870",    # warm coastal photo
+    "park":        "1448",   # lush green outdoor
+    "city":        "1067",   # urban street
+    "building":    "1560",   # modern architecture
+    "living_room": "1090",   # warm interior
+    "studio":      "157",    # clean bright space
 }
-SCENE_NAMES = list(SCENE_QUERIES.keys())
+SCENE_NAMES = list(SCENE_PICSUM.keys())
 
 # Colour-gradient fallbacks if Unsplash download fails
 SCENE_GRADIENTS = {
@@ -473,15 +474,15 @@ SCENE_GRADIENTS = {
 
 
 def fetch_background_photo(scene_name):
-    """Download real Unsplash photo for this scene, cache as bg_{scene}.jpg."""
+    """Download a real photo from picsum.photos (free, no key, never fails)."""
     cache = f"bg_{scene_name}.jpg"
     if os.path.exists(cache) and os.path.getsize(cache) > 5000:
         return cache
-    query = SCENE_QUERIES.get(scene_name, "outdoor+nature")
+    seed = SCENE_PICSUM.get(scene_name, "100")
     try:
         r = requests.get(
-            f"https://source.unsplash.com/1080x1920/?{query}",
-            allow_redirects=True, timeout=20, stream=True)
+            f"https://picsum.photos/seed/{seed}/1080/1920",
+            allow_redirects=True, timeout=20)
         if r.status_code == 200 and len(r.content) > 10000:
             with open(cache, "wb") as f:
                 f.write(r.content)
@@ -632,7 +633,7 @@ def build_frame(img_path, product, style_name, fmt_name,
     title  = product["title"]
     price  = product["variants"][0]["price"] if product.get("variants") else "0"
     handle = product.get("handle","")
-    url    = f"u.meeeshop.com/products/{handle}" if handle else "u.meeeshop.com"
+    url    = f"us.meeeshop.com/products/{handle}" if handle else "us.meeeshop.com"
 
     img  = _compose_scene(img_path, scene_name, w, h)
     draw = ImageDraw.Draw(img)
@@ -800,7 +801,7 @@ def create_short(product, style_name, fmt_name, out_path):
     title  = product["title"]
     price  = product["variants"][0]["price"] if product.get("variants") else "0"
     handle = product.get("handle","")
-    url    = f"u.meeeshop.com/products/{handle}" if handle else "u.meeeshop.com"
+    url    = f"us.meeeshop.com/products/{handle}" if handle else "us.meeeshop.com"
 
     print(f"  Product : {title[:50]}")
     print(f"  Style   : {style_name} | Format: {fmt_name}")
@@ -1049,7 +1050,7 @@ def upload_long(video_path, products):
         f"• {p['title']} — ${p['variants'][0]['price']}" for p in products
     )
     desc = (
-        f"Shop everything at: https://u.meeeshop.com\n\n"
+        f"Shop everything at: https://us.meeeshop.com\n\n"
         f"This week's top picks:\n{product_lines}\n\n"
         f"Free shipping on orders $50+!\n\n"
         f"#MeeeShop #fashion #womenfashion #weeklyhaul #fashionhaul "
