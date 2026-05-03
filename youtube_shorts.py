@@ -179,11 +179,12 @@ def generate_piano_track(fmt_name, duration=90, sr=22050, out_path=None):
 
 
 # ── YouTube Audio Library mood → search terms ────────────────────────────────
+# Only happy + inspirational — YouTube Audio Library royalty-free tracks
 FORMAT_MOODS = {
     "ootd":          "happy",
     "how_to_style":  "inspirational",
-    "new_drop":      "funky",
-    "trend_alert":   "funky",
+    "new_drop":      "happy",
+    "trend_alert":   "happy",
     "fashion_steal": "happy",
     "styling_inspo": "inspirational",
 }
@@ -249,12 +250,28 @@ def _yt_dlp_download(url_or_search, out_base):
 
 
 def _find_cached_music(fmt_name):
-    """Return cached music path for this format (any extension)."""
+    """
+    Return a random cached YouTube Audio Library track for this format's mood.
+    Looks for music_happy_*.* or music_inspirational_*.* first (real tracks).
+    Falls back to music_{fmt_name}.* (legacy) then wav (generated).
+    """
     import glob as _glob
-    matches = _glob.glob(f"music_{fmt_name}.*")
-    # Prefer non-wav (real downloaded track) over generated wav
-    for f in sorted(matches, key=lambda x: x.endswith(".wav")):
-        if os.path.getsize(f) > 10000:
+    mood = FORMAT_MOODS.get(fmt_name, "happy")
+
+    # Prefer pool of real Audio Library tracks for this mood
+    pool = [f for f in _glob.glob(f"music_{mood}_*.*")
+            if not f.endswith(".wav") and os.path.getsize(f) > 10000]
+    if pool:
+        return random.choice(pool)
+
+    # Legacy single file for this format
+    for f in _glob.glob(f"music_{fmt_name}.*"):
+        if not f.endswith(".wav") and os.path.getsize(f) > 10000:
+            return f
+
+    # Generated wav fallback
+    for f in _glob.glob(f"music_{fmt_name}.wav") + _glob.glob(f"music_{mood}.wav"):
+        if os.path.getsize(f) > 100:
             return f
     return None
 
