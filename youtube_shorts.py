@@ -45,7 +45,7 @@ else:
 
 # Set TESTING_MODE=true (env var or below) to upload as private drafts for review.
 # Set to False only after you have verified the videos look good.
-TESTING_MODE = os.getenv("TESTING_MODE", "true").lower() == "true"
+TESTING_MODE = os.getenv("TESTING_MODE", "false").lower() == "true"
 
 POSTING_SLOTS_EST = {
     0:[12,19,21], 1:[12,19,21], 2:[12,19,21],
@@ -350,13 +350,20 @@ def _font(path, size):
     except: return ImageFont.load_default()
 
 def _prep(img_path, w=VIDEO_W, h=VIDEO_H):
+    from PIL import ImageEnhance
     img = Image.open(img_path).convert("RGB")
     iw, ih = img.size
     if iw/ih > w/h:
         nw = int(ih*(w/h)); img = img.crop(((iw-nw)//2,0,(iw-nw)//2+nw,ih))
     else:
         nh = int(iw/(w/h)); img = img.crop((0,(ih-nh)//2,iw,(ih-nh)//2+nh))
-    return img.resize((w, h), Image.LANCZOS)
+    img = img.resize((w, h), Image.LANCZOS)
+    # Enhance vibrancy — makes products pop like professional product photography
+    img = ImageEnhance.Color(img).enhance(1.25)
+    img = ImageEnhance.Contrast(img).enhance(1.08)
+    img = ImageEnhance.Sharpness(img).enhance(1.15)
+    img = ImageEnhance.Brightness(img).enhance(1.04)
+    return img
 
 def _gradient(img, top_rgba, bot_rgba, y0=0, y1=None):
     y1 = y1 or img.height
@@ -535,10 +542,11 @@ CONTENT_FORMATS = {
     "ootd": {
         "badge":     "OOTD",
         "hook":      "Today's Look",
-        "voiceover": lambda t, p: (
-            f"Outfit of the day! Rocking this stunning {t}. "
-            f"Only {p} dollars. Perfect for any occasion. Shop it now at MeeeShop!"
-        ),
+        "voiceover": lambda t, p: random.choice([
+            f"Ladies, wait until you see today's look! This {t} from MeeeShop is only {p} dollars and I am OBSESSED. Free shipping too. Grab it now — link in description!",
+            f"Today's outfit check! I'm wearing the {t} from MeeeShop. It's just {p} dollars and it goes with everything. Shop the link in description before it sells out!",
+            f"This {t} has been getting me so many compliments. Only {p} dollars at MeeeShop. Link in description — thank me later!",
+        ]),
         "yt_titles": [
             "OOTD: {title} | Outfit Inspo | MeeeShop #Shorts",
             "Today's Outfit: {title} for ${price} | MeeeShop #Shorts",
@@ -549,11 +557,11 @@ CONTENT_FORMATS = {
     "how_to_style": {
         "badge":     "STYLE TIPS",
         "hook":      "3 Ways to Style This",
-        "voiceover": lambda t, p: (
-            f"Here are three ways to style this {t}. "
-            f"Dress it up, dress it down, or go casual. "
-            f"Just {p} dollars at MeeeShop. Link in description!"
-        ),
+        "voiceover": lambda t, p: random.choice([
+            f"Okay so I styled this {t} three different ways and every single one is a winner. Only {p} dollars at MeeeShop. Link in description to shop it now!",
+            f"This {t} is so versatile it's not even funny. Work look, brunch look, night out look — all for {p} dollars. MeeeShop dot com, link in description!",
+            f"You need this {t} in your closet immediately. Three outfits, one piece, only {p} dollars. Shop MeeeShop — link in description!",
+        ]),
         "yt_titles": [
             "How to Style {title} | 3 Outfit Ideas | MeeeShop #Shorts",
             "3 Ways to Wear {title} | MeeeShop Styling Tips #Shorts",
@@ -564,10 +572,11 @@ CONTENT_FORMATS = {
     "new_drop": {
         "badge":     "NEW DROP",
         "hook":      "Just Dropped!",
-        "voiceover": lambda t, p: (
-            f"New drop alert! This {t} just landed at MeeeShop. "
-            f"Only {p} dollars and it's already selling fast. Don't sleep on this!"
-        ),
+        "voiceover": lambda t, p: random.choice([
+            f"STOP scrolling! This {t} just dropped at MeeeShop and it is everything. Only {p} dollars. These will sell out FAST. Link in description — shop it right now!",
+            f"New arrival alert! The {t} just hit MeeeShop and I need everyone to see this. {p} dollars. Free shipping. Link in description. Go go go!",
+            f"Drop everything because this {t} just landed at MeeeShop. {p} dollars and it's already flying off the shelves. Link in description before it's gone!",
+        ]),
         "yt_titles": [
             "New Drop! {title} Just Arrived | ${price} | MeeeShop #Shorts",
             "JUST DROPPED: {title} | Only ${price} | MeeeShop #Shorts",
@@ -578,10 +587,11 @@ CONTENT_FORMATS = {
     "trend_alert": {
         "badge":     "TRENDING",
         "hook":      "Trending Right Now",
-        "voiceover": lambda t, p: (
-            f"This is trending everywhere right now! The {t} from MeeeShop. "
-            f"Grab yours for just {p} dollars before it sells out!"
-        ),
+        "voiceover": lambda t, p: random.choice([
+            f"This {t} is literally everywhere right now — and MeeeShop has it for only {p} dollars. Everyone's been asking where to get this. Link in description, shop it today!",
+            f"The trend you need right now? This {t}. Only {p} dollars at MeeeShop. Free US shipping. Be the first in your group to wear it — link in description!",
+            f"This {t} is going viral for a reason. Get it from MeeeShop for just {p} dollars before everyone else does. Link in description!",
+        ]),
         "yt_titles": [
             "TRENDING: {title} | Everyone's Wearing This | MeeeShop #Shorts",
             "This {title} is Going Viral! ${price} | MeeeShop #Shorts",
@@ -592,10 +602,11 @@ CONTENT_FORMATS = {
     "fashion_steal": {
         "badge":     "STEAL",
         "hook":      "Fashion Steal Alert!",
-        "voiceover": lambda t, p: (
-            f"Fashion on a budget! This amazing {t} is only {p} dollars. "
-            f"Look like you spent a fortune without breaking the bank. Shop MeeeShop!"
-        ),
+        "voiceover": lambda t, p: random.choice([
+            f"You will NOT believe this price. This {t} is only {p} dollars at MeeeShop. I said {p} DOLLARS. Free shipping included. Link in description — this is a steal!",
+            f"Okay this {t} looks like it costs five times more than {p} dollars. MeeeShop is giving it away basically. Link in description before they realize what they're doing!",
+            f"Fashion steal of the year! This stunning {t} is just {p} dollars at MeeeShop. Look expensive for less. Free US shipping. Link in description!",
+        ]),
         "yt_titles": [
             "Fashion Steal! {title} for Only ${price} | MeeeShop #Shorts",
             "Slay on a Budget: {title} | Just ${price} | MeeeShop #Shorts",
@@ -606,10 +617,11 @@ CONTENT_FORMATS = {
     "styling_inspo": {
         "badge":     "INSPO",
         "hook":      "Style Inspiration",
-        "voiceover": lambda t, p: (
-            f"Style inspiration coming your way! This gorgeous {t} "
-            f"is available now for {p} dollars. MeeeShop has everything you need!"
-        ),
+        "voiceover": lambda t, p: random.choice([
+            f"If you've been looking for your next favorite outfit, I just found it for you. This {t} from MeeeShop is stunning and it's only {p} dollars. Link in description!",
+            f"Your next obsession just arrived. This {t} from MeeeShop — {p} dollars, free shipping, and it's GORGEOUS. Click the link in description and thank yourself later!",
+            f"I am giving you the best style inspo right now. This {t} from MeeeShop for just {p} dollars. This is the vibe we need. Shop it — link in description!",
+        ]),
         "yt_titles": [
             "Style Inspo: {title} | Fashion Goals | MeeeShop #Shorts",
             "Obsessed with This {title} | ${price} | MeeeShop #Shorts",
@@ -1021,12 +1033,23 @@ def upload_short(video_path, product, fmt_name, prod_url, slot_utc, slot_local):
                   "publishAt": slot_utc}
 
     body = {
-        "snippet": {"title":yt_title,"description":desc,"tags":tags,
-                    "categoryId":"26","defaultLanguage":"en"},
-        "status":  status,
+        "snippet": {
+            "title":                yt_title,
+            "description":          desc,
+            "tags":                 tags,
+            "categoryId":           "26",
+            "defaultLanguage":      "en",
+            "defaultAudioLanguage": "en-US",
+        },
+        "status": status,
+        "recordingDetails": {
+            "locationDescription": "United States",
+            "location": {"latitude": 37.0902, "longitude": -95.7129, "altitude": 0},
+        },
     }
     media = MediaFileUpload(video_path, mimetype="video/mp4", resumable=True)
-    req   = yt.videos().insert(part=",".join(body.keys()), body=body, media_body=media)
+    req   = yt.videos().insert(
+        part=",".join(body.keys()), body=body, media_body=media)
     resp  = None
     while resp is None:
         st, resp = req.next_chunk()
