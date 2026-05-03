@@ -32,6 +32,13 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements_youtube.txt scipy
 
+      - name: Setup Audio Library music tracks
+        env:
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: python setup_music.py
+
       - name: Run YouTube Shorts automation
         env:
           SHOPIFY_STORE:         ${{ secrets.SHOPIFY_STORE }}

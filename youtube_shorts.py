@@ -18,7 +18,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from dotenv import load_dotenv
 from scipy.io import wavfile
-import shutil, textwrap, time
+import shutil, textwrap, time, json
 
 load_dotenv()
 
@@ -249,25 +249,34 @@ def _yt_dlp_download(url_or_search, out_base):
     return None
 
 
-def _find_cached_music(fmt_name):
+def _find_cached_music(fmt_name, used_tracks=None):
     """
-    Return a random cached YouTube Audio Library track for this format's mood.
-    Looks for music_happy_*.* or music_inspirational_*.* first (real tracks).
-    Falls back to music_{fmt_name}.* (legacy) then wav (generated).
+    Return a cached track for this format's mood, guaranteed different
+    from any track already used in this run (used_tracks set).
     """
     import glob as _glob
-    mood = FORMAT_MOODS.get(fmt_name, "happy")
+    mood        = FORMAT_MOODS.get(fmt_name, "happy")
+    used_tracks = used_tracks or set()
 
-    # Prefer pool of real Audio Library tracks for this mood
+    # Build full pool: real Audio Library tracks for this mood
     pool = [f for f in _glob.glob(f"music_{mood}_*.*")
             if not f.endswith(".wav") and os.path.getsize(f) > 10000]
+
+    # Also include legacy single-format files
+    pool += [f for f in _glob.glob(f"music_{fmt_name}.*")
+             if not f.endswith(".wav") and os.path.getsize(f) > 10000]
+
+    # Deduplicate and exclude already-used tracks
+    pool = [f for f in dict.fromkeys(pool) if f not in used_tracks]
+
     if pool:
         return random.choice(pool)
 
-    # Legacy single file for this format
-    for f in _glob.glob(f"music_{fmt_name}.*"):
-        if not f.endswith(".wav") and os.path.getsize(f) > 10000:
-            return f
+    # If all tracks exhausted, reset and pick any (better than nothing)
+    pool_all = [f for f in _glob.glob(f"music_{mood}_*.*")
+                if not f.endswith(".wav") and os.path.getsize(f) > 10000]
+    if pool_all:
+        return random.choice(pool_all)
 
     # Generated wav fallback
     for f in _glob.glob(f"music_{fmt_name}.wav") + _glob.glob(f"music_{mood}.wav"):
@@ -276,13 +285,12 @@ def _find_cached_music(fmt_name):
     return None
 
 
-def get_music_for_format(fmt_name):
+def get_music_for_format(fmt_name, used_tracks=None):
     """
-    1. Try YouTube Audio Library unofficial API + yt-dlp
-    2. Fall back to yt-dlp YouTube search (no-copyright music)
-    3. Fall back to generated piano + drums track
+    Returns a unique cached track. Downloads new one if cache is empty.
+    used_tracks: set of file paths already used in this run.
     """
-    cached = _find_cached_music(fmt_name)
+    cached = _find_cached_music(fmt_name, used_tracks)
     if cached:
         return cached
 
@@ -340,10 +348,59 @@ def fetch_products(limit=100):
     return r.json().get("products", [])
 
 
+PRODUCT_HISTORY_FILE = "product_history.json"
+PRODUCT_COOLDOWN_DAYS = 10
+
+
+def load_product_history():
+    """Load {product_id: last_used_date} from file."""
+    if os.path.exists(PRODUCT_HISTORY_FILE):
+        try:
+            with open(PRODUCT_HISTORY_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def save_product_history(history):
+    with open(PRODUCT_HISTORY_FILE, "w") as f:
+        json.dump(history, f, indent=2)
+
+
 def pick_unique_products(n, exclude_ids=None):
-    exclude_ids = exclude_ids or set()
-    pool = [p for p in fetch_products() if p["id"] not in exclude_ids]
-    return random.sample(pool, min(n, len(pool)))
+    """
+    Pick n products not used in last PRODUCT_COOLDOWN_DAYS days.
+    Falls back to oldest-used products if pool is too small.
+    """
+    exclude_ids = set(exclude_ids or [])
+    history     = load_product_history()
+    cutoff      = (datetime.now(timezone.utc) - timedelta(days=PRODUCT_COOLDOWN_DAYS)).isoformat()
+
+    # Products used within cooldown window — exclude them
+    recent = {pid for pid, used_at in history.items() if used_at > cutoff}
+    exclude_ids |= recent
+
+    all_products = fetch_products(limit=250)
+    pool = [p for p in all_products if str(p["id"]) not in exclude_ids]
+
+    # If pool too small, fall back to least-recently-used products
+    if len(pool) < n:
+        extras = sorted(
+            [p for p in all_products if str(p["id"]) not in {str(i) for i in (exclude_ids - recent)}],
+            key=lambda p: history.get(str(p["id"]), "1970-01-01")
+        )
+        pool = pool + [p for p in extras if p not in pool]
+
+    chosen = random.sample(pool, min(n, len(pool)))
+
+    # Record usage
+    now = datetime.now(timezone.utc).isoformat()
+    for p in chosen:
+        history[str(p["id"])] = now
+    save_product_history(history)
+
+    return chosen
 
 
 def download_images(product, tmp_dir, max_imgs=6):
@@ -826,7 +883,7 @@ def build_audio(product, fmt_name, total_dur, tmp_dir, music_path):
 #  VIDEO ASSEMBLY — SHORT (≤60s)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def create_short(product, style_name, fmt_name, out_path):
+def create_short(product, style_name, fmt_name, out_path, used_tracks=None):
     title  = product["title"]
     price  = product["variants"][0]["price"] if product.get("variants") else "0"
     handle = product.get("handle","")
@@ -840,7 +897,9 @@ def create_short(product, style_name, fmt_name, out_path):
         imgs = download_images(product, tmp_i)
         if not imgs: raise RuntimeError("No images")
         os.makedirs(tmp_v, exist_ok=True)
-        music = get_music_for_format(fmt_name)
+        music = get_music_for_format(fmt_name, used_tracks)
+        if used_tracks is not None and music:
+            used_tracks.add(music)
 
         dirs   = random.sample(DIRECTIONS, len(DIRECTIONS))
         scenes = random.sample(SCENE_NAMES, len(SCENE_NAMES))  # shuffle scenes
@@ -1138,25 +1197,29 @@ def main():
     if today_long:
         print("  + 1 Long video (3-day cycle)")
 
-    used_ids = set()
+    # Pre-pick all products for today — 10-day cooldown enforced
+    all_products = pick_unique_products(3 + (8 if today_long else 0))
+    short_products = all_products[:3]
+    long_products  = all_products[3:] if today_long else []
+
+    used_ids        = {p["id"] for p in all_products}
+    used_tracks     = set()   # tracks used in this run — ensures no repeats
     short_video_ids = []
 
     for i, (slot_utc, slot_local) in enumerate(slots):
         print(f"\n--- Short {i+1}/3 | {formats[i].upper()} | {styles[i]} ---")
-        product = pick_unique_products(1, exclude_ids=used_ids)[0]
-        used_ids.add(product["id"])
-        out = f"short_{product['id']}_{i}.mp4"
-        _, prod_url = create_short(product, styles[i], formats[i], out)
+        product = short_products[i]
+        out     = f"short_{product['id']}_{i}.mp4"
+        _, prod_url = create_short(product, styles[i], formats[i], out, used_tracks)
         vid = upload_short(out, product, formats[i], prod_url, slot_utc, slot_local)
         short_video_ids.append(vid)
         if os.path.exists(out): os.remove(out)
 
-    if today_long:
+    if today_long and long_products:
         print("\n--- Long Video (Weekly Picks) ---")
-        products = pick_unique_products(8, exclude_ids=used_ids)
         out = "long_video.mp4"
-        create_long_video(products, out)
-        upload_long(out, products)
+        create_long_video(long_products, out)
+        upload_long(out, long_products)
         if os.path.exists(out): os.remove(out)
 
     print("\n=== All done! ===")
