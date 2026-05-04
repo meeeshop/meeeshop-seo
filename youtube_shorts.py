@@ -752,28 +752,91 @@ FORMAT_NAMES = list(CONTENT_FORMATS.keys())
 STYLE_TIP_LABELS = ["Dress It Up", "Keep It Casual", "Night Out Look"]
 
 
+def _remove_bg(img_path):
+    """
+    Remove product photo background so model appears over the real scene.
+    Strategy 1: rembg AI (best quality, needs onnxruntime DLL on Windows).
+    Strategy 2: PIL flood-fill from corners (works for white/light studio bg).
+    Strategy 3: original RGBA (fallback — background stays, still looks good).
+    """
+    # ── Strategy 1: rembg AI ───────────────────────────────────────────────
+    try:
+        from rembg import remove
+        import io
+        with open(img_path, "rb") as f:
+            data = f.read()
+        result = remove(data)
+        img = Image.open(io.BytesIO(result)).convert("RGBA")
+        print("  BG: AI removal (rembg)")
+        return img
+    except Exception:
+        pass
+
+    # ── Strategy 2: PIL colour-based removal for light/white studio backgrounds ─
+    try:
+        img  = Image.open(img_path).convert("RGBA")
+        data = np.array(img)
+        rgb  = data[:, :, :3].astype(np.float32)
+        h, w = rgb.shape[:2]
+
+        # Sample background colour from image borders
+        border = np.concatenate([
+            rgb[0, :, :], rgb[-1, :, :],
+            rgb[:, 0, :], rgb[:, -1, :]
+        ])
+        bg = np.median(border, axis=0)
+
+        # Only apply if background is clearly light (studio/white)
+        if np.mean(bg) >= 185:
+            diff  = np.sqrt(np.sum((rgb - bg) ** 2, axis=-1))
+            alpha = data[:, :, 3].copy()
+            alpha[diff < 40] = 0          # background → transparent
+            # Soften jagged edges slightly
+            from PIL import ImageFilter
+            mask_img = Image.fromarray(alpha)
+            mask_img = mask_img.filter(ImageFilter.SMOOTH_MORE)
+            alpha    = np.array(mask_img)
+            result   = data.copy(); result[:, :, 3] = alpha
+            print(f"  BG: colour removal (bg≈{int(np.mean(bg))})")
+            return Image.fromarray(result)
+    except Exception as e:
+        print(f"  BG: colour removal failed ({e})")
+
+    # ── Strategy 3: original image ────────────────────────────────────────
+    print("  BG: using original (no removal)")
+    return Image.open(img_path).convert("RGBA")
+
+
 def _product_rgba(img_path, w, h):
     """
-    Returns RGBA: product image centred (78% height) + dark gradient at bottom.
-    Background is fully transparent — composited over animated scene later.
+    Returns RGBA: product/model with background REMOVED, centred (82% height).
+    The studio/white background is cut out by AI — only model remains.
+    Composited over the real animated scene background in ken_burns_clip.
     """
     from PIL import ImageEnhance
-    raw = Image.open(img_path).convert("RGB")
-    raw = ImageEnhance.Color(raw).enhance(1.30)
-    raw = ImageEnhance.Contrast(raw).enhance(1.10)
-    raw = ImageEnhance.Sharpness(raw).enhance(1.20)
-    raw = ImageEnhance.Brightness(raw).enhance(1.05)
 
-    ph = int(h * 0.78)
+    raw = _remove_bg(img_path)              # RGBA, background transparent
+    alpha_mask = raw.split()[3]             # keep original alpha mask
+
+    # Enhance product colours (work on RGB then restore alpha)
+    raw_rgb = raw.convert("RGB")
+    raw_rgb = ImageEnhance.Color(raw_rgb).enhance(1.30)
+    raw_rgb = ImageEnhance.Contrast(raw_rgb).enhance(1.10)
+    raw_rgb = ImageEnhance.Sharpness(raw_rgb).enhance(1.20)
+    raw_rgb = ImageEnhance.Brightness(raw_rgb).enhance(1.05)
+    raw = raw_rgb.convert("RGBA")
+    raw.putalpha(alpha_mask)                # restore alpha
+
+    ph = int(h * 0.82)
     pw = int(ph * raw.width / raw.height)
-    if pw > int(w * 0.96):
-        pw = int(w * 0.96); ph = int(pw * raw.height / raw.width)
+    if pw > int(w * 0.98):
+        pw = int(w * 0.98); ph = int(pw * raw.height / raw.width)
     fg = raw.resize((pw, ph), Image.LANCZOS)
 
     canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    canvas.paste(fg.convert("RGBA"), ((w - pw) // 2, int(h * 0.02)))
+    canvas.paste(fg, ((w - pw) // 2, int(h * 0.01)), mask=fg.split()[3])
 
-    # Semi-transparent dark gradient for text readability
+    # Semi-transparent dark gradient at bottom for text readability
     grad = Image.new("RGBA", (w, 760), (0, 0, 0, 0))
     gd   = ImageDraw.Draw(grad)
     for y in range(760):
