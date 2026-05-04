@@ -4,7 +4,6 @@ import requests
 import pickle
 import numpy as np
 import random
-import subprocess
 from datetime import datetime, timedelta, timezone, date
 from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
@@ -179,15 +178,43 @@ def generate_piano_track(fmt_name, duration=90, sr=22050, out_path=None):
 
 
 # ── YouTube Audio Library mood → search terms ────────────────────────────────
-# Only happy + inspirational — YouTube Audio Library royalty-free tracks
+# Mood per format — 5 distinct moods, no two formats share the same
 FORMAT_MOODS = {
     "ootd":          "happy",
     "how_to_style":  "inspirational",
-    "new_drop":      "happy",
-    "trend_alert":   "happy",
-    "fashion_steal": "happy",
+    "new_drop":      "rock",
+    "trend_alert":   "funky",
+    "fashion_steal": "bright",
     "styling_inspo": "inspirational",
 }
+
+# ── Music usage history (10-day cooldown, same as products) ──────────────────
+MUSIC_HISTORY_FILE    = "music_history.json"
+MUSIC_COOLDOWN_DAYS   = 10
+
+def _load_music_history():
+    if os.path.exists(MUSIC_HISTORY_FILE):
+        try:
+            with open(MUSIC_HISTORY_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def _save_music_history(h):
+    with open(MUSIC_HISTORY_FILE, "w") as f:
+        json.dump(h, f, indent=2)
+
+def _mark_music_used(path):
+    h = _load_music_history()
+    h[os.path.basename(path)] = datetime.now(timezone.utc).isoformat()
+    _save_music_history(h)
+
+def _music_on_cooldown():
+    """Return set of filenames used within the last MUSIC_COOLDOWN_DAYS."""
+    h      = _load_music_history()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=MUSIC_COOLDOWN_DAYS)).isoformat()
+    return {fname for fname, used_at in h.items() if used_at > cutoff}
 
 MOOD_QUERIES = {
     "happy":         "happy upbeat background music no copyright royalty free",
@@ -251,36 +278,63 @@ def _yt_dlp_download(url_or_search, out_base):
 
 def _find_cached_music(fmt_name, used_tracks=None):
     """
-    Return a cached track for this format's mood, guaranteed different
-    from any track already used in this run (used_tracks set).
+    Return a unique cached track:
+    - Not used in this run (used_tracks set)
+    - Not used in the last MUSIC_COOLDOWN_DAYS (music_history.json)
+    Falls back to least-recently-used if everything is on cooldown.
     """
     import glob as _glob
     mood        = FORMAT_MOODS.get(fmt_name, "happy")
     used_tracks = used_tracks or set()
+    on_cooldown = _music_on_cooldown()   # filenames, not full paths
 
-    # Build full pool: real Audio Library tracks for this mood
-    pool = [f for f in _glob.glob(f"music_{mood}_*.*")
-            if not f.endswith(".wav") and os.path.getsize(f) > 10000]
+    MAX_MUSIC_BYTES = 30 * 1024 * 1024   # 30 MB cap — above = full video, not audio
+    def _eligible(f):
+        sz = os.path.getsize(f)
+        return (not f.endswith(".wav")
+                and 50_000 < sz < MAX_MUSIC_BYTES
+                and f not in used_tracks
+                and os.path.basename(f) not in on_cooldown)
 
-    # Also include legacy single-format files
-    pool += [f for f in _glob.glob(f"music_{fmt_name}.*")
-             if not f.endswith(".wav") and os.path.getsize(f) > 10000]
+    def _pick(pattern):
+        candidates = [f for f in _glob.glob(pattern) if _eligible(f)]
+        if not candidates:  # relax cooldown
+            candidates = [f for f in _glob.glob(pattern)
+                          if not f.endswith(".wav")
+                          and 50_000 < os.path.getsize(f) < MAX_MUSIC_BYTES
+                          and f not in used_tracks]
+        if candidates:
+            chosen = random.choice(candidates)
+            _mark_music_used(chosen)
+            return chosen
+        return None
 
-    # Deduplicate and exclude already-used tracks
-    pool = [f for f in dict.fromkeys(pool) if f not in used_tracks]
+    # 1. Exact mood match
+    result = _pick(f"music_{mood}_*.*")
+    if result:
+        return result
 
-    if pool:
-        return random.choice(pool)
+    # 2. Fallback moods (energetically similar)
+    fallback_map = {
+        "funky":   ["happy", "bright"],
+        "bright":  ["happy", "funky"],
+        "rock":    ["funky", "happy"],
+        "inspirational": ["happy"],
+    }
+    for fallback in fallback_map.get(mood, ["happy"]):
+        result = _pick(f"music_{fallback}_*.*")
+        if result:
+            print(f"  Using {fallback} track as fallback for {mood}")
+            return result
 
-    # If all tracks exhausted, reset and pick any (better than nothing)
-    pool_all = [f for f in _glob.glob(f"music_{mood}_*.*")
-                if not f.endswith(".wav") and os.path.getsize(f) > 10000]
-    if pool_all:
-        return random.choice(pool_all)
+    # 3. Any track not used in this run
+    result = _pick("music_*_*.*")
+    if result:
+        return result
 
     # Generated wav fallback
     for f in _glob.glob(f"music_{fmt_name}.wav") + _glob.glob(f"music_{mood}.wav"):
-        if os.path.getsize(f) > 100:
+        if os.path.exists(f) and os.path.getsize(f) > 100:
             return f
     return None
 
@@ -719,7 +773,9 @@ def build_frame(img_path, product, style_name, fmt_name,
     title  = product["title"]
     price  = product["variants"][0]["price"] if product.get("variants") else "0"
     handle = product.get("handle","")
-    url    = f"us.meeeshop.com/products/{handle}" if handle else "us.meeeshop.com"
+    url    = (f"us.meeeshop.com/products/{handle}?utm_source=youtube&utm_medium=shorts&utm_campaign=meeeshop"
+              if handle else
+              "us.meeeshop.com?utm_source=youtube&utm_medium=shorts&utm_campaign=meeeshop")
 
     img  = _compose_scene(img_path, scene_name, w, h)
     draw = ImageDraw.Draw(img)
@@ -887,7 +943,9 @@ def create_short(product, style_name, fmt_name, out_path, used_tracks=None):
     title  = product["title"]
     price  = product["variants"][0]["price"] if product.get("variants") else "0"
     handle = product.get("handle","")
-    url    = f"us.meeeshop.com/products/{handle}" if handle else "us.meeeshop.com"
+    url    = (f"us.meeeshop.com/products/{handle}?utm_source=youtube&utm_medium=shorts&utm_campaign=meeeshop"
+              if handle else
+              "us.meeeshop.com?utm_source=youtube&utm_medium=shorts&utm_campaign=meeeshop")
 
     print(f"  Product : {title[:50]}")
     print(f"  Style   : {style_name} | Format: {fmt_name}")
@@ -1202,8 +1260,7 @@ def main():
     short_products = all_products[:3]
     long_products  = all_products[3:] if today_long else []
 
-    used_ids        = {p["id"] for p in all_products}
-    used_tracks     = set()   # tracks used in this run — ensures no repeats
+    used_tracks = set()   # tracks used in this run — ensures no repeats
     short_video_ids = []
 
     for i, (slot_utc, slot_local) in enumerate(slots):
