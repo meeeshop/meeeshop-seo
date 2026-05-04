@@ -306,6 +306,7 @@ def _find_cached_music(fmt_name, used_tracks=None):
         if candidates:
             chosen = random.choice(candidates)
             _mark_music_used(chosen)
+            print(f"  Music: {os.path.basename(chosen)}")
             return chosen
         return None
 
@@ -505,7 +506,7 @@ def _gradient(img, top_rgba, bot_rgba, y0=0, y1=None):
         a = int(top_rgba[3]+t*(bot_rgba[3]-top_rgba[3]))
         dr.line([(0,y0+y),(img.width,y0+y)], fill=(r,g,b,a))
     img = img.convert("RGBA"); img.alpha_composite(ov)
-    return img.convert("RGB")
+    return img  # keep RGBA so build_frame retains transparency
 
 def _pill(draw, text, cx, cy, font, bg, fg, pad_x=30, pad_y=14, radius=22):
     bb = draw.textbbox((0,0), text, font=font)
@@ -627,18 +628,12 @@ def fetch_background_photo(scene_name):
     return None
 
 
-def _compose_scene(img_path, scene_name, w=VIDEO_W, h=VIDEO_H):
-    """
-    Real background photo (beach / park / city etc.) blurred for depth-of-field.
-    Product image placed sharp in the foreground — model in front, scene behind.
-    """
+def _scene_background(scene_name, w, h):
+    """Return blurred scene photo as numpy array (no product overlay)."""
     bg_path = fetch_background_photo(scene_name)
-
     if bg_path:
-        bg = _prep(bg_path, w, h)
-        bg = bg.filter(ImageFilter.GaussianBlur(radius=9))
+        bg = _prep(bg_path, w, h).filter(ImageFilter.GaussianBlur(radius=12))
     else:
-        # Gradient fallback
         colors = SCENE_GRADIENTS.get(scene_name, SCENE_GRADIENTS["studio"])
         bg = Image.new("RGB", (w, h))
         dr = ImageDraw.Draw(bg)
@@ -648,18 +643,7 @@ def _compose_scene(img_path, scene_name, w=VIDEO_W, h=VIDEO_H):
             gv = int(colors[0][1] + t*(colors[1][1]-colors[0][1]))
             bv = int(colors[0][2] + t*(colors[1][2]-colors[0][2]))
             dr.line([(0, y), (w, y)], fill=(rv, gv, bv))
-
-    # Sharp product image in front
-    raw   = Image.open(img_path).convert("RGB")
-    ph    = int(h * 0.84)
-    pw    = int(ph * raw.width / raw.height)
-    if pw > int(w * 0.96):
-        pw = int(w * 0.96); ph = int(pw * raw.height / raw.width)
-    fg    = raw.resize((pw, ph), Image.LANCZOS)
-    x_off = (w - pw) // 2
-    y_off = int(h * 0.03)
-    bg.paste(fg, (x_off, y_off))
-    return bg
+    return np.array(bg)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -767,6 +751,38 @@ FORMAT_NAMES = list(CONTENT_FORMATS.keys())
 
 STYLE_TIP_LABELS = ["Dress It Up", "Keep It Casual", "Night Out Look"]
 
+
+def _product_rgba(img_path, w, h):
+    """
+    Returns RGBA: product image centred (78% height) + dark gradient at bottom.
+    Background is fully transparent — composited over animated scene later.
+    """
+    from PIL import ImageEnhance
+    raw = Image.open(img_path).convert("RGB")
+    raw = ImageEnhance.Color(raw).enhance(1.30)
+    raw = ImageEnhance.Contrast(raw).enhance(1.10)
+    raw = ImageEnhance.Sharpness(raw).enhance(1.20)
+    raw = ImageEnhance.Brightness(raw).enhance(1.05)
+
+    ph = int(h * 0.78)
+    pw = int(ph * raw.width / raw.height)
+    if pw > int(w * 0.96):
+        pw = int(w * 0.96); ph = int(pw * raw.height / raw.width)
+    fg = raw.resize((pw, ph), Image.LANCZOS)
+
+    canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    canvas.paste(fg.convert("RGBA"), ((w - pw) // 2, int(h * 0.02)))
+
+    # Semi-transparent dark gradient for text readability
+    grad = Image.new("RGBA", (w, 760), (0, 0, 0, 0))
+    gd   = ImageDraw.Draw(grad)
+    for y in range(760):
+        a = int((y / 760) ** 1.4 * 218)
+        gd.line([(0, y), (w, y)], fill=(0, 0, 0, a))
+    canvas.alpha_composite(grad, dest=(0, h - 760))
+    return canvas
+
+
 def build_frame(img_path, product, style_name, fmt_name,
                 show_url=False, frame_idx=0, scene_name="studio",
                 w=VIDEO_W, h=VIDEO_H):
@@ -777,7 +793,8 @@ def build_frame(img_path, product, style_name, fmt_name,
               if handle else
               "us.meeeshop.com?utm_source=youtube&utm_medium=shorts&utm_campaign=meeeshop")
 
-    img  = _compose_scene(img_path, scene_name, w, h)
+    # RGBA canvas: product centred on transparent background
+    img  = _product_rgba(img_path, w, h)
     draw = ImageDraw.Draw(img)
     _logo(draw)
 
@@ -880,27 +897,42 @@ DIRECTIONS = ["zoom_in","zoom_out","pan_right","pan_left","pan_up","pan_down"]
 def ken_burns_clip(img_path, product, style_name, fmt_name,
                    duration, direction, frame_idx=0,
                    show_url=False, scene_name="studio", w=VIDEO_W, h=VIDEO_H):
-    sw, sh = int(w*1.20), int(h*1.20)
-    # Use composed scene (blurred bg + sharp fg) scaled up for Ken Burns room
-    composed = _compose_scene(img_path, scene_name, sw, sh)
-    styled   = build_frame(img_path, product, style_name, fmt_name,
-                           show_url, frame_idx, scene_name, w, h)
-    raw_a    = np.array(composed)
-    styled_a = np.array(styled)
+    """
+    BACKGROUND: scene photo Ken-Burns animated (zooms/pans visibly).
+    FOREGROUND: product image + text overlays, static on top.
+    Result: model appears sharp in front, real background moves behind them.
+    """
+    sw, sh = int(w * 1.25), int(h * 1.25)
+
+    # ── 1. Background: pure scene photo, enlarged for pan room ──────────────
+    bg_arr = _scene_background(scene_name, sw, sh)
+
+    # ── 2. Product + text overlay: RGBA (transparent background areas) ──────
+    styled      = build_frame(img_path, product, style_name, fmt_name,
+                              show_url, frame_idx, scene_name, w, h)
+    overlay_arr = np.array(styled.convert("RGBA"))  # ensure RGBA
+    alpha       = overlay_arr[:, :, 3:4].astype(np.float32) / 255.0
+    rgb         = overlay_arr[:, :, :3].astype(np.float32)
 
     def make_frame(t):
         p  = t / duration
-        sc = {"zoom_in":1-0.18*p, "zoom_out":0.82+0.18*p}.get(direction, 0.88)
+        sc = {"zoom_in": 1.0 - 0.20*p, "zoom_out": 0.80 + 0.20*p}.get(direction, 0.90)
         cw, ch = int(sw*sc), int(sh*sc)
         if   direction == "pan_right": x0,y0 = int((sw-cw)*p), (sh-ch)//2
         elif direction == "pan_left":  x0,y0 = int((sw-cw)*(1-p)), (sh-ch)//2
         elif direction == "pan_up":    x0,y0 = (sw-cw)//2, int((sh-ch)*p)
         elif direction == "pan_down":  x0,y0 = (sw-cw)//2, int((sh-ch)*(1-p))
         else:                          x0,y0 = (sw-cw)//2, (sh-ch)//2
-        x0,y0 = max(0,min(x0,sw-cw)), max(0,min(y0,sh-ch))
-        crop  = raw_a[y0:y0+ch, x0:x0+cw]
-        bg    = np.array(Image.fromarray(crop).resize((w,h), Image.LANCZOS))
-        return (bg*0.12 + styled_a*0.88).astype(np.uint8)
+        x0, y0 = max(0, min(x0, sw-cw)), max(0, min(y0, sh-ch))
+
+        # Animated background (full colour, crisp)
+        crop = bg_arr[y0:y0+ch, x0:x0+cw]
+        bg   = np.array(Image.fromarray(crop).resize((w, h), Image.LANCZOS),
+                        dtype=np.float32)
+
+        # Alpha-composite RGBA product overlay over animated background
+        result = bg * (1.0 - alpha) + rgb * alpha
+        return result.clip(0, 255).astype(np.uint8)
 
     return VideoClip(make_frame, duration=duration).set_fps(FPS)
 
@@ -976,7 +1008,9 @@ def create_short(product, style_name, fmt_name, out_path, used_tracks=None):
         final = video.set_audio(audio)
         final.write_videofile(out_path, fps=FPS, codec="libx264", audio_codec="aac",
                               temp_audiofile="tmp_audio.m4a", remove_temp=True,
-                              verbose=False, logger=None)
+                              verbose=False, logger=None,
+                              ffmpeg_params=["-crf", "18", "-preset", "fast",
+                                             "-b:a", "192k"])
         final.close()
         return out_path, url
     finally:
@@ -1069,7 +1103,9 @@ def create_long_video(products, out_path):
         final = video.set_audio(CompositeAudioClip(vo_clips))
         final.write_videofile(out_path, fps=FPS, codec="libx264", audio_codec="aac",
                               temp_audiofile="tmp_audio.m4a", remove_temp=True,
-                              verbose=False, logger=None)
+                              verbose=False, logger=None,
+                              ffmpeg_params=["-crf", "18", "-preset", "fast",
+                                             "-b:a", "192k"])
         final.close()
         return out_path
     finally:
