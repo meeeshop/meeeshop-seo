@@ -80,7 +80,7 @@ def _call_openrouter(prompt: str, max_tokens: int, temperature: float) -> str:
             "X-Title": "MeeeShop",
         },
         json={
-            "model": "qwen/qwen3-235b-a22b:free",
+            "model": "meta-llama/llama-3.3-70b-instruct:free",
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": max_tokens,
             "temperature": temperature,
