@@ -3,6 +3,7 @@ import platform
 import requests
 import pickle
 import numpy as np
+import ai_client
 import random
 from datetime import datetime, timedelta, timezone, date
 from zoneinfo import ZoneInfo
@@ -1009,12 +1010,41 @@ def _vo(text, path):
     return AudioFileClip(path)
 
 
+def _ai_voiceover(title: str, price: str, fmt_name: str) -> str:
+    """Generate a unique voiceover via AI; fall back to hardcoded CTA."""
+    fmt_hints = {
+        "ootd":          "outfit of the day, stylish everyday look",
+        "how_to_style":  "3 ways to style, versatile outfit ideas",
+        "new_drop":      "brand-new arrival, urgency, just dropped",
+        "trend_alert":   "viral trend, everyone's wearing this",
+        "fashion_steal": "amazing value, looks expensive but cheap",
+        "styling_inspo": "editorial style inspiration, gorgeous look",
+    }
+    hint = fmt_hints.get(fmt_name, "women's fashion")
+    prompt = (
+        f"Write a 10-15 second YouTube Shorts voiceover for a {hint} video.\n"
+        f"Product: {title}\n"
+        f"Price: ${price}\n"
+        f"Store: MeeeShop (us.meeeshop.com)\n"
+        f"Rules: energetic American English, must mention price, "
+        f"must end with 'link in description!', max 45 words, no emojis. "
+        f"Output ONLY the spoken script."
+    )
+    result = ai_client.generate(prompt, max_tokens=80, temperature=0.9)
+    if result:
+        result = result.strip('"\'').strip()
+        if len(result) > 20:
+            return result
+    return f"Shop this look at MeeeShop dot com. Only {price} dollars. Link in description!"
+
+
 def build_audio(product, fmt_name, total_dur, tmp_dir, music_path):
     """Piano music throughout. Voiceover CTA only at the END (last ~5s)."""
     price = product["variants"][0]["price"] if product.get("variants") else "0"
+    title = product.get("title", "this look")
 
-    # Single CTA voiceover — plays at the very end only
-    cta = f"Shop this look at MeeeShop dot com. Only {price} dollars. Link in description!"
+    # AI-generated voiceover, falls back to hardcoded CTA
+    cta = _ai_voiceover(title, price, fmt_name)
     p1  = os.path.join(tmp_dir, "vo_cta.mp3")
     vo  = _vo(cta, p1)
     vo_start = max(0, total_dur - vo.duration - 0.5)
@@ -1230,11 +1260,30 @@ def next_slots(n=3):
 #  UPLOAD
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _ai_yt_title(title: str, price: str, fmt_name: str) -> str | None:
+    """Generate a unique YouTube Shorts title via AI."""
+    prompt = (
+        f"Write ONE YouTube Shorts title for a women's fashion short.\n"
+        f"Product: {title} | Price: ${price} | Format: {fmt_name.replace('_',' ')}\n"
+        f"Rules: max 90 chars, include price + product name, end with '| MeeeShop #Shorts', "
+        f"energetic click-worthy. Output ONLY the title."
+    )
+    result = ai_client.generate(prompt, max_tokens=50, temperature=0.85)
+    if result:
+        result = result.strip('"\'').strip()
+        if 10 < len(result) <= 100:
+            return result
+    return None
+
+
 def _build_short_meta(product, fmt_name, prod_url):
     title  = product["title"]
     price  = product["variants"][0]["price"] if product.get("variants") else "0"
     fmt    = CONTENT_FORMATS[fmt_name]
-    yt_title = random.choice(fmt["yt_titles"]).format(title=title, price=price)[:100]
+    yt_title = (
+        _ai_yt_title(title, price, fmt_name)
+        or random.choice(fmt["yt_titles"]).format(title=title, price=price)
+    )[:100]
     full_url = f"https://{prod_url}"
     description = (
         f"SHOP NOW: {full_url}\n"
