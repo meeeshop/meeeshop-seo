@@ -628,46 +628,33 @@ SCENE_GRADIENTS = {
 }
 
 
-def _ai_enhance_prompt(scene_name, product_title):
-    """Use AI to enrich the background prompt with product-specific context."""
-    base = POLLINATIONS_BASE_PROMPTS.get(scene_name, POLLINATIONS_BASE_PROMPTS["beach"])
-    prompt = (f"Improve this image background prompt for a fashion product video. "
-              f"Product: '{product_title}'. Current prompt: '{base}'. "
-              f"Add 2-3 specific atmospheric details that make it feel like luxury USA lifestyle photography. "
-              f"Keep under 50 words. Output ONLY the improved prompt, no quotes.")
-    improved = ai_client.generate(prompt, max_tokens=80, temperature=0.7)
-    return improved or base
-
-
 def generate_pollinations_bg(scene_name, seed, cache_key, product_title=""):
-    """
-    PRIMARY: Pollinations.ai AI-generated background (free, no API key).
-    FALLBACK: picsum.photos stock photo.
-    Each image gets a unique seed → genuinely different background.
-    """
+    """Pollinations.ai background (primary) → picsum.photos (fallback)."""
     cache = f"bg_{cache_key}.jpg"
     if os.path.exists(cache) and os.path.getsize(cache) > 10000:
         return cache
 
+    def _save(content):
+        with open(cache, "wb") as f: f.write(content)
+        return cache
+
     prompt = POLLINATIONS_BASE_PROMPTS.get(scene_name, POLLINATIONS_BASE_PROMPTS["beach"])
-    url = (f"https://image.pollinations.ai/prompt/{_url_quote(prompt)}"
-           f"?width=1080&height=1920&model=flux&nologo=true&enhance=true&seed={seed}")
     try:
-        r = requests.get(url, timeout=90)
+        r = requests.get(
+            f"https://image.pollinations.ai/prompt/{_url_quote(prompt)}"
+            f"?width=1080&height=1920&model=flux&nologo=true&enhance=true&seed={seed}",
+            timeout=90)
         if r.status_code == 200 and len(r.content) > 20000:
-            with open(cache, "wb") as f: f.write(r.content)
-            return cache
+            return _save(r.content)
     except Exception:
         pass
 
-    # Fallback: picsum.photos
     seed_str = SCENE_PICSUM.get(scene_name, "100")
     try:
         r = requests.get(f"https://picsum.photos/seed/{seed_str}/1080/1920",
                          allow_redirects=True, timeout=20)
         if r.status_code == 200 and len(r.content) > 10000:
-            with open(cache, "wb") as f: f.write(r.content)
-            return cache
+            return _save(r.content)
     except Exception:
         pass
     return None
