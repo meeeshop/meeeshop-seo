@@ -50,18 +50,13 @@ def fetch_products():
 def calculate_new_price(cost_per_item: float) -> float:
     """Calculate the new price based on the given cost.
 
-    Formula: ``(cost + 10) * 2.3``. The result is rounded to the nearest
-    value ending in ``.99`` or ``.49``.
+    Formula: ``(cost + 10) * 2.3``. The result is rounded up to the next price ending with ``.99``.
     """
     base = (cost_per_item + 10) * 2.3
     cents = int(round(base * 100))
+    # Round up to the next .99
     remainder = cents % 100
-    if remainder >= 75:
-        cents = cents - remainder + 99
-    elif remainder >= 25:
-        cents = cents - remainder + 49
-    else:
-        cents = cents - remainder + 49
+    cents = cents - remainder + 99
     return cents / 100.0
 
 
