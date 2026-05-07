@@ -11,6 +11,10 @@ Usage:
 import os, glob, hashlib, time, argparse, pickle
 import requests
 
+# GitHub Actions sets CI=true — yt-dlp is blocked by YouTube bot detection in CI.
+# When IN_CI, generate piano tracks locally instead of downloading.
+IN_CI = os.getenv("CI", "").lower() == "true"
+
 # ── 6 unique search queries per mood ──────────────────────────────────────────
 # Each query is distinct so yt-dlp returns a different video each time.
 # "instrumental", "no lyrics", "no vocals" filters prevent foreign-language tracks.
@@ -217,61 +221,82 @@ def extract_id(track):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+def _generate_piano_fallback(mood):
+    """Generate piano WAV tracks locally — used in CI where yt-dlp is blocked."""
+    try:
+        from youtube_shorts import generate_piano_track
+        # Map mood → closest format name for the piano generator
+        mood_to_fmt = {
+            "happy":         "fashion_steal",
+            "inspirational": "styling_inspo",
+            "rock":          "new_drop",
+            "funky":         "trend_alert",
+            "bright":        "ootd",
+        }
+        fmt = mood_to_fmt.get(mood, "ootd")
+        for i in range(1, TRACKS_PER_MOOD + 1):
+            out = f"music_{mood}_{i}.wav"
+            if not os.path.exists(out):
+                generate_piano_track(fmt, out_path=out)
+                print(f"  [{i}/{TRACKS_PER_MOOD}] Generated piano track: {out}")
+            else:
+                print(f"  [{i}/{TRACKS_PER_MOOD}] Already exists: {out}")
+        print(f"  Done: {TRACKS_PER_MOOD} piano tracks for {mood}.")
+    except Exception as e:
+        print(f"  Piano generation failed: {e}")
+
+
 def download_mood(mood, token, refresh):
     print(f"\n--- {mood.upper()} tracks ---")
-    have    = existing_tracks(mood)
-    hashes  = all_hashes(mood) if have else set()
+    have   = existing_tracks(mood)
+    hashes = all_hashes(mood) if have else set()
 
     if not refresh and len(have) >= TRACKS_PER_MOOD:
-        print(f"  Already have {len(have)} tracks — skipping. (--refresh to re-download)")
+        print(f"  Already have {len(have)} tracks — skipping.")
         return
 
     if refresh:
-        for f in have:
-            os.remove(f)
+        for f in have: os.remove(f)
         have, hashes = [], set()
 
-    slot  = len(have)
-    used  = 0   # tracks successfully downloaded in this run
+    # ── CI: yt-dlp blocked by YouTube bot detection — use piano generation ────
+    if IN_CI:
+        print(f"  CI detected — generating piano tracks (yt-dlp blocked in CI).")
+        _generate_piano_fallback(mood)
+        return
 
-    # ── Try Audio Library IDs first ──────────────────────────────────────────
+    slot = len(have)
+    used = 0
+
+    # ── Try YouTube Audio Library IDs first ───────────────────────────────────
     if token:
         ids = fetch_audio_library_ids(token, mood, count=TRACKS_PER_MOOD * 3)
         for vid_id in ids:
-            if slot >= TRACKS_PER_MOOD:
-                break
+            if slot >= TRACKS_PER_MOOD: break
             out  = f"music_{mood}_{slot + 1}"
             path = yt_download(f"https://www.youtube.com/watch?v={vid_id}", out)
             if path:
                 h = file_hash(path)
                 if h in hashes:
-                    print(f"  Duplicate detected, skipping {vid_id}")
-                    os.remove(path)
-                    continue
-                hashes.add(h)
-                slot += 1; used += 1
-                print(f"  [{slot}/{TRACKS_PER_MOOD}] Audio Library track saved: {os.path.basename(path)}")
+                    os.remove(path); continue
+                hashes.add(h); slot += 1; used += 1
+                print(f"  [{slot}/{TRACKS_PER_MOOD}] {os.path.basename(path)}")
             time.sleep(0.3)
 
-    # ── Fill remaining with unique-query search ───────────────────────────────
-    queries    = QUERIES.get(mood, QUERIES["happy"])
-    query_idx  = used   # start from where Audio Library left off
+    # ── Fill remaining with unique search queries ─────────────────────────────
+    queries   = QUERIES.get(mood, QUERIES["happy"])
+    query_idx = used
 
     while slot < TRACKS_PER_MOOD and query_idx < len(queries):
-        q    = queries[query_idx]
-        query_idx += 1
+        q = queries[query_idx]; query_idx += 1
         out  = f"music_{mood}_{slot + 1}"
-        print(f"  [{slot + 1}/{TRACKS_PER_MOOD}] Searching: ...{q[-60:]}")
+        print(f"  [{slot + 1}/{TRACKS_PER_MOOD}] {q[-55:]}")
         path = yt_download(q, out)
-        if not path:
-            continue
+        if not path: continue
         h = file_hash(path)
         if h in hashes:
-            print(f"    Duplicate — trying next query")
-            os.remove(path)
-            continue
-        hashes.add(h)
-        slot += 1
+            os.remove(path); continue
+        hashes.add(h); slot += 1
         print(f"    Saved: {os.path.basename(path)}")
         time.sleep(0.3)
 
