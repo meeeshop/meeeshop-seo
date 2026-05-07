@@ -7,19 +7,10 @@ Fallback  : returns None → caller uses hardcoded template
 """
 
 import os, time, requests
-from pathlib import Path
+# Use the standard dotenv loader for consistency across the repo.
+from dotenv import load_dotenv
 
-
-def _load_env():
-    for candidate in [Path(__file__).with_name(".env"), Path(".env")]:
-        if candidate.exists():
-            for line in candidate.read_text(encoding="utf-8").splitlines():
-                if "=" in line and not line.startswith("#"):
-                    k, v = line.split("=", 1)
-                    os.environ.setdefault(k.strip(), v.strip().strip('"'))
-
-
-_load_env()
+load_dotenv()
 
 GEMINI_KEY     = os.getenv("GEMINI_API_KEY", "")
 GROQ_KEY       = os.getenv("GROQ_API_KEY", "")
