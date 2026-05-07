@@ -4,6 +4,8 @@ import requests
 import pickle
 import numpy as np
 import random
+import ai_client          # Gemini → Groq → OpenRouter fallback chain
+from urllib.parse import quote as _url_quote
 from datetime import datetime, timedelta, timezone, date
 from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
@@ -586,17 +588,34 @@ VISUAL_STYLES = {
 }
 STYLE_NAMES = list(VISUAL_STYLES.keys())
 
-# ── Real-life backgrounds via picsum.photos (free, no API key, always works) ─
-# Seeds are fixed so each scene always gets the same consistent photo.
-SCENE_PICSUM = {
-    "beach":       "870",    # warm coastal photo
-    "park":        "1448",   # lush green outdoor
-    "city":        "1067",   # urban street
-    "building":    "1560",   # modern architecture
-    "living_room": "1090",   # warm interior
-    "studio":      "157",    # clean bright space
+# ══════════════════════════════════════════════════════════════════════════════
+#  AI BACKGROUND GENERATION — Pollinations.ai (primary) + picsum (fallback)
+#  Each image in the video gets a DIFFERENT AI-generated background scene.
+# ══════════════════════════════════════════════════════════════════════════════
+
+POLLINATIONS_BASE_PROMPTS = {
+    "beach":       "sun-drenched beach in Malibu California, fine white sand, turquoise water, empty beach, golden hour light, fashion photography, shallow depth of field, 8k, no people, no text",
+    "park":        "lush Central Park New York spring, cherry blossoms, green grass, empty pathway, dappled sunlight, fashion lifestyle photography, bokeh, 8k, no people, no text",
+    "rooftop":     "luxury rooftop terrace Miami golden hour, city skyline, warm string lights, elegant outdoor lounge, fashion editorial photography, bokeh, no people, no text",
+    "city":        "upscale shopping street Beverly Hills, boutique storefronts, palm trees, golden afternoon light, empty sidewalk, fashion lifestyle photography, bokeh, no people, no text",
+    "cafe":        "chic outdoor cafe terrace SoHo New York, morning sunlight, white bistro chairs, lush greenery, lifestyle fashion photography, soft focus, no people, no text",
+    "garden":      "beautiful private garden Hamptons estate, blooming roses and lavender, stone pathway, soft afternoon light, fashion photography, bokeh, no people, no text",
+    "yacht":       "luxury yacht deck Mediterranean, turquoise sea, white railing, sunny day, elegant outdoor space, fashion lifestyle photography, bokeh, no people, no text",
+    "living_room": "bright modern luxury living room USA, large windows, natural light, neutral designer tones, elegant furniture, fashion lifestyle photography, no people, no text",
 }
-SCENE_NAMES = list(SCENE_PICSUM.keys())
+
+SCENE_PICSUM = {   # fallback seeds
+    "beach":"870","park":"1448","city":"1067","rooftop":"1560",
+    "cafe":"1090","garden":"157","yacht":"870","living_room":"1090",
+}
+SCENE_NAMES = list(POLLINATIONS_BASE_PROMPTS.keys())
+
+SCENE_GRADIENTS = {
+    "beach":[(255,225,140),(80,175,225)],  "park":[(100,195,80),(30,120,40)],
+    "city":[(110,140,225),(45,75,170)],    "rooftop":[(175,195,220),(95,115,155)],
+    "cafe":[(255,200,130),(195,130,55)],   "garden":[(240,240,255),(175,180,210)],
+    "yacht":[(200,230,255),(60,140,200)],  "living_room":[(255,245,220),(200,180,140)],
+}
 
 # Colour-gradient fallbacks if Unsplash download fails
 SCENE_GRADIENTS = {
@@ -609,40 +628,93 @@ SCENE_GRADIENTS = {
 }
 
 
-def fetch_background_photo(scene_name):
-    """Download a real photo from picsum.photos (free, no key, never fails)."""
-    cache = f"bg_{scene_name}.jpg"
-    if os.path.exists(cache) and os.path.getsize(cache) > 5000:
+def _ai_enhance_prompt(scene_name, product_title):
+    """Use AI to enrich the background prompt with product-specific context."""
+    base = POLLINATIONS_BASE_PROMPTS.get(scene_name, POLLINATIONS_BASE_PROMPTS["beach"])
+    prompt = (f"Improve this image background prompt for a fashion product video. "
+              f"Product: '{product_title}'. Current prompt: '{base}'. "
+              f"Add 2-3 specific atmospheric details that make it feel like luxury USA lifestyle photography. "
+              f"Keep under 50 words. Output ONLY the improved prompt, no quotes.")
+    improved = ai_client.generate(prompt, max_tokens=80, temperature=0.7)
+    return improved or base
+
+
+def generate_pollinations_bg(scene_name, seed, cache_key, product_title=""):
+    """
+    PRIMARY: Pollinations.ai AI-generated background (free, no API key).
+    FALLBACK: picsum.photos stock photo.
+    Each image gets a unique seed → genuinely different background.
+    """
+    cache = f"bg_{cache_key}.jpg"
+    if os.path.exists(cache) and os.path.getsize(cache) > 10000:
         return cache
-    seed = SCENE_PICSUM.get(scene_name, "100")
+
+    prompt = POLLINATIONS_BASE_PROMPTS.get(scene_name, POLLINATIONS_BASE_PROMPTS["beach"])
+    url = (f"https://image.pollinations.ai/prompt/{_url_quote(prompt)}"
+           f"?width=1080&height=1920&model=flux&nologo=true&enhance=true&seed={seed}")
     try:
-        r = requests.get(
-            f"https://picsum.photos/seed/{seed}/1080/1920",
-            allow_redirects=True, timeout=20)
+        r = requests.get(url, timeout=90)
+        if r.status_code == 200 and len(r.content) > 20000:
+            with open(cache, "wb") as f: f.write(r.content)
+            return cache
+    except Exception:
+        pass
+
+    # Fallback: picsum.photos
+    seed_str = SCENE_PICSUM.get(scene_name, "100")
+    try:
+        r = requests.get(f"https://picsum.photos/seed/{seed_str}/1080/1920",
+                         allow_redirects=True, timeout=20)
         if r.status_code == 200 and len(r.content) > 10000:
-            with open(cache, "wb") as f:
-                f.write(r.content)
+            with open(cache, "wb") as f: f.write(r.content)
             return cache
     except Exception:
         pass
     return None
 
 
-def _scene_background(scene_name, w, h):
-    """Return blurred scene photo as numpy array (no product overlay)."""
-    bg_path = fetch_background_photo(scene_name)
+def scenes_for_product(title, tags=""):
+    """AI or rule-based scene selection matching the product category."""
+    # Try AI first for creative, contextual scene selection
+    prompt = (f"Choose 4 best background scene names from this list for a fashion video of: '{title}'. "
+              f"List: beach, park, rooftop, city, cafe, garden, yacht, living_room. "
+              f"Reply with exactly 4 names comma-separated, most fitting first. No explanation.")
+    result = ai_client.generate(prompt, max_tokens=30, temperature=0.5)
+    if result:
+        chosen = [s.strip().lower() for s in result.split(",")
+                  if s.strip().lower() in POLLINATIONS_BASE_PROMPTS]
+        if len(chosen) >= 2:
+            return chosen
+
+    # Rule-based fallback
+    t = (title + " " + tags).lower()
+    if any(w in t for w in ["dress","gown","midi","maxi","sundress","skirt","romper"]):
+        return ["beach", "garden", "rooftop", "yacht"]
+    if any(w in t for w in ["jean","pant","trouser","short","legging"]):
+        return ["city", "park", "cafe", "rooftop"]
+    if any(w in t for w in ["top","blouse","shirt","tank","tee","tunic"]):
+        return ["cafe", "rooftop", "garden", "yacht"]
+    if any(w in t for w in ["jacket","coat","blazer","sweater","cardigan"]):
+        return ["city", "park", "cafe", "rooftop"]
+    if any(w in t for w in ["bag","purse","tote","crossbody","sling","clutch","backpack"]):
+        return ["city", "cafe", "rooftop", "yacht"]
+    return ["beach", "park", "city", "cafe", "garden"]
+
+
+def _scene_background(scene_name, w, h, seed=None, cache_key=None, product_title=""):
+    """Return AI-generated background as numpy array. Pollinations.ai → picsum → gradient."""
+    seed = seed or random.randint(1000, 99999)
+    ck   = cache_key or f"{scene_name}_{seed}"
+    bg_path = generate_pollinations_bg(scene_name, seed, ck, product_title)
     if bg_path:
-        bg = _prep(bg_path, w, h).filter(ImageFilter.GaussianBlur(radius=12))
+        bg = _prep(bg_path, w, h).filter(ImageFilter.GaussianBlur(radius=5))
     else:
-        colors = SCENE_GRADIENTS.get(scene_name, SCENE_GRADIENTS["studio"])
+        colors = SCENE_GRADIENTS.get(scene_name, SCENE_GRADIENTS["city"])
         bg = Image.new("RGB", (w, h))
         dr = ImageDraw.Draw(bg)
         for y in range(h):
-            t = y / h
-            rv = int(colors[0][0] + t*(colors[1][0]-colors[0][0]))
-            gv = int(colors[0][1] + t*(colors[1][1]-colors[0][1]))
-            bv = int(colors[0][2] + t*(colors[1][2]-colors[0][2]))
-            dr.line([(0, y), (w, y)], fill=(rv, gv, bv))
+            t = y/h; c = [int(colors[0][i]+t*(colors[1][i]-colors[0][i])) for i in range(3)]
+            dr.line([(0, y), (w, y)], fill=tuple(c))
     return np.array(bg)
 
 
@@ -752,23 +824,34 @@ FORMAT_NAMES = list(CONTENT_FORMATS.keys())
 STYLE_TIP_LABELS = ["Dress It Up", "Keep It Casual", "Night Out Look"]
 
 
+_REMBG_SESSION = None   # cached session — avoid reloading model for each image
+
+def _get_rembg_session():
+    global _REMBG_SESSION
+    if _REMBG_SESSION is None:
+        from rembg import new_session
+        _REMBG_SESSION = new_session("u2net_human_seg")  # keeps full body: face+hands+legs
+    return _REMBG_SESSION
+
+
 def _remove_bg(img_path):
     """
-    Remove product photo background so model appears over the real scene.
-    Strategy 1: rembg AI (best quality, needs onnxruntime DLL on Windows).
-    Strategy 2: PIL flood-fill from corners (works for white/light studio bg).
-    Strategy 3: original RGBA (fallback — background stays, still looks good).
+    Remove product photo background so the full model appears over the real scene.
+    Strategy 1: rembg u2net_human_seg — keeps face, hands, legs (best).
+    Strategy 2: PIL colour-based — works for white studio backgrounds.
+    Strategy 3: original RGBA fallback.
     """
-    # ── Strategy 1: rembg AI ───────────────────────────────────────────────
+    # ── Strategy 1: rembg human-segmentation AI ────────────────────────────
     try:
         from rembg import remove
         import io
         with open(img_path, "rb") as f:
             data = f.read()
-        result = remove(data)
+        session = _get_rembg_session()
+        result  = remove(data, session=session)
         img = Image.open(io.BytesIO(result)).convert("RGBA")
-        print("  BG: AI removal (rembg)")
-        return img
+        print("  BG: AI human-seg (full body kept)")
+        return _defringe_rgba(img)
     except Exception:
         pass
 
@@ -805,6 +888,22 @@ def _remove_bg(img_path):
     # ── Strategy 3: original image ────────────────────────────────────────
     print("  BG: using original (no removal)")
     return Image.open(img_path).convert("RGBA")
+
+
+def _defringe_rgba(img_rgba, bg=(255, 255, 255)):
+    """Remove background colour contamination from semi-transparent edge pixels."""
+    try:
+        data  = np.array(img_rgba).astype(np.float32)
+        alpha = data[:, :, 3] / 255.0
+        mask  = alpha > 0.05
+        for c in range(3):
+            data[:, :, c] = np.where(
+                mask,
+                np.clip((data[:, :, c] - bg[c] * (1 - alpha)) / np.maximum(alpha, 0.05), 0, 255),
+                data[:, :, c])
+        return Image.fromarray(data.clip(0, 255).astype(np.uint8))
+    except Exception:
+        return img_rgba
 
 
 def _product_rgba(img_path, w, h):
@@ -959,16 +1058,17 @@ DIRECTIONS = ["zoom_in","zoom_out","pan_right","pan_left","pan_up","pan_down"]
 
 def ken_burns_clip(img_path, product, style_name, fmt_name,
                    duration, direction, frame_idx=0,
-                   show_url=False, scene_name="studio", w=VIDEO_W, h=VIDEO_H):
+                   show_url=False, scene_name="beach",
+                   seed=None, cache_key=None, w=VIDEO_W, h=VIDEO_H):
     """
-    BACKGROUND: scene photo Ken-Burns animated (zooms/pans visibly).
-    FOREGROUND: product image + text overlays, static on top.
+    BACKGROUND: Pollinations.ai AI-generated scene, Ken-Burns animated.
+    FOREGROUND: model with BG removed (u2net_human_seg), sharp + static.
     Result: model appears sharp in front, real background moves behind them.
     """
     sw, sh = int(w * 1.25), int(h * 1.25)
 
-    # ── 1. Background: pure scene photo, enlarged for pan room ──────────────
-    bg_arr = _scene_background(scene_name, sw, sh)
+    # ── 1. Background: Pollinations.ai AI scene, enlarged for Ken Burns room ─
+    bg_arr = _scene_background(scene_name, sw, sh, seed=seed, cache_key=cache_key)
 
     # ── 2. Product + text overlay: RGBA (transparent background areas) ──────
     styled      = build_frame(img_path, product, style_name, fmt_name,
@@ -1009,15 +1109,39 @@ def _vo(text, path):
     return AudioFileClip(path)
 
 
+def ai_voiceover_text(product, fmt_name):
+    """AI-generated engaging voiceover script. Falls back to format templates."""
+    title  = product["title"]
+    price  = product["variants"][0]["price"] if product.get("variants") else "0"
+    fmt    = CONTENT_FORMATS.get(fmt_name, {})
+    badge  = fmt.get("badge", "OOTD")
+    prompt = (
+        f"Write a 2-sentence exciting USA women's fashion TikTok/YouTube Shorts voiceover for:\n"
+        f"Product: '{title}' — ${price} at MeeeShop\n"
+        f"Style: {badge} — high energy, like a real USA fashion influencer\n"
+        f"Rules: mention price, mention MeeeShop, end with 'link in description', under 35 words, no hashtags\n"
+        f"Output ONLY the voiceover text, nothing else."
+    )
+    result = ai_client.generate(prompt, max_tokens=80, temperature=0.9)
+    if result and len(result) > 20:
+        return result.strip()
+    # Fallback to format lambda
+    vo_fn = fmt.get("voiceover")
+    if callable(vo_fn):
+        return vo_fn(title, price)
+    return f"You need this {title} from MeeeShop! Only ${price} dollars. Link in description!"
+
+
 def build_audio(product, fmt_name, total_dur, tmp_dir, music_path):
-    """Piano music throughout. Voiceover CTA only at the END (last ~5s)."""
+    """Piano+drums music throughout. AI-generated voiceover at the END only."""
     price = product["variants"][0]["price"] if product.get("variants") else "0"
 
-    # Single CTA voiceover — plays at the very end only
-    cta = f"Shop this look at MeeeShop dot com. Only {price} dollars. Link in description!"
+    # AI-generated voiceover — plays at the very end only
+    cta = ai_voiceover_text(product, fmt_name)
     p1  = os.path.join(tmp_dir, "vo_cta.mp3")
     vo  = _vo(cta, p1)
     vo_start = max(0, total_dur - vo.duration - 0.5)
+    print(f"  Voiceover: {cta[:60]}...")
 
     clips = [vo.set_start(vo_start)]
 
@@ -1054,15 +1178,20 @@ def create_short(product, style_name, fmt_name, out_path, used_tracks=None):
         if used_tracks is not None and music:
             used_tracks.add(music)
 
+        # AI picks contextually appropriate scenes for this product
+        scenes_pool = scenes_for_product(title, product.get("tags",""))
+        print(f"  Scenes  : {scenes_pool[:len(imgs)]}")
         dirs   = random.sample(DIRECTIONS, len(DIRECTIONS))
-        scenes = random.sample(SCENE_NAMES, len(SCENE_NAMES))  # shuffle scenes
         clips  = []
         for idx, img_path in enumerate(imgs):
             show_url   = (idx == len(imgs)-1)
-            scene_name = scenes[idx % len(scenes)]
+            scene_name = scenes_pool[idx % len(scenes_pool)]
+            seed       = random.randint(1000, 99999)   # unique seed → different BG each image
+            cache_key  = f"{scene_name}_{seed}"
+            print(f"  Image {idx+1}: {scene_name} bg (Pollinations.ai seed={seed})")
             clip = ken_burns_clip(img_path, product, style_name, fmt_name,
                                   IMG_DURATION, dirs[idx%len(dirs)], idx,
-                                  show_url, scene_name)
+                                  show_url, scene_name, seed=seed, cache_key=cache_key)
             clip = clip.fadein(0.3).fadeout(0.3)
             clips.append(clip)
 
