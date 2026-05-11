@@ -36,23 +36,23 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            music_*.webm
-            music_*.wav
-            music_*.m4a
+            meeeshop-youtube/music_*.webm
+            meeeshop-youtube/music_*.wav
+            meeeshop-youtube/music_*.m4a
           key: music-tracks-v2-${{ runner.os }}
           restore-keys: music-tracks-v2-
 
       - name: Setup music tracks (piano in CI, yt-dlp locally)
-        run: python setup_music.py
+        run: cd meeeshop-youtube && python setup_music.py
 
       - name: Save music tracks to cache
         uses: actions/cache/save@v4
         if: always()
         with:
           path: |
-            music_*.webm
-            music_*.wav
-            music_*.m4a
+            meeeshop-youtube/music_*.webm
+            meeeshop-youtube/music_*.wav
+            meeeshop-youtube/music_*.m4a
           key: music-tracks-v2-${{ runner.os }}
 
       - name: Run YouTube Shorts automation
@@ -65,7 +65,7 @@ jobs:
           GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
           OPENROUTER_API_KEY:    ${{ secrets.OPENROUTER_API_KEY }}
-        run: python youtube_shorts.py 2>&1 | tee youtube_daily.log
+        run: cd meeeshop-youtube && python youtube_shorts.py 2>&1 | tee ../youtube_daily.log
 
       - name: Upload log
         if: always()
