@@ -44,31 +44,12 @@ jobs:
           fi
           echo "✅ All secrets present"
 
-      - name: Generate Blogpost
+      - name: Generate and Publish Blogpost
         shell: bash
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
           SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
-          echo "🚀 Starting blog generation pipeline..."
-          python scripts/generate_blogposts.py --api-key "$OPENROUTER_API_KEY"
-
-      - name: Shopify Publish Step (SAFE MODE)
-        shell: bash
-        env:
-          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
-          SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
-        run: |
-          set +e
-          echo "🛍 Publishing to Shopify..."
-          python scripts/generate_blogposts.py --publish-only \
-            --shopify-store "$SHOPIFY_STORE" \
-            --shopify-token "$SHOPIFY_TOKEN"
-          STATUS=$?
-          if [ $STATUS -ne 0 ]; then
-            echo "⚠️ Shopify publish failed but continuing workflow"
-            exit 0
-          fi
-          echo "✅ Shopify publish completed"
+          echo "🚀 Starting blog generation and publishing pipeline..."
+          python meeeshop-seo/blog_daily.py --count 3
