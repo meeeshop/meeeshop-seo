@@ -185,55 +185,106 @@ def update_product_prices(products: List[Dict], dry_run: bool = False) -> Dict:
         "skipped": 0,
         "errors": 0,
         "timestamp": datetime.now().isoformat(),
+        "products": [],
     }
 
     print(f"\n[PriceUpdate] Processing {len(products)} products...")
+    print(f"\n{'Seq':<5} | {'Product Title':<35} | {'Old Price':<10} | {'New Price':<10} | {'Cost':<8} | {'Profit':<8} | {'Status':<10}")
+    print("-" * 110)
 
     for i, product in enumerate(products, 1):
         product_id = product.get("id")
-        title = product.get("title", "Unknown")
+        title = product.get("title", "Unknown")[:32]
 
         for variant in product.get("variants", []):
             variant_id = variant.get("id")
+            sku = variant.get("sku", "N/A")
             cost = float(variant.get("cost", 0))
-
-            if cost <= 0:
-                print(f"  [{i}/{len(products)}] {title}: SKU {variant.get('sku', 'N/A')} - NO COST, skipping")
-                stats["skipped"] += 1
-                continue
-
-            new_price = calculate_target_price(cost)
             current_price = float(variant.get("price", 0))
 
-            if abs(current_price - new_price) < 0.01:
-                print(f"  [{i}/{len(products)}] {title}: Already ${new_price:.2f}, no update needed")
+            if cost <= 0:
+                status = "NO COST"
+                print(f"{i:<5} | {title:<35} | {'—':<10} | {'—':<10} | {'—':<8} | {'—':<8} | {status:<10}")
                 stats["skipped"] += 1
+                stats["products"].append({
+                    "sku": sku,
+                    "title": title,
+                    "old_price": None,
+                    "new_price": None,
+                    "cost": None,
+                    "profit": None,
+                    "status": "skipped_no_cost"
+                })
                 continue
 
+            new_price = calculate_target_price(cost, verbose=False)
             profit = new_price - cost - (SHIPPING_COST_MAX / 2)
-            print(f"  [{i}/{len(products)}] {title}: ${current_price:.2f} -> ${new_price:.2f} (cost: ${cost:.2f}, profit: ${profit:.2f})")
 
-            if dry_run:
-                print(f"      [DRY-RUN] Would update to ${new_price:.2f}")
-                stats["updated"] += 1
-            else:
+            if abs(current_price - new_price) < 0.01:
+                status = "OPTIMAL"
+                print(f"{i:<5} | {title:<35} | ${current_price:<9.2f} | ${new_price:<9.2f} | ${cost:<7.2f} | ${profit:<7.2f} | {status:<10}")
+                stats["skipped"] += 1
+                stats["products"].append({
+                    "sku": sku,
+                    "title": title,
+                    "old_price": current_price,
+                    "new_price": new_price,
+                    "cost": cost,
+                    "profit": profit,
+                    "status": "skipped_optimal"
+                })
+                continue
+
+            status = "DRY-RUN" if dry_run else "UPDATED"
+            print(f"{i:<5} | {title:<35} | ${current_price:<9.2f} | ${new_price:<9.2f} | ${cost:<7.2f} | ${profit:<7.2f} | {status:<10}")
+
+            stats["products"].append({
+                "sku": sku,
+                "title": title,
+                "old_price": current_price,
+                "new_price": new_price,
+                "cost": cost,
+                "profit": profit,
+                "status": "dry_run" if dry_run else "updated"
+            })
+
+            if not dry_run:
                 if update_variant_prices(product_id, variant_id, new_price):
                     stats["updated"] += 1
                 else:
                     stats["errors"] += 1
+                    stats["products"][-1]["status"] = "error"
+            else:
+                stats["updated"] += 1
 
+    print("-" * 110)
     print(f"\n[PriceUpdate] Complete: {stats['updated']} updated, {stats['skipped']} skipped, {stats['errors']} errors")
     return stats
 
 
 def save_update_log(stats: Dict, filepath: str = "price_update_log.json"):
-    """Save update statistics to JSON log."""
+    """Save detailed update statistics to JSON log with product-level info."""
+    log_entry = {
+        "timestamp": stats["timestamp"],
+        "summary": {
+            "total_products": stats["total"],
+            "updated": stats["updated"],
+            "skipped": stats["skipped"],
+            "errors": stats["errors"],
+        },
+        "products": stats.get("products", [])
+    }
+
     logs = []
     if Path(filepath).exists():
-        logs = json.loads(Path(filepath).read_text())
-    logs.append(stats)
+        try:
+            logs = json.loads(Path(filepath).read_text())
+        except (json.JSONDecodeError, IOError):
+            logs = []
+
+    logs.append(log_entry)
     Path(filepath).write_text(json.dumps(logs, indent=2))
-    print(f"[Log] Saved to {filepath}")
+    print(f"[Log] Saved detailed log to {filepath}")
 
 
 if __name__ == "__main__":
