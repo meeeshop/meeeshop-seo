@@ -44,7 +44,7 @@ SHIPPING_COST_MAX = 10
 TARGET_PROFIT = 20
 
 
-def _shopify_request(method: str, endpoint: str, data: Optional[Dict] = None) -> Dict:
+def _shopify_request(method: str, endpoint: str, data: Optional[Dict] = None, params: Optional[Dict] = None) -> Dict:
     """Make authenticated Shopify API request."""
     if not SHOPIFY_ACCESS_TOKEN:
         raise RuntimeError("SHOPIFY_ACCESS_TOKEN not set in environment")
@@ -57,7 +57,7 @@ def _shopify_request(method: str, endpoint: str, data: Optional[Dict] = None) ->
 
     try:
         if method == "GET":
-            r = requests.get(url, headers=headers, timeout=30)
+            r = requests.get(url, headers=headers, params=params, timeout=30)
         elif method == "POST":
             r = requests.post(url, headers=headers, json=data, timeout=30)
         elif method == "PUT":
@@ -67,36 +67,122 @@ def _shopify_request(method: str, endpoint: str, data: Optional[Dict] = None) ->
 
         if r.status_code >= 400:
             raise RuntimeError(f"{method} {endpoint}: HTTP {r.status_code} - {r.text[:200]}")
-        return r.json()
+
+        result = r.json()
+        result["_link_header"] = r.headers.get("Link", None)
+        return result
     except requests.exceptions.Timeout:
         raise RuntimeError(f"{method} {endpoint}: Request timeout")
     except ValueError as e:
         raise RuntimeError(f"{method} {endpoint}: Invalid JSON response - {e}")
 
 
-def get_products(limit: int = 250, status: str = "active") -> List[Dict]:
-    """Fetch all products from Shopify store."""
+def _shopify_graphql(query: str, variables: Optional[Dict] = None) -> Dict:
+    """Make Shopify GraphQL API request."""
+    if not SHOPIFY_ACCESS_TOKEN:
+        raise RuntimeError("SHOPIFY_ACCESS_TOKEN not set in environment")
+
+    url = f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}/graphql.json"
+    headers = {
+        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
+        "Content-Type": "application/json",
+    }
+    payload = {"query": query}
+    if variables:
+        payload["variables"] = variables
+
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=30)
+        if r.status_code >= 400:
+            raise RuntimeError(f"GraphQL: HTTP {r.status_code} - {r.text[:200]}")
+
+        result = r.json()
+        if "errors" in result:
+            raise RuntimeError(f"GraphQL errors: {result['errors']}")
+        return result
+    except requests.exceptions.Timeout:
+        raise RuntimeError("GraphQL: Request timeout")
+    except ValueError as e:
+        raise RuntimeError(f"GraphQL: Invalid JSON response - {e}")
+
+
+def get_products(status: str = "active") -> List[Dict]:
+    """Fetch all products from Shopify store via GraphQL with cost data."""
     products = []
     cursor = None
-    page = 1
 
+    query = """
+query ($first: Int!, $after: String) {
+  products(first: $first, after: $after, query: "status:active") {
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    edges {
+      node {
+        id
+        title
+        variants(first: 100) {
+          edges {
+            node {
+              id
+              sku
+              price
+              inventoryItem {
+                unitCost {
+                  amount
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+    page = 1
     while True:
         try:
-            query = f"products?limit={limit}&status={status}&fields=id,title,variants"
-            if cursor:
-                query += f"&after={cursor}"
+            variables = {
+                "first": 50,
+                "after": cursor
+            }
 
-            response = _shopify_request("GET", query)
-            batch = response.get("products", [])
+            response = _shopify_graphql(query, variables)
+            data = response.get("data", {}).get("products", {})
+
+            batch = []
+            for edge in data.get("edges", []):
+                node = edge.get("node", {})
+                product = {
+                    "id": node.get("id"),
+                    "title": node.get("title"),
+                    "variants": []
+                }
+                for var_edge in node.get("variants", {}).get("edges", []):
+                    var_node = var_edge.get("node", {})
+                    inv_item = var_node.get("inventoryItem", {})
+                    unit_cost_data = inv_item.get("unitCost", {})
+                    cost = float(unit_cost_data.get("amount") or 0)
+
+                    product["variants"].append({
+                        "id": var_node.get("id"),
+                        "sku": var_node.get("sku"),
+                        "price": float(var_node.get("price") or 0),
+                        "cost": cost,
+                    })
+                batch.append(product)
+
             products.extend(batch)
-            print(f"[Fetch] Page {page}: {len(batch)} products")
+            print(f"[Fetch] Page {page}: {len(batch)} products (total: {len(products)})")
 
-            if "next" not in response.get("_links", {}):
+            page_info = data.get("pageInfo", {})
+            if not page_info.get("hasNextPage"):
                 break
 
-            cursor = response["_links"]["next"].split("after=")[1]
-            if "&" in cursor:
-                cursor = cursor.split("&")[0]
+            cursor = page_info.get("endCursor")
             page += 1
         except Exception as e:
             print(f"[Error] Failed to fetch page {page}: {e}")
@@ -124,22 +210,28 @@ def calculate_target_price(cost: float, multiplier: Optional[float] = None, verb
     if cost < 20 and multiplier == COST_MULTIPLIER_MIN:
         multiplier = COST_MULTIPLIER_MAX
 
-    prompt = f"""Given a product cost of ${cost:.2f}, suggest the best price multiplier (2.3-2.5) to maximize sales while maintaining $20+ profit after $8.50 shipping cost.
+    # Skip AI if no API key is configured to avoid timeout overhead
+    try:
+        import os
+        if os.getenv("OPENROUTER_API_KEY") or os.getenv("GEMINI_API_KEY"):
+            prompt = f"""Given a product cost of ${cost:.2f}, suggest the best price multiplier (2.3-2.5) to maximize sales while maintaining $20+ profit after $8.50 shipping cost.
 
 Only respond with a single decimal number between 2.3 and 2.5, nothing else.
 Example response: 2.4"""
 
-    ai_multiplier = ai_client.generate(prompt, max_tokens=10, temperature=0.3, category="pricing")
-    if ai_multiplier:
-        try:
-            m = float(ai_multiplier.strip())
-            if COST_MULTIPLIER_MIN <= m <= COST_MULTIPLIER_MAX:
-                multiplier = m
-                if verbose:
-                    print(f"    [Pricing] AI suggested multiplier: {m}")
-        except (ValueError, AttributeError):
-            if verbose:
-                print(f"    [Pricing] AI response not parseable: {ai_multiplier}, using default")
+            ai_multiplier = ai_client.generate(prompt, max_tokens=10, temperature=0.3, category="pricing")
+            if ai_multiplier:
+                try:
+                    m = float(ai_multiplier.strip())
+                    if COST_MULTIPLIER_MIN <= m <= COST_MULTIPLIER_MAX:
+                        multiplier = m
+                        if verbose:
+                            print(f"    [Pricing] AI suggested multiplier: {m}")
+                except (ValueError, AttributeError):
+                    if verbose:
+                        print(f"    [Pricing] AI response not parseable: {ai_multiplier}, using default")
+    except Exception:
+        pass
 
     raw_price = (cost * multiplier) + shipping
 
@@ -177,7 +269,9 @@ def update_variant_prices(product_id: str, variant_id: str, new_price: float) ->
         return False
 
 
-def update_product_prices(products: List[Dict], dry_run: bool = False) -> Dict:
+
+
+def update_product_prices(products: List[Dict]) -> Dict:
     """Update prices for all products based on calculated multipliers."""
     stats = {
         "total": len(products),
@@ -235,27 +329,30 @@ def update_product_prices(products: List[Dict], dry_run: bool = False) -> Dict:
                 })
                 continue
 
-            status = "DRY-RUN" if dry_run else "UPDATED"
-            print(f"{i:<5} | {title:<35} | ${current_price:<9.2f} | ${new_price:<9.2f} | ${cost:<7.2f} | ${profit:<7.2f} | {status:<10}")
+            print(f"{i:<5} | {title:<35} | ${current_price:<9.2f} | ${new_price:<9.2f} | ${cost:<7.2f} | ${profit:<7.2f} | UPDATED   ")
 
-            stats["products"].append({
-                "sku": sku,
-                "title": title,
-                "old_price": current_price,
-                "new_price": new_price,
-                "cost": cost,
-                "profit": profit,
-                "status": "dry_run" if dry_run else "updated"
-            })
-
-            if not dry_run:
-                if update_variant_prices(product_id, variant_id, new_price):
-                    stats["updated"] += 1
-                else:
-                    stats["errors"] += 1
-                    stats["products"][-1]["status"] = "error"
-            else:
+            if update_variant_prices(product_id, variant_id, new_price):
                 stats["updated"] += 1
+                stats["products"].append({
+                    "sku": sku,
+                    "title": title,
+                    "old_price": current_price,
+                    "new_price": new_price,
+                    "cost": cost,
+                    "profit": profit,
+                    "status": "updated"
+                })
+            else:
+                stats["errors"] += 1
+                stats["products"].append({
+                    "sku": sku,
+                    "title": title,
+                    "old_price": current_price,
+                    "new_price": new_price,
+                    "cost": cost,
+                    "profit": profit,
+                    "status": "error"
+                })
 
     print("-" * 110)
     print(f"\n[PriceUpdate] Complete: {stats['updated']} updated, {stats['skipped']} skipped, {stats['errors']} errors")
@@ -288,10 +385,7 @@ def save_update_log(stats: Dict, filepath: str = "price_update_log.json"):
 
 
 if __name__ == "__main__":
-    dry_run = "--dry-run" in sys.argv or "--test" in sys.argv
-    mode = "DRY-RUN" if dry_run else "LIVE"
-
-    print(f"[MeeeShop] Price Update Engine ({mode} mode)")
+    print(f"[MeeeShop] Price Update Engine (LIVE mode)")
     print(f"Store: {SHOPIFY_STORE}")
     print(f"Pricing: {COST_MULTIPLIER_MIN}x - {COST_MULTIPLIER_MAX}x cost + ${SHIPPING_COST_MIN}-${SHIPPING_COST_MAX} shipping")
     print(f"Target profit: ${TARGET_PROFIT} minimum\n")
@@ -301,7 +395,7 @@ if __name__ == "__main__":
         products = get_products(status="active")
         print(f"[Fetch] Found {len(products)} products")
 
-        stats = update_product_prices(products, dry_run=dry_run)
+        stats = update_product_prices(products)
         save_update_log(stats)
 
     except KeyboardInterrupt:
