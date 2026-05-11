@@ -77,10 +77,51 @@ For each product variant with a cost:
 
 ## Monitoring
 
-Check workflow runs and logs in GitHub Actions:
-1. Go to Actions tab
-2. Select "Daily Price Update" workflow
-3. View logs and artifacts from recent runs
+### Console Output
+Each run displays a detailed table showing:
+```
+Seq | Product Title              | Old Price | New Price | Cost   | Profit  | Status
+----|----------------------------|-----------|-----------|--------|---------|--------
+1   | Summer Dress Classic       | $45.00    | $48.99    | $18.00 | $15.49  | UPDATED
+2   | Casual T-Shirt             | $22.50    | $23.99    | $8.50  | $10.49  | UPDATED
+3   | Evening Gown               | $89.99    | $89.99    | $35.00 | $42.49  | OPTIMAL
+```
+
+Status meanings:
+- **UPDATED**: Price changed (new calculation applied)
+- **OPTIMAL**: Price already at target (no change needed)
+- **NO COST**: No cost data (skipped)
+- **ERROR**: API call failed
+
+### JSON Log File
+Detailed logs saved to `price_update_log.json`:
+```json
+{
+  "timestamp": "2026-05-11T15:30:00.000",
+  "summary": {
+    "total_products": 45,
+    "updated": 12,
+    "skipped": 32,
+    "errors": 1
+  },
+  "products": [
+    {
+      "sku": "SD-001",
+      "title": "Summer Dress Classic",
+      "old_price": 45.00,
+      "new_price": 48.99,
+      "cost": 18.00,
+      "profit": 15.49,
+      "status": "updated"
+    }
+  ]
+}
+```
+
+### GitHub Actions Monitoring
+1. Go to **Actions** tab
+2. Select **"Daily Price Update"** workflow
+3. View logs (console output) and artifacts (JSON logs, 30-day retention)
 
 ## Troubleshooting
 
