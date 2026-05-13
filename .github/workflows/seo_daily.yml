@@ -1,0 +1,54 @@
+name: MeeeShop SEO Daily
+
+on:
+  schedule:
+    - cron: '0 8 * * *'   # 3:00 AM EST = 08:00 UTC every day
+
+  workflow_dispatch:
+    inputs:
+      run_mode:
+        description: 'daily = last 25h only | all = full catalog'
+        required: false
+        default: 'daily'
+        type: choice
+        options:
+          - daily
+          - all
+
+jobs:
+  seo_optimize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run SEO automation
+        env:
+          SHOPIFY_STORE:        ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+        run: |
+          if [ "${{ github.event.inputs.run_mode }}" = "all" ]; then
+            echo "Running full catalog scan..."
+            python seo_daily.py --all
+          else
+            echo "Running smart daily scan (last 25h)..."
+            python seo_daily.py
+          fi
+
+      - name: Upload SEO report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seo-report-${{ github.run_number }}
+          path: seo_report_*.json
+          retention-days: 14
