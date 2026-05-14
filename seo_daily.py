@@ -271,9 +271,11 @@ def api_post(path, body):
 
 
 def fetch_products(updated_since=None):
+    """Fetch products created since cutoff (catches new products in last 48h)."""
     products, url = [], f"{BASE}/products.json?limit=250&status=active"
     if updated_since:
-        url += f"&updated_at_min={updated_since}"
+        # created_at_min catches newly created products (not just updated ones)
+        url += f"&created_at_min={updated_since}"
     while url:
         r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
         products.extend(r.json().get('products', []))
@@ -283,10 +285,10 @@ def fetch_products(updated_since=None):
 
 
 def fetch_pages(updated_since=None):
-    """Fetch all pages (static content pages)."""
+    """Fetch all pages (static content pages) created since cutoff."""
     pages, url = [], f"{BASE}/pages.json?limit=250"
     if updated_since:
-        url += f"&updated_at_min={updated_since}"
+        url += f"&created_at_min={updated_since}"
     while url:
         r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
         pages.extend(r.json().get('pages', []))
@@ -296,10 +298,10 @@ def fetch_pages(updated_since=None):
 
 
 def fetch_collections(updated_since=None):
-    """Fetch all collections (custom collections and smart collections)."""
+    """Fetch all collections (custom collections and smart collections) created since cutoff."""
     collections, url = [], f"{BASE}/custom_collections.json?limit=250"
     if updated_since:
-        url += f"&updated_at_min={updated_since}"
+        url += f"&created_at_min={updated_since}"
     while url:
         r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
         collections.extend(r.json().get('custom_collections', []))
@@ -309,10 +311,10 @@ def fetch_collections(updated_since=None):
 
 
 def fetch_articles(updated_since=None):
-    """Fetch all blog articles."""
+    """Fetch all blog articles created since cutoff."""
     articles, url = [], f"{BASE}/blogs.json?limit=250"
     if updated_since:
-        url += f"&updated_at_min={updated_since}"
+        url += f"&created_at_min={updated_since}"
 
     blogs = []
     while url:
@@ -325,7 +327,7 @@ def fetch_articles(updated_since=None):
     for blog in blogs:
         article_url = f"{BASE}/blogs/{blog['id']}/articles.json?limit=250"
         if updated_since:
-            article_url += f"&updated_at_min={updated_since}"
+            article_url += f"&created_at_min={updated_since}"
         while article_url:
             r = requests.get(article_url, headers=HEADS); r.raise_for_status(); _check_rate(r)
             articles.extend(r.json().get('articles', []))
