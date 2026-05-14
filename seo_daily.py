@@ -882,13 +882,14 @@ def main():
 
     # ── Detailed change log ───────────────────────────────────────────────────
     if log:
-        print("\n--- Products Fixed ---")
+        print("\n--- Items Fixed ---")
         for entry in log:
-            print(f"\n  Product : {entry['product']}")
+            item_name = entry.get('product') or entry.get('title', 'Unknown')
+            print(f"\n  Item    : {item_name}")
             print(f"  URL     : {entry['url']}")
-            if entry['missing']:
+            if entry.get('missing'):
                 print(f"  Missing : {', '.join(entry['missing'])}")
-            for fix in entry['fixed']:
+            for fix in entry.get('fixed', []):
                 print(f"  Fixed   : {fix}")
 
     report = {
