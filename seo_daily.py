@@ -266,8 +266,8 @@ def api_put(path, body):
 
 def api_post(path, body):
     r = requests.post(f"{BASE}{path}", headers=HEADS, json=body)
-    _check_rate(r)
-    return r
+    r.raise_for_status(); _check_rate(r)
+    return r.json()
 
 
 def fetch_products(updated_since=None):
@@ -338,26 +338,29 @@ def fetch_articles(updated_since=None):
 
 
 # ── Metafields (meta title + meta description) ────────────────────────────────
-def get_metafields(pid):
-    data = api_get(f"/products/{pid}/metafields.json")
+def get_metafields(resource_path, rid):
+    """Get metafields for any resource (products, pages, custom_collections, blogs/{id}/articles)."""
+    data = api_get(f"/{resource_path}/{rid}/metafields.json")
     return {f"{m['namespace']}.{m['key']}": m for m in data.get('metafields', [])}
 
 
-def upsert_metafield(pid, namespace, key, value, mf_type, existing_mfs):
+def upsert_metafield(resource_path, rid, namespace, key, value, mf_type, existing_mfs):
+    """Upsert metafield for any resource."""
     full_key = f"{namespace}.{key}"
     if full_key in existing_mfs:
         mid = existing_mfs[full_key]['id']
         api_put(f"/metafields/{mid}.json",
                 {"metafield": {"id": mid, "value": value, "type": mf_type}})
     else:
-        api_post(f"/products/{pid}/metafields.json",
+        api_post(f"/{resource_path}/{rid}/metafields.json",
                  {"metafield": {"namespace": namespace, "key": key,
                                 "value": value, "type": mf_type}})
 
 
-def set_seo_metafields(pid, meta_title, meta_desc, existing_mfs):
-    upsert_metafield(pid, "global", "title_tag",       meta_title, "single_line_text_field", existing_mfs)
-    upsert_metafield(pid, "global", "description_tag", meta_desc,  "multi_line_text_field",  existing_mfs)
+def set_seo_metafields(resource_path, rid, meta_title, meta_desc, existing_mfs):
+    """Set SEO metafields (title + desc) for any resource."""
+    upsert_metafield(resource_path, rid, "global", "title_tag",       meta_title, "single_line_text_field", existing_mfs)
+    upsert_metafield(resource_path, rid, "global", "description_tag", meta_desc,  "multi_line_text_field",  existing_mfs)
 
 
 # ── Image alt text ────────────────────────────────────────────────────────────
@@ -553,14 +556,75 @@ def inject_jsonld(theme_id):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SEO VALIDATION (strict template compliance check)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def validate_seo(item, item_type, existing_mfs):
+    """Strict template validation. Returns list of {field, before, after, [_img_id, _img_idx]} dicts."""
+    mismatches = []
+    title = item.get('title', '')
+
+    # ── Meta title (exact match) ──────────────────────────────────────────────
+    expected_meta_title = build_meta_title(title)
+    cur_meta_title = existing_mfs.get('global.title_tag', {}).get('value', '')
+    if cur_meta_title != expected_meta_title:
+        mismatches.append({"field": "meta_title", "before": cur_meta_title, "after": expected_meta_title})
+
+    # ── Meta desc (content-based: 7-day + free + us.meeeshop + ≤155 chars) ────
+    cur_meta_desc = existing_mfs.get('global.description_tag', {}).get('value', '')
+    desc_ok = (
+        "7-day return" in cur_meta_desc
+        and "free" in cur_meta_desc.lower()
+        and DISPLAY_BRAND in cur_meta_desc
+        and 0 < len(cur_meta_desc) <= 155
+    )
+    if not desc_ok:
+        new_meta_desc = build_meta_desc(title)
+        mismatches.append({"field": "meta_desc", "before": cur_meta_desc, "after": new_meta_desc})
+
+    # ── Product-only: body_html + image ALTs ──────────────────────────────────
+    if item_type == "product":
+        body_html = item.get('body_html', '') or ''
+        plain_len = len(strip_html(body_html))
+        has_table = has_size_table(body_html)
+        if plain_len < 500 or not has_table:
+            new_desc = build_description(item)
+            mismatches.append({
+                "field": "body_html",
+                "before": f"{plain_len} chars, table={has_table}",
+                "after": f"{len(strip_html(new_desc))} chars + table"
+            })
+
+        # Image ALTs: check each image
+        colors = []
+        for v in item.get('variants', []):
+            opt = v.get('option1') or ''
+            if opt and opt.lower() not in ('default title', 'default', ''):
+                colors.append(opt)
+        for i, img in enumerate(item.get('images', [])):
+            hint = colors[i] if i < len(colors) else ''
+            expected_alt = build_alt(title, hint, i)
+            cur_alt = img.get('alt', '') or ''
+            if cur_alt != expected_alt:
+                mismatches.append({
+                    "field": f"img_alt[{i}]",
+                    "before": cur_alt,
+                    "after": expected_alt,
+                    "_img_id": img['id'],
+                    "_img_idx": i
+                })
+
+    return mismatches
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # CORE PRODUCT PROCESSOR
 # ══════════════════════════════════════════════════════════════════════════════
 
-def process(product, stats, log):
+def process(product, stats, log, existing_mfs=None):
     pid        = product['id']
     old_title  = product['title']
     old_handle = product['handle']
-    old_desc   = strip_html(product.get('body_html', ''))
     changes    = []
     missing    = []
 
@@ -570,14 +634,22 @@ def process(product, stats, log):
     if new_title != old_title:
         prod_updates['title'] = new_title
         stats['titles'] += 1
-        changes.append(f"title: '{old_title}' -> '{new_title}'")
+        changes.append({"field": "title", "before": old_title, "after": new_title})
 
-    # ── 2. Body description ───────────────────────────────────────────────────
-    if len(old_desc) < 150:
-        missing.append(f"description (was {len(old_desc)} chars)")
-        prod_updates['body_html'] = build_description(product)
+    # ── 2. Body description (strict: ≥500 chars + size table) ─────────────────
+    body_html = product.get('body_html', '') or ''
+    plain_len = len(strip_html(body_html))
+    has_table = has_size_table(body_html)
+    if plain_len < 500 or not has_table:
+        missing.append(f"body_html ({plain_len} chars, table={has_table})")
+        new_body = build_description(product)
+        prod_updates['body_html'] = new_body
         stats['descriptions'] += 1
-        changes.append("description: added SEO body")
+        changes.append({
+            "field": "body_html",
+            "before": f"{plain_len} chars",
+            "after": f"{len(strip_html(new_body))} chars + table"
+        })
 
     # ── 3. URL handle + redirect ──────────────────────────────────────────────
     final_title  = prod_updates.get('title', old_title)
@@ -587,9 +659,8 @@ def process(product, stats, log):
         prod_updates['handle'] = ideal_handle
         if create_redirect(old_handle, ideal_handle):
             stats['redirects'] += 1
-            changes.append(f"redirect: /products/{old_handle} -> /products/{ideal_handle}")
         stats['handles'] += 1
-        changes.append(f"handle: '{old_handle}' -> '{ideal_handle}'")
+        changes.append({"field": "handle", "before": old_handle, "after": ideal_handle})
 
     # Apply product updates
     if prod_updates:
@@ -600,53 +671,62 @@ def process(product, stats, log):
             print(f"    ! Update failed: {e}")
             return
 
-    # ── 4. Meta title + Meta description ─────────────────────────────────────
+    # ── 4. Fetch metafields if not provided ───────────────────────────────────
+    if existing_mfs is None:
+        try:
+            existing_mfs = get_metafields("products", pid)
+        except Exception as e:
+            print(f"    ! Metafields fetch error: {e}")
+            existing_mfs = {}
+
+    # ── 5. Strict validation + fix ────────────────────────────────────────────
     display_title = prod_updates.get('title', old_title)
-    meta_title    = build_meta_title(display_title)
-    meta_desc     = build_meta_desc(display_title)
+    product_with_new_title = {**product, 'title': display_title}
+    mismatches = validate_seo(product_with_new_title, "product", existing_mfs)
 
-    try:
-        existing_mfs = get_metafields(pid)
-        cur_mtitle   = existing_mfs.get('global.title_tag',       {}).get('value', '')
-        cur_mdesc    = existing_mfs.get('global.description_tag', {}).get('value', '')
+    meta_fix_needed = False
+    new_meta_title = build_meta_title(display_title)
+    new_meta_desc = build_meta_desc(display_title)
 
-        if not cur_mtitle:
-            missing.append("meta title (missing)")
-        if not cur_mdesc:
-            missing.append("meta description (missing)")
-
-        if cur_mtitle != meta_title:
-            set_seo_metafields(pid, meta_title, meta_desc, existing_mfs)
+    for m in mismatches:
+        if m['field'] == 'meta_title':
+            missing.append("meta_title mismatch")
+            meta_fix_needed = True
             stats['meta_titles'] += 1
-            stats['meta_descs']  += 1
-            changes.append(f"meta title: '{meta_title}'")
-            changes.append(f"meta desc:  '{meta_desc[:80]}...'")
-        elif cur_mdesc != meta_desc:
-            upsert_metafield(pid, "global", "description_tag", meta_desc,
-                             "multi_line_text_field", existing_mfs)
-            stats['meta_descs'] += 1
-            changes.append(f"meta desc updated")
-    except Exception as e:
-        print(f"    ! Metafields error: {e}")
-
-    # ── 5. Image alt text ─────────────────────────────────────────────────────
-    colors = []
-    for v in product.get('variants', []):
-        opt = v.get('option1') or ''
-        if opt and opt.lower() not in ('default title', 'default', ''):
-            colors.append(opt)
-
-    img_alts_fixed = 0
-    for i, img in enumerate(product.get('images', [])):
-        hint = colors[i] if i < len(colors) else ''
-        alt  = build_alt(display_title, hint, i)
-        if img.get('alt', '') != alt:
-            if not img.get('alt'):
+            changes.append({"field": "meta_title", "before": m['before'], "after": m['after']})
+        elif m['field'] == 'meta_desc':
+            missing.append("meta_desc mismatch")
+            if not meta_fix_needed:
+                stats['meta_descs'] += 1
+            changes.append({
+                "field": "meta_desc",
+                "before": m['before'][:80] + "..." if len(m['before']) > 80 else m['before'],
+                "after": m['after'][:80] + "..."
+            })
+        elif m['field'] == 'body_html':
+            # Already handled above
+            pass
+        elif m['field'].startswith('img_alt'):
+            i   = m['_img_idx']
+            iid = m['_img_id']
+            if not m['before']:
                 missing.append(f"img[{i}] alt (missing)")
-            if update_image_alt(pid, img['id'], alt):
+            if update_image_alt(pid, iid, m['after']):
                 stats['alts'] += 1
-                img_alts_fixed += 1
-                changes.append(f"img[{i}] alt: '{alt}'")
+                changes.append({"field": f"img_alt[{i}]", "before": m['before'][:50], "after": m['after'][:50]})
+
+    # Fix meta fields if needed
+    if meta_fix_needed:
+        try:
+            set_seo_metafields("products", pid, new_meta_title, new_meta_desc, existing_mfs)
+        except Exception as e:
+            print(f"    ! Meta update error: {e}")
+    elif any(m['field'] == 'meta_desc' for m in mismatches):
+        try:
+            upsert_metafield("products", pid, "global", "description_tag", new_meta_desc,
+                             "multi_line_text_field", existing_mfs)
+        except Exception as e:
+            print(f"    ! Meta desc update error: {e}")
 
     # ── Log entry ─────────────────────────────────────────────────────────────
     entry = {
@@ -658,12 +738,14 @@ def process(product, stats, log):
     log.append(entry)
 
     if missing:
-        print(f"  Missing: {', '.join(missing)}")
+        print(f"  Missing: {', '.join(missing[:4])}")
     if changes:
-        for c in changes[:4]:          # print first 4 changes
-            print(f"  + {c}")
-        if len(changes) > 4:
-            print(f"  + ...and {len(changes)-4} more")
+        for c in changes[:3]:
+            b = str(c['before'])[:30]
+            a = str(c['after'])[:30]
+            print(f"  + {c['field']}: '{b}' -> '{a}'")
+        if len(changes) > 3:
+            print(f"  + ...and {len(changes)-3} more")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -690,8 +772,8 @@ def main():
         print("Processing: Products, Pages, Collections, Blog Posts\n")
     elif args.weekly:
         mode = 'weekly'
-        since = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        print("Mode: WEEKLY (products updated in last 7 days)")
+        since = None
+        print("Mode: WEEKLY (entire catalog, strict validation)")
         print("Processing: Products, Pages, Collections, Blog Posts\n")
     elif args.hours:
         mode = 'custom'
@@ -749,114 +831,164 @@ def main():
     # ── Process products ──────────────────────────────────────────────────────
     print("Processing products...")
     for i, p in enumerate(products, 1):
-        mfs        = get_metafields(p['id'])
-        cur_mtitle = mfs.get('global.title_tag',       {}).get('value', '')
-        cur_mdesc  = mfs.get('global.description_tag', {}).get('value', '')
-        needs_seo  = (
-            title_case(p['title']) != p['title']
-            or len(strip_html(p.get('body_html', ''))) < 400
-            or not cur_mtitle
-            or not cur_mdesc
-            or any(len(img.get('alt', '')) < 10 for img in p.get('images', []))
-        )
+        mfs        = get_metafields("products", p['id'])
+        mismatches = validate_seo(p, "product", mfs)
+        title_wrong = title_case(p['title']) != p['title']
+        needs_seo   = bool(mismatches) or title_wrong
         if not needs_seo and mode != 'force':
             print(f"  [{i}/{len(products)}] OK  {p['title'][:55]}")
             continue
         print(f"  [{i}/{len(products)}] FIX {p['title'][:55]}")
-        process(p, stats, log)
+        process(p, stats, log, existing_mfs=mfs)
 
     # ── Process pages ─────────────────────────────────────────────────────────
     if pages:
         print("\nProcessing pages...")
         for i, page in enumerate(pages, 1):
             title = page['title']
-            mfs = get_metafields(page['id'])
+            mfs = get_metafields("pages", page['id'])
+
+            # Strict validation
             cur_mtitle = mfs.get('global.title_tag', {}).get('value', '')
-            needs_seo = not cur_mtitle or len(strip_html(page.get('body_html', ''))) < 200
+            cur_mdesc  = mfs.get('global.description_tag', {}).get('value', '')
+            expected_mt = build_meta_title(title)
+            desc_ok = (
+                "7-day return" in cur_mdesc
+                and "free" in cur_mdesc.lower()
+                and DISPLAY_BRAND in cur_mdesc
+                and 0 < len(cur_mdesc) <= 155
+            )
+            mt_ok = (cur_mtitle == expected_mt)
+            needs_seo = not mt_ok or not desc_ok
             if not needs_seo and mode != 'force':
                 print(f"  [{i}/{len(pages)}] OK  {title[:55]}")
                 continue
+
             print(f"  [{i}/{len(pages)}] FIX {title[:55]}")
-            # Simple page processing: just set meta title + description if missing
-            if not cur_mtitle:
-                meta_title = title_case(title)
-                meta_desc = truncate(f"{title} - {DISPLAY_BRAND}. Premium women's fashion with free US shipping & 7-day returns.", 155)
-                try:
-                    existing_mfs = get_metafields(page['id'])
-                    set_seo_metafields(page['id'], meta_title, meta_desc, existing_mfs)
-                    stats['meta_titles'] += 1
-                    stats['meta_descs'] += 1
-                    stats['pages'] += 1
-                    log.append({
-                        'type': 'page',
-                        'title': title,
-                        'url': f"{SITE}/pages/{page['handle']}",
-                        'fixed': ['meta title and description set']
-                    })
-                except Exception as e:
-                    print(f"    ! Error processing page: {e}")
+            new_meta_title = expected_mt
+            new_meta_desc = truncate(
+                f"{title} - {DISPLAY_BRAND}. Premium women's fashion with free US shipping & 7-day returns.",
+                155
+            )
+            try:
+                set_seo_metafields("pages", page['id'], new_meta_title, new_meta_desc, mfs)
+                stats['meta_titles'] += 1
+                stats['meta_descs'] += 1
+                stats['pages'] += 1
+                log.append({
+                    'type': 'page',
+                    'title': title,
+                    'url': f"{SITE}/pages/{page['handle']}",
+                    'fixed': [
+                        {"field": "meta_title", "before": cur_mtitle, "after": new_meta_title},
+                        {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]},
+                    ]
+                })
+            except Exception as e:
+                print(f"    ! Error processing page: {e}")
 
     # ── Process collections ───────────────────────────────────────────────────
     if collections:
         print("\nProcessing collections...")
         for i, coll in enumerate(collections, 1):
             title = coll['title']
-            mfs = get_metafields(coll['id'])
+            mfs = get_metafields("custom_collections", coll['id'])
+
+            # Strict validation
             cur_mtitle = mfs.get('global.title_tag', {}).get('value', '')
-            needs_seo = not cur_mtitle or len(strip_html(coll.get('body_html', ''))) < 200
+            cur_mdesc  = mfs.get('global.description_tag', {}).get('value', '')
+            expected_mt = build_meta_title(title)
+            desc_ok = (
+                "7-day return" in cur_mdesc
+                and "free" in cur_mdesc.lower()
+                and DISPLAY_BRAND in cur_mdesc
+                and 0 < len(cur_mdesc) <= 155
+            )
+            mt_ok = (cur_mtitle == expected_mt)
+            needs_seo = not mt_ok or not desc_ok
             if not needs_seo and mode != 'force':
                 print(f"  [{i}/{len(collections)}] OK  {title[:55]}")
                 continue
+
             print(f"  [{i}/{len(collections)}] FIX {title[:55]}")
-            if not cur_mtitle:
-                meta_title = title_case(title)
-                meta_desc = truncate(f"Shop {title} at {DISPLAY_BRAND}. Premium women's fashion with free US shipping & 7-day returns.", 155)
-                try:
-                    existing_mfs = get_metafields(coll['id'])
-                    set_seo_metafields(coll['id'], meta_title, meta_desc, existing_mfs)
-                    stats['meta_titles'] += 1
-                    stats['meta_descs'] += 1
-                    stats['collections'] += 1
-                    log.append({
-                        'type': 'collection',
-                        'title': title,
-                        'url': f"{SITE}/collections/{coll['handle']}",
-                        'fixed': ['meta title and description set']
-                    })
-                except Exception as e:
-                    print(f"    ! Error processing collection: {e}")
+            new_meta_title = expected_mt
+            new_meta_desc = truncate(
+                f"Shop {title} at {DISPLAY_BRAND}. Premium women's fashion with free US shipping & 7-day returns.",
+                155
+            )
+            try:
+                set_seo_metafields("custom_collections", coll['id'], new_meta_title, new_meta_desc, mfs)
+                stats['meta_titles'] += 1
+                stats['meta_descs'] += 1
+                stats['collections'] += 1
+                log.append({
+                    'type': 'collection',
+                    'title': title,
+                    'url': f"{SITE}/collections/{coll['handle']}",
+                    'fixed': [
+                        {"field": "meta_title", "before": cur_mtitle, "after": new_meta_title},
+                        {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]},
+                    ]
+                })
+            except Exception as e:
+                print(f"    ! Error processing collection: {e}")
 
     # ── Process articles ──────────────────────────────────────────────────────
     if articles:
         print("\nProcessing articles...")
         for i, article in enumerate(articles, 1):
             title = article['title']
-            # Articles use metafields for SEO
-            if 'metafields' in article:
-                cur_mtitle = next((m['value'] for m in article.get('metafields', []) if m.get('key') == 'title_tag'), '')
-            else:
-                cur_mtitle = ''
-            needs_seo = not cur_mtitle or len(strip_html(article.get('body_html', ''))) < 200
+            blog_id = article.get('blog_id')
+            art_id  = article['id']
+
+            if not blog_id:
+                print(f"  [{i}/{len(articles)}] SKIP {title[:55]} (no blog_id)")
+                continue
+
+            try:
+                mfs = get_metafields(f"blogs/{blog_id}/articles", art_id)
+            except Exception as e:
+                print(f"  ! Could not fetch metafields for article {title}: {e}")
+                continue
+
+            # Strict validation
+            cur_mtitle = mfs.get('global.title_tag', {}).get('value', '')
+            cur_mdesc  = mfs.get('global.description_tag', {}).get('value', '')
+            expected_mt = build_meta_title(title)
+            desc_ok = (
+                "7-day return" in cur_mdesc
+                and "free" in cur_mdesc.lower()
+                and DISPLAY_BRAND in cur_mdesc
+                and 0 < len(cur_mdesc) <= 155
+            )
+            mt_ok = (cur_mtitle == expected_mt)
+            needs_seo = not mt_ok or not desc_ok
             if not needs_seo and mode != 'force':
                 print(f"  [{i}/{len(articles)}] OK  {title[:55]}")
                 continue
+
             print(f"  [{i}/{len(articles)}] FIX {title[:55]}")
-            if not cur_mtitle:
-                meta_title = title_case(title)
-                meta_desc = truncate(f"{title} - {DISPLAY_BRAND} Blog. Women's fashion tips & styling guides.", 155)
-                try:
-                    # Articles: use article ID with blog context
-                    existing_mfs = article.get('metafields', [])
-                    # Note: Full article SEO would require additional API calls; here we just log
-                    stats['articles'] += 1
-                    log.append({
-                        'type': 'article',
-                        'title': title,
-                        'url': f"{SITE}/blogs/{article.get('blog_id')}/{article['handle']}",
-                        'fixed': ['needs meta title and description']
-                    })
-                except Exception as e:
-                    print(f"    ! Error processing article: {e}")
+            new_meta_title = expected_mt
+            new_meta_desc = truncate(
+                f"{title} - {DISPLAY_BRAND} Blog. Women's fashion tips & styling guides with free shipping & 7-day returns.",
+                155
+            )
+            try:
+                set_seo_metafields(f"blogs/{blog_id}/articles", art_id, new_meta_title, new_meta_desc, mfs)
+                stats['meta_titles'] += 1
+                stats['meta_descs'] += 1
+                stats['articles'] += 1
+                log.append({
+                    'type': 'article',
+                    'title': title,
+                    'url': f"{SITE}/blogs/{blog_id}/{article['handle']}",
+                    'fixed': [
+                        {"field": "meta_title", "before": cur_mtitle, "after": new_meta_title},
+                        {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]},
+                    ]
+                })
+            except Exception as e:
+                print(f"    ! Error processing article: {e}")
 
     # ── Report ────────────────────────────────────────────────────────────────
     print("\n" + "─"*60)
@@ -888,9 +1020,14 @@ def main():
             print(f"\n  Item    : {item_name}")
             print(f"  URL     : {entry['url']}")
             if entry.get('missing'):
-                print(f"  Missing : {', '.join(entry['missing'])}")
+                print(f"  Missing : {', '.join(entry['missing'][:3])}")
             for fix in entry.get('fixed', []):
-                print(f"  Fixed   : {fix}")
+                if isinstance(fix, dict):
+                    b = str(fix.get('before', ''))[:40]
+                    a = str(fix.get('after', ''))[:40]
+                    print(f"  Fixed [{fix['field']}]: '{b}' -> '{a}'")
+                else:
+                    print(f"  Fixed   : {fix}")
 
     report = {
         **stats,

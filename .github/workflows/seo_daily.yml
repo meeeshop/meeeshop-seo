@@ -1,24 +1,26 @@
-name: MeeeShop SEO Daily
+name: MeeeShop SEO Automation
 
 on:
   schedule:
-    - cron: '0 8 * * *'   # 3:00 AM EST = 08:00 UTC every day
+    - cron: '0 6 * * *'     # Daily: 6:00 AM UTC (1:00 AM EST)
+    - cron: '0 8 * * 0'     # Weekly: Sunday 8:00 AM UTC (3:00 AM EST)
 
   workflow_dispatch:
     inputs:
       run_mode:
-        description: 'daily = last 25h only | all = full catalog'
-        required: false
+        description: 'Execution mode'
+        required: true
         default: 'daily'
         type: choice
         options:
-          - daily
-          - all
+          - daily    # Last 48 hours + add missing size charts
+          - weekly   # Last 7 days, skip recently updated
+          - force    # Full store normalization (careful!)
 
 jobs:
   seo_optimize:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -32,23 +34,36 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Determine run mode
+        id: mode
+        run: |
+          if [[ "${{ github.event.inputs.run_mode }}" ]]; then
+            MODE="${{ github.event.inputs.run_mode }}"
+          else
+            # Auto-detect: daily on weekdays, weekly on Sunday
+            DOW=$(date +%w)
+            if [[ "$DOW" == "0" ]]; then
+              MODE="weekly"
+            else
+              MODE="daily"
+            fi
+          fi
+          echo "mode=${MODE}" >> $GITHUB_OUTPUT
+          echo "MODE: ${MODE}"
+
       - name: Run SEO automation
         env:
           SHOPIFY_STORE:        ${{ secrets.SHOPIFY_STORE }}
           SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
         run: |
-          if [ "${{ github.event.inputs.run_mode }}" = "all" ]; then
-            echo "Running full catalog scan..."
-            python seo_daily.py --all
-          else
-            echo "Running smart daily scan (last 25h)..."
-            python seo_daily.py
-          fi
+          MODE="${{ steps.mode.outputs.mode }}"
+          echo "Running SEO in $MODE mode..."
+          python seo_daily.py --${MODE}
 
       - name: Upload SEO report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: seo-report-${{ github.run_number }}
+          name: seo-report-${{ github.run_number }}-${{ steps.mode.outputs.mode }}
           path: seo_report_*.json
-          retention-days: 14
+          retention-days: 30
