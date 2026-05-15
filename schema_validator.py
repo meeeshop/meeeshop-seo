@@ -306,10 +306,16 @@ def schema_exists(metafields: List[Dict], namespace: str, key: str) -> bool:
 # SHOPIFY API OPERATIONS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_products(hours: int = 48) -> List[Dict]:
-    """Fetch products updated in last N hours with pagination"""
+def get_products(hours: int = 0) -> List[Dict]:
+    """Fetch products created since cutoff (last N hours). 0 = all products."""
     url = f"{BASE}/products.json"
     params = {"limit": 250, "status": "active"}
+
+    # Add time filter if hours specified
+    if hours > 0:
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        params["created_at_min"] = cutoff
+        logger.debug(f"Filtering products created since {cutoff}")
 
     all_products = []
     page_count = 0
@@ -356,21 +362,31 @@ def get_products(hours: int = 48) -> List[Dict]:
             validation_health["critical_errors"] += 1
             break
 
-    logger.info(f"Fetched {len(all_products)} products across {page_count} pages (status=active)")
+    cutoff_desc = f"(created in last {hours}h)" if hours > 0 else "(all products)"
+    logger.info(f"Fetched {len(all_products)} products across {page_count} pages {cutoff_desc}")
     return all_products
 
 
-def get_collections() -> List[Dict]:
-    """Fetch all collections"""
+def get_collections(hours: int = 0) -> List[Dict]:
+    """Fetch collections created since cutoff. 0 = all collections."""
     url = f"{BASE}/custom_collections.json"
-    resp = make_request_with_retry("get", url, params={"limit": 250})
+    params = {"limit": 250}
+
+    # Add time filter if hours specified
+    if hours > 0:
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        params["created_at_min"] = cutoff
+        logger.debug(f"Filtering collections created since {cutoff}")
+
+    resp = make_request_with_retry("get", url, params=params)
     if resp is None:
         logger.error("Failed to fetch collections")
         validation_health["critical_errors"] += 1
         return []
     try:
         collections = resp.json().get("custom_collections", [])
-        logger.info(f"Fetched {len(collections)} collections")
+        cutoff_desc = f"(created in last {hours}h)" if hours > 0 else "(all collections)"
+        logger.info(f"Fetched {len(collections)} collections {cutoff_desc}")
         return collections
     except Exception as e:
         logger.error(f"Error parsing collections: {e}")
@@ -378,17 +394,26 @@ def get_collections() -> List[Dict]:
         return []
 
 
-def get_pages() -> List[Dict]:
-    """Fetch all pages"""
+def get_pages(hours: int = 0) -> List[Dict]:
+    """Fetch pages created since cutoff. 0 = all pages."""
     url = f"{BASE}/pages.json"
-    resp = make_request_with_retry("get", url, params={"limit": 250})
+    params = {"limit": 250}
+
+    # Add time filter if hours specified
+    if hours > 0:
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        params["created_at_min"] = cutoff
+        logger.debug(f"Filtering pages created since {cutoff}")
+
+    resp = make_request_with_retry("get", url, params=params)
     if resp is None:
         logger.error("Failed to fetch pages")
         validation_health["critical_errors"] += 1
         return []
     try:
         pages = resp.json().get("pages", [])
-        logger.info(f"Fetched {len(pages)} pages")
+        cutoff_desc = f"(created in last {hours}h)" if hours > 0 else "(all pages)"
+        logger.info(f"Fetched {len(pages)} pages {cutoff_desc}")
         return pages
     except Exception as e:
         logger.error(f"Error parsing pages: {e}")
@@ -396,16 +421,26 @@ def get_pages() -> List[Dict]:
         return []
 
 
-def get_blog_articles(blog_id: str) -> List[Dict]:
-    """Fetch all articles from a blog"""
+def get_blog_articles(blog_id: str, hours: int = 0) -> List[Dict]:
+    """Fetch articles from a blog created since cutoff. 0 = all articles."""
     url = f"{BASE}/blogs/{blog_id}/articles.json"
-    resp = make_request_with_retry("get", url, params={"limit": 250})
+    params = {"limit": 250}
+
+    # Add time filter if hours specified
+    if hours > 0:
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        params["created_at_min"] = cutoff
+        logger.debug(f"Filtering articles created since {cutoff}")
+
+    resp = make_request_with_retry("get", url, params=params)
     if resp is None:
         logger.error(f"Failed to fetch articles from blog {blog_id}")
         validation_health["critical_errors"] += 1
         return []
     try:
         articles = resp.json().get("articles", [])
+        cutoff_desc = f"(created in last {hours}h)" if hours > 0 else "(all articles)"
+        logger.info(f"Fetched {len(articles)} articles {cutoff_desc}")
         return articles
     except Exception as e:
         logger.error(f"Error parsing articles from blog {blog_id}: {e}")
@@ -464,10 +499,15 @@ def validate_and_add_schemas(mode: str = "daily"):
         "details": []
     }
 
-    # Determine time window
-    hours = 48 if mode == "daily" else 168 if mode == "weekly" else 0
+    # Determine time window based on mode
+    if mode == "daily":
+        hours = 48
+    elif mode == "weekly":
+        hours = 0  # All products
+    else:  # force
+        hours = 0  # All products
 
-    logger.info(f"Starting schema validation in {mode} mode (hours={hours})")
+    logger.info(f"Starting schema validation in {mode} mode (hours={hours if hours > 0 else 'all'})")
 
     # ─── Products ───────────────────────────────────────────────────────────
     logger.info("=" * 60)
@@ -475,7 +515,7 @@ def validate_and_add_schemas(mode: str = "daily"):
     logger.info("=" * 60)
 
     try:
-        products = get_products(hours) if hours > 0 else get_products(10000)
+        products = get_products(hours)
         for product in products:
             report["products"]["checked"] += 1
             product_id = product.get("id")
@@ -519,7 +559,7 @@ def validate_and_add_schemas(mode: str = "daily"):
     logger.info("=" * 60)
 
     try:
-        collections = get_collections()
+        collections = get_collections(hours)
         for collection in collections:
             report["collections"]["checked"] += 1
             coll_id = collection.get("id")
@@ -561,7 +601,7 @@ def validate_and_add_schemas(mode: str = "daily"):
     logger.info("=" * 60)
 
     try:
-        pages = get_pages()
+        pages = get_pages(hours)
         for page in pages:
             report["pages"]["checked"] += 1
             page_id = page.get("id")
@@ -620,7 +660,7 @@ def validate_and_add_schemas(mode: str = "daily"):
         for blog in blogs:
             blog_id = blog.get("id")
             blog_handle = blog.get("handle")
-            articles = get_blog_articles(str(blog_id))
+            articles = get_blog_articles(str(blog_id), hours)
 
             for article in articles:
                 report["blog_articles"]["checked"] += 1
