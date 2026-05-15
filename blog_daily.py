@@ -3,20 +3,21 @@
 blog_daily.py — Google Discover-ready blog automation for MeeeShop
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Google Discover requirements met:
-  - Featured image: 1200px wide (Shopify product image via CDN, or Pollinations.ai fallback)
-  - Title: compelling, non-clickbait, matches content intent
+Google Discover + SEO requirements:
+  - Featured image: 1200px wide, descriptive keyword-rich ALT text
+  - SEO title: 50-60 chars, keyword-first, set via Shopify metafield
+  - Meta description: 140-155 chars, action-oriented, set via summary_html
+  - Slug (handle): auto-generated from SEO title by Shopify
   - EEAT: first-person experience, expertise signals, trust indicators
-  - High-intent formats: buying guide, comparison, problem-solver,
+  - 5 high-intent formats: buying guide, comparison, problem-solver,
     trend report, outfit formula
-  - Popular keywords embedded naturally
-  - No AI-sounding filler or generic phrasing
+  - Popular keywords embedded naturally in H1, H2, body, ALT, meta
 
 AI: Gemini 2.0 Flash -> Groq Llama-3.3-70B -> OpenRouter (multi-model free tier)
-Image: Shopify product image (copyright-free, resized to 1200x630 via CDN param)
+Image: Shopify product image resized to 1200x630 via CDN; Pollinations.ai fallback
 
 Usage:
-  python blog_daily.py              # create 1 draft blog post
+  python blog_daily.py              # create 1 post
   python blog_daily.py --dry-run    # print only, no Shopify publish
   python blog_daily.py --count 3    # create 3 posts
 """
@@ -51,6 +52,9 @@ if not TOKEN:
 
 STORE_URL = "https://us.meeeshop.com"
 
+YEAR  = datetime.now().year
+MONTH = datetime.now().strftime("%B %Y")
+
 # ── Shopify helpers ────────────────────────────────────────────────────────────
 def _req(method, url, **kw):
     for attempt in range(5):
@@ -67,22 +71,20 @@ def _req(method, url, **kw):
 
 
 # ── Blog category routing ──────────────────────────────────────────────────────
-# Maps product_type keywords → Shopify blog title keywords
-# Falls back to first available blog if no match found.
 CATEGORY_BLOG_MAP = {
-    "dress":    ["dress", "style", "fashion", "journal"],
-    "jean":     ["denim", "jean", "style", "fashion", "journal"],
-    "top":      ["style", "fashion", "tops", "journal"],
-    "blouse":   ["style", "fashion", "tops", "journal"],
-    "skirt":    ["style", "fashion", "journal"],
-    "pant":     ["style", "fashion", "journal"],
-    "jacket":   ["outerwear", "style", "fashion", "journal"],
-    "coat":     ["outerwear", "style", "fashion", "journal"],
-    "sweater":  ["style", "fashion", "journal"],
-    "cardigan": ["style", "fashion", "journal"],
-    "swimwear": ["swim", "summer", "style", "fashion", "journal"],
+    "dress":      ["dress", "style", "fashion", "journal"],
+    "jean":       ["denim", "jean", "style", "fashion", "journal"],
+    "top":        ["style", "fashion", "tops", "journal"],
+    "blouse":     ["style", "fashion", "tops", "journal"],
+    "skirt":      ["style", "fashion", "journal"],
+    "pant":       ["style", "fashion", "journal"],
+    "jacket":     ["outerwear", "style", "fashion", "journal"],
+    "coat":       ["outerwear", "style", "fashion", "journal"],
+    "sweater":    ["style", "fashion", "journal"],
+    "cardigan":   ["style", "fashion", "journal"],
+    "swimwear":   ["swim", "summer", "style", "fashion", "journal"],
     "activewear": ["active", "fitness", "style", "fashion", "journal"],
-    "accessory": ["accessories", "style", "fashion", "journal"],
+    "accessory":  ["accessories", "style", "fashion", "journal"],
 }
 
 
@@ -93,24 +95,18 @@ def get_all_blogs() -> list:
 
 
 def get_or_create_blog(product_type: str, all_blogs: list) -> dict:
-    """Find the best matching blog for this product type, or create a default."""
     ptype_lower = (product_type or "").lower()
     hints = []
     for key, keywords in CATEGORY_BLOG_MAP.items():
         if key in ptype_lower:
             hints = keywords
             break
-
-    # Try to match an existing blog by title
     for hint in hints:
         for blog in all_blogs:
             if hint in blog.get("title", "").lower():
                 return blog
-
-    # Fallback: use first blog, or create one
     if all_blogs:
         return all_blogs[0]
-
     r = _req("post", f"{BASE}/blogs.json",
              json={"blog": {"title": "MeeeShop Fashion Journal"}})
     r.raise_for_status()
@@ -126,23 +122,96 @@ def fetch_products(limit=100) -> list:
     return r.json().get("products", [])
 
 
-# ── Image helpers ──────────────────────────────────────────────────────────────
-def make_featured_image(product: dict, fmt: str) -> str:
+# ── SEO metadata generation ────────────────────────────────────────────────────
+def _build_seo_prompt(post_title: str, keyword: str, product_title: str, ptype: str) -> str:
+    return (
+        f"Generate SEO metadata for a women's fashion blog post. "
+        f"Post title: \"{post_title}\"\n"
+        f"Target keyword: \"{keyword}\"\n"
+        f"Featured product: {product_title} ({ptype})\n"
+        f"Store: MeeeShop — USA women's boutique at us.meeeshop.com\n\n"
+        f"Return ONLY these 3 lines, nothing else:\n"
+        f"SEO_TITLE: [50-60 chars, keyword near start, year or 'for Women', compelling]\n"
+        f"META_DESC: [140-155 chars, action-oriented, includes keyword, free shipping mention, ends with CTA]\n"
+        f"IMG_ALT: [descriptive ALT text for featured image, 10-15 words, includes keyword + 'women' + product type, no quotes]\n"
+    )
+
+
+def generate_seo_meta(post_title: str, keyword: str, product_title: str, ptype: str,
+                      h1_hint: str) -> dict:
     """
-    Use Shopify product image resized to 1200x630 as featured image (copyright-free).
-    Falls back to Pollinations.ai AI-generated editorial image.
+    Ask AI for SEO title, meta description, and image ALT text.
+    Falls back to deterministic values if AI fails.
+    """
+    prompt = _build_seo_prompt(post_title, keyword, product_title, ptype)
+    raw = ai_client.generate(prompt, max_tokens=200, temperature=0.4)
+
+    seo_title = meta_desc = img_alt = ""
+
+    if raw:
+        for line in raw.splitlines():
+            line = line.strip()
+            if line.upper().startswith("SEO_TITLE:"):
+                seo_title = line.split(":", 1)[1].strip().strip('"')
+            elif line.upper().startswith("META_DESC:"):
+                meta_desc = line.split(":", 1)[1].strip().strip('"')
+            elif line.upper().startswith("IMG_ALT:"):
+                img_alt = line.split(":", 1)[1].strip().strip('"')
+
+    # Deterministic fallbacks — always valid even if AI fails
+    if not seo_title or len(seo_title) > 70:
+        seo_title = f"{keyword.title()} — MeeeShop {YEAR}"[:60]
+    if not meta_desc or len(meta_desc) > 165:
+        meta_desc = (
+            f"Discover the best {ptype} for women in {YEAR}. "
+            f"Shop {product_title} at MeeeShop — free US shipping on orders $50+, "
+            f"easy 7-day returns, sizes XS–3X."
+        )[:155]
+    if not img_alt:
+        img_alt = f"{product_title} — {ptype} for women, {YEAR} fashion guide at MeeeShop"
+
+    return {
+        "seo_title":  seo_title,
+        "meta_desc":  meta_desc,
+        "img_alt":    img_alt,
+    }
+
+
+def set_article_seo_metafields(blog_id: int, article_id: int, seo_title: str, meta_desc: str):
+    """
+    Set SEO title and meta description via Shopify metafields.
+    These map to the <title> tag and <meta name="description"> in Shopify themes.
+    Namespace: global — keys: title_tag, description_tag (standard Shopify SEO metafields).
+    """
+    metafields = [
+        {"namespace": "global", "key": "title_tag",       "value": seo_title, "type": "single_line_text_field"},
+        {"namespace": "global", "key": "description_tag", "value": meta_desc, "type": "single_line_text_field"},
+    ]
+    for mf in metafields:
+        r = _req("post",
+                 f"{BASE}/blogs/{blog_id}/articles/{article_id}/metafields.json",
+                 json={"metafield": mf})
+        if r.status_code in (200, 201):
+            print(f"  SEO metafield set: {mf['key']} = {mf['value'][:60]}")
+        else:
+            print(f"  SEO metafield FAILED ({mf['key']}): {r.status_code} {r.text[:100]}")
+
+
+# ── Image helpers ──────────────────────────────────────────────────────────────
+def make_featured_image_url(product: dict, fmt: str) -> str:
+    """
+    Priority 1: Shopify product image resized to 1200x630 via CDN (copyright-free).
+    Priority 2: Pollinations.ai AI editorial photo (1200x630, copyright-free).
     Google Discover requires minimum 1200px wide.
     """
     images = product.get("images", [])
     if images:
         src = images[0]["src"]
-        # Shopify CDN supports width param: append _1200x to filename
-        # e.g. product.jpg -> product_1200x.jpg
+        # Shopify CDN image transform: insert _1200x630_crop_center before extension
         src = re.sub(r'\.(jpg|jpeg|png|webp)(\?.*)?$',
                      r'_1200x630_crop_center.\1', src, flags=re.IGNORECASE)
         return src
 
-    # Fallback: AI-generated editorial photo
     ptype = (product.get("product_type") or "women's fashion").lower()
     scene_map = {
         "buying_guide":   "elegant woman wearing stylish outfit in bright modern boutique, natural light, editorial photography",
@@ -151,16 +220,15 @@ def make_featured_image(product: dict, fmt: str) -> str:
         "trend_report":   "fashion editorial collage, trendy women outfits, street style photography, vibrant colors",
         "outfit_formula": "stylish woman in versatile outfit, city background, golden hour, fashion editorial",
     }
-    scene = scene_map.get(fmt, "beautiful women fashion editorial, modern style, natural light")
+    scene     = scene_map.get(fmt, "beautiful women fashion editorial, modern style, natural light")
     ptype_hint = ptype.replace("'s", "").strip()
     prompt = (
         f"professional fashion editorial photo, {ptype_hint} clothing, "
         f"{scene}, high quality, sharp focus, no text, no watermark, "
         f"photorealistic, magazine quality, bright and inviting"
     )
-    encoded = quote(prompt)
     seed = random.randint(1, 99999)
-    return f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=630&nologo=true&seed={seed}"
+    return f"https://image.pollinations.ai/prompt/{quote(prompt)}?width=1200&height=630&nologo=true&seed={seed}"
 
 
 def product_img_url(product: dict) -> str | None:
@@ -168,17 +236,24 @@ def product_img_url(product: dict) -> str | None:
     return images[0]["src"] if images else None
 
 
-# ── Product card HTML ──────────────────────────────────────────────────────────
-def make_product_card(product: dict, label: str = "FEATURED PICK — IN STOCK NOW") -> str:
+# ── Product cards ──────────────────────────────────────────────────────────────
+def make_product_card(product: dict, keyword: str = "",
+                      label: str = "FEATURED PICK — IN STOCK NOW") -> str:
     title  = product["title"]
     price  = product["variants"][0]["price"] if product.get("variants") else "0"
     handle = product.get("handle", "")
+    ptype  = (product.get("product_type") or "women's fashion").lower()
     url    = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=featured_card&utm_campaign=meeeshop" if handle else STORE_URL
     img    = product_img_url(product)
 
+    # Keyword-rich ALT text for inline product image
+    alt = f"{title} — {ptype} for women at MeeeShop"
+    if keyword:
+        alt = f"{title} — {keyword}, {ptype} at MeeeShop"
+
     img_html = (
-        f'<a href="{url}"><img src="{img}" alt="{title}" '
-        f'style="width:220px;height:220px;object-fit:cover;border-radius:10px;flex-shrink:0;" /></a>'
+        f'<a href="{url}"><img src="{img}" alt="{alt}" '
+        f'style="width:220px;height:220px;object-fit:cover;border-radius:10px;flex-shrink:0;" loading="lazy" /></a>'
         if img else ""
     )
 
@@ -205,11 +280,7 @@ def make_product_card(product: dict, label: str = "FEATURED PICK — IN STOCK NO
 """
 
 
-def make_related_products_section(products: list, exclude_handle: str) -> str:
-    """
-    Build a 'You Might Also Love' section with up to 3 related product cards.
-    Each card has product image, title, price, and a Shop link.
-    """
+def make_related_products_section(products: list, exclude_handle: str, keyword: str = "") -> str:
     related = [p for p in products if p.get("handle") != exclude_handle and p.get("images")]
     if not related:
         related = [p for p in products if p.get("handle") != exclude_handle]
@@ -220,11 +291,16 @@ def make_related_products_section(products: list, exclude_handle: str) -> str:
         title  = p["title"]
         price  = p["variants"][0]["price"] if p.get("variants") else "0"
         handle = p.get("handle", "")
+        ptype  = (p.get("product_type") or "women's fashion").lower()
         url    = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=related_card&utm_campaign=meeeshop"
         img    = product_img_url(p)
+        # Keyword-rich ALT for related product images
+        alt    = f"{title} — {ptype} for women at MeeeShop"
+        if keyword:
+            alt = f"{title} — shop {keyword} at MeeeShop"
         img_tag = (
-            f'<a href="{url}"><img src="{img}" alt="{title}" '
-            f'style="width:100%;height:200px;object-fit:cover;border-radius:10px;margin-bottom:12px;" /></a>'
+            f'<a href="{url}"><img src="{img}" alt="{alt}" '
+            f'style="width:100%;height:200px;object-fit:cover;border-radius:10px;margin-bottom:12px;" loading="lazy" /></a>'
             if img else ""
         )
         cards_html += f"""
@@ -254,9 +330,8 @@ def make_related_products_section(products: list, exclude_handle: str) -> str:
 """
 
 
-def inject_product_card(html_body: str, product: dict) -> str:
-    """Insert the featured product card right after the intro paragraph."""
-    card = make_product_card(product)
+def inject_product_card(html_body: str, product: dict, keyword: str = "") -> str:
+    card = make_product_card(product, keyword)
     insert_after = re.search(r"</h1>\s*(<p>.*?</p>)", html_body, re.DOTALL | re.IGNORECASE)
     if insert_after:
         pos = insert_after.end()
@@ -267,32 +342,38 @@ def inject_product_card(html_body: str, product: dict) -> str:
     return card + html_body
 
 
-def publish_article(blog: dict, title: str, body_html: str,
-                    tags: list, image_url: str | None,
+# ── Publish ────────────────────────────────────────────────────────────────────
+def publish_article(blog: dict, title: str, body_html: str, tags: list,
+                    image_url: str, img_alt: str, meta_desc: str,
                     dry_run: bool = False) -> dict | None:
     if dry_run:
         print(f"  [DRY-RUN] '{title}'")
-        if image_url:
-            print(f"  Image  : {image_url[:90]}")
         print(f"  Blog   : {blog.get('title')}")
-        print(f"  Preview: {re.sub(r'<[^>]+>',' ',body_html)[:180].strip()}…\n")
+        print(f"  Image  : {image_url[:90]}")
+        print(f"  ALT    : {img_alt}")
+        print(f"  Meta   : {meta_desc[:100]}")
+        print(f"  Preview: {re.sub(r'<[^>]+>',' ',body_html)[:160].strip()}…\n")
         return {"id": 0, "title": title}
 
     payload: dict = {
         "article": {
-            "title": title,
-            "body_html": body_html,
-            "tags": ", ".join(tags),
-            "published": True,
+            "title":        title,
+            "body_html":    body_html,
+            "summary_html": f"<p>{meta_desc}</p>",  # Shopify excerpt → meta description
+            "tags":         ", ".join(tags),
+            "published":    True,
         }
     }
     if image_url:
-        payload["article"]["image"] = {"src": image_url}
+        payload["article"]["image"] = {
+            "src": image_url,
+            "alt": img_alt,     # ALT text on featured image
+        }
 
     r = _req("post", f"{BASE}/blogs/{blog['id']}/articles.json", json=payload)
     if r.status_code in (200, 201):
         art = r.json().get("article", {})
-        print(f"  Published: '{art.get('title')}' (ID {art.get('id')}) in blog '{blog['title']}'")
+        print(f"  Published: '{art.get('title')}' (ID {art.get('id')}) → blog '{blog['title']}'")
         return art
     print(f"  FAILED {r.status_code}: {r.text[:200]}")
     return None
@@ -314,9 +395,6 @@ SEED_KEYWORDS = [
     "how to build a capsule wardrobe women", "women's date night outfit ideas",
 ]
 
-YEAR  = datetime.now().year
-MONTH = datetime.now().strftime("%B %Y")
-
 EEAT_RULES = (
     "EEAT requirements (mandatory — every post must include these):\n"
     "1. Write as a MeeeShop fashion editor in first-person ('I', 'we', 'our customers tell us')\n"
@@ -331,12 +409,45 @@ EEAT_RULES = (
 )
 
 
+def _lsi_keywords(ptype: str, keyword: str) -> list[str]:
+    """Return LSI / secondary keywords relevant to this product type and primary keyword."""
+    base_lsi = [
+        "women's outfit ideas", "stylish women USA", "affordable fashion",
+        "how to style", "women's clothing guide", "USA boutique fashion",
+    ]
+    ptype_lsi = {
+        "dress":      ["summer dress outfits", "flattering dresses women", "dress styles guide", "midi dress", "casual dress"],
+        "jean":       ["jeans for women", "best fitting jeans", "denim styles", "high waist jeans", "women's denim guide"],
+        "top":        ["tops for women", "blouse styles", "women's shirts", "work tops", "casual tops women"],
+        "blouse":     ["blouse outfits", "women's blouse styles", "office blouse", "flowy tops women"],
+        "skirt":      ["skirt outfits women", "midi skirt", "mini skirt style", "how to wear skirts"],
+        "pant":       ["women's pants guide", "trousers women", "wide leg pants", "work pants women"],
+        "jacket":     ["women's jacket outfits", "layering outfits", "blazer women", "casual jacket"],
+        "coat":       ["women's coat styles", "winter coat", "trench coat women", "coat outfit ideas"],
+        "sweater":    ["cozy sweater outfits", "women's knitwear", "sweater styles", "fall fashion women"],
+        "cardigan":   ["cardigan outfits", "layering cardigan", "open front cardigan", "cozy fashion"],
+        "swimwear":   ["swimsuit styles women", "bikini guide", "one piece swimsuit", "flattering swimwear"],
+        "activewear": ["workout outfit women", "athleisure look", "gym clothes women", "active style"],
+        "accessory":  ["women's accessories", "accessory guide", "how to accessorize", "fashion accessories"],
+    }
+    extras = []
+    for k, v in ptype_lsi.items():
+        if k in ptype:
+            extras = v
+            break
+    combined = list(dict.fromkeys(extras + base_lsi))[:6]
+    return combined
+
+
 def _build_prompt(fmt: str, product: dict, keyword: str) -> tuple[str, str]:
     title  = product["title"]
     ptype  = (product.get("product_type") or "women's fashion").lower()
     price  = product["variants"][0]["price"] if product.get("variants") else "49"
     handle = product.get("handle", "")
     url    = f"{STORE_URL}/products/{handle}" if handle else STORE_URL
+
+    lsi    = _lsi_keywords(ptype, keyword)
+    lsi_str = ", ".join(f'"{k}"' for k in lsi)
 
     base = (
         f"You are a fashion editor at MeeeShop, a USA women's clothing boutique.\n"
@@ -345,11 +456,13 @@ def _build_prompt(fmt: str, product: dict, keyword: str) -> tuple[str, str]:
         f"Product page URL: {url}\n"
         f"Category: {ptype}\n\n"
         f"{EEAT_RULES}"
-        f"SEO rules:\n"
-        f"- Use target keyword 3-4 times naturally throughout the post\n"
-        f"- Include 3-5 LSI keywords (related phrases women actually search)\n"
-        f"- Link to product URL at least twice with natural anchor text (not 'click here')\n"
+        f"SEO rules (follow precisely):\n"
+        f"- Primary keyword '{keyword}': use 3-4 times naturally — once in H1, once in first paragraph, 1-2 times in body/conclusion\n"
+        f"- LSI / secondary keywords to weave in naturally (don't force all, pick what fits): {lsi_str}\n"
+        f"- At least 2 of these LSI keywords must appear in H2 subheadings\n"
+        f"- Link to product URL at least twice with natural anchor text (e.g. the product name, or 'shop it here')\n"
         f"- H1 title must include year {YEAR} or 'for Women'\n"
+        f"- Keyword density: natural reading, never stuffed — if it sounds forced, rephrase\n"
         f"- Answer a real problem women face when shopping for this item\n\n"
         f"Store info: Free US shipping on orders $50+. Easy 7-day returns. Sizes XS-3X.\n\n"
     )
@@ -361,9 +474,9 @@ def _build_prompt(fmt: str, product: dict, keyword: str) -> tuple[str, str]:
             f"1. <h1> 'The Best {ptype.title()} for Women in {YEAR}: Our Editor's Guide'\n"
             f"2. <p> Hook — personal story: why I tested multiple options and THIS is my pick (80 words)\n"
             f"3. <h2> What Makes a Great {ptype.title()}? (4 criteria as <ul><li> bullets with brief real explanations)\n"
-            f"4. <h2> Our #1 Pick: {title} — Honest Review (120 words, first-person, mention price + link the product URL twice naturally)\n"
+            f"4. <h2> Our #1 Pick: {title} — Honest Review (120 words, first-person, mention price + link product URL twice naturally)\n"
             f"5. <h2> How I Style It: 3 Real Outfits (H3 subheadings for each occasion, 70 words each with specific styling context)\n"
-            f"6. <h2> Who Is This Perfect For? (50 words — be specific: body type, lifestyle, occasion)\n"
+            f"6. <h2> Who Is This Perfect For? (50 words — specific: body type, lifestyle, occasion)\n"
             f"7. <h2> Sizing & Fit Notes (40 words — real specifics, not generic 'true to size')\n"
             f"8. <p> Final verdict + urgency CTA (shop link, price, free shipping, limited sizes reminder)\n"
             f"Target: 750-900 words. Output ONLY clean HTML, no markdown code fences."
@@ -466,8 +579,8 @@ def _clean_html(raw: str) -> str:
 
 
 def _make_tags(product: dict, fmt: str, keyword: str) -> list[str]:
-    base = ["fashion", "women fashion", "MeeeShop", "USA fashion",
-            "women's clothing", "affordable fashion", "style tips"]
+    base_tags = ["fashion", "women fashion", "MeeeShop", "USA fashion",
+                 "women's clothing", "affordable fashion", "style tips"]
     ptype = (product.get("product_type") or "").lower()
     fmt_tags = {
         "buying_guide":   ["buying guide", "fashion guide", f"best picks {YEAR}"],
@@ -476,10 +589,14 @@ def _make_tags(product: dict, fmt: str, keyword: str) -> list[str]:
         "trend_report":   [f"fashion trends {YEAR}", "trending styles", "new in fashion"],
         "outfit_formula": ["outfit ideas", "how to style", "outfit inspiration"],
     }
-    tags = base + fmt_tags.get(fmt, [])
+    tags = base_tags + fmt_tags.get(fmt, [])
     if ptype:
         tags.append(ptype)
+    # Primary keyword words as tags
     tags += [w for w in keyword.split() if len(w) > 3][:3]
+    # Top LSI keywords as tags (short ones work best as Shopify tags)
+    lsi = _lsi_keywords(ptype, keyword)
+    tags += [k for k in lsi if len(k) < 30][:4]
     return list(dict.fromkeys(tags))[:20]
 
 
@@ -515,17 +632,12 @@ def run(count: int = 1, dry_run: bool = False):
         print(f"  Product: {product['title'][:70]}")
         print(f"  Type   : {product.get('product_type', 'unknown')}")
 
-        # Route to correct blog by product type
         blog = get_or_create_blog(product.get("product_type", ""), all_blogs) if not dry_run else {"id": 0, "title": "DRY-RUN"}
         print(f"  Blog   : {blog['title']}")
 
-        img_url = make_featured_image(product, fmt)
-        if product.get("images"):
-            print(f"  Image  : Shopify CDN 1200x630 (product photo)")
-        else:
-            print(f"  Image  : Pollinations.ai AI editorial fallback")
-
+        # Generate content
         prompt, h1_hint = _build_prompt(fmt, product, keyword)
+        print("  Generating content…")
         html_body = ai_client.generate(prompt, max_tokens=1600, temperature=0.75)
 
         if not html_body:
@@ -533,17 +645,40 @@ def run(count: int = 1, dry_run: bool = False):
             continue
 
         html_body = _clean_html(html_body)
-        html_body = inject_product_card(html_body, product)
+        post_title = _extract_h1(html_body, h1_hint)
 
-        # Append "You Might Also Love" related products section
-        related_section = make_related_products_section(products, product.get("handle", ""))
-        html_body += related_section
+        # Generate SEO metadata (separate AI call with low temperature for precision)
+        print("  Generating SEO metadata…")
+        ptype = (product.get("product_type") or "women's fashion").lower()
+        seo   = generate_seo_meta(post_title, keyword, product["title"], ptype, h1_hint)
+        print(f"  SEO title : {seo['seo_title']}")
+        print(f"  Meta desc : {seo['meta_desc'][:80]}…")
+        print(f"  IMG ALT   : {seo['img_alt']}")
 
-        title = _extract_h1(html_body, h1_hint)
-        tags  = _make_tags(product, fmt, keyword)
+        # Featured image (1200x630)
+        img_url = make_featured_image_url(product, fmt)
+        img_src = "Shopify CDN 1200x630" if product.get("images") else "Pollinations.ai fallback"
+        print(f"  Image     : {img_src}")
 
-        print(f"  Title  : {title[:80]}")
-        article = publish_article(blog, title, html_body, tags, img_url, dry_run)
+        # Inject featured product card + related products
+        html_body = inject_product_card(html_body, product, keyword)
+        html_body += make_related_products_section(products, product.get("handle", ""), keyword)
+
+        tags = _make_tags(product, fmt, keyword)
+        print(f"  Title     : {post_title[:80]}")
+
+        # Publish
+        article = publish_article(
+            blog, post_title, html_body, tags,
+            img_url, seo["img_alt"], seo["meta_desc"],
+            dry_run,
+        )
+
+        # Set SEO metafields (title_tag + description_tag) after creation
+        if article and not dry_run and article.get("id"):
+            set_article_seo_metafields(blog["id"], article["id"],
+                                       seo["seo_title"], seo["meta_desc"])
+
         if article:
             created += 1
         print()
@@ -555,7 +690,6 @@ def run(count: int = 1, dry_run: bool = False):
 
 
 if __name__ == "__main__":
-    # Windows UTF-8 fix
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
