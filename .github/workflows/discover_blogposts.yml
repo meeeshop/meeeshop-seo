@@ -1,0 +1,81 @@
+name: Generate Google Discover Blogposts (DISABLED — replaced by blog_daily.yml)
+
+on:
+  workflow_dispatch:
+    inputs:
+      _disabled:
+        description: 'This workflow is disabled. Use blog_daily.yml instead.'
+        default: 'true'
+  # schedule disabled — blog_daily.yml handles Mon/Wed/Fri generation
+  workflow_dispatch:
+
+jobs:
+  generate-and-post:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          echo "Installing from main branch requirements.txt"
+          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/requirements.txt -o requirements.txt || cp requirements.txt requirements.txt
+          pip install -r requirements.txt
+          pip install requests Pillow pip-system-certs
+
+      - name: Validate Secrets (debug safe)
+        env:
+          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          echo "🔍 Checking environment setup..."
+          if [ -z "$OPENROUTER_KEY" ]; then
+            echo "❌ OPENROUTER_API_KEY missing"
+            exit 1
+          fi
+          if [ -z "$SHOPIFY_STORE" ]; then
+            echo "❌ SHOPIFY_STORE missing"
+            exit 1
+          fi
+          if [ -z "$SHOPIFY_TOKEN" ]; then
+            echo "❌ SHOPIFY_ACCESS_TOKEN missing"
+            exit 1
+          fi
+          echo "✅ All secrets present"
+
+      - name: Generate Blogpost
+        shell: bash
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "🚀 Starting blog generation pipeline..."
+          python scripts/generate_blogposts.py --api-key "$OPENROUTER_KEY"
+
+      - name: Shopify Publish Step (SAFE MODE)
+        shell: bash
+        env:
+          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+        run: |
+          set +e
+          echo "🛍 Publishing to Shopify..."
+          python scripts/generate_blogposts.py --publish-only \
+            --shopify-store "$SHOPIFY_STORE" \
+            --shopify-token "$SHOPIFY_TOKEN"
+          STATUS=$?
+          if [ $STATUS -ne 0 ]; then
+            echo "⚠️ Shopify publish failed but continuing workflow"
+            exit 0
+          fi
+          echo "✅ Shopify publish completed"
