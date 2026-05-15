@@ -1,14 +1,27 @@
-name: Modify & Update Blog Posts
+name: Weekly Blog Refresher
 
 on:
   schedule:
-    - cron: '0 10 * * 0'  # Every Sunday at 10 AM UTC (5 AM EST)
+    - cron: '0 14 * * 0'  # Sunday 9 AM EST (14:00 UTC) — weekly, before the week starts
   workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Max articles to refresh (default 5; use 1 or 2 for a test run)'
+        default: '5'
+        required: false
+      dry_run:
+        description: 'Dry run — print plan only, no Shopify writes (true/false)'
+        default: 'false'
+        required: false
+      article_id:
+        description: 'Refresh ONE specific article by Shopify article ID (leave blank for batch)'
+        default: ''
+        required: false
 
 jobs:
-  modify-blog:
+  refresh-blogs:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -22,40 +35,35 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Modify blog posts
+      - name: Refresh blog posts
         env:
+          PYTHONUTF8: "1"
           SHOPIFY_STORE:        ${{ secrets.SHOPIFY_STORE }}
           SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
           GEMINI_API_KEY:       ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY:         ${{ secrets.GROQ_API_KEY }}
           OPENROUTER_API_KEY:   ${{ secrets.OPENROUTER_API_KEY }}
-        run: python scripts/modify_blog.py
+        run: |
+          LIMIT="${{ github.event.inputs.limit || '5' }}"
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          ARTICLE_ID="${{ github.event.inputs.article_id || '' }}"
 
-      - name: Upload modification log
+          ARGS="--limit $LIMIT"
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          if [ -n "$ARTICLE_ID" ]; then
+            ARGS="$ARGS --article-id $ARTICLE_ID"
+          fi
+
+          echo "Running: python scripts/modify_blog.py $ARGS"
+          python scripts/modify_blog.py $ARGS
+
+      - name: Upload refresh log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: blog-modification-${{ github.run_number }}
+          name: blog-refresh-${{ github.run_number }}
           path: modify_blog_*.json
+          if-no-files-found: ignore
           retention-days: 14
-
-      - name: Notify Slack on failure
-        if: failure()
-        uses: slackapi/slack-github-action@v1
-        with:
-          payload: |
-            {
-              "text": "❌ Blog modification failed",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Blog Modification Error*\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                  }
-                }
-              ]
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
