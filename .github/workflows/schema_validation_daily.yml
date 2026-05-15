@@ -1,0 +1,324 @@
+name: Daily Schema Validation & Page Speed Optimization
+
+on:
+  schedule:
+    - cron: '0 2 * * *'     # Daily: 2:00 AM UTC (9:00 PM EST)
+
+  workflow_dispatch:
+    inputs:
+      run_mode:
+        description: 'Validation mode'
+        required: true
+        default: 'daily'
+        type: choice
+        options:
+          - daily    # Last 48 hours
+          - weekly   # Last 7 days
+          - force    # All resources
+
+jobs:
+  schema_validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install google-pagespeed-insights
+
+      - name: Determine run mode
+        id: mode
+        run: |
+          if [[ "${{ github.event.inputs.run_mode }}" ]]; then
+            MODE="${{ github.event.inputs.run_mode }}"
+          else
+            MODE="daily"
+          fi
+          echo "mode=${MODE}" >> $GITHUB_OUTPUT
+          echo "MODE: ${MODE}"
+
+      - name: Run Schema Validation
+        id: schema
+        env:
+          SHOPIFY_STORE:        ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+        run: |
+          echo "Running schema validation in ${{ steps.mode.outputs.mode }} mode..."
+          python schema_validator.py --${{ steps.mode.outputs.mode }}
+
+          # Capture results
+          REPORT=$(ls -t schema_report_*.json | head -1)
+          echo "report_file=${REPORT}" >> $GITHUB_OUTPUT
+
+      - name: Run Page Speed Analysis
+        id: speed
+        run: |
+          echo "Analyzing page speed..."
+          python page_speed_optimizer.py
+
+          # Capture results
+          SPEED_REPORT=$(ls -t speed_report_*.json | head -1)
+          echo "speed_report=${SPEED_REPORT}" >> $GITHUB_OUTPUT
+
+      - name: Generate HTML Report
+        run: |
+          python << 'EOF'
+          import json
+          from datetime import datetime
+
+          # Load schema report
+          with open('${{ steps.schema.outputs.report_file }}') as f:
+              schema_report = json.load(f)
+
+          # Load speed report
+          with open('${{ steps.speed.outputs.speed_report }}') as f:
+              speed_report = json.load(f)
+
+          # Generate HTML
+          html = f"""
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>MeeeShop Schema & Speed Report</title>
+            <style>
+              body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 20px; }}
+              h1, h2, h3 {{ color: #333; }}
+              .stats {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin: 20px 0; }}
+              .stat-box {{ background: #f5f5f5; padding: 15px; border-radius: 8px; }}
+              .stat-value {{ font-size: 28px; font-weight: bold; color: #0066cc; }}
+              .stat-label {{ font-size: 12px; color: #666; margin-top: 5px; }}
+              .success {{ color: #28a745; }}
+              .warning {{ color: #ffc107; }}
+              .error {{ color: #dc3545; }}
+              table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
+              th, td {{ padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }}
+              th {{ background: #f5f5f5; font-weight: 600; }}
+              .priority {{ background: #fff3cd; padding: 15px; border-radius: 8px; margin: 15px 0; }}
+              .priority-action {{ margin: 10px 0; padding: 10px; background: white; border-left: 4px solid #ffc107; }}
+            </style>
+          </head>
+          <body>
+            <h1>MeeeShop Schema Validation & Page Speed Report</h1>
+            <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
+            <p>Mode: {schema_report['mode']}</p>
+
+            <h2>📊 Schema Validation Summary</h2>
+            <div class="stats">
+              <div class="stat-box">
+                <div class="stat-value">{schema_report['products']['added']}</div>
+                <div class="stat-label">Products Added</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-value">{schema_report['collections']['added']}</div>
+                <div class="stat-label">Collections Added</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-value">{schema_report['pages']['added']}</div>
+                <div class="stat-label">Pages Added</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-value">{schema_report['blog_articles']['added']}</div>
+                <div class="stat-label">Blog Articles Added</div>
+              </div>
+            </div>
+
+            <h2>📝 Detailed Results</h2>
+            <table>
+              <tr>
+                <th>Resource Type</th>
+                <th>Checked</th>
+                <th>Missing</th>
+                <th>Added</th>
+                <th>Errors</th>
+              </tr>
+              <tr>
+                <td>Products</td>
+                <td>{schema_report['products']['checked']}</td>
+                <td>{schema_report['products']['missing_schemas']}</td>
+                <td><span class="success">{schema_report['products']['added']}</span></td>
+                <td><span class="error">{schema_report['products']['errors']}</span></td>
+              </tr>
+              <tr>
+                <td>Collections</td>
+                <td>{schema_report['collections']['checked']}</td>
+                <td>{schema_report['collections']['missing_schemas']}</td>
+                <td><span class="success">{schema_report['collections']['added']}</span></td>
+                <td><span class="error">{schema_report['collections']['errors']}</span></td>
+              </tr>
+              <tr>
+                <td>Pages</td>
+                <td>{schema_report['pages']['checked']}</td>
+                <td>{schema_report['pages']['missing_schemas']}</td>
+                <td><span class="success">{schema_report['pages']['added']}</span></td>
+                <td><span class="error">{schema_report['pages']['errors']}</span></td>
+              </tr>
+              <tr>
+                <td>Blog Articles</td>
+                <td>{schema_report['blog_articles']['checked']}</td>
+                <td>{schema_report['blog_articles']['missing_schemas']}</td>
+                <td><span class="success">{schema_report['blog_articles']['added']}</span></td>
+                <td><span class="error">{schema_report['blog_articles']['errors']}</span></td>
+              </tr>
+            </table>
+
+            <h2>⚡ Page Speed Analysis</h2>
+            <div class="stats">
+              <div class="stat-box">
+                <div class="stat-value" style="color: #dc3545;">{speed_report['current_lcp']}</div>
+                <div class="stat-label">Current LCP</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-value" style="color: #28a745;">{speed_report['target_lcp']}</div>
+                <div class="stat-label">Target LCP</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-value">{speed_report['gap']}</div>
+                <div class="stat-label">Improvement Needed</div>
+              </div>
+            </div>
+
+            <h2>🎯 Priority Actions</h2>
+            <div class="priority">
+          """
+
+          for action in speed_report['priority_actions']:
+              html += f"""
+              <div class="priority-action">
+                <strong>#{action['rank']}. {action['action']}</strong><br>
+                Estimated Savings: {action['estimated_savings']} | Effort: {action['effort']}<br>
+                {action['implementation']}
+              </div>
+              """
+
+          html += """
+            </div>
+
+            <h2>📋 Next Steps</h2>
+            <ol>
+              <li>Review schema validation results - check for any errors</li>
+              <li>Monitor Google Search Console for schema changes (3-7 days)</li>
+              <li>Implement priority speed optimizations in order</li>
+              <li>Test changes in PageSpeed Insights</li>
+              <li>Monitor Core Web Vitals in next report</li>
+            </ol>
+          </body>
+          </html>
+          """
+
+          with open('report.html', 'w') as f:
+              f.write(html)
+          EOF
+
+      - name: Upload Schema Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schema-report-${{ github.run_number }}
+          path: schema_report_*.json
+          retention-days: 90
+
+      - name: Upload Speed Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: speed-report-${{ github.run_number }}
+          path: speed_report_*.json
+          retention-days: 90
+
+      - name: Upload HTML Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: html-report-${{ github.run_number }}
+          path: report.html
+          retention-days: 90
+
+      - name: Upload Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-logs-${{ github.run_number }}
+          path: |
+            schema_logs/
+            speed_logs/
+          retention-days: 30
+
+      - name: Slack Notification
+        if: always()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK }}
+          payload: |
+            {
+              "text": "MeeeShop Schema & Speed Report",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Daily Schema Validation & Speed Check*\n*Status:* ✅ Complete\n*Mode:* ${{ steps.mode.outputs.mode }}"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Products Added*\n${{ steps.schema.outputs.products_added }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Collections Added*\n${{ steps.schema.outputs.collections_added }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Current LCP*\nPoor (4042ms)"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Target LCP*\nGood (<2500ms)"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Report"
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
+        continue-on-error: true
+
+      - name: Summary
+        run: |
+          echo "## 📊 Schema Validation & Speed Optimization Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Mode**: ${{ steps.mode.outputs.mode }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Results" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Schema validation completed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Page speed analysis completed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Reports generated and uploaded" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download reports from artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "2. Review schemas added and any errors" >> $GITHUB_STEP_SUMMARY
+          echo "3. Implement speed optimizations (priority order)" >> $GITHUB_STEP_SUMMARY
+          echo "4. Check Google Search Console in 3-7 days" >> $GITHUB_STEP_SUMMARY

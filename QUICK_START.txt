@@ -1,0 +1,187 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║            MeeeShop SEO v2.0 - QUICK START REFERENCE                       ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+📌 LOCAL TESTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Set environment:
+  $env:SHOPIFY_STORE = "your-store.myshopify.com"
+  $env:SHOPIFY_ACCESS_TOKEN = "shpat_xxxxx"
+
+Test commands:
+  python seo_daily.py --daily --limit 5     # Daily mode (48h, 5 products)
+  python seo_daily.py --weekly --limit 10   # Weekly mode (7d, 10 products)
+  python seo_daily.py --force --limit 20    # Force mode (all, 20 products)
+  python seo_daily.py --hours 72 --limit 5  # Custom: 72 hours
+
+
+🚀 GITHUB DEPLOYMENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Add GitHub Secrets:
+   Settings → Secrets → Add:
+   • SHOPIFY_STORE
+   • SHOPIFY_ACCESS_TOKEN
+
+2. Push to develop:
+   git add seo_daily.py .github/workflows/seo_daily.yml *.md
+   git commit -m "feat: SEO v2.0 - 3-mode automation"
+   git push origin develop
+
+3. Create PR & Merge:
+   github.com → Pull requests → Merge develop → main
+
+4. Test workflow:
+   Actions tab → Run workflow → Select mode → Run
+
+
+📅 AUTO SCHEDULE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Daily:   6:00 AM UTC (every day)     → Last 48 hours
+Weekly:  8:00 AM UTC (every Sunday)  → Last 7 days
+Force:   Manual only (Actions tab)   → Full catalog
+
+
+📊 THREE MODES EXPLAINED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DAILY (default)
+  Scope:     Last 48 hours
+  Use:       Catch new/updated products
+  Schedule:  Every day 6 AM UTC
+  Command:   python seo_daily.py --daily
+  Time:      2-3 minutes (~50 products)
+
+WEEKLY
+  Scope:     Last 7 days
+  Use:       Safety net, catch edge cases
+  Schedule:  Sunday 8 AM UTC
+  Command:   python seo_daily.py --weekly
+  Time:      5-7 minutes (~150 products)
+
+FORCE (⚠️ careful!)
+  Scope:     All products
+  Use:       Complete store refresh
+  Schedule:  Manual only
+  Command:   python seo_daily.py --force
+  Time:      15-20 minutes (1000+ products)
+
+
+✨ WHAT GETS OPTIMIZED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Per Product:
+  ✓ Meta title (60 chars max)
+  ✓ Meta description (155 chars, with 7-day returns)
+  ✓ Product title (title case)
+  ✓ Body description (features + size chart)
+  ✓ Image ALT text (all images, 125 chars max)
+  ✓ URL handle (slugified)
+  ✓ 301 redirects (if handle changes)
+
+Store-wide:
+  ✓ JSON-LD schemas (once, idempotent)
+
+
+🎯 EXPECTED RESULTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Daily (48h, ~50 products):
+  Products updated: ~45
+  Meta fields set: ~90
+  Image alts fixed: ~120
+  Runtime: 2-3 minutes
+
+Weekly (7d, ~150 products):
+  Products updated: ~140
+  Meta fields set: ~280
+  Image alts fixed: ~350
+  Runtime: 5-7 minutes
+
+
+📈 MONITOR METRICS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Google Search Console:
+  • Ranking position (track weekly)
+  • Click-through rate (should increase)
+  • Index coverage (verify updated pages indexed)
+
+Analytics:
+  • Organic traffic (should rise week 2-4)
+  • Conversion rate (size charts reduce returns)
+  • Pages/session (better descriptions = more interest)
+
+
+📚 DOCUMENTATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SEO_V2_GUIDE.md            Complete reference (12 sections)
+WORKFLOW_REFERENCE.md      Quick lookup card
+EXAMPLE_PRODUCT_OUTPUT.md  Before/after examples
+DEPLOYMENT_CHECKLIST.md    Step-by-step deployment
+README_V2_UPDATES.md       Summary of changes
+
+
+🎨 KEY MESSAGING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+7-Day Returns:
+  ✓ Mentioned in meta descriptions
+  ✓ Mentioned in product descriptions
+  ✓ Mentioned in features lists
+  ✓ Consistent everywhere
+
+Free US Shipping:
+  ✓ Mentioned in descriptions
+  ✓ Key buying signal (especially women)
+
+Brand: "us.meeeshop"
+  ✓ Used everywhere (not "MeeeShop")
+  ✓ Social: Pinterest & YouTube only
+
+
+⚡ TROUBLESHOOTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ModuleNotFoundError:
+  → pip install -r requirements.txt
+
+Could not find live theme:
+  → Check Shopify Admin → Online Store → Themes
+
+Metafields error:
+  → Verify API token has write_products scope
+
+Products not updating:
+  → Check mode (daily=48h, weekly=7d, force=all)
+
+Rate limit:
+  → Script auto-throttles—normal behavior
+
+
+✅ DEPLOYMENT CHECKLIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+□ Test locally: python seo_daily.py --daily --limit 5
+□ Review report: check seo_report_*.json
+□ Add GitHub secrets: SHOPIFY_STORE, SHOPIFY_ACCESS_TOKEN
+□ Commit to develop: git add . && git commit
+□ Push: git push origin develop
+□ Create PR: develop → main
+□ Merge PR
+□ Test workflow: Actions tab → Run workflow
+□ Monitor first run: check logs + report
+
+
+🚀 READY TO DEPLOY!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+All changes in develop branch
+Main branch is clean and safe
+Ready for testing and deployment
+
+Next step: Test locally!
+
