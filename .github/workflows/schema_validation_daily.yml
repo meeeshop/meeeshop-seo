@@ -1,15 +1,15 @@
-name: Daily Schema Validation & Page Speed Optimization
+name: Weekly Schema Validation & Page Speed Optimization
 
 on:
   schedule:
-    - cron: '0 2 * * *'     # Daily: 2:00 AM UTC (9:00 PM EST)
+    - cron: '0 2 * * 0'     # Weekly: Sunday 2:00 AM UTC (9:00 PM EST Saturday)
 
   workflow_dispatch:
     inputs:
       run_mode:
         description: 'Validation mode'
         required: true
-        default: 'daily'
+        default: 'weekly'
         type: choice
         options:
           - daily    # Last 48 hours
