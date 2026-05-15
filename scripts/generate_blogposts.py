@@ -255,6 +255,7 @@ def main():
     blog = get_shopify_blog()
     data = generate_blogpost()
     publish_article(blog, data)
+    print(f"Review + publish at: https://{SHOPIFY_STORE}/admin/articles\n")
 
 
 if __name__ == "__main__":
