@@ -8,11 +8,12 @@ Daily validation of all required JSON-LD schemas for:
 
 Adds missing schemas, validates structure, logs results, optimizes page speed.
 """
-import os, json, re, time, argparse, logging
+import os, json, re, time, argparse, logging, sys
 import requests
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, Optional
+from urllib.parse import parse_qs, urlparse
 
 load_dotenv()
 
@@ -22,6 +23,12 @@ HEADS = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 BASE = f"https://{STORE}/admin/api/2024-01"
 SITE = "https://us.meeeshop.com"
 BRAND = "MeeeShop"
+
+# Rate limiting settings
+MAX_RETRIES = 3
+INITIAL_BACKOFF = 1  # seconds
+MAX_BACKOFF = 60  # seconds
+REQUEST_DELAY = 0.5  # seconds between requests to avoid hitting rate limits
 
 # Logging setup
 log_dir = "schema_logs"
@@ -38,10 +45,70 @@ logging.basicConfig(
     ]
 )
 # Fix Windows console encoding
-import sys
 if sys.stdout.encoding and 'cp' in sys.stdout.encoding.lower():
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 logger = logging.getLogger(__name__)
+
+# Track validation health
+validation_health = {
+    "total_errors": 0,
+    "critical_errors": 0,
+    "fatal_error": False
+}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RATE LIMITING & RETRY LOGIC
+# ══════════════════════════════════════════════════════════════════════════════
+
+def make_request_with_retry(method: str, url: str, max_retries: int = MAX_RETRIES,
+                           **kwargs) -> Optional[requests.Response]:
+    """Make API request with exponential backoff for rate limiting"""
+    backoff = INITIAL_BACKOFF
+    last_error = None
+
+    for attempt in range(max_retries):
+        try:
+            time.sleep(REQUEST_DELAY)  # Delay between all requests
+
+            if method.lower() == 'get':
+                resp = requests.get(url, headers=HEADS, **kwargs)
+            elif method.lower() == 'post':
+                resp = requests.post(url, headers=HEADS, **kwargs)
+            else:
+                raise ValueError(f"Unsupported method: {method}")
+
+            # Success
+            if resp.status_code < 400:
+                return resp
+
+            # Handle rate limiting (429)
+            if resp.status_code == 429:
+                retry_after = int(resp.headers.get('Retry-After', backoff))
+                logger.warning(f"Rate limited (429). Waiting {retry_after}s before retry {attempt + 1}/{max_retries}")
+                validation_health["total_errors"] += 1
+                time.sleep(retry_after)
+                backoff = min(backoff * 2, MAX_BACKOFF)
+                continue
+
+            # Handle other errors
+            resp.raise_for_status()
+            return resp
+
+        except requests.exceptions.RequestException as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                logger.warning(f"Request failed (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {backoff}s...")
+                validation_health["total_errors"] += 1
+                time.sleep(backoff)
+                backoff = min(backoff * 2, MAX_BACKOFF)
+            else:
+                logger.error(f"Request failed after {max_retries} attempts: {e}")
+                validation_health["critical_errors"] += 1
+
+    if last_error:
+        logger.error(f"Final error after {max_retries} retries on {url}: {last_error}")
+    return None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -240,72 +307,114 @@ def schema_exists(metafields: List[Dict], namespace: str, key: str) -> bool:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def get_products(hours: int = 48) -> List[Dict]:
-    """Fetch products updated in last N hours"""
+    """Fetch products updated in last N hours with pagination"""
     url = f"{BASE}/products.json"
     params = {"limit": 250, "status": "active"}
 
     all_products = []
-    has_more = True
-    while has_more:
+    page_count = 0
+
+    while True:
+        page_count += 1
+        resp = make_request_with_retry("get", url, params=params)
+
+        if resp is None:
+            logger.error(f"Failed to fetch products page {page_count}")
+            if page_count == 1:
+                validation_health["fatal_error"] = True
+            break
+
         try:
-            resp = requests.get(url, params=params, headers=HEADS)
-            resp.raise_for_status()
             data = resp.json()
             products = data.get("products", [])
 
             if not products:
-                has_more = False
                 break
 
             all_products.extend(products)
+            logger.debug(f"Fetched {len(products)} products on page {page_count}")
 
-            # Check for next page in Link header
-            has_more = False
+            # Parse Link header for next page
             link_header = resp.headers.get("Link", "")
-            if link_header:
-                for link in link_header.split(","):
-                    if 'rel="next"' in link:
-                        url = link.split(";")[0].strip().strip("<>")
-                        has_more = True
-                        break
-        except Exception as e:
-            logger.error(f"Error fetching products: {e}")
-            has_more = False
+            if not link_header:
+                break
 
-    logger.info(f"Fetched {len(all_products)} products (status=active)")
+            next_url = None
+            for link in link_header.split(","):
+                if 'rel="next"' in link:
+                    next_url = link.split(";")[0].strip().strip("<>")
+                    break
+
+            if next_url:
+                url = next_url
+                params = {}  # URL already contains all params
+            else:
+                break
+
+        except Exception as e:
+            logger.error(f"Error parsing products page {page_count}: {e}")
+            validation_health["critical_errors"] += 1
+            break
+
+    logger.info(f"Fetched {len(all_products)} products across {page_count} pages (status=active)")
     return all_products
 
 
 def get_collections() -> List[Dict]:
     """Fetch all collections"""
     url = f"{BASE}/custom_collections.json"
-    resp = requests.get(url, params={"limit": 250}, headers=HEADS)
-    resp.raise_for_status()
-    collections = resp.json().get("custom_collections", [])
-    logger.info(f"Fetched {len(collections)} collections")
-    return collections
+    resp = make_request_with_retry("get", url, params={"limit": 250})
+    if resp is None:
+        logger.error("Failed to fetch collections")
+        validation_health["critical_errors"] += 1
+        return []
+    try:
+        collections = resp.json().get("custom_collections", [])
+        logger.info(f"Fetched {len(collections)} collections")
+        return collections
+    except Exception as e:
+        logger.error(f"Error parsing collections: {e}")
+        validation_health["critical_errors"] += 1
+        return []
 
 
 def get_pages() -> List[Dict]:
     """Fetch all pages"""
     url = f"{BASE}/pages.json"
-    resp = requests.get(url, params={"limit": 250}, headers=HEADS)
-    resp.raise_for_status()
-    pages = resp.json().get("pages", [])
-    logger.info(f"Fetched {len(pages)} pages")
-    return pages
+    resp = make_request_with_retry("get", url, params={"limit": 250})
+    if resp is None:
+        logger.error("Failed to fetch pages")
+        validation_health["critical_errors"] += 1
+        return []
+    try:
+        pages = resp.json().get("pages", [])
+        logger.info(f"Fetched {len(pages)} pages")
+        return pages
+    except Exception as e:
+        logger.error(f"Error parsing pages: {e}")
+        validation_health["critical_errors"] += 1
+        return []
 
 
 def get_blog_articles(blog_id: str) -> List[Dict]:
     """Fetch all articles from a blog"""
     url = f"{BASE}/blogs/{blog_id}/articles.json"
-    resp = requests.get(url, params={"limit": 250}, headers=HEADS)
-    resp.raise_for_status()
-    return resp.json().get("articles", [])
+    resp = make_request_with_retry("get", url, params={"limit": 250})
+    if resp is None:
+        logger.error(f"Failed to fetch articles from blog {blog_id}")
+        validation_health["critical_errors"] += 1
+        return []
+    try:
+        articles = resp.json().get("articles", [])
+        return articles
+    except Exception as e:
+        logger.error(f"Error parsing articles from blog {blog_id}: {e}")
+        validation_health["critical_errors"] += 1
+        return []
 
 
 def set_metafield(resource_type: str, resource_id: str, schema: Dict) -> bool:
-    """Add/update schema as metafield"""
+    """Add/update schema as metafield with retry logic"""
     url = f"{BASE}/{resource_type.lower()}s/{resource_id}/metafields.json"
 
     metafield = {
@@ -317,12 +426,19 @@ def set_metafield(resource_type: str, resource_id: str, schema: Dict) -> bool:
         }
     }
 
+    resp = make_request_with_retry("post", url, json=metafield)
+
+    if resp is None:
+        logger.error(f"Failed to set metafield for {resource_type} {resource_id} after retries")
+        validation_health["critical_errors"] += 1
+        return False
+
     try:
-        resp = requests.post(url, json=metafield, headers=HEADS)
         resp.raise_for_status()
         return True
     except Exception as e:
         logger.error(f"Failed to set metafield for {resource_type} {resource_id}: {e}")
+        validation_health["critical_errors"] += 1
         return False
 
 
@@ -484,9 +600,17 @@ def validate_and_add_schemas(mode: str = "daily"):
     try:
         # Get all blogs first
         blogs_url = f"{BASE}/blogs.json"
-        blogs_resp = requests.get(blogs_url, params={"limit": 50}, headers=HEADS)
-        blogs_resp.raise_for_status()
-        blogs = blogs_resp.json().get("blogs", [])
+        blogs_resp = make_request_with_retry("get", blogs_url, params={"limit": 50})
+        if blogs_resp is None:
+            logger.error("Failed to fetch blogs")
+            blogs = []
+        else:
+            try:
+                blogs = blogs_resp.json().get("blogs", [])
+            except Exception as e:
+                logger.error(f"Error parsing blogs: {e}")
+                validation_health["critical_errors"] += 1
+                blogs = []
 
         for blog in blogs:
             blog_id = blog.get("id")
@@ -533,6 +657,11 @@ def validate_and_add_schemas(mode: str = "daily"):
     logger.info("VALIDATION COMPLETE")
     logger.info("=" * 60)
 
+    # Calculate health metrics
+    total_checked = sum(report[r]["checked"] for r in ["products", "collections", "pages", "blog_articles"])
+    total_errors = sum(report[r]["errors"] for r in ["products", "collections", "pages", "blog_articles"])
+    error_rate = (total_errors / total_checked * 100) if total_checked > 0 else 0
+
     print("\n" + "=" * 60)
     print("SCHEMA VALIDATION REPORT")
     print("=" * 60)
@@ -547,11 +676,39 @@ def validate_and_add_schemas(mode: str = "daily"):
         print(f"  Added:            {stats['added']}")
         print(f"  Errors:           {stats['errors']}\n")
 
+    print("=" * 60)
+    print(f"VALIDATION HEALTH")
+    print("=" * 60)
+    print(f"Total Resources Checked: {total_checked}")
+    print(f"Total Errors:            {total_errors}")
+    print(f"Error Rate:              {error_rate:.1f}%")
+    print(f"Retry Errors:            {validation_health['total_errors']}")
+    print(f"Critical Errors:         {validation_health['critical_errors']}")
+    print(f"Status:                  {'⚠️  PARTIAL FAILURE' if validation_health['fatal_error'] else '✅ SUCCESS'}\n")
+
+    # Add health info to report
+    report["health"] = {
+        "total_errors": validation_health["total_errors"],
+        "critical_errors": validation_health["critical_errors"],
+        "error_rate": error_rate,
+        "fatal_error": validation_health["fatal_error"],
+        "status": "PARTIAL_FAILURE" if validation_health["fatal_error"] else "SUCCESS"
+    }
+
     # Save report
     report_file = f"schema_report_{timestamp}.json"
     with open(report_file, "w") as f:
         json.dump(report, f, indent=2)
     logger.info(f"Report saved to {report_file}")
+
+    # Exit with non-zero code if fatal errors occurred (for GitHub Actions)
+    if validation_health["fatal_error"]:
+        logger.error("❌ VALIDATION FAILED: Fatal errors detected during schema validation")
+        sys.exit(1)
+
+    if validation_health["critical_errors"] > (total_checked * 0.1):  # >10% critical errors
+        logger.warning(f"⚠️  WARNING: High error rate ({validation_health['critical_errors']} critical errors)")
+        sys.exit(1)
 
     return report
 
