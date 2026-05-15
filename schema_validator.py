@@ -25,10 +25,10 @@ SITE = "https://us.meeeshop.com"
 BRAND = "MeeeShop"
 
 # Rate limiting settings
-MAX_RETRIES = 3
-INITIAL_BACKOFF = 1  # seconds
-MAX_BACKOFF = 60  # seconds
-REQUEST_DELAY = 0.5  # seconds between requests to avoid hitting rate limits
+MAX_RETRIES = 5
+INITIAL_BACKOFF = 5  # seconds
+MAX_BACKOFF = 120  # seconds
+REQUEST_DELAY = 2.0  # seconds between requests to avoid hitting rate limits
 
 # Logging setup
 log_dir = "schema_logs"
@@ -430,6 +430,11 @@ def set_metafield(resource_type: str, resource_id: str, schema: Dict) -> bool:
 
     if resp is None:
         logger.error(f"Failed to set metafield for {resource_type} {resource_id} after retries")
+        validation_health["critical_errors"] += 1
+        return False
+
+    if resp.status_code >= 400:
+        logger.error(f"Failed to set metafield for {resource_type} {resource_id}: {resp.status_code} {resp.reason}")
         validation_health["critical_errors"] += 1
         return False
 
