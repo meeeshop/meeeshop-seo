@@ -283,7 +283,7 @@ def publish_article(blog: dict, title: str, body_html: str,
             "title": title,
             "body_html": body_html,
             "tags": ", ".join(tags),
-            "published": False,  # draft — review before going live
+            "published": True,
         }
     }
     if image_url:
@@ -292,7 +292,7 @@ def publish_article(blog: dict, title: str, body_html: str,
     r = _req("post", f"{BASE}/blogs/{blog['id']}/articles.json", json=payload)
     if r.status_code in (200, 201):
         art = r.json().get("article", {})
-        print(f"  Draft created: '{art.get('title')}' (ID {art.get('id')}) in blog '{blog['title']}'")
+        print(f"  Published: '{art.get('title')}' (ID {art.get('id')}) in blog '{blog['title']}'")
         return art
     print(f"  FAILED {r.status_code}: {r.text[:200]}")
     return None
@@ -549,9 +549,9 @@ def run(count: int = 1, dry_run: bool = False):
         print()
         time.sleep(1.0)
 
-    print(f"Done — {created}/{count} blog drafts created.")
+    print(f"Done — {created}/{count} blog posts published live.")
     if not dry_run:
-        print(f"Review + publish at: https://{SHOP}/admin/articles\n")
+        print(f"View at: https://{SHOP}/blogs\n")
 
 
 if __name__ == "__main__":
