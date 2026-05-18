@@ -16,3 +16,8 @@ __pycache__/
 # Backups
 seo_backup_*.json
 theme_backup/
+
+test.env
+client_secret*.json
+credentials.json
+*.pickle
