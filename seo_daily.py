@@ -270,11 +270,11 @@ def api_post(path, body):
     return r.json()
 
 
-def fetch_products(updated_since=None):
-    """Fetch active products. When updated_since is set, returns products updated OR created since that time."""
+def fetch_products(created_since=None):
+    """Fetch active products created since cutoff (catches new dropship imports by any vendor)."""
     products, url = [], f"{BASE}/products.json?limit=250&status=active"
-    if updated_since:
-        url += f"&updated_at_min={updated_since}"
+    if created_since:
+        url += f"&created_at_min={created_since}"
     while url:
         r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
         products.extend(r.json().get('products', []))
@@ -283,11 +283,11 @@ def fetch_products(updated_since=None):
     return products
 
 
-def fetch_pages(updated_since=None):
-    """Fetch all pages (static content pages) created since cutoff."""
+def fetch_pages(published_since=None):
+    """Fetch pages published since cutoff."""
     pages, url = [], f"{BASE}/pages.json?limit=250"
-    if updated_since:
-        url += f"&created_at_min={updated_since}"
+    if published_since:
+        url += f"&published_at_min={published_since}"
     while url:
         r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
         pages.extend(r.json().get('pages', []))
@@ -296,11 +296,11 @@ def fetch_pages(updated_since=None):
     return pages
 
 
-def fetch_collections(updated_since=None):
-    """Fetch all collections (custom collections and smart collections) created since cutoff."""
+def fetch_collections(created_since=None):
+    """Fetch custom collections created since cutoff."""
     collections, url = [], f"{BASE}/custom_collections.json?limit=250"
-    if updated_since:
-        url += f"&created_at_min={updated_since}"
+    if created_since:
+        url += f"&created_at_min={created_since}"
     while url:
         r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
         collections.extend(r.json().get('custom_collections', []))
@@ -309,11 +309,9 @@ def fetch_collections(updated_since=None):
     return collections
 
 
-def fetch_articles(updated_since=None):
-    """Fetch all blog articles created since cutoff."""
+def fetch_articles(published_since=None):
+    """Fetch blog articles published since cutoff."""
     articles, url = [], f"{BASE}/blogs.json?limit=250"
-    if updated_since:
-        url += f"&created_at_min={updated_since}"
 
     blogs = []
     while url:
@@ -325,8 +323,8 @@ def fetch_articles(updated_since=None):
     # Fetch articles from each blog
     for blog in blogs:
         article_url = f"{BASE}/blogs/{blog['id']}/articles.json?limit=250"
-        if updated_since:
-            article_url += f"&created_at_min={updated_since}"
+        if published_since:
+            article_url += f"&published_at_min={published_since}"
         while article_url:
             r = requests.get(article_url, headers=HEADS); r.raise_for_status(); _check_rate(r)
             articles.extend(r.json().get('articles', []))
@@ -782,7 +780,7 @@ def main():
     else:
         mode = 'daily'
         since = (datetime.now(timezone.utc) - timedelta(hours=48)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        print("Mode: DAILY (all products checked for missing SEO; pages/collections/articles from last 48 hours)")
+        print("Mode: DAILY (products created in last 48h; pages/collections created + articles published in last 48h)")
         print("Processing: Products, Pages, Collections, Blog Posts\n")
 
     print(f"Cutoff: {since or 'none (all resources)'}\n")
@@ -798,10 +796,11 @@ def main():
         print()
 
     # ── Fetch all resources (products, pages, collections, articles) ──────────
-    # Products: always fetch ALL — validate_seo skips already-correct ones.
-    # Pages/collections/articles: use time filter in daily mode (fewer items, rarely change).
+    # Products: created_at_min — catches new dropship imports (Trendsi, Cemi Cari, etc.)
+    # Pages/Collections: created_at_min — new pages/collections published since cutoff
+    # Articles: published_at_min — new blog posts published since cutoff
     print("Fetching products...")
-    products = fetch_products(None)
+    products = fetch_products(since)
     if args.limit:
         products = products[:args.limit]
     print(f"  Found {len(products)} products\n")
