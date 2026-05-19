@@ -271,11 +271,10 @@ def api_post(path, body):
 
 
 def fetch_products(updated_since=None):
-    """Fetch products created since cutoff (catches new products in last 48h)."""
+    """Fetch active products. When updated_since is set, returns products updated OR created since that time."""
     products, url = [], f"{BASE}/products.json?limit=250&status=active"
     if updated_since:
-        # created_at_min catches newly created products (not just updated ones)
-        url += f"&created_at_min={updated_since}"
+        url += f"&updated_at_min={updated_since}"
     while url:
         r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
         products.extend(r.json().get('products', []))
@@ -783,7 +782,7 @@ def main():
     else:
         mode = 'daily'
         since = (datetime.now(timezone.utc) - timedelta(hours=48)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        print("Mode: DAILY (products, pages, collections, articles updated in last 48 hours)")
+        print("Mode: DAILY (all products checked for missing SEO; pages/collections/articles from last 48 hours)")
         print("Processing: Products, Pages, Collections, Blog Posts\n")
 
     print(f"Cutoff: {since or 'none (all resources)'}\n")
@@ -799,8 +798,10 @@ def main():
         print()
 
     # ── Fetch all resources (products, pages, collections, articles) ──────────
+    # Products: always fetch ALL — validate_seo skips already-correct ones.
+    # Pages/collections/articles: use time filter in daily mode (fewer items, rarely change).
     print("Fetching products...")
-    products = fetch_products(since)
+    products = fetch_products(None)
     if args.limit:
         products = products[:args.limit]
     print(f"  Found {len(products)} products\n")
