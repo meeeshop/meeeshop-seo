@@ -194,7 +194,7 @@ def build_size_chart(word):
     return size_chart
 
 # ── SEO description with keywords + size chart ───────────────────────────────
-def build_description(product):
+def build_description(product, force=False):
     title    = product['title']
     html_body = product.get('body_html', '')
     existing = strip_html(html_body)
@@ -235,7 +235,7 @@ def build_description(product):
     else:
         size_chart = ''
 
-    if len(existing) >= 500:
+    if not force and len(existing) >= 500:
         return (product.get('body_html') or '')
 
     return intro + features + why_choose + size_chart
@@ -618,7 +618,7 @@ def validate_seo(item, item_type, existing_mfs):
 # CORE PRODUCT PROCESSOR
 # ══════════════════════════════════════════════════════════════════════════════
 
-def process(product, stats, log, existing_mfs=None):
+def process(product, stats, log, existing_mfs=None, force=False):
     pid        = product['id']
     old_title  = product['title']
     old_handle = product['handle']
@@ -633,13 +633,13 @@ def process(product, stats, log, existing_mfs=None):
         stats['titles'] += 1
         changes.append({"field": "title", "before": old_title, "after": new_title})
 
-    # ── 2. Body description (strict: ≥500 chars + size table) ─────────────────
+    # ── 2. Body description (strict: ≥500 chars + size table; always overwrite in force mode) ──
     body_html = product.get('body_html', '') or ''
     plain_len = len(strip_html(body_html))
     has_table = has_size_table(body_html)
-    if plain_len < 500 or not has_table:
+    if force or plain_len < 500 or not has_table:
         missing.append(f"body_html ({plain_len} chars, table={has_table})")
-        new_body = build_description(product)
+        new_body = build_description(product, force=force)
         prod_updates['body_html'] = new_body
         stats['descriptions'] += 1
         changes.append({
@@ -839,7 +839,7 @@ def main():
             print(f"  [{i}/{len(products)}] OK  {p['title'][:55]}")
             continue
         print(f"  [{i}/{len(products)}] FIX {p['title'][:55]}")
-        process(p, stats, log, existing_mfs=mfs)
+        process(p, stats, log, existing_mfs=mfs, force=(mode == 'force'))
 
     # ── Process pages ─────────────────────────────────────────────────────────
     if pages:
