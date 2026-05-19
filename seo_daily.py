@@ -33,6 +33,16 @@ SITE   = "https://us.meeeshop.com"
 RETURN_POLICY = "7-day return policy"
 DISPLAY_BRAND = "us.meeeshop"  # For human-readable text (not in meta title)
 
+# Return policy is 7 days ONLY. Any other duration (30-day, 14-day, 60-day, etc.)
+# triggers an overwrite to the 7-day policy.
+STALE_RETURN_RE = re.compile(r'\b(?!7[\s-]*day)\d+[\s-]*day[\s-]*(return|refund|exchange|policy)', re.IGNORECASE)
+
+def has_stale_return_policy(text):
+    """True if text mentions any return policy other than 7-day."""
+    if not text:
+        return False
+    return bool(STALE_RETURN_RE.search(text))
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TEXT HELPERS
@@ -129,11 +139,13 @@ META_DESC_TEMPLATES = [
 ]
 
 def build_meta_desc(title):
+    """Deterministic meta description: same title always produces same output (so validation can use exact match)."""
     _, word = detect_cat(title)
     keywords = extract_keywords(title)
     keywords_str = ' '.join(keywords) if keywords else (title.split()[0] if title.split() else "women's")
-    import random
-    tpl  = random.choice(META_DESC_TEMPLATES)
+    # Deterministic template selection: pick by hash of title (no randomness)
+    idx  = sum(ord(c) for c in title) % len(META_DESC_TEMPLATES)
+    tpl  = META_DESC_TEMPLATES[idx]
     desc = tpl.format(title=title, brand=BRAND, word=word, keywords_str=keywords_str)
     return truncate(desc, 155)
 
@@ -157,6 +169,24 @@ def build_alt(title, variant_hint='', idx=0):
 def has_size_table(html):
     """Check if HTML already contains a size/measurement table."""
     return bool(re.search(r'<table[^>]*>.*?<t[hd][^>]*>.*?(size|bust|waist|hip|length|chest|sleeve)', html or '', re.IGNORECASE | re.DOTALL))
+
+
+def extract_size_table(html):
+    """Extract the existing size table block (including any 'Size Chart' heading before it). Returns HTML string or ''."""
+    if not html:
+        return ''
+    # Match optional <h2/h3> heading containing 'size' immediately followed by a <table>
+    m = re.search(
+        r'(<h[1-6][^>]*>[^<]*size[^<]*</h[1-6]>\s*)?<table[\s\S]*?</table>',
+        html, re.IGNORECASE
+    )
+    if not m:
+        return ''
+    block = m.group(0)
+    # Confirm this table is actually a size table
+    if not has_size_table(block):
+        return ''
+    return block
 
 # ── Build size chart based on product type ────────────────────────────────────
 def build_size_chart(word):
@@ -229,11 +259,12 @@ def build_description(product, force=False):
         f"Shop {DISPLAY_BRAND} today.</strong></p>"
     )
 
-    # Only add size chart if one doesn't already exist
-    if not has_size_table(html_body):
-        size_chart = build_size_chart(word)
+    # Preserve existing size table verbatim; otherwise build the standard one
+    existing_table = extract_size_table(html_body)
+    if existing_table:
+        size_chart = existing_table
     else:
-        size_chart = ''
+        size_chart = build_size_chart(word)
 
     if not force and len(existing) >= 500:
         return (product.get('body_html') or '')
@@ -567,13 +598,14 @@ def validate_seo(item, item_type, existing_mfs):
     if cur_meta_title != expected_meta_title:
         mismatches.append({"field": "meta_title", "before": cur_meta_title, "after": expected_meta_title})
 
-    # ── Meta desc (content-based: 7-day + free + us.meeeshop + ≤155 chars) ────
+    # ── Meta desc (content checks + no stale return policy) ───────────────────
     cur_meta_desc = existing_mfs.get('global.description_tag', {}).get('value', '')
     desc_ok = (
         "7-day return" in cur_meta_desc
         and "free" in cur_meta_desc.lower()
         and DISPLAY_BRAND in cur_meta_desc
         and 0 < len(cur_meta_desc) <= 155
+        and not has_stale_return_policy(cur_meta_desc)
     )
     if not desc_ok:
         new_meta_desc = build_meta_desc(title)
@@ -584,11 +616,22 @@ def validate_seo(item, item_type, existing_mfs):
         body_html = item.get('body_html', '') or ''
         plain_len = len(strip_html(body_html))
         has_table = has_size_table(body_html)
-        if plain_len < 500 or not has_table:
-            new_desc = build_description(item)
+        # Required template markers + no stale (non-7-day) return policy anywhere
+        required_markers = [
+            'Discover the',
+            'Product Features',
+            'Premium quality materials',
+            'Why Choose',
+            RETURN_POLICY,
+        ]
+        has_all_markers = all(m in body_html for m in required_markers)
+        has_stale_body  = has_stale_return_policy(body_html)
+        body_ok = has_all_markers and not has_stale_body and plain_len >= 500 and has_table
+        if not body_ok:
+            new_desc = build_description(item, force=True)
             mismatches.append({
                 "field": "body_html",
-                "before": f"{plain_len} chars, table={has_table}",
+                "before": f"{plain_len} chars, table={has_table}, markers={has_all_markers}, stale={has_stale_body}",
                 "after": f"{len(strip_html(new_desc))} chars + table"
             })
 
@@ -633,13 +676,18 @@ def process(product, stats, log, existing_mfs=None, force=False):
         stats['titles'] += 1
         changes.append({"field": "title", "before": old_title, "after": new_title})
 
-    # ── 2. Body description (strict: ≥500 chars + size table; always overwrite in force mode) ──
+    # ── 2. Body description: rewrite in force/weekly mode OR if stale/missing template ─────
     body_html = product.get('body_html', '') or ''
     plain_len = len(strip_html(body_html))
     has_table = has_size_table(body_html)
-    if force or plain_len < 500 or not has_table:
-        missing.append(f"body_html ({plain_len} chars, table={has_table})")
-        new_body = build_description(product, force=force)
+    required_markers = ['Discover the', 'Product Features', 'Premium quality materials',
+                        'Why Choose', RETURN_POLICY]
+    has_all_markers = all(m in body_html for m in required_markers)
+    has_stale_body  = has_stale_return_policy(body_html)
+    needs_body_rewrite = force or plain_len < 500 or not has_table or has_stale_body or not has_all_markers
+    if needs_body_rewrite:
+        missing.append(f"body_html ({plain_len} chars, table={has_table}, stale={has_stale_body}, markers={has_all_markers})")
+        new_body = build_description(product, force=True)
         prod_updates['body_html'] = new_body
         stats['descriptions'] += 1
         changes.append({
@@ -711,6 +759,17 @@ def process(product, stats, log, existing_mfs=None, force=False):
             if update_image_alt(pid, iid, m['after']):
                 stats['alts'] += 1
                 changes.append({"field": f"img_alt[{i}]", "before": m['before'][:50], "after": m['after'][:50]})
+
+    # In force mode, always rewrite both meta fields even if they already pass validation
+    if force and not meta_fix_needed:
+        cur_mt = existing_mfs.get('global.title_tag', {}).get('value', '')
+        cur_md = existing_mfs.get('global.description_tag', {}).get('value', '')
+        if cur_mt != new_meta_title or cur_md != new_meta_desc:
+            meta_fix_needed = True
+            stats['meta_titles'] += 1
+            stats['meta_descs'] += 1
+            changes.append({"field": "meta_title", "before": cur_mt, "after": new_meta_title})
+            changes.append({"field": "meta_desc", "before": cur_md[:80], "after": new_meta_desc[:80]})
 
     # Fix meta fields if needed
     if meta_fix_needed:
@@ -857,6 +916,7 @@ def main():
                 and "free" in cur_mdesc.lower()
                 and DISPLAY_BRAND in cur_mdesc
                 and 0 < len(cur_mdesc) <= 155
+                and not has_stale_return_policy(cur_mdesc)
             )
             mt_ok = (cur_mtitle == expected_mt)
             needs_seo = not mt_ok or not desc_ok
@@ -903,6 +963,7 @@ def main():
                 and "free" in cur_mdesc.lower()
                 and DISPLAY_BRAND in cur_mdesc
                 and 0 < len(cur_mdesc) <= 155
+                and not has_stale_return_policy(cur_mdesc)
             )
             mt_ok = (cur_mtitle == expected_mt)
             needs_seo = not mt_ok or not desc_ok
@@ -960,6 +1021,7 @@ def main():
                 and "free" in cur_mdesc.lower()
                 and DISPLAY_BRAND in cur_mdesc
                 and 0 < len(cur_mdesc) <= 155
+                and not has_stale_return_policy(cur_mdesc)
             )
             mt_ok = (cur_mtitle == expected_mt)
             needs_seo = not mt_ok or not desc_ok
