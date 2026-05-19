@@ -203,7 +203,7 @@ def build_description(product):
     keywords_str = ' '.join(keywords) if keywords else ''
 
     intro = (
-        f"<p><strong>Discover the {keywords_str} {title} at {DISPLAY_BRAND}.</strong> This premium {word} combines "
+        f"<p><strong>Discover the {keywords_str} {title} at {DISPLAY_BRAND}.</strong> This {word} combines "
         f"exceptional quality with style, perfect for women looking for women's {word}s. "
         f"Enjoy free US shipping and easy returns on every order.</p>"
     )
@@ -211,21 +211,21 @@ def build_description(product):
     features = (
         f"<h3>Product Features</h3>"
         f"<ul>"
-        f"<li>Premium quality {word} designed for lasting durability and comfort</li>"
-        f"<li>Stylish {keywords_str} design that works for everyday wear and special occasions</li>"
-        f"<li>Perfect for women who value quality {word}s and fashion</li>"
+        f"<li>Premium quality materials for lasting durability and comfort</li>"
+        f"<li>Stylish design that works for everyday wear and special occasions</li>"
+        f"<li>Perfect for women who value quality and fashion</li>"
         f"<li>Free shipping on all US orders</li>"
-        f"<li>{RETURN_POLICY} (check our return policy for details)</li>"
+        f"<li>{RETURN_POLICY}</li>"
         f"<li>Shop {word}s for women at {DISPLAY_BRAND}</li>"
         f"</ul>"
     )
 
     why_choose = (
         f"<h3>Why Choose {keywords_str} {title} at {DISPLAY_BRAND}?</h3>"
-        f"<p>Looking for women's {word}s? Our curated selection of premium {keywords_str} {word}s for women features "
+        f"<p>Looking for women's fashion? Our curated selection of {word}s for women features "
         f"quality that lasts. Whether you're shopping for everyday essentials or something special, "
         f"we have options for every style and budget.</p>"
-        f"<p><strong>Shop {word}s for women. Free US shipping. Easy returns ({RETURN_POLICY}). "
+        f"<p><strong>Shop {word}s for women. Free US shipping. {RETURN_POLICY}. "
         f"Shop {DISPLAY_BRAND} today.</strong></p>"
     )
 
