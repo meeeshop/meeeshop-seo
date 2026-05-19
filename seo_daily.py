@@ -769,8 +769,8 @@ def main():
         print("Processing: Products, Pages, Collections, Blog Posts\n")
     elif args.weekly:
         mode = 'weekly'
-        since = None
-        print("Mode: WEEKLY (entire catalog, strict validation)")
+        since = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        print("Mode: WEEKLY (overwrite all SEO for items added/published in last 7 days)")
         print("Processing: Products, Pages, Collections, Blog Posts\n")
     elif args.hours:
         mode = 'custom'
@@ -835,11 +835,11 @@ def main():
         mismatches = validate_seo(p, "product", mfs)
         title_wrong = title_case(p['title']) != p['title']
         needs_seo   = bool(mismatches) or title_wrong
-        if not needs_seo and mode != 'force':
+        if not needs_seo and mode not in ('force', 'weekly'):
             print(f"  [{i}/{len(products)}] OK  {p['title'][:55]}")
             continue
         print(f"  [{i}/{len(products)}] FIX {p['title'][:55]}")
-        process(p, stats, log, existing_mfs=mfs, force=(mode == 'force'))
+        process(p, stats, log, existing_mfs=mfs, force=(mode in ('force', 'weekly')))
 
     # ── Process pages ─────────────────────────────────────────────────────────
     if pages:
@@ -860,7 +860,7 @@ def main():
             )
             mt_ok = (cur_mtitle == expected_mt)
             needs_seo = not mt_ok or not desc_ok
-            if not needs_seo and mode != 'force':
+            if not needs_seo and mode not in ('force', 'weekly'):
                 print(f"  [{i}/{len(pages)}] OK  {title[:55]}")
                 continue
 
@@ -906,7 +906,7 @@ def main():
             )
             mt_ok = (cur_mtitle == expected_mt)
             needs_seo = not mt_ok or not desc_ok
-            if not needs_seo and mode != 'force':
+            if not needs_seo and mode not in ('force', 'weekly'):
                 print(f"  [{i}/{len(collections)}] OK  {title[:55]}")
                 continue
 
@@ -963,7 +963,7 @@ def main():
             )
             mt_ok = (cur_mtitle == expected_mt)
             needs_seo = not mt_ok or not desc_ok
-            if not needs_seo and mode != 'force':
+            if not needs_seo and mode not in ('force', 'weekly'):
                 print(f"  [{i}/{len(articles)}] OK  {title[:55]}")
                 continue
 
