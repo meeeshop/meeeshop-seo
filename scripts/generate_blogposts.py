@@ -1,4 +1,6 @@
 import os
+import sys
+import logging
 import requests
 import random
 import json
@@ -6,17 +8,32 @@ import time
 import argparse
 import re
 from datetime import datetime
+from pathlib import Path
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+_log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Configuration – values are expected to come from GitHub Actions secrets.
-# The workflow sets the following environment variables:
-#   SHOPIFY_STORE, SHOPIFY_ACCESS_TOKEN, OPENROUTER_API_KEY
-# The script reads them directly.  If you run the script locally you can
-# still provide the same names via your shell or a .env file.
+# Decrypt secrets via secrets_manager (double-Fernet) then read from env.
 # ---------------------------------------------------------------------------
+try:
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from secrets_manager import inject_to_env
+    inject_to_env()
+    _log.info("[secrets] inject_to_env() succeeded")
+except Exception as _e:
+    _log.critical("[secrets] inject_to_env() FAILED — script cannot run: %s", _e, exc_info=True)
+    sys.exit(1)
+
 SHOPIFY_STORE = os.environ.get("SHOPIFY_STORE", "")
 SHOPIFY_TOKEN = os.environ.get("SHOPIFY_ACCESS_TOKEN", "")
 OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+
+if not SHOPIFY_STORE or not SHOPIFY_TOKEN or not OPENROUTER_KEY:
+    _log.critical("[secrets] One or more required secrets are empty after decryption: "
+                  "SHOPIFY_STORE=%s, SHOPIFY_ACCESS_TOKEN=%s, OPENROUTER_API_KEY=%s",
+                  bool(SHOPIFY_STORE), bool(SHOPIFY_TOKEN), bool(OPENROUTER_KEY))
+    sys.exit(1)
 
 #Stable free-tier models (May 2026)
 MODEL_CHAIN = [
