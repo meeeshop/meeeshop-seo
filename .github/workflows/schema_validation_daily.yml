@@ -48,8 +48,8 @@ jobs:
       - name: Run Schema Validation
         id: schema
         env:
-          SHOPIFY_STORE:        ${{ secrets.SHOPIFY_STORE }}
-          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           echo "Running schema validation in ${{ steps.mode.outputs.mode }} mode..."
           python schema_validator.py --${{ steps.mode.outputs.mode }}

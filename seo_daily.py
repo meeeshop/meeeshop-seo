@@ -17,21 +17,32 @@ Enhancements:
   - Social      : Pinterest & YouTube only (removed Instagram/TikTok)
   - Resources   : Products, Pages, Collections, Blog Posts
 """
-import os, re, json, time, argparse
+import os, re, json, time, argparse, sys
 import requests
 from datetime import datetime, timedelta, timezone
-from dotenv import load_dotenv
 
-load_dotenv()
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from secrets_manager import inject_to_env, get_secret
+inject_to_env()
 
-STORE  = os.getenv("SHOPIFY_STORE")
-TOKEN  = os.getenv("SHOPIFY_ACCESS_TOKEN")
+STORE  = get_secret("SHOPIFY_STORE")
+TOKEN  = get_secret("SHOPIFY_ACCESS_TOKEN")
 HEADS  = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 BASE   = f"https://{STORE}/admin/api/2024-01"
 BRAND  = "us.meeeshop.com"
 SITE   = "https://us.meeeshop.com"
 RETURN_POLICY = "7-day return policy"
 DISPLAY_BRAND = "us.meeeshop"  # For human-readable text (not in meta title)
+
+# Return policy is 7 days ONLY. Any other duration (30-day, 14-day, 60-day, etc.)
+# triggers an overwrite to the 7-day policy.
+STALE_RETURN_RE = re.compile(r'\b(?!7[\s-]*day)\d+[\s-]*day[\s-]*(return|refund|exchange|policy)', re.IGNORECASE)
+
+def has_stale_return_policy(text):
+    """True if text mentions any return policy other than 7-day."""
+    if not text:
+        return False
+    return bool(STALE_RETURN_RE.search(text))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -129,11 +140,13 @@ META_DESC_TEMPLATES = [
 ]
 
 def build_meta_desc(title):
+    """Deterministic meta description: same title always produces same output (so validation can use exact match)."""
     _, word = detect_cat(title)
     keywords = extract_keywords(title)
     keywords_str = ' '.join(keywords) if keywords else (title.split()[0] if title.split() else "women's")
-    import random
-    tpl  = random.choice(META_DESC_TEMPLATES)
+    # Deterministic template selection: pick by hash of title (no randomness)
+    idx  = sum(ord(c) for c in title) % len(META_DESC_TEMPLATES)
+    tpl  = META_DESC_TEMPLATES[idx]
     desc = tpl.format(title=title, brand=BRAND, word=word, keywords_str=keywords_str)
     return truncate(desc, 155)
 
@@ -157,6 +170,24 @@ def build_alt(title, variant_hint='', idx=0):
 def has_size_table(html):
     """Check if HTML already contains a size/measurement table."""
     return bool(re.search(r'<table[^>]*>.*?<t[hd][^>]*>.*?(size|bust|waist|hip|length|chest|sleeve)', html or '', re.IGNORECASE | re.DOTALL))
+
+
+def extract_size_table(html):
+    """Extract the existing size table block (including any 'Size Chart' heading before it). Returns HTML string or ''."""
+    if not html:
+        return ''
+    # Match optional <h2/h3> heading containing 'size' immediately followed by a <table>
+    m = re.search(
+        r'(<h[1-6][^>]*>[^<]*size[^<]*</h[1-6]>\s*)?<table[\s\S]*?</table>',
+        html, re.IGNORECASE
+    )
+    if not m:
+        return ''
+    block = m.group(0)
+    # Confirm this table is actually a size table
+    if not has_size_table(block):
+        return ''
+    return block
 
 # ── Build size chart based on product type ────────────────────────────────────
 def build_size_chart(word):
@@ -194,7 +225,7 @@ def build_size_chart(word):
     return size_chart
 
 # ── SEO description with keywords + size chart ───────────────────────────────
-def build_description(product):
+def build_description(product, force=False):
     title    = product['title']
     html_body = product.get('body_html', '')
     existing = strip_html(html_body)
@@ -203,7 +234,7 @@ def build_description(product):
     keywords_str = ' '.join(keywords) if keywords else ''
 
     intro = (
-        f"<p><strong>Discover the {keywords_str} {title} at {DISPLAY_BRAND}.</strong> This premium {word} combines "
+        f"<p><strong>Discover the {keywords_str} {title} at {DISPLAY_BRAND}.</strong> This {word} combines "
         f"exceptional quality with style, perfect for women looking for women's {word}s. "
         f"Enjoy free US shipping and easy returns on every order.</p>"
     )
@@ -211,31 +242,32 @@ def build_description(product):
     features = (
         f"<h3>Product Features</h3>"
         f"<ul>"
-        f"<li>Premium quality {word} designed for lasting durability and comfort</li>"
-        f"<li>Stylish {keywords_str} design that works for everyday wear and special occasions</li>"
-        f"<li>Perfect for women who value quality {word}s and fashion</li>"
+        f"<li>Premium quality materials for lasting durability and comfort</li>"
+        f"<li>Stylish design that works for everyday wear and special occasions</li>"
+        f"<li>Perfect for women who value quality and fashion</li>"
         f"<li>Free shipping on all US orders</li>"
-        f"<li>{RETURN_POLICY} (check our return policy for details)</li>"
+        f"<li>{RETURN_POLICY}</li>"
         f"<li>Shop {word}s for women at {DISPLAY_BRAND}</li>"
         f"</ul>"
     )
 
     why_choose = (
         f"<h3>Why Choose {keywords_str} {title} at {DISPLAY_BRAND}?</h3>"
-        f"<p>Looking for women's {word}s? Our curated selection of premium {keywords_str} {word}s for women features "
+        f"<p>Looking for women's fashion? Our curated selection of {word}s for women features "
         f"quality that lasts. Whether you're shopping for everyday essentials or something special, "
         f"we have options for every style and budget.</p>"
-        f"<p><strong>Shop {word}s for women. Free US shipping. Easy returns ({RETURN_POLICY}). "
+        f"<p><strong>Shop {word}s for women. Free US shipping. {RETURN_POLICY}. "
         f"Shop {DISPLAY_BRAND} today.</strong></p>"
     )
 
-    # Only add size chart if one doesn't already exist
-    if not has_size_table(html_body):
-        size_chart = build_size_chart(word)
+    # Preserve existing size table verbatim; otherwise build the standard one
+    existing_table = extract_size_table(html_body)
+    if existing_table:
+        size_chart = existing_table
     else:
-        size_chart = ''
+        size_chart = build_size_chart(word)
 
-    if len(existing) >= 500:
+    if not force and len(existing) >= 500:
         return (product.get('body_html') or '')
 
     return intro + features + why_choose + size_chart
@@ -270,12 +302,11 @@ def api_post(path, body):
     return r.json()
 
 
-def fetch_products(updated_since=None):
-    """Fetch products created since cutoff (catches new products in last 48h)."""
+def fetch_products(created_since=None):
+    """Fetch active products created since cutoff (catches new dropship imports by any vendor)."""
     products, url = [], f"{BASE}/products.json?limit=250&status=active"
-    if updated_since:
-        # created_at_min catches newly created products (not just updated ones)
-        url += f"&created_at_min={updated_since}"
+    if created_since:
+        url += f"&created_at_min={created_since}"
     while url:
         r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
         products.extend(r.json().get('products', []))
@@ -284,11 +315,11 @@ def fetch_products(updated_since=None):
     return products
 
 
-def fetch_pages(updated_since=None):
-    """Fetch all pages (static content pages) created since cutoff."""
+def fetch_pages(published_since=None):
+    """Fetch pages published since cutoff."""
     pages, url = [], f"{BASE}/pages.json?limit=250"
-    if updated_since:
-        url += f"&created_at_min={updated_since}"
+    if published_since:
+        url += f"&published_at_min={published_since}"
     while url:
         r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
         pages.extend(r.json().get('pages', []))
@@ -297,11 +328,11 @@ def fetch_pages(updated_since=None):
     return pages
 
 
-def fetch_collections(updated_since=None):
-    """Fetch all collections (custom collections and smart collections) created since cutoff."""
+def fetch_collections(created_since=None):
+    """Fetch custom collections created since cutoff."""
     collections, url = [], f"{BASE}/custom_collections.json?limit=250"
-    if updated_since:
-        url += f"&created_at_min={updated_since}"
+    if created_since:
+        url += f"&created_at_min={created_since}"
     while url:
         r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
         collections.extend(r.json().get('custom_collections', []))
@@ -310,11 +341,9 @@ def fetch_collections(updated_since=None):
     return collections
 
 
-def fetch_articles(updated_since=None):
-    """Fetch all blog articles created since cutoff."""
+def fetch_articles(published_since=None):
+    """Fetch blog articles published since cutoff."""
     articles, url = [], f"{BASE}/blogs.json?limit=250"
-    if updated_since:
-        url += f"&created_at_min={updated_since}"
 
     blogs = []
     while url:
@@ -326,8 +355,8 @@ def fetch_articles(updated_since=None):
     # Fetch articles from each blog
     for blog in blogs:
         article_url = f"{BASE}/blogs/{blog['id']}/articles.json?limit=250"
-        if updated_since:
-            article_url += f"&created_at_min={updated_since}"
+        if published_since:
+            article_url += f"&published_at_min={published_since}"
         while article_url:
             r = requests.get(article_url, headers=HEADS); r.raise_for_status(); _check_rate(r)
             articles.extend(r.json().get('articles', []))
@@ -570,13 +599,14 @@ def validate_seo(item, item_type, existing_mfs):
     if cur_meta_title != expected_meta_title:
         mismatches.append({"field": "meta_title", "before": cur_meta_title, "after": expected_meta_title})
 
-    # ── Meta desc (content-based: 7-day + free + us.meeeshop + ≤155 chars) ────
+    # ── Meta desc (content checks + no stale return policy) ───────────────────
     cur_meta_desc = existing_mfs.get('global.description_tag', {}).get('value', '')
     desc_ok = (
         "7-day return" in cur_meta_desc
         and "free" in cur_meta_desc.lower()
         and DISPLAY_BRAND in cur_meta_desc
         and 0 < len(cur_meta_desc) <= 155
+        and not has_stale_return_policy(cur_meta_desc)
     )
     if not desc_ok:
         new_meta_desc = build_meta_desc(title)
@@ -587,11 +617,22 @@ def validate_seo(item, item_type, existing_mfs):
         body_html = item.get('body_html', '') or ''
         plain_len = len(strip_html(body_html))
         has_table = has_size_table(body_html)
-        if plain_len < 500 or not has_table:
-            new_desc = build_description(item)
+        # Required template markers + no stale (non-7-day) return policy anywhere
+        required_markers = [
+            'Discover the',
+            'Product Features',
+            'Premium quality materials',
+            'Why Choose',
+            RETURN_POLICY,
+        ]
+        has_all_markers = all(m in body_html for m in required_markers)
+        has_stale_body  = has_stale_return_policy(body_html)
+        body_ok = has_all_markers and not has_stale_body and plain_len >= 500 and has_table
+        if not body_ok:
+            new_desc = build_description(item, force=True)
             mismatches.append({
                 "field": "body_html",
-                "before": f"{plain_len} chars, table={has_table}",
+                "before": f"{plain_len} chars, table={has_table}, markers={has_all_markers}, stale={has_stale_body}",
                 "after": f"{len(strip_html(new_desc))} chars + table"
             })
 
@@ -621,7 +662,7 @@ def validate_seo(item, item_type, existing_mfs):
 # CORE PRODUCT PROCESSOR
 # ══════════════════════════════════════════════════════════════════════════════
 
-def process(product, stats, log, existing_mfs=None):
+def process(product, stats, log, existing_mfs=None, force=False):
     pid        = product['id']
     old_title  = product['title']
     old_handle = product['handle']
@@ -636,13 +677,18 @@ def process(product, stats, log, existing_mfs=None):
         stats['titles'] += 1
         changes.append({"field": "title", "before": old_title, "after": new_title})
 
-    # ── 2. Body description (strict: ≥500 chars + size table) ─────────────────
+    # ── 2. Body description: rewrite in force/weekly mode OR if stale/missing template ─────
     body_html = product.get('body_html', '') or ''
     plain_len = len(strip_html(body_html))
     has_table = has_size_table(body_html)
-    if plain_len < 500 or not has_table:
-        missing.append(f"body_html ({plain_len} chars, table={has_table})")
-        new_body = build_description(product)
+    required_markers = ['Discover the', 'Product Features', 'Premium quality materials',
+                        'Why Choose', RETURN_POLICY]
+    has_all_markers = all(m in body_html for m in required_markers)
+    has_stale_body  = has_stale_return_policy(body_html)
+    needs_body_rewrite = force or plain_len < 500 or not has_table or has_stale_body or not has_all_markers
+    if needs_body_rewrite:
+        missing.append(f"body_html ({plain_len} chars, table={has_table}, stale={has_stale_body}, markers={has_all_markers})")
+        new_body = build_description(product, force=True)
         prod_updates['body_html'] = new_body
         stats['descriptions'] += 1
         changes.append({
@@ -715,6 +761,17 @@ def process(product, stats, log, existing_mfs=None):
                 stats['alts'] += 1
                 changes.append({"field": f"img_alt[{i}]", "before": m['before'][:50], "after": m['after'][:50]})
 
+    # In force mode, always rewrite both meta fields even if they already pass validation
+    if force and not meta_fix_needed:
+        cur_mt = existing_mfs.get('global.title_tag', {}).get('value', '')
+        cur_md = existing_mfs.get('global.description_tag', {}).get('value', '')
+        if cur_mt != new_meta_title or cur_md != new_meta_desc:
+            meta_fix_needed = True
+            stats['meta_titles'] += 1
+            stats['meta_descs'] += 1
+            changes.append({"field": "meta_title", "before": cur_mt, "after": new_meta_title})
+            changes.append({"field": "meta_desc", "before": cur_md[:80], "after": new_meta_desc[:80]})
+
     # Fix meta fields if needed
     if meta_fix_needed:
         try:
@@ -772,8 +829,8 @@ def main():
         print("Processing: Products, Pages, Collections, Blog Posts\n")
     elif args.weekly:
         mode = 'weekly'
-        since = None
-        print("Mode: WEEKLY (entire catalog, strict validation)")
+        since = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        print("Mode: WEEKLY (overwrite all SEO for items added/published in last 7 days)")
         print("Processing: Products, Pages, Collections, Blog Posts\n")
     elif args.hours:
         mode = 'custom'
@@ -783,7 +840,7 @@ def main():
     else:
         mode = 'daily'
         since = (datetime.now(timezone.utc) - timedelta(hours=48)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        print("Mode: DAILY (products, pages, collections, articles updated in last 48 hours)")
+        print("Mode: DAILY (products created in last 48h; pages/collections created + articles published in last 48h)")
         print("Processing: Products, Pages, Collections, Blog Posts\n")
 
     print(f"Cutoff: {since or 'none (all resources)'}\n")
@@ -799,6 +856,9 @@ def main():
         print()
 
     # ── Fetch all resources (products, pages, collections, articles) ──────────
+    # Products: created_at_min — catches new dropship imports (Trendsi, Cemi Cari, etc.)
+    # Pages/Collections: created_at_min — new pages/collections published since cutoff
+    # Articles: published_at_min — new blog posts published since cutoff
     print("Fetching products...")
     products = fetch_products(since)
     if args.limit:
@@ -835,11 +895,11 @@ def main():
         mismatches = validate_seo(p, "product", mfs)
         title_wrong = title_case(p['title']) != p['title']
         needs_seo   = bool(mismatches) or title_wrong
-        if not needs_seo and mode != 'force':
+        if not needs_seo and mode not in ('force', 'weekly'):
             print(f"  [{i}/{len(products)}] OK  {p['title'][:55]}")
             continue
         print(f"  [{i}/{len(products)}] FIX {p['title'][:55]}")
-        process(p, stats, log, existing_mfs=mfs)
+        process(p, stats, log, existing_mfs=mfs, force=(mode in ('force', 'weekly')))
 
     # ── Process pages ─────────────────────────────────────────────────────────
     if pages:
@@ -857,10 +917,11 @@ def main():
                 and "free" in cur_mdesc.lower()
                 and DISPLAY_BRAND in cur_mdesc
                 and 0 < len(cur_mdesc) <= 155
+                and not has_stale_return_policy(cur_mdesc)
             )
             mt_ok = (cur_mtitle == expected_mt)
             needs_seo = not mt_ok or not desc_ok
-            if not needs_seo and mode != 'force':
+            if not needs_seo and mode not in ('force', 'weekly'):
                 print(f"  [{i}/{len(pages)}] OK  {title[:55]}")
                 continue
 
@@ -903,10 +964,11 @@ def main():
                 and "free" in cur_mdesc.lower()
                 and DISPLAY_BRAND in cur_mdesc
                 and 0 < len(cur_mdesc) <= 155
+                and not has_stale_return_policy(cur_mdesc)
             )
             mt_ok = (cur_mtitle == expected_mt)
             needs_seo = not mt_ok or not desc_ok
-            if not needs_seo and mode != 'force':
+            if not needs_seo and mode not in ('force', 'weekly'):
                 print(f"  [{i}/{len(collections)}] OK  {title[:55]}")
                 continue
 
@@ -960,10 +1022,11 @@ def main():
                 and "free" in cur_mdesc.lower()
                 and DISPLAY_BRAND in cur_mdesc
                 and 0 < len(cur_mdesc) <= 155
+                and not has_stale_return_policy(cur_mdesc)
             )
             mt_ok = (cur_mtitle == expected_mt)
             needs_seo = not mt_ok or not desc_ok
-            if not needs_seo and mode != 'force':
+            if not needs_seo and mode not in ('force', 'weekly'):
                 print(f"  [{i}/{len(articles)}] OK  {title[:55]}")
                 continue
 

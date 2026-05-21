@@ -11,17 +11,18 @@ Adds missing schemas, validates structure, logs results, optimizes page speed.
 import os, json, re, time, argparse, logging, sys
 import requests
 from datetime import datetime, timedelta, timezone
-from dotenv import load_dotenv
 from typing import Dict, List, Any, Tuple, Optional
 from urllib.parse import parse_qs, urlparse
 
-load_dotenv()
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from secrets_manager import inject_to_env, get_secret
+inject_to_env()
 
-STORE = os.getenv("SHOPIFY_STORE")
-TOKEN = os.getenv("SHOPIFY_ACCESS_TOKEN")
+STORE = get_secret("SHOPIFY_STORE")
+TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
 HEADS = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 BASE = f"https://{STORE}/admin/api/2024-01"
-SITE = "https://us.meeeshop.com"
+SITE = get_secret("STORE_BASE_URL")
 BRAND = "MeeeShop"
 
 # Rate limiting settings

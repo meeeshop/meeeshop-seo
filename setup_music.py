@@ -124,17 +124,25 @@ def yt_download(search_query, out_base):
 # ── Auth for YouTube Studio API ───────────────────────────────────────────────
 
 def get_access_token():
+    import logging as _log
+    _slog = _log.getLogger(__name__)
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
-    from dotenv import load_dotenv
-    load_dotenv()
-    rt = os.getenv("YOUTUBE_REFRESH_TOKEN")
+    try:
+        from secrets_manager import get_secret
+        rt = get_secret("YOUTUBE_REFRESH_TOKEN")
+        client_id = get_secret("YOUTUBE_CLIENT_ID")
+        client_secret = get_secret("YOUTUBE_CLIENT_SECRET")
+        _slog.info("[secrets] YouTube OAuth credentials loaded from secrets_manager")
+    except Exception as _e:
+        _slog.error("[secrets] Failed to load YouTube OAuth credentials: %s", _e, exc_info=True)
+        rt = client_id = client_secret = None
     if rt:
         creds = Credentials(
             token=None, refresh_token=rt,
             token_uri="https://oauth2.googleapis.com/token",
-            client_id=os.getenv("YOUTUBE_CLIENT_ID"),
-            client_secret=os.getenv("YOUTUBE_CLIENT_SECRET"),
+            client_id=client_id,
+            client_secret=client_secret,
         )
         creds.refresh(Request())
         return creds.token

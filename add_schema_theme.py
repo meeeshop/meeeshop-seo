@@ -3,15 +3,17 @@ Add Schema Rendering Code to Shopify Theme
 Injects JSON-LD schema rendering code into theme.liquid
 """
 import os
+import sys
 import json
 import requests
-from dotenv import load_dotenv
 
-load_dotenv()
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from secrets_manager import inject_to_env, get_secret
+inject_to_env()
 
-STORE = os.getenv("SHOPIFY_STORE")
-TOKEN = os.getenv("SHOPIFY_ACCESS_TOKEN")
-THEME_ID = "155143110827"  # Main (live) theme: Dawn-15.4.1-Re-designed-Claude
+STORE = get_secret("SHOPIFY_STORE")
+TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
+THEME_ID = get_secret("LIVE_THEME_ID")
 ASSET_KEY = "layout/theme.liquid"
 
 BASE_URL = f"https://{STORE}/admin/api/2024-01"

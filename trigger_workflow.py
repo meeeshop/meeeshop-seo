@@ -1,11 +1,13 @@
 import os
+import sys
 import requests
-from dotenv import load_dotenv
 
-load_dotenv()
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from secrets_manager import inject_to_env, get_secret
+inject_to_env()
 
 # GitHub info
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+GITHUB_TOKEN = get_secret("GITHUB_TOKEN")
 if not GITHUB_TOKEN:
     print("[!] Error: GITHUB_TOKEN not set in .env")
     print("Set it with: echo 'GITHUB_TOKEN=your_token' >> .env")

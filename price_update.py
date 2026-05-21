@@ -17,23 +17,27 @@ from pathlib import Path
 from typing import Optional, Dict, List
 from datetime import datetime
 
+import logging
 import ai_client
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+_log = logging.getLogger(__name__)
 
-def _load_env():
-    """Load .env file from local or parent directory."""
-    for candidate in [Path(__file__).with_name(".env"), Path(".env")]:
-        if candidate.exists():
-            for line in candidate.read_text(encoding="utf-8").splitlines():
-                if "=" in line and not line.startswith("#"):
-                    k, v = line.split("=", 1)
-                    os.environ.setdefault(k.strip(), v.strip().strip('"'))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    from secrets_manager import inject_to_env, get_secret
+    inject_to_env()
+    _log.info("[secrets] inject_to_env() succeeded")
+except Exception as _e:
+    _log.critical("[secrets] inject_to_env() FAILED — price_update cannot run: %s", _e, exc_info=True)
+    sys.exit(1)
 
-
-_load_env()
-
-SHOPIFY_STORE = os.getenv("SHOPIFY_STORE", "us-meeeshop.myshopify.com")
-SHOPIFY_ACCESS_TOKEN = os.getenv("SHOPIFY_ACCESS_TOKEN", "")
+try:
+    SHOPIFY_STORE = get_secret("SHOPIFY_STORE")
+    SHOPIFY_ACCESS_TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
+except Exception as _e:
+    _log.critical("[secrets] Failed to load Shopify credentials: %s", _e, exc_info=True)
+    sys.exit(1)
 API_VERSION = "2025-01"
 
 # Pricing configuration
