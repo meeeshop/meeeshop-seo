@@ -11,3 +11,4 @@ PyNaCl>=1.5.0
 tzdata>=2024.1
 yt-dlp>=2024.1.0
 rembg>=2.0.50
+cryptography>=41.0.0
