@@ -6,24 +6,16 @@ Tertiary  : OpenRouter Qwen-3-235B :free  (openrouter.ai — free tier)
 Fallback  : returns None → caller uses hardcoded template
 """
 
-import os, time, requests
+import os, sys, time, requests
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from secrets_manager import inject_to_env, get_secret
+inject_to_env()
 
-def _load_env():
-    for candidate in [Path(__file__).with_name(".env"), Path(".env")]:
-        if candidate.exists():
-            for line in candidate.read_text(encoding="utf-8").splitlines():
-                if "=" in line and not line.startswith("#"):
-                    k, v = line.split("=", 1)
-                    os.environ.setdefault(k.strip(), v.strip().strip('"'))
-
-
-_load_env()
-
-GEMINI_KEY     = os.getenv("GEMINI_API_KEY", "")
-GROQ_KEY       = os.getenv("GROQ_API_KEY", "")
-OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY", "")
+GEMINI_KEY     = get_secret("GEMINI_API_KEY")
+GROQ_KEY       = get_secret("GROQ_API_KEY")
+OPENROUTER_KEY = get_secret("OPENROUTER_API_KEY")
 
 _GEMINI_URL      = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 _GROQ_URL        = "https://api.groq.com/openai/v1/chat/completions"

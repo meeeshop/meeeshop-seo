@@ -13,16 +13,17 @@ Optimizations:
 
 Reports on Shopify theme and generates recommendations.
 """
-import os, json, re, time, logging, requests
+import os, sys, json, re, time, logging, requests
 from datetime import datetime
 from typing import Dict, List, Tuple
-from dotenv import load_dotenv
 
-load_dotenv()
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from secrets_manager import inject_to_env, get_secret
+inject_to_env()
 
-STORE = os.getenv("SHOPIFY_STORE")
-TOKEN = os.getenv("SHOPIFY_ACCESS_TOKEN")
-SITE = "https://us.meeeshop.com"
+STORE = get_secret("SHOPIFY_STORE")
+TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
+SITE = get_secret("STORE_BASE_URL")
 HEADS = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 BASE = f"https://{STORE}/admin/api/2024-01"
 

@@ -38,22 +38,15 @@ sys.path.insert(0, str(ROOT))
 import ai_client
 
 # ── env / credentials ─────────────────────────────────────────────────────────
-def _load_env():
-    for candidate in [ROOT / ".env", Path(".env")]:
-        if candidate.exists():
-            for line in candidate.read_text(encoding="utf-8").splitlines():
-                if "=" in line and not line.startswith("#"):
-                    k, v = line.split("=", 1)
-                    os.environ.setdefault(k.strip(), v.strip().strip('"'))
+from secrets_manager import inject_to_env, get_secret
+inject_to_env()
 
-_load_env()
-
-SHOP      = os.getenv("SHOPIFY_STORE", "us-meeeshop.myshopify.com")
-TOKEN     = os.getenv("SHOPIFY_ACCESS_TOKEN", "")
+SHOP      = get_secret("SHOPIFY_STORE")
+TOKEN     = get_secret("SHOPIFY_ACCESS_TOKEN")
 API_VER   = "2024-10"
 BASE      = f"https://{SHOP}/admin/api/{API_VER}"
 HEADERS   = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
-STORE_URL = "https://us.meeeshop.com"
+STORE_URL = get_secret("STORE_BASE_URL")
 
 if not TOKEN:
     sys.exit("ERROR: SHOPIFY_ACCESS_TOKEN not set.")
