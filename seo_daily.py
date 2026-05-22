@@ -55,14 +55,17 @@ SMALL_WORDS = {
     'per','than','over','also','plus','vs','w'
 }
 
+ACRONYMS = {'USA','UK','US','UV','XL','XS','XXL','XXXL','2XL','3XL','NYC','LA','NY','DJ','TV','PC'}
+
 def title_case(text):
     words = text.strip().split()
     if not words:
         return text
     out = []
     for i, w in enumerate(words):
-        if re.match(r'^[A-Z0-9]{3,}$', w):   # keep acronyms
-            out.append(w)
+        upper = w.upper()
+        if upper in ACRONYMS:           # known acronyms stay uppercase
+            out.append(upper)
         elif i == 0 or i == len(words) - 1:
             out.append(w.capitalize())
         elif w.lower() in SMALL_WORDS:
