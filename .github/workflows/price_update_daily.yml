@@ -7,6 +7,10 @@ name: MeeeShop Price Update
 # Manual dispatch: choose daily / weekly / force.
 # force splits ALL active products into batches of 150 so no single job
 # exceeds ~25 min (well under GitHub's 6-hour job limit).
+#
+# Secrets: only ENCRYPTION_KEY_PRIMARY + ENCRYPTION_KEY_FALLBACK are
+# passed to the runner. secrets_manager.py decrypts secrets.enc at
+# runtime to obtain SHOPIFY_STORE and SHOPIFY_ACCESS_TOKEN.
 
 on:
   schedule:
@@ -59,17 +63,19 @@ jobs:
         if: steps.detect.outputs.mode == 'force'
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
 
       - name: Install deps
         if: steps.detect.outputs.mode == 'force'
-        run: pip install requests
+        run: pip install -r requirements.txt
 
-      - name: Build batch index array
+      - name: Count products and build batch array
         id: build_matrix
         if: steps.detect.outputs.mode == 'force'
         env:
-          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
-          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           TOTAL=$(python count_products.py)
           echo "Active products: $TOTAL"
@@ -84,7 +90,6 @@ jobs:
           echo "batches_json=$JSON" >> "$GITHUB_OUTPUT"
 
       - name: Set dummy batches (non-force)
-        id: dummy
         if: steps.detect.outputs.mode != 'force'
         run: echo 'batches_json=[0]' >> "$GITHUB_OUTPUT"
 
@@ -102,14 +107,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install -r requirements.txt
 
       - name: Run price update
         env:
-          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
-          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: python price_update.py --mode ${{ needs.setup.outputs.mode }}
 
       - name: Upload log
@@ -139,14 +146,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install -r requirements.txt
 
       - name: Run price update (batch ${{ matrix.batch_index }})
         env:
-          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
-          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           python price_update.py \
             --mode force \
