@@ -1,0 +1,193 @@
+name: MeeeShop Price Update
+
+# -----------------------------------------------------------------------
+# Schedules
+#   daily  -- 7:00 AM UTC (2 AM EST) every day   -> products in last 48h
+#   weekly -- 8:00 AM UTC every Sunday            -> products in last 7d
+#
+# Manual dispatch lets you choose daily / weekly / force.
+# force mode counts all products, splits them into BATCH_SIZE=150 slices,
+# then spawns parallel batch jobs — no single job exceeds ~25 min, well
+# under GitHub's 6-hour (and Anthropic CI's 1-hour) job limit.
+# -----------------------------------------------------------------------
+
+on:
+  schedule:
+    - cron: '0 7 * * *'      # daily  — every day at 7:00 AM UTC
+    - cron: '0 8 * * 0'      # weekly — Sunday 8:00 AM UTC
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Run mode'
+        required: true
+        default: 'daily'
+        type: choice
+        options:
+          - daily    # Products added in last 48 hours
+          - weekly   # Products added in last 7 days
+          - force    # ALL active products, batched
+
+env:
+  PYTHONUTF8: "1"
+  PYTHON_VERSION: "3.12"
+  BATCH_SIZE: "150"
+
+# -----------------------------------------------------------------------
+# Job 1: detect mode + (for force) build a JSON array of batch indices
+# -----------------------------------------------------------------------
+jobs:
+
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.detect.outputs.mode }}
+      batches_json: ${{ steps.build_matrix.outputs.batches_json }}
+    steps:
+      - name: Detect mode from trigger
+        id: detect
+        run: |
+          INPUT_MODE="${{ github.event.inputs.mode }}"
+          if [ -n "$INPUT_MODE" ]; then
+            echo "mode=$INPUT_MODE" >> "$GITHUB_OUTPUT"
+          elif [ "$(date -u +%u)" = "7" ]; then
+            # Sunday cron -> weekly
+            echo "mode=weekly" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=daily" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.detect.outputs.mode == 'force'
+
+      - uses: actions/setup-python@v5
+        if: steps.detect.outputs.mode == 'force'
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install deps (force only)
+        if: steps.detect.outputs.mode == 'force'
+        run: pip install requests
+        working-directory: SEO
+
+      - name: Build batch index array (force only)
+        id: build_matrix
+        env:
+          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+        run: |
+          if [ "${{ steps.detect.outputs.mode }}" != "force" ]; then
+            # Non-force: dummy single-element array so the output is always set
+            echo 'batches_json=[0]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Count active products and build [0,1,2,...,N-1] JSON array
+          TOTAL=$(python - <<'PYEOF'
+          import sys, os
+          sys.path.insert(0, "..")
+          from secrets_manager import inject_to_env, get_secret
+          inject_to_env()
+          import requests
+          store = get_secret("SHOPIFY_STORE")
+          token = get_secret("SHOPIFY_ACCESS_TOKEN")
+          url = f"https://{store}/admin/api/2025-01/products/count.json"
+          r = requests.get(url, headers={"X-Shopify-Access-Token": token},
+                           params={"status": "active"}, timeout=30)
+          r.raise_for_status()
+          print(r.json()["count"])
+          PYEOF
+          )
+
+          BATCH_SIZE=${{ env.BATCH_SIZE }}
+          BATCHES=$(( (TOTAL + BATCH_SIZE - 1) / BATCH_SIZE ))
+          echo "Total products: $TOTAL  |  Batch size: $BATCH_SIZE  |  Batches needed: $BATCHES"
+
+          # Build JSON array [0, 1, ..., BATCHES-1]
+          JSON="["
+          for (( idx=0; idx<BATCHES; idx++ )); do
+            [ $idx -gt 0 ] && JSON+=","
+            JSON+="$idx"
+          done
+          JSON+="]"
+          echo "batches_json=$JSON" >> "$GITHUB_OUTPUT"
+        working-directory: SEO
+
+  # -----------------------------------------------------------------------
+  # Job 2a: daily or weekly — single job, no batching
+  # -----------------------------------------------------------------------
+  price_update:
+    needs: setup
+    if: needs.setup.outputs.mode != 'force'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install requests
+        working-directory: SEO
+
+      - name: Run price update (${{ needs.setup.outputs.mode }})
+        env:
+          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+        run: |
+          python price_update.py --mode ${{ needs.setup.outputs.mode }}
+        working-directory: SEO
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: price-log-${{ needs.setup.outputs.mode }}-run${{ github.run_number }}
+          path: SEO/price_update_log.json
+          retention-days: 30
+
+  # -----------------------------------------------------------------------
+  # Job 2b: force — one job per batch, sequential to respect rate limits
+  # -----------------------------------------------------------------------
+  price_update_force:
+    needs: setup
+    if: needs.setup.outputs.mode == 'force'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false        # one batch failure won't cancel the rest
+      max-parallel: 1         # sequential — avoids Shopify API rate limits
+      matrix:
+        batch_index: ${{ fromJson(needs.setup.outputs.batches_json) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install requests
+        working-directory: SEO
+
+      - name: Run price update (batch ${{ matrix.batch_index }})
+        env:
+          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+        run: |
+          python price_update.py \
+            --mode force \
+            --batch-size ${{ env.BATCH_SIZE }} \
+            --batch-index ${{ matrix.batch_index }}
+        working-directory: SEO
+
+      - name: Upload batch log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: price-log-force-b${{ matrix.batch_index }}-run${{ github.run_number }}
+          path: SEO/price_update_log.json
+          retention-days: 30
