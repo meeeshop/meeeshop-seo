@@ -1,24 +1,105 @@
 name: MeeeShop SEO Automation
 
+# Schedules
+#   daily  -- 6:00 AM UTC every day        -> products/pages/collections/articles added in last 48h
+#   weekly -- 8:00 AM UTC every Sunday     -> items added in last 7 days
+#
+# Manual dispatch: choose daily / weekly / force.
+# force splits ALL active products into batches of 150 so no single job
+# exceeds ~25 min. Pages, collections, and articles are always fully
+# processed (small counts) regardless of batch.
+#
+# Secrets: only ENCRYPTION_KEY_PRIMARY + ENCRYPTION_KEY_FALLBACK are
+# passed to the runner. secrets_manager.py decrypts secrets.enc at
+# runtime to obtain SHOPIFY_STORE and SHOPIFY_ACCESS_TOKEN.
+
 on:
   schedule:
-    - cron: '0 6 * * *'     # Daily: 6:00 AM UTC (1:00 AM EST)
-    - cron: '0 8 * * 0'     # Weekly: Sunday 8:00 AM UTC (3:00 AM EST)
-
+    - cron: '0 6 * * *'     # daily  — every day 6:00 AM UTC (1:00 AM EST)
+    - cron: '0 8 * * 0'     # weekly — Sunday 8:00 AM UTC (3:00 AM EST)
   workflow_dispatch:
     inputs:
-      run_mode:
-        description: 'Execution mode'
+      mode:
+        description: 'Run mode'
         required: true
         default: 'daily'
         type: choice
         options:
-          - daily    # Last 48 hours + add missing size charts
-          - weekly   # Last 7 days, skip recently updated
-          - force    # Full store normalization (careful!)
+          - daily    # Last 48 hours
+          - weekly   # Last 7 days
+          - force    # Full store normalization (all items, batched)
+
+env:
+  PYTHONUTF8: "1"
+  PYTHON_VERSION: "3.12"
+  BATCH_SIZE: "150"
 
 jobs:
+
+  # -------------------------------------------------------------------
+  # Job 1: detect mode + build batch-index array for force mode
+  # -------------------------------------------------------------------
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.detect.outputs.mode }}
+      batches_json: ${{ steps.build_matrix.outputs.batches_json }}
+    steps:
+      - name: Detect mode
+        id: detect
+        run: |
+          INPUT_MODE="${{ github.event.inputs.mode }}"
+          if [ -n "$INPUT_MODE" ]; then
+            echo "mode=$INPUT_MODE" >> "$GITHUB_OUTPUT"
+          elif [ "$(date -u +%u)" = "7" ]; then
+            echo "mode=weekly" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=daily" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.detect.outputs.mode == 'force'
+
+      - uses: actions/setup-python@v5
+        if: steps.detect.outputs.mode == 'force'
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install deps
+        if: steps.detect.outputs.mode == 'force'
+        run: pip install -r requirements.txt
+
+      - name: Count products and build batch array
+        id: build_matrix
+        if: steps.detect.outputs.mode == 'force'
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          TOTAL=$(python count_products.py)
+          echo "Active products: $TOTAL"
+          BATCHES=$(( (TOTAL + ${{ env.BATCH_SIZE }} - 1) / ${{ env.BATCH_SIZE }} ))
+          echo "Batches needed: $BATCHES"
+          JSON="["
+          for (( i=0; i<BATCHES; i++ )); do
+            [ $i -gt 0 ] && JSON+=","
+            JSON+="$i"
+          done
+          JSON+="]"
+          echo "batches_json=$JSON" >> "$GITHUB_OUTPUT"
+
+      - name: Set dummy batches (non-force)
+        if: steps.detect.outputs.mode != 'force'
+        run: echo 'batches_json=[0]' >> "$GITHUB_OUTPUT"
+
+  # -------------------------------------------------------------------
+  # Job 2a: daily or weekly — single job
+  # -------------------------------------------------------------------
   seo_optimize:
+    needs: setup
+    if: needs.setup.outputs.mode != 'force'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -27,36 +108,19 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
           cache-dependency-path: requirements.txt
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Determine run mode
-        id: mode
-        run: |
-          if [[ "${{ github.event.inputs.run_mode }}" ]]; then
-            MODE="${{ github.event.inputs.run_mode }}"
-          else
-            # Auto-detect: daily on weekdays, weekly on Sunday
-            DOW=$(date +%w)
-            if [[ "$DOW" == "0" ]]; then
-              MODE="weekly"
-            else
-              MODE="daily"
-            fi
-          fi
-          echo "mode=${MODE}" >> $GITHUB_OUTPUT
-          echo "MODE: ${MODE}"
-
       - name: Run SEO automation
         env:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          MODE="${{ steps.mode.outputs.mode }}"
+          MODE="${{ needs.setup.outputs.mode }}"
           echo "Running SEO in $MODE mode..."
           python seo_daily.py --${MODE}
 
@@ -64,6 +128,52 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: seo-report-${{ github.run_number }}-${{ steps.mode.outputs.mode }}
+          name: seo-report-${{ needs.setup.outputs.mode }}-run${{ github.run_number }}
           path: seo_report_*.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # -------------------------------------------------------------------
+  # Job 2b: force — matrix of batch jobs, sequential, max-parallel 1
+  # -------------------------------------------------------------------
+  seo_optimize_force:
+    needs: setup
+    if: needs.setup.outputs.mode == 'force'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        batch_index: ${{ fromJson(needs.setup.outputs.batches_json) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run SEO automation (batch ${{ matrix.batch_index }})
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          python seo_daily.py \
+            --force \
+            --batch-size ${{ env.BATCH_SIZE }} \
+            --batch-index ${{ matrix.batch_index }}
+
+      - name: Upload batch report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seo-report-force-b${{ matrix.batch_index }}-run${{ github.run_number }}
+          path: seo_report_*.json
+          if-no-files-found: ignore
           retention-days: 30

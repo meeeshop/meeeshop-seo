@@ -814,12 +814,14 @@ def process(product, stats, log, existing_mfs=None, force=False):
 
 def main():
     ap = argparse.ArgumentParser(description='SEO automation: daily/weekly/force modes')
-    ap.add_argument('--daily',      action='store_true', help='Daily mode: last 48hrs (default)')
-    ap.add_argument('--weekly',     action='store_true', help='Weekly mode: last 7 days, skip recent')
-    ap.add_argument('--force',      action='store_true', help='Force mode: entire catalog, normalize all')
-    ap.add_argument('--hours',      type=int, default=0,  help='Custom lookback (overrides mode)')
-    ap.add_argument('--limit',      type=int, default=0,  help='Max products (0=all)')
-    ap.add_argument('--skip-jsonld',action='store_true', help='Skip JSON-LD injection')
+    ap.add_argument('--daily',       action='store_true', help='Daily mode: last 48hrs (default)')
+    ap.add_argument('--weekly',      action='store_true', help='Weekly mode: last 7 days, skip recent')
+    ap.add_argument('--force',       action='store_true', help='Force mode: entire catalog, normalize all')
+    ap.add_argument('--hours',       type=int, default=0,  help='Custom lookback (overrides mode)')
+    ap.add_argument('--limit',       type=int, default=0,  help='Max products (0=all, non-force only)')
+    ap.add_argument('--batch-size',  type=int, default=0,  help='For force mode: products per batch job (0=no batching)')
+    ap.add_argument('--batch-index', type=int, default=0,  help='For force mode: which batch to process (0-based)')
+    ap.add_argument('--skip-jsonld', action='store_true', help='Skip JSON-LD injection')
     args = ap.parse_args()
 
     print("=== MeeeShop SEO Automation v2.0 ===\n")
@@ -829,6 +831,8 @@ def main():
         mode = 'force'
         since = None
         print("Mode: FORCE (entire catalog, normalize all SEO fields)")
+        if args.batch_size > 0:
+            print(f"Batch: index={args.batch_index}, size={args.batch_size} (products only; pages/collections/articles always fully processed)")
         print("Processing: Products, Pages, Collections, Blog Posts\n")
     elif args.weekly:
         mode = 'weekly'
@@ -864,7 +868,13 @@ def main():
     # Articles: published_at_min — new blog posts published since cutoff
     print("Fetching products...")
     products = fetch_products(since)
-    if args.limit:
+    total_fetched = len(products)
+    if mode == 'force' and args.batch_size > 0:
+        start = args.batch_index * args.batch_size
+        end   = start + args.batch_size
+        products = products[start:end]
+        print(f"  Fetched {total_fetched} products total; processing batch {args.batch_index} [{start}:{end}] = {len(products)} products")
+    elif args.limit:
         products = products[:args.limit]
     print(f"  Found {len(products)} products\n")
 
@@ -1097,11 +1107,14 @@ def main():
 
     report = {
         **stats,
-        "run_at":   datetime.now(timezone.utc).isoformat(),
-        "mode":     mode,
+        "run_at":      datetime.now(timezone.utc).isoformat(),
+        "mode":        mode,
+        "batch_index": args.batch_index if mode == 'force' else None,
+        "batch_size":  args.batch_size  if mode == 'force' else None,
         "products_fixed": log,
     }
-    fname = f"seo_report_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
+    batch_suffix = f"_b{args.batch_index}" if (mode == 'force' and args.batch_size > 0) else ""
+    fname = f"seo_report_{datetime.now().strftime('%Y%m%d_%H%M')}{batch_suffix}.json"
     with open(fname, 'w') as f:
         json.dump(report, f, indent=2)
     print(f"\nFull report saved: {fname}")
