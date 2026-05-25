@@ -1,15 +1,15 @@
-name: Weekly Schema Validation & Page Speed Optimization
+name: Daily Schema Validation, Fix & Page Speed
 
 on:
   schedule:
-    - cron: '0 2 * * 0'     # Weekly: Sunday 2:00 AM UTC (9:00 PM EST Saturday)
+    - cron: '0 3 * * *'     # Daily: 3:00 AM UTC (11:00 PM EST)
 
   workflow_dispatch:
     inputs:
       run_mode:
         description: 'Validation mode'
         required: true
-        default: 'weekly'
+        default: 'daily'
         type: choice
         options:
           - daily    # Last 48 hours
@@ -19,7 +19,7 @@ on:
 jobs:
   schema_validation:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +45,26 @@ jobs:
           echo "mode=${MODE}" >> $GITHUB_OUTPUT
           echo "MODE: ${MODE}"
 
-      - name: Run Schema Validation
+      - name: Run Schema Fixer (detect & repair null/invalid schemas)
+        id: fix
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          echo "Running schema fixer in ${{ steps.mode.outputs.mode }} mode..."
+          python schema_fixer.py --${{ steps.mode.outputs.mode }}
+
+          FIX_REPORT=$(ls -t schema_fix_report_*.json 2>/dev/null | head -1)
+          echo "fix_report=${FIX_REPORT}" >> $GITHUB_OUTPUT
+
+          if [ -f "${FIX_REPORT}" ]; then
+            NULL_FIXED=$(python -c "import json; d=json.load(open('${FIX_REPORT}')); print(d.get('null_fixed',0))")
+            INVALID_FIXED=$(python -c "import json; d=json.load(open('${FIX_REPORT}')); print(d.get('invalid_fixed',0))")
+            echo "null_fixed=${NULL_FIXED}" >> $GITHUB_OUTPUT
+            echo "invalid_fixed=${INVALID_FIXED}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Schema Validation (add missing schemas)
         id: schema
         env:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
@@ -68,11 +87,26 @@ jobs:
           SPEED_REPORT=$(ls -t speed_report_*.json | head -1)
           echo "speed_report=${SPEED_REPORT}" >> $GITHUB_OUTPUT
 
+      - name: Upload Fix Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fix-report-${{ github.run_number }}
+          path: schema_fix_report_*.json
+          retention-days: 90
+
       - name: Generate HTML Report
         run: |
           python << 'EOF'
-          import json
+          import json, os
           from datetime import datetime
+
+          # Load fix report if present
+          fix_files = sorted([f for f in os.listdir('.') if f.startswith('schema_fix_report_')], reverse=True)
+          fix_report = {}
+          if fix_files:
+              with open(fix_files[0]) as f:
+                  fix_report = json.load(f)
 
           # Load schema report
           with open('${{ steps.schema.outputs.report_file }}') as f:
@@ -103,12 +137,21 @@ jobs:
               th {{ background: #f5f5f5; font-weight: 600; }}
               .priority {{ background: #fff3cd; padding: 15px; border-radius: 8px; margin: 15px 0; }}
               .priority-action {{ margin: 10px 0; padding: 10px; background: white; border-left: 4px solid #ffc107; }}
+              .fix-box {{ background: #e8f5e9; border-left: 4px solid #28a745; padding: 15px; margin: 15px 0; border-radius: 4px; }}
             </style>
           </head>
           <body>
             <h1>MeeeShop Schema Validation & Page Speed Report</h1>
             <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
             <p>Mode: {schema_report['mode']}</p>
+
+            <h2>🔧 Schema Fixer Results</h2>
+            <div class="fix-box">
+              <strong>Null schemas fixed:</strong> {fix_report.get('null_fixed', 0)} &nbsp;|&nbsp;
+              <strong>Invalid schemas repaired:</strong> {fix_report.get('invalid_fixed', 0)} &nbsp;|&nbsp;
+              <strong>Fixer errors:</strong> {fix_report.get('errors', 0)} &nbsp;|&nbsp;
+              <strong>Metafields scanned:</strong> {fix_report.get('scanned', 0)}
+            </div>
 
             <h2>📊 Schema Validation Summary</h2>
             <div class="stats">
@@ -307,17 +350,20 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## 📊 Schema Validation & Speed Optimization Complete" >> $GITHUB_STEP_SUMMARY
+          echo "## Schema Validation, Fix & Speed Optimization" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Mode**: ${{ steps.mode.outputs.mode }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Results" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Schema validation completed" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Page speed analysis completed" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Reports generated and uploaded" >> $GITHUB_STEP_SUMMARY
+          echo "### Schema Fixer" >> $GITHUB_STEP_SUMMARY
+          echo "- Null schemas fixed: ${{ steps.fix.outputs.null_fixed || 0 }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Invalid schemas repaired: ${{ steps.fix.outputs.invalid_fixed || 0 }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Validation" >> $GITHUB_STEP_SUMMARY
+          echo "- Schema validation: complete" >> $GITHUB_STEP_SUMMARY
+          echo "- Page speed analysis: complete" >> $GITHUB_STEP_SUMMARY
+          echo "- Reports uploaded to artifacts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
-          echo "1. Download reports from artifacts" >> $GITHUB_STEP_SUMMARY
-          echo "2. Review schemas added and any errors" >> $GITHUB_STEP_SUMMARY
+          echo "1. Check Google Search Console in 3-7 days for issue resolution" >> $GITHUB_STEP_SUMMARY
+          echo "2. Download HTML report from artifacts for full details" >> $GITHUB_STEP_SUMMARY
           echo "3. Implement speed optimizations (priority order)" >> $GITHUB_STEP_SUMMARY
-          echo "4. Check Google Search Console in 3-7 days" >> $GITHUB_STEP_SUMMARY

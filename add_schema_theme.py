@@ -23,44 +23,38 @@ HEADERS = {
 }
 
 # Schema rendering code to inject
-SCHEMA_CODE = '''<!-- JSON-LD Schema Rendering -->
-{% if product %}
-  {% for metafield in product.metafields.json_ld_schema %}
-    <script type="application/ld+json">{{ metafield.value | json }}</script>
-  {% endfor %}
-{% endif %}
-
-{% if collection %}
-  {% for metafield in collection.metafields.json_ld_schema %}
-    <script type="application/ld+json">{{ metafield.value | json }}</script>
-  {% endfor %}
-{% endif %}
-
-{% if page %}
-  {% for metafield in page.metafields.json_ld_schema %}
-    <script type="application/ld+json">{{ metafield.value | json }}</script>
-  {% endfor %}
-{% endif %}
-
-{% if article %}
-  {% for metafield in article.metafields.json_ld_schema %}
-    <script type="application/ld+json">{{ metafield.value | json }}</script>
-  {% endfor %}
-{% endif %}
-
-<!-- Global Organization Schema -->
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "Organization",
-  "name": "MeeeShop",
-  "url": "https://us.meeeshop.com",
-  "contactPoint": {
-    "@type": "ContactPoint",
-    "email": "meeeshop17@gmail.com"
-  }
-}
-</script>
+# Note: metafield.value for json-type metafields is already a parsed object in Liquid.
+# We must NOT use | json on it (double-serializes → string). Use | json only as fallback
+# and always guard with unless blank to prevent <script>null</script> output.
+SCHEMA_CODE = '''<!-- JSON-LD Schema Rendering (MeeeShop) -->
+{%- if product -%}
+  {%- for metafield in product.metafields.json_ld_schema -%}
+    {%- unless metafield.value == blank -%}
+      <script type="application/ld+json">{{ metafield.value }}</script>
+    {%- endunless -%}
+  {%- endfor -%}
+{%- endif -%}
+{%- if collection -%}
+  {%- for metafield in collection.metafields.json_ld_schema -%}
+    {%- unless metafield.value == blank -%}
+      <script type="application/ld+json">{{ metafield.value }}</script>
+    {%- endunless -%}
+  {%- endfor -%}
+{%- endif -%}
+{%- if page -%}
+  {%- for metafield in page.metafields.json_ld_schema -%}
+    {%- unless metafield.value == blank -%}
+      <script type="application/ld+json">{{ metafield.value }}</script>
+    {%- endunless -%}
+  {%- endfor -%}
+{%- endif -%}
+{%- if article -%}
+  {%- for metafield in article.metafields.json_ld_schema -%}
+    {%- unless metafield.value == blank -%}
+      <script type="application/ld+json">{{ metafield.value }}</script>
+    {%- endunless -%}
+  {%- endfor -%}
+{%- endif -%}
 '''
 
 def get_theme_liquid():
