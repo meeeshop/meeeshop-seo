@@ -50,7 +50,7 @@ Add this in the `<head>` section:
   "contactPoint": {
     "@type": "ContactPoint",
     "contactType": "Customer Service",
-    "email": "meeeshop17@gmail.com"
+    "email": "support@meeeshop.com"
   }
 }
 </script>
