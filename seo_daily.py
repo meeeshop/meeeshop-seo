@@ -418,7 +418,7 @@ def create_redirect(old, new):
 # JSON-LD THEME INJECTION  (one-time, idempotent)
 # ══════════════════════════════════════════════════════════════════════════════
 
-JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v2 — auto-generated, do not remove{% endcomment %}
+JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not remove{% endcomment %}
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -426,28 +426,28 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v2 — auto-generated, do not 
     {
       "@type": "Organization",
       "@id": "{{ shop.url }}/#organization",
-      "name": "us.meeeshop",
+      "name": "MeeeShop",
       "url": "{{ shop.url }}",
       "logo": {"@type": "ImageObject", "url": "{{ shop.url }}/cdn/shop/files/logo.png"},
       "description": "Premium women's fashion with free US shipping and 7-day returns",
-      "contactPoint": {"@type": "ContactPoint", "contactType": "Customer Service", "email": "support@meeeshop.com"},
+      "contactPoint": {"@type": "ContactPoint", "contactType": "Customer Service", "email": "meeeshop17@gmail.com"},
       "sameAs": ["https://pinterest.com/meeeshop", "https://www.youtube.com/@meeeshop"]
     },
     {
       "@type": "LocalBusiness",
       "@id": "{{ shop.url }}/#localbusiness",
-      "name": "us.meeeshop",
+      "name": "MeeeShop",
       "image": "{{ shop.url }}/cdn/shop/files/logo.png",
       "description": "Women's fashion boutique - dresses, tops, bottoms, outerwear, shoes & more",
       "url": "{{ shop.url }}",
-      "priceRange": "$",
+      "priceRange": "$$",
       "areaServed": "US"
     },
     {
       "@type": "WebSite",
       "@id": "{{ shop.url }}/#website",
       "url": "{{ shop.url }}",
-      "name": "us.meeeshop - Women's Fashion Store",
+      "name": "MeeeShop - Women's Fashion Store",
       "publisher": {"@id": "{{ shop.url }}/#organization"},
       "potentialAction": {
         "@type": "SearchAction",
@@ -455,14 +455,14 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v2 — auto-generated, do not 
         "query-input": "required name=search_term_string"
       }
     }
-    {%- if template.name == 'product' -%}
+    {%- if template.name == 'product' and product != blank -%}
     ,{
       "@type": "Product",
       "@id": "{{ shop.url }}/products/{{ product.handle }}",
       "name": {{ product.title | json }},
       "url": "{{ shop.url }}/products/{{ product.handle }}",
       "description": {{ product.description | strip_html | truncate: 500 | json }},
-      "brand": {"@type": "Brand", "name": "us.meeeshop"},
+      "brand": {"@type": "Brand", "name": "MeeeShop"},
       "image": [{% for img in product.images %}"{{ img | image_url: width: 1200 }}"{% unless forloop.last %},{% endunless %}{% endfor %}],
       "offers": {
         "@type": "AggregateOffer",
@@ -470,28 +470,28 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v2 — auto-generated, do not 
         "lowPrice": "{{ product.price_min | money_without_currency | remove: ',' }}",
         "highPrice": "{{ product.price_max | money_without_currency | remove: ',' }}",
         "offerCount": {{ product.variants.size }},
+        "availability": "https://schema.org/{% if product.available %}InStock{% else %}OutOfStock{% endif %}",
         "offers": [
           {%- for v in product.variants -%}
           {
             "@type": "Offer",
             "name": {{ v.title | json }},
-            "sku": {{ v.sku | json }},
+            "sku": {{ v.sku | default: "" | json }},
             "price": "{{ v.price | money_without_currency | remove: ',' }}",
             "priceCurrency": "USD",
             "availability": "https://schema.org/{% if v.available %}InStock{% else %}OutOfStock{% endif %}",
             "url": "{{ shop.url }}/products/{{ product.handle }}?variant={{ v.id }}",
-            "seller": {"@type": "Organization", "name": "us.meeeshop"}
+            "seller": {"@type": "Organization", "name": "MeeeShop"}
           }{%- unless forloop.last -%},{%- endunless -%}
           {%- endfor -%}
         ]
-      },
-      "aggregateRating": {"@type": "AggregateRating", "ratingValue": "4.8", "ratingCount": 100}
+      }
     }
     ,{
       "@type": "BreadcrumbList",
       "itemListElement": [
         {"@type": "ListItem", "position": 1, "name": "Home", "item": "{{ shop.url }}"},
-        {%- if collection -%}
+        {%- if collection != blank -%}
         {"@type": "ListItem", "position": 2, "name": {{ collection.title | json }}, "item": "{{ shop.url }}/collections/{{ collection.handle }}"},
         {"@type": "ListItem", "position": 3, "name": {{ product.title | json }}, "item": "{{ shop.url }}/products/{{ product.handle }}"}
         {%- else -%}
@@ -500,14 +500,38 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v2 — auto-generated, do not 
       ]
     }
     {%- endif -%}
-    {%- if template.name == 'collection' -%}
+    {%- if template.name == 'collection' and collection != blank -%}
     ,{
       "@type": "CollectionPage",
       "name": {{ collection.title | json }},
       "url": "{{ shop.url }}/collections/{{ collection.handle }}",
-      "description": {{ collection.description | strip_html | json }},
+      "description": {{ collection.description | strip_html | default: collection.title | json }},
       "publisher": {"@id": "{{ shop.url }}/#organization"},
-      "mainEntity": {"@type": "ItemList", "itemListElement": [{% for p in collection.products limit: 12 %}{"@type": "Product", "name": {{ p.title | json }}, "url": "{{ shop.url }}/products/{{ p.handle }}"}{% unless forloop.last %},{% endunless %}{% endfor %}]}
+      "mainEntity": {
+        "@type": "ItemList",
+        "itemListElement": [
+          {%- for p in collection.products limit: 12 -%}
+          {
+            "@type": "ListItem",
+            "position": {{ forloop.index }},
+            "item": {
+              "@type": "Product",
+              "name": {{ p.title | json }},
+              "url": "{{ shop.url }}/products/{{ p.handle }}",
+              "image": "{{ p.featured_image | image_url: width: 800 }}",
+              "offers": {
+                "@type": "AggregateOffer",
+                "priceCurrency": "USD",
+                "lowPrice": "{{ p.price_min | money_without_currency | remove: ',' }}",
+                "highPrice": "{{ p.price_max | money_without_currency | remove: ',' }}",
+                "offerCount": {{ p.variants.size }},
+                "availability": "https://schema.org/{% if p.available %}InStock{% else %}OutOfStock{% endif %}"
+              }
+            }
+          }{%- unless forloop.last -%},{%- endunless -%}
+          {%- endfor -%}
+        ]
+      }
     }
     ,{
       "@type": "BreadcrumbList",
@@ -517,12 +541,41 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v2 — auto-generated, do not 
       ]
     }
     {%- endif -%}
+    {%- if template.name == 'article' and article != blank -%}
+    ,{
+      "@type": "BlogPosting",
+      "@id": "{{ shop.url }}{{ article.url }}",
+      "headline": {{ article.title | json }},
+      "description": {{ article.excerpt | default: article.title | strip_html | truncate: 160 | json }},
+      "url": "{{ shop.url }}{{ article.url }}",
+      "datePublished": "{{ article.published_at | date: '%Y-%m-%dT%H:%M:%SZ' }}",
+      "dateModified": "{{ article.updated_at | date: '%Y-%m-%dT%H:%M:%SZ' }}",
+      {%- if article.image != blank -%}
+      "image": "{{ article.image | image_url: width: 1200 }}",
+      {%- endif -%}
+      "author": {"@type": "Person", "name": {{ article.author | json }}},
+      "publisher": {
+        "@type": "Organization",
+        "name": "MeeeShop",
+        "logo": {"@type": "ImageObject", "url": "{{ shop.url }}/cdn/shop/files/logo.png"}
+      },
+      "isPartOf": {"@id": "{{ shop.url }}/#website"}
+    }
+    ,{
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {"@type": "ListItem", "position": 1, "name": "Home", "item": "{{ shop.url }}"},
+        {"@type": "ListItem", "position": 2, "name": {{ blog.title | json }}, "item": "{{ shop.url }}/blogs/{{ blog.handle }}"},
+        {"@type": "ListItem", "position": 3, "name": {{ article.title | json }}, "item": "{{ shop.url }}{{ article.url }}"}
+      ]
+    }
+    {%- endif -%}
     {%- if template.name == 'index' -%}
     ,{
       "@type": "WebPage",
       "@id": "{{ shop.url }}/#homepage",
       "url": "{{ shop.url }}",
-      "name": "us.meeeshop - Women's Fashion",
+      "name": "MeeeShop - Women's Fashion",
       "isPartOf": {"@id": "{{ shop.url }}/#website"},
       "about": {"@id": "{{ shop.url }}/#organization"}
     }
