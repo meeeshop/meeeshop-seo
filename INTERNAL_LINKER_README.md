@@ -98,3 +98,15 @@ python internal_linker.py --weekly --apply
 ```
 
 Check artifacts in GitHub Actions for full reports.
+
+---
+
+## Other Automation in This Repo
+
+**SEO Automation** (`seo_daily.py`) — Daily optimization of product SEO fields (title, description, image ALT text), pages, collections, and blog posts. Runs daily at 6am UTC + weekly Sunday 8am UTC for deeper analysis. Force mode processes entire store in batches.
+
+**Blog Creator** (`blog_daily.py`) — Generates 1-2 weekly blog posts featuring trending products with AI-written content, featured images, and SEO metadata. Creates Discover-optimized articles with keyword embedding and product links.
+
+**Blog Refresher** (`scripts/modify_blog.py`) — Weekly automation that detects out-of-stock products linked in articles and swaps them with in-stock alternatives, ensuring all product links remain fresh and valid.
+
+**Price Updater** (`price_update.py`) — Daily/weekly pricing automation that applies consistent markup (MSRP + $10) across the store. Force mode runs full catalog updates; daily/weekly runs only recent changes.
