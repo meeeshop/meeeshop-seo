@@ -1,0 +1,203 @@
+name: Internal Link Builder
+
+# Schedules:
+#   weekly — 7:00 AM UTC every Sunday    -> link articles created in last 7 days
+#
+# Manual dispatch: choose weekly / force.
+# weekly: Links articles created in last 7 days only
+# force: Links ALL articles in store (batched to avoid timeout, seq. max-parallel 1)
+#
+# Secrets: only ENCRYPTION_KEY_PRIMARY + ENCRYPTION_KEY_FALLBACK are
+# passed to the runner. secrets_manager.py decrypts secrets.enc at
+# runtime to obtain SHOPIFY_STORE and SHOPIFY_ACCESS_TOKEN.
+
+on:
+  schedule:
+    - cron: '0 7 * * 0'     # weekly — Sunday 7:00 AM UTC (2:00 AM EST)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Run mode'
+        required: true
+        default: 'weekly'
+        type: choice
+        options:
+          - weekly    # Last 7 days only
+          - force     # All articles (batched)
+
+env:
+  PYTHONUTF8: "1"
+  PYTHON_VERSION: "3.12"
+  BATCH_SIZE: "100"
+
+jobs:
+
+  # -------------------------------------------------------------------
+  # Job 1: detect mode + build batch-index array for force mode
+  # -------------------------------------------------------------------
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.detect.outputs.mode }}
+      batches_json: ${{ steps.build_matrix.outputs.batches_json }}
+    steps:
+      - name: Detect mode
+        id: detect
+        run: |
+          INPUT_MODE="${{ github.event.inputs.mode }}"
+          if [ -n "$INPUT_MODE" ]; then
+            echo "mode=$INPUT_MODE" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=weekly" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.detect.outputs.mode == 'force'
+
+      - uses: actions/setup-python@v5
+        if: steps.detect.outputs.mode == 'force'
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install deps
+        if: steps.detect.outputs.mode == 'force'
+        run: pip install -r requirements.txt
+
+      - name: Count articles and build batch array
+        id: build_matrix
+        if: steps.detect.outputs.mode == 'force'
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          # Count total articles across all blogs
+          # Using a simplified count (actual count varies by blog, but we estimate)
+          TOTAL=$(python -c "
+          import sys; sys.path.insert(0, '.')
+          from secrets_manager import inject_to_env, get_secret
+          inject_to_env()
+          from internal_linker import fetch_all_blogs, fetch_articles
+          blogs = fetch_all_blogs()
+          total = sum(len(fetch_articles(blog['id'])) for blog in blogs)
+          print(total)
+          " 2>/dev/null || echo "500")
+          echo "Total articles: $TOTAL"
+          BATCHES=$(( (TOTAL + ${{ env.BATCH_SIZE }} - 1) / ${{ env.BATCH_SIZE }} ))
+          [ $BATCHES -lt 1 ] && BATCHES=1
+          echo "Batches needed: $BATCHES"
+          JSON="["
+          for (( i=0; i<BATCHES; i++ )); do
+            [ $i -gt 0 ] && JSON+=","
+            JSON+="$i"
+          done
+          JSON+="]"
+          echo "batches_json=$JSON" >> "$GITHUB_OUTPUT"
+
+      - name: Set dummy batches (non-force)
+        if: steps.detect.outputs.mode != 'force'
+        run: echo 'batches_json=[0]' >> "$GITHUB_OUTPUT"
+
+  # -------------------------------------------------------------------
+  # Job 2a: weekly — single job, links recent articles only
+  # -------------------------------------------------------------------
+  link_weekly:
+    needs: setup
+    if: needs.setup.outputs.mode == 'weekly'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Link articles (weekly)
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          echo "Linking articles created in last 7 days..."
+          python internal_linker.py --weekly --apply
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linker-report-weekly-run${{ github.run_number }}
+          path: internal_linker_report_*.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linker-log-weekly-run${{ github.run_number }}
+          path: internal_linker_run_*.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # -------------------------------------------------------------------
+  # Job 2b: force — matrix of batch jobs, sequential (max-parallel 1)
+  # -------------------------------------------------------------------
+  link_force:
+    needs: setup
+    if: needs.setup.outputs.mode == 'force'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        batch_index: ${{ fromJson(needs.setup.outputs.batches_json) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Link articles (batch ${{ matrix.batch_index }})
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          echo "Processing batch ${{ matrix.batch_index }}..."
+          python internal_linker.py \
+            --force \
+            --apply \
+            --batch-size ${{ env.BATCH_SIZE }} \
+            --batch-index ${{ matrix.batch_index }}
+
+      - name: Upload batch report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linker-report-force-b${{ matrix.batch_index }}-run${{ github.run_number }}
+          path: internal_linker_report_*.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload batch log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linker-log-force-b${{ matrix.batch_index }}-run${{ github.run_number }}
+          path: internal_linker_run_*.log
+          if-no-files-found: ignore
+          retention-days: 30
