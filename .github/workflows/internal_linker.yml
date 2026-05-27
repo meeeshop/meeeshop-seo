@@ -1,0 +1,281 @@
+name: Internal Link Builder
+
+# Schedules:
+#   weekly — 7:00 AM UTC every Sunday    -> link articles created in last 7 days
+#
+# Manual dispatch: choose weekly / force.
+# weekly: Links articles created in last 7 days only
+# force: Links ALL articles in store (batched to avoid timeout, seq. max-parallel 1)
+#
+# revert_first: Recreates ALL corrupted articles via full EEAT pipeline before linking.
+#   Runs as a batched matrix job (REVERT_BATCH_SIZE articles per job) so large stores
+#   never time out. Linking is blocked until all revert batches complete.
+#
+# Secrets: only ENCRYPTION_KEY_PRIMARY + ENCRYPTION_KEY_FALLBACK are
+# passed to the runner. secrets_manager.py decrypts secrets.enc at
+# runtime to obtain SHOPIFY_STORE and SHOPIFY_ACCESS_TOKEN.
+
+on:
+  schedule:
+    - cron: '0 7 * * 0'     # weekly — Sunday 7:00 AM UTC (2:00 AM EST)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Run mode'
+        required: true
+        default: 'weekly'
+        type: choice
+        options:
+          - weekly    # Last 7 days only
+          - force     # All articles (batched)
+      revert_first:
+        description: 'Recreate corrupted articles before linking (weekly only — batched, EEAT content)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+env:
+  PYTHONUTF8: "1"
+  PYTHON_VERSION: "3.12"
+  BATCH_SIZE: "100"
+  REVERT_BATCH_SIZE: "15"
+
+jobs:
+
+  # -------------------------------------------------------------------
+  # Job 1: detect mode + build batch arrays for both force and revert
+  # -------------------------------------------------------------------
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.detect.outputs.mode }}
+      revert_first: ${{ steps.detect.outputs.revert_first }}
+      batches_json: ${{ steps.build_matrix.outputs.batches_json }}
+      revert_batches_json: ${{ steps.build_revert_matrix.outputs.revert_batches_json }}
+    steps:
+      - name: Detect mode and revert flag
+        id: detect
+        run: |
+          INPUT_MODE="${{ github.event.inputs.mode }}"
+          INPUT_REVERT="${{ github.event.inputs.revert_first }}"
+          echo "mode=${INPUT_MODE:-weekly}" >> "$GITHUB_OUTPUT"
+          echo "revert_first=${INPUT_REVERT:-false}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.detect.outputs.mode == 'force' || steps.detect.outputs.revert_first == 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.detect.outputs.mode == 'force' || steps.detect.outputs.revert_first == 'true'
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install deps
+        if: steps.detect.outputs.mode == 'force' || steps.detect.outputs.revert_first == 'true'
+        run: pip install -r requirements.txt
+
+      # Build linker batch array (force mode only)
+      - name: Count articles and build linker batch array
+        id: build_matrix
+        if: steps.detect.outputs.mode == 'force'
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          TOTAL=$(python -c "
+          import sys; sys.path.insert(0, '.')
+          from secrets_manager import inject_to_env, get_secret
+          inject_to_env()
+          from internal_linker import fetch_all_blogs, fetch_articles
+          blogs = fetch_all_blogs()
+          total = sum(len(fetch_articles(blog['id'])) for blog in blogs)
+          print(total)
+          " 2>/dev/null || echo "500")
+          echo "Total articles: $TOTAL"
+          BATCHES=$(( (TOTAL + ${{ env.BATCH_SIZE }} - 1) / ${{ env.BATCH_SIZE }} ))
+          [ $BATCHES -lt 1 ] && BATCHES=1
+          JSON="["; for (( i=0; i<BATCHES; i++ )); do [ $i -gt 0 ] && JSON+=","; JSON+="$i"; done; JSON+="]"
+          echo "batches_json=$JSON" >> "$GITHUB_OUTPUT"
+
+      - name: Set dummy linker batches (non-force)
+        if: steps.detect.outputs.mode != 'force'
+        run: echo 'batches_json=[0]' >> "$GITHUB_OUTPUT"
+
+      # Build revert batch array (revert_first == true only)
+      - name: Count corrupted articles and build revert batch array
+        id: build_revert_matrix
+        if: steps.detect.outputs.revert_first == 'true'
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          TOTAL=$(python revert_injected_links.py --count-only --all 2>/dev/null || echo "50")
+          echo "Corrupted articles found: $TOTAL"
+          BATCHES=$(( (TOTAL + ${{ env.REVERT_BATCH_SIZE }} - 1) / ${{ env.REVERT_BATCH_SIZE }} ))
+          [ $BATCHES -lt 1 ] && BATCHES=1
+          echo "Revert batches needed: $BATCHES"
+          JSON="["; for (( i=0; i<BATCHES; i++ )); do [ $i -gt 0 ] && JSON+=","; JSON+="$i"; done; JSON+="]"
+          echo "revert_batches_json=$JSON" >> "$GITHUB_OUTPUT"
+
+      - name: Set dummy revert batches (revert_first == false)
+        if: steps.detect.outputs.revert_first != 'true'
+        run: echo 'revert_batches_json=[0]' >> "$GITHUB_OUTPUT"
+
+  # -------------------------------------------------------------------
+  # Job 2 (optional): revert — matrix of batches, sequential
+  # Runs only when revert_first == true. Linking jobs wait for this.
+  # -------------------------------------------------------------------
+  revert_articles:
+    needs: setup
+    if: needs.setup.outputs.revert_first == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        batch_index: ${{ fromJson(needs.setup.outputs.revert_batches_json) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Recreate corrupted articles (batch ${{ matrix.batch_index }})
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          echo "Revert batch ${{ matrix.batch_index }} / batch-size ${{ env.REVERT_BATCH_SIZE }}..."
+          python revert_injected_links.py \
+            --apply \
+            --all \
+            --batch-size ${{ env.REVERT_BATCH_SIZE }} \
+            --batch-index ${{ matrix.batch_index }}
+
+      - name: Upload revert log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: revert-log-b${{ matrix.batch_index }}-run${{ github.run_number }}
+          path: revert_*.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # -------------------------------------------------------------------
+  # Job 3a: weekly — single job, links recent articles only
+  # Waits for revert_articles if revert_first == true
+  # -------------------------------------------------------------------
+  link_weekly:
+    needs: [setup, revert_articles]
+    if: |
+      always() &&
+      needs.setup.outputs.mode == 'weekly' &&
+      (needs.revert_articles.result == 'success' || needs.revert_articles.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Link articles (weekly)
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          echo "Linking articles created in last 7 days..."
+          python internal_linker.py --weekly --apply
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linker-report-weekly-run${{ github.run_number }}
+          path: internal_linker_report_*.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linker-log-weekly-run${{ github.run_number }}
+          path: internal_linker_run_*.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # -------------------------------------------------------------------
+  # Job 3b: force — matrix of batch jobs, sequential (max-parallel 1)
+  # -------------------------------------------------------------------
+  link_force:
+    needs: setup
+    if: needs.setup.outputs.mode == 'force'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        batch_index: ${{ fromJson(needs.setup.outputs.batches_json) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Link articles (batch ${{ matrix.batch_index }})
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          echo "Processing batch ${{ matrix.batch_index }}..."
+          python internal_linker.py \
+            --force \
+            --apply \
+            --batch-size ${{ env.BATCH_SIZE }} \
+            --batch-index ${{ matrix.batch_index }}
+
+      - name: Upload batch report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linker-report-force-b${{ matrix.batch_index }}-run${{ github.run_number }}
+          path: internal_linker_report_*.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload batch log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linker-log-force-b${{ matrix.batch_index }}-run${{ github.run_number }}
+          path: internal_linker_run_*.log
+          if-no-files-found: ignore
+          retention-days: 30

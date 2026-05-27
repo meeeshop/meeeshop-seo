@@ -430,7 +430,7 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not 
       "url": "{{ shop.url }}",
       "logo": {"@type": "ImageObject", "url": "{{ shop.url }}/cdn/shop/files/logo.png"},
       "description": "Premium women's fashion with free US shipping and 7-day returns",
-      "contactPoint": {"@type": "ContactPoint", "contactType": "Customer Service", "email": "meeeshop17@gmail.com"},
+      "contactPoint": {"@type": "ContactPoint", "contactType": "Customer Service", "email": "support@meeeshop.com"},
       "sameAs": ["https://pinterest.com/meeeshop", "https://www.youtube.com/@meeeshop"]
     },
     {

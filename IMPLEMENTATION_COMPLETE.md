@@ -97,7 +97,7 @@ A complete automated system for daily schema validation and page speed optimizat
   "url": "https://us.meeeshop.com",
   "contactPoint": {
     "@type": "ContactPoint",
-    "email": "meeeshop17@gmail.com"
+    "email": "support@meeeshop.com"
   }
 }
 </script>
