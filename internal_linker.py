@@ -318,8 +318,8 @@ class LinkMap:
 
     def _register_keywords(self, text: str, url: str, anchor_text: str):
         """Extract ONLY high-value keywords and map to URL."""
-        keywords = extract_high_value_keywords(text)
-        for kw in keywords:
+        keywords_scored = extract_high_value_keywords(text)
+        for kw, score in keywords_scored:  # Now returns (keyword, score) tuples
             normalized = normalize_keyword(kw)
             if normalized and len(normalized) > 2:
                 if normalized not in self.keyword_to_urls:
