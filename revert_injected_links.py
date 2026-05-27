@@ -2,17 +2,16 @@
 """
 revert_injected_links.py — Strip all injected internal links from corrupted articles.
 
-Removes all <a href="...us.meeeshop.com..."> tags injected by internal_linker.py,
-restoring article body_html to clean text. Targets only articles affected by the
-2026-05-27 over-linking run.
+Removes all <a href="...meeeshop.com..."> tags injected by internal_linker.py,
+restoring article body_html to clean text.
 
 Usage:
   python revert_injected_links.py --dry-run    # Preview changes only
   python revert_injected_links.py --apply      # Actually revert articles
+  python revert_injected_links.py --apply --all  # All articles (not just known affected)
 """
 
-import os, sys, re, argparse
-from html.parser import HTMLParser
+import os, sys, re, argparse, time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from secrets_manager import inject_to_env, get_secret
@@ -26,6 +25,32 @@ TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
 HEADS = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 BASE  = f"https://{STORE}/admin/api/2024-01"
 SITE  = "https://us.meeeshop.com"
+
+# Shopify REST: 2 req/s burst, ~40 req/10s sustained
+REQUEST_DELAY = 0.6   # seconds between GET requests
+UPDATE_DELAY  = 1.0   # seconds between PUT requests (writes are more expensive)
+MAX_RETRIES   = 5
+
+
+def _request(method: str, url: str, **kwargs) -> requests.Response:
+    """Make a request with automatic 429/5xx retry + exponential backoff."""
+    for attempt in range(MAX_RETRIES):
+        r = requests.request(method, url, headers=HEADS, **kwargs)
+        if r.status_code == 429:
+            retry_after = int(r.headers.get("Retry-After", 4))
+            wait = max(retry_after, 2 ** attempt)
+            print(f"  [RATE LIMIT] 429 — waiting {wait}s before retry {attempt+1}/{MAX_RETRIES}...")
+            time.sleep(wait)
+            continue
+        if r.status_code >= 500:
+            wait = 2 ** attempt
+            print(f"  [SERVER ERROR] {r.status_code} — waiting {wait}s before retry {attempt+1}/{MAX_RETRIES}...")
+            time.sleep(wait)
+            continue
+        return r
+    r.raise_for_status()
+    return r
+
 
 # Articles known to be corrupted (from the run log)
 AFFECTED_TITLES = [
@@ -64,7 +89,7 @@ def fetch_all_blogs():
     blogs = []
     url = f"{BASE}/blogs.json?limit=250"
     while url:
-        r = requests.get(url, headers=HEADS)
+        r = _request("GET", url)
         r.raise_for_status()
         data = r.json()
         blogs.extend(data.get("blogs", []))
@@ -73,6 +98,7 @@ def fetch_all_blogs():
         for part in link.split(","):
             if 'rel="next"' in part:
                 url = part.split("<")[1].split(">")[0]
+        time.sleep(REQUEST_DELAY)
     return blogs
 
 
@@ -80,7 +106,7 @@ def fetch_articles(blog_id: int):
     articles = []
     url = f"{BASE}/blogs/{blog_id}/articles.json?limit=250"
     while url:
-        r = requests.get(url, headers=HEADS)
+        r = _request("GET", url)
         r.raise_for_status()
         data = r.json()
         articles.extend(data.get("articles", []))
@@ -89,13 +115,15 @@ def fetch_articles(blog_id: int):
         for part in link.split(","):
             if 'rel="next"' in part:
                 url = part.split("<")[1].split(">")[0]
+        time.sleep(REQUEST_DELAY)
     return articles
 
 
 def update_article(blog_id: int, article_id: int, body_html: str) -> bool:
     url = f"{BASE}/blogs/{blog_id}/articles/{article_id}.json"
     payload = {"article": {"id": article_id, "body_html": body_html}}
-    r = requests.put(url, headers=HEADS, json=payload)
+    r = _request("PUT", url, json=payload)
+    time.sleep(UPDATE_DELAY)
     return r.status_code == 200
 
 
@@ -116,6 +144,7 @@ def main():
 
     blogs = fetch_all_blogs()
     total_reverted = 0
+    total_failed = 0
     total_links_removed = 0
 
     for blog in blogs:
@@ -153,6 +182,7 @@ def main():
                     total_links_removed += removed_count
                 else:
                     print(f"  ✗ Failed to update article via API")
+                    total_failed += 1
             else:
                 print(f"  [DRY RUN] Would remove {removed_count} links")
                 total_links_removed += removed_count
@@ -160,8 +190,13 @@ def main():
     print("\n" + "=" * 70)
     print(f"SUMMARY:")
     print(f"  Articles {'reverted' if args.apply else 'to revert'}: {total_reverted if args.apply else 'N/A (dry-run)'}")
+    if args.apply and total_failed > 0:
+        print(f"  Articles FAILED: {total_failed} (re-run script to retry)")
     print(f"  Total links {'removed' if args.apply else 'found'}: {total_links_removed}")
     print("=" * 70)
+
+    if args.apply and total_failed > 0:
+        sys.exit(1)  # Non-zero exit so workflow shows failure and can be retried
 
 
 if __name__ == "__main__":
