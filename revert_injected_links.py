@@ -15,6 +15,12 @@ Usage:
   python revert_injected_links.py --dry-run        # Preview only, no changes
   python revert_injected_links.py --apply          # Fix known corrupted articles
   python revert_injected_links.py --apply --all    # Fix ALL articles with meeeshop links
+
+
+Batch mode (for large stores — mirrors internal_linker.yml pattern):
+  python revert_injected_links.py --apply --all --batch-size 15 --batch-index 0
+  python revert_injected_links.py --apply --all --batch-size 15 --batch-index 1
+  ...
 """
 
 import os, sys, re, time, random, argparse
@@ -221,110 +227,154 @@ def recreate_article(blog_id: int, original_title: str, handle: str,
     return body_html, seo, img_url, new_tags
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Restore corrupted articles using the full blog_daily EEAT pipeline"
-    )
-    parser.add_argument("--dry-run", action="store_true", help="Preview without changes")
-    parser.add_argument("--apply",   action="store_true", help="Delete + recreate articles")
-    parser.add_argument("--all",     action="store_true", help="Scan ALL articles (not just known list)")
-    args = parser.parse_args()
-
-    if not args.dry_run and not args.apply:
-        print("Specify --dry-run or --apply")
-        sys.exit(1)
-
-    scope = "ALL articles with meeeshop links" if args.all else f"{len(AFFECTED_TITLES)} known affected articles"
-    print(f"Mode:  {'DRY RUN' if args.dry_run else 'APPLY'}")
-    print(f"Scope: {scope}")
-    print("=" * 70)
-
-    # Pre-load products once — reused for all articles
-    print("Fetching products...")
-    products = bd.fetch_products(limit=100)
-    if not products:
-        sys.exit("ERROR: No products returned from Shopify.")
-    print(f"  {len(products)} products loaded\n")
-
-    blogs     = fetch_all_blogs()
-    all_blogs = bd.get_all_blogs()   # blog_daily's copy for get_or_create_blog
-    total_ok  = 0
-    total_fail = 0
-
+def collect_targets(all_flag: bool) -> list[dict]:
+    """
+    Scan all blogs and return a flat list of articles that need recreation.
+    Each entry: {blog_id, blog_title, article_id, title, handle, tags}
+    """
+    blogs   = fetch_all_blogs()
+    targets = []
     for blog in blogs:
         blog_id    = blog["id"]
         blog_title = blog.get("title", "")
         articles   = fetch_articles(blog_id)
-
         for article in articles:
-            title      = article.get("title", "")
-            body_html  = article.get("body_html", "") or ""
-            article_id = article["id"]
-            handle     = article.get("handle", "")
-            orig_tags  = article.get("tags", "") or ""
-
-            # Scope filter
-            if args.all:
+            title     = article.get("title", "")
+            body_html = article.get("body_html", "") or ""
+            if all_flag:
                 if not _has_injected_links(body_html):
                     continue
             else:
                 if title not in AFFECTED_TITLES:
                     continue
                 if not _has_injected_links(body_html):
-                    print(f"  [SKIP] '{title}' — already clean")
                     continue
+            targets.append({
+                "blog_id":    blog_id,
+                "blog_title": blog_title,
+                "article_id": article["id"],
+                "title":      title,
+                "handle":     article.get("handle", ""),
+                "tags":       article.get("tags", "") or "",
+            })
+    return targets
 
-            print(f"\n[{blog_title}] '{title}'")
-            print(f"  Handle: {handle}")
 
-            if args.dry_run:
-                kw = _pick_keyword_for_title(title)
-                fmt = random.choice(bd.FORMATS)
-                print(f"  [DRY RUN] Would recreate — format: {fmt}, keyword: '{kw}'")
-                continue
+def main():
+    parser = argparse.ArgumentParser(
+        description="Restore corrupted articles using the full blog_daily EEAT pipeline"
+    )
+    parser.add_argument("--dry-run",     action="store_true", help="Preview without changes")
+    parser.add_argument("--apply",       action="store_true", help="Delete + recreate articles")
+    parser.add_argument("--all",         action="store_true", help="Scan ALL articles (not just known list)")
+    parser.add_argument("--batch-size",  type=int, default=15, help="Articles per batch (default 15)")
+    parser.add_argument("--batch-index", type=int, default=None,
+                        help="Which batch to process (0-based). Omit to process all in one run.")
+    parser.add_argument("--count-only",  action="store_true",
+                        help="Print total article count and exit (used by workflow setup job)")
+    args = parser.parse_args()
 
-            # Generate full EEAT content
-            result = recreate_article(
-                blog_id, title, handle, orig_tags,
-                products, all_blogs, blog
-            )
-            if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], bool):
-                # Error path: (False, error_msg)
-                print(f"  [FAIL] {result[1]}")
-                total_fail += 1
-                continue
+    if not args.dry_run and not args.apply and not args.count_only:
+        print("Specify --dry-run, --apply, or --count-only")
+        sys.exit(1)
 
-            new_body, seo, img_url, new_tags = result
+    # ── count-only mode: used by the workflow setup job to build the batch matrix ──
+    if args.count_only:
+        targets = collect_targets(args.all)
+        print(len(targets))
+        return
 
-            # Delete corrupted article
-            if not delete_article(blog_id, article_id):
-                print(f"  [FAIL] Could not delete article — skipping")
-                total_fail += 1
-                continue
-            print(f"  Deleted (ID {article_id})")
+    scope = "ALL articles with meeeshop links" if args.all else f"{len(AFFECTED_TITLES)} known affected articles"
+    batch_label = f"batch {args.batch_index}/{(args.batch_size)}" if args.batch_index is not None else "all batches"
+    print(f"Mode:        {'DRY RUN' if args.dry_run else 'APPLY'}")
+    print(f"Scope:       {scope}")
+    print(f"Batch size:  {args.batch_size}  |  Processing: {batch_label}")
+    print("=" * 70)
 
-            # Re-publish with same handle
-            new_art = publish_article_with_handle(
-                blog_id, title, new_body, handle,
-                new_tags, img_url, seo["img_alt"], seo["meta_desc"]
-            )
+    # Collect the full target list then slice to this batch
+    targets = collect_targets(args.all)
+    total_targets = len(targets)
+    print(f"Total articles to fix: {total_targets}")
 
-            if new_art:
-                new_id = new_art.get("id")
-                print(f"  ✓ Recreated (new ID {new_id}) — URL preserved")
-                # Set SEO metafields
-                bd.set_article_seo_metafields(blog_id, new_id,
-                                               seo["seo_title"], seo["meta_desc"])
-                print(f"  ✓ SEO metafields set")
-                total_ok += 1
-            else:
-                print(f"  ✗ Re-publish failed — '{title}' deleted but NOT restored!")
-                total_fail += 1
+    if args.batch_index is not None:
+        start = args.batch_index * args.batch_size
+        end   = start + args.batch_size
+        targets = targets[start:end]
+        print(f"This batch: [{start}:{end}] → {len(targets)} articles")
 
-            time.sleep(1.0)
+    if not targets:
+        print("Nothing to do.")
+        return
+
+    print()
+
+    # Pre-load products once — reused for all articles in this batch
+    print("Fetching products...")
+    products = bd.fetch_products(limit=100)
+    if not products:
+        sys.exit("ERROR: No products returned from Shopify.")
+    print(f"  {len(products)} products loaded\n")
+
+    all_blogs  = bd.get_all_blogs()
+    total_ok   = 0
+    total_fail = 0
+
+    for item in targets:
+        blog_id    = item["blog_id"]
+        blog_title = item["blog_title"]
+        title      = item["title"]
+        handle     = item["handle"]
+        article_id = item["article_id"]
+        orig_tags  = item["tags"]
+
+        print(f"\n[{blog_title}] '{title}'")
+        print(f"  Handle: {handle}")
+
+        if args.dry_run:
+            kw  = _pick_keyword_for_title(title)
+            fmt = random.choice(bd.FORMATS)
+            print(f"  [DRY RUN] Would recreate — format: {fmt}, keyword: '{kw}'")
+            continue
+
+        # Generate full EEAT content
+        result = recreate_article(
+            blog_id, title, handle, orig_tags,
+            products, all_blogs, {}
+        )
+        if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], bool):
+            print(f"  [FAIL] {result[1]}")
+            total_fail += 1
+            continue
+
+        new_body, seo, img_url, new_tags = result
+
+        # Delete corrupted article
+        if not delete_article(blog_id, article_id):
+            print(f"  [FAIL] Could not delete article — skipping")
+            total_fail += 1
+            continue
+        print(f"  Deleted (ID {article_id})")
+
+        # Re-publish with same handle
+        new_art = publish_article_with_handle(
+            blog_id, title, new_body, handle,
+            new_tags, img_url, seo["img_alt"], seo["meta_desc"]
+        )
+
+        if new_art:
+            new_id = new_art.get("id")
+            print(f"  ✓ Recreated (new ID {new_id}) — URL preserved")
+            bd.set_article_seo_metafields(blog_id, new_id, seo["seo_title"], seo["meta_desc"])
+            print(f"  ✓ SEO metafields set")
+            total_ok += 1
+        else:
+            print(f"  ✗ Re-publish failed — '{title}' deleted but NOT restored!")
+            total_fail += 1
+
+        time.sleep(1.0)
 
     print("\n" + "=" * 70)
-    print(f"SUMMARY: recreated={total_ok}  failed={total_fail}")
+    print(f"SUMMARY: recreated={total_ok}  failed={total_fail}  batch={args.batch_index}")
     print("=" * 70)
 
     if total_fail > 0:
