@@ -142,17 +142,26 @@ def normalize_keyword(kw: str) -> str:
 
 
 def extract_high_value_keywords(text: str) -> Set[str]:
-    """Extract only high-value linkable keywords (product types, styles, fabrics)."""
+    """Extract high-value keywords: prefer 2-word pairs over single words."""
     if not text:
         return set()
 
-    text = strip_html(text).lower()
+    text_lower = strip_html(text).lower()
+    words = re.findall(r"\b[a-z]+(?:-[a-z]+)?\b", text_lower)
     found = set()
 
-    # Look for exact matches of high-value keywords
+    # Look for 2-word phrases first (garment + style/material/color)
+    for i in range(len(words) - 1):
+        phrase = f"{words[i]} {words[i+1]}"
+        # Check if phrase contains at least one high-value keyword
+        has_high_value = any(kw in phrase for kw in HIGH_VALUE_KEYWORDS)
+        if has_high_value and phrase not in STOP_WORDS:
+            found.add(phrase)
+
+    # Fall back to single high-value keywords only if no pairs found
     for keyword in HIGH_VALUE_KEYWORDS:
         pattern = r"\b" + re.escape(keyword) + r"\b"
-        if re.search(pattern, text):
+        if re.search(pattern, text_lower):
             found.add(keyword)
 
     return found
