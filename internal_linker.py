@@ -119,20 +119,29 @@ STOP_WORDS = {
     "look", "wear", "day", "way", "time", "year", "say", "go", "come", "take"
 }
 
-# High-value keywords: ONLY product types & materials (women's fashion)
+# High-value keywords: ~45 core fashion terms (garment types & materials only)
 # These are words women shoppers actually search for when looking to buy
 HIGH_VALUE_KEYWORDS = {
-    # Garment types
+    # Garment types (primary linking targets)
     "dress", "dresses", "top", "tops", "blouse", "shirt", "jean", "jeans",
     "pant", "pants", "skirt", "skirts", "jacket", "coat", "sweater", "cardigan",
-    "blazer", "hoodie", "shorts", "leggings", "romper", "jumpsuit", "bodysuit",
-    "vest", "tank", "cami", "tunic", "tee", "crop", "maxi", "midi",
-    # Materials & fabrics
+    "blazer", "hoodie", "shorts", "leggings", "romper", "jumpsuit",
+    "tank", "tunic", "tee", "crop", "maxi", "midi",
+    # Materials & fabrics (high-value when paired with garment types)
     "leather", "denim", "cotton", "silk", "linen", "lace", "mesh", "satin", "velvet",
-    # Patterns & colors (only when paired with garment type — see _register_keywords)
-    "floral", "striped", "stripe", "solid", "print",
-    # Handbags & accessories
-    "handbag", "bag", "purse", "tote", "crossbody", "backpack", "clutch", "wallet",
+    # Accessories (handbags & bags only)
+    "handbag", "bag", "purse", "tote", "crossbody", "backpack", "clutch",
+}
+
+# Contextual modifiers: words that pair with garment types for higher relevance scoring
+CONTEXTUAL_MODIFIERS = {
+    # Materials
+    "leather", "denim", "cotton", "silk", "linen", "lace", "mesh", "satin", "velvet",
+    # Patterns
+    "floral", "striped", "stripe", "solid", "print", "polka", "checkered",
+    # Colors (curated list of common fashion colors)
+    "black", "white", "red", "blue", "green", "yellow", "pink", "gray", "grey",
+    "navy", "cream", "beige", "brown", "purple", "orange",
 }
 
 
@@ -141,30 +150,45 @@ def normalize_keyword(kw: str) -> str:
     return re.sub(r"[^a-z0-9\s-]", "", kw.lower()).strip()
 
 
-def extract_high_value_keywords(text: str) -> Set[str]:
-    """Extract high-value keywords: prefer 2-word pairs over single words."""
+def extract_high_value_keywords(text: str) -> List[Tuple[str, float]]:
+    """Extract high-value keywords with relevance scores: prefer 2-word pairs over singles.
+    Returns sorted list of (keyword, score) tuples, highest relevance first."""
     if not text:
-        return set()
+        return []
 
     text_lower = strip_html(text).lower()
     words = re.findall(r"\b[a-z]+(?:-[a-z]+)?\b", text_lower)
-    found = set()
+    scored_keywords = {}  # keyword -> max_score
 
-    # Look for 2-word phrases first (garment + style/material/color)
+    # Priority 1: 2-word contextual pairs (garment + modifier)
     for i in range(len(words) - 1):
         phrase = f"{words[i]} {words[i+1]}"
-        # Check if phrase contains at least one high-value keyword
-        has_high_value = any(kw in phrase for kw in HIGH_VALUE_KEYWORDS)
-        if has_high_value and phrase not in STOP_WORDS:
-            found.add(phrase)
+        word1, word2 = words[i], words[i+1]
 
-    # Fall back to single high-value keywords only if no pairs found
+        # Check for garment+modifier or modifier+garment patterns
+        if word1 in HIGH_VALUE_KEYWORDS and word2 in CONTEXTUAL_MODIFIERS:
+            if phrase not in STOP_WORDS and phrase not in scored_keywords:
+                scored_keywords[phrase] = 0.9  # Highest priority: garment+modifier
+        elif word2 in HIGH_VALUE_KEYWORDS and word1 in CONTEXTUAL_MODIFIERS:
+            if phrase not in STOP_WORDS and phrase not in scored_keywords:
+                scored_keywords[phrase] = 0.9  # Highest priority: modifier+garment
+
+    # Priority 2: Any 2-word phrase with a high-value keyword (less selective)
+    for i in range(len(words) - 1):
+        phrase = f"{words[i]} {words[i+1]}"
+        if any(kw in phrase.split() for kw in HIGH_VALUE_KEYWORDS):
+            if phrase not in STOP_WORDS and phrase not in scored_keywords:
+                scored_keywords[phrase] = 0.7
+
+    # Priority 3: Single high-value keywords (lowest priority)
     for keyword in HIGH_VALUE_KEYWORDS:
         pattern = r"\b" + re.escape(keyword) + r"\b"
         if re.search(pattern, text_lower):
-            found.add(keyword)
+            if keyword not in scored_keywords:
+                scored_keywords[keyword] = 0.5
 
-    return found
+    # Return sorted by score (highest first)
+    return sorted(scored_keywords.items(), key=lambda x: x[1], reverse=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -320,16 +344,23 @@ class LinkMap:
 def find_unlinked_keywords(article_text: str, existing_links: Set[str], link_map: LinkMap) -> List[Dict]:
     """
     Scan article for keywords that appear in link_map but are not yet linked.
-    Returns list of {keyword, url, anchor_text, count}.
+    Returns list of {keyword, url, anchor_text, count, relevance_score} sorted by priority.
     """
     suggestions = []
     article_lower = article_text.lower()
 
-    for keyword, url_list in link_map.keyword_to_urls.items():
-        if not url_list:
+    # Extract keywords with scores (prioritizes 2-word pairs & contextual modifiers)
+    scored_keywords = extract_high_value_keywords(article_text)
+
+    # Build lookup: for each scored keyword, find its URL target
+    for keyword, relevance_score in scored_keywords:
+        if not keyword:
             continue
 
-        url, anchor_text = url_list[0]
+        # Find URL in link_map (try exact match first, then substring)
+        url, anchor_text = link_map.find_link_for_keyword(keyword)
+        if not url:
+            continue
 
         # Skip if already linked
         if url.lower() in existing_links:
@@ -345,11 +376,12 @@ def find_unlinked_keywords(article_text: str, existing_links: Set[str], link_map
                 "url": url,
                 "anchor_text": anchor_text,
                 "count": len(matches),
-                "first_position": matches[0].start()
+                "first_position": matches[0].start(),
+                "relevance_score": relevance_score
             })
 
-    # Sort by position (link first occurrence first)
-    return sorted(suggestions, key=lambda x: x["first_position"])
+    # Sort by relevance_score first (highest priority), then by position
+    return sorted(suggestions, key=lambda x: (-x["relevance_score"], x["first_position"]))
 
 
 def inject_link_into_html(html: str, keyword: str, url: str, anchor_text: str) -> Tuple[str, bool]:
