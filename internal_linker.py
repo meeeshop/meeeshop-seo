@@ -430,9 +430,9 @@ def build_link_map() -> LinkMap:
     return link_map
 
 
-def process_articles(mode: str, apply: bool, batch_size: int = None, batch_index: int = None):
-    """Process articles and inject links."""
-    logger.info(f"Processing articles in {mode} mode (apply={apply})...")
+def process_articles(mode: str, apply: bool, batch_size: int = None, batch_index: int = None, max_links_per_article: int = 3):
+    """Process articles and inject links (max 2-3 per article)."""
+    logger.info(f"Processing articles in {mode} mode (apply={apply}, max {max_links_per_article} links/article)...")
 
     link_map = build_link_map()
 
@@ -488,14 +488,23 @@ def process_articles(mode: str, apply: bool, batch_size: int = None, batch_index
                     "links_skipped": []
                 }
 
-                logger.info(f"Article '{article_title}': {len(suggestions)} link suggestions found")
+                logger.info(f"Article '{article_title}': {len(suggestions)} link suggestions (limiting to {max_links_per_article})")
                 total_links_suggested += len(suggestions)
 
-                # Inject links
+                # Inject links (with per-article limit)
                 modified_html = body_html
                 injected_count = 0
 
                 for suggestion in suggestions:
+                    # HARD LIMIT: stop after max_links_per_article injected
+                    if injected_count >= max_links_per_article:
+                        link_info = {
+                            "keyword": suggestion["keyword"],
+                            "reason": f"Limit reached ({max_links_per_article} max per article)"
+                        }
+                        article_log["links_skipped"].append(link_info)
+                        continue
+
                     keyword = suggestion["keyword"]
                     url = suggestion["url"]
                     anchor_text = suggestion["anchor_text"]
@@ -540,6 +549,7 @@ def process_articles(mode: str, apply: bool, batch_size: int = None, batch_index
     logger.info(f"  Total articles processed: {total_articles}")
     logger.info(f"  Total link suggestions found: {total_links_suggested}")
     logger.info(f"  Total links injected: {total_links_injected}")
+    logger.info(f"  Max links per article: {max_links_per_article}")
     logger.info(f"  Mode: {mode} | Apply: {apply}")
     logger.info("=" * 80)
 
@@ -549,6 +559,7 @@ def process_articles(mode: str, apply: bool, batch_size: int = None, batch_index
         "links_injected": total_links_injected,
         "mode": mode,
         "apply": apply,
+        "max_links_per_article": max_links_per_article,
         "timestamp": datetime.now().isoformat(),
         "detailed_log": detailed_log
     }
@@ -565,6 +576,7 @@ def main():
     parser.add_argument("--apply", action="store_true", help="Apply changes to Shopify (default: dry-run)")
     parser.add_argument("--batch-size", type=int, help="Batch size for force mode")
     parser.add_argument("--batch-index", type=int, help="Batch index for force mode")
+    parser.add_argument("--max-links", type=int, default=3, help="Max internal links per article (default: 3)")
 
     args = parser.parse_args()
 
@@ -575,7 +587,8 @@ def main():
         mode=mode,
         apply=args.apply,
         batch_size=args.batch_size,
-        batch_index=args.batch_index
+        batch_index=args.batch_index,
+        max_links_per_article=args.max_links
     )
 
     # Save report
