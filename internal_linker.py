@@ -110,7 +110,29 @@ STOP_WORDS = {
     "was", "what", "when", "where", "which", "who", "will", "with", "you",
     "your", "not", "no", "we", "them", "their", "there", "then", "about",
     "more", "some", "such", "than", "them", "then", "now", "out", "up", "so",
-    "can", "do", "does", "did", "get", "got", "make", "made", "new", "only"
+    "can", "do", "does", "did", "get", "got", "make", "made", "new", "only",
+    "this", "that", "these", "those", "my", "your", "his", "her", "its",
+    "our", "their", "all", "each", "every", "either", "neither", "many",
+    "few", "several", "most", "least", "best", "worst", "better", "worse",
+    "good", "bad", "great", "small", "large", "big", "little", "old", "young",
+    "high", "low", "bold", "bright", "dark", "light", "colors", "style",
+    "look", "wear", "day", "way", "time", "year", "say", "go", "come", "take"
+}
+
+# High-value keywords: ONLY product types & materials (women's fashion)
+# These are words women shoppers actually search for when looking to buy
+HIGH_VALUE_KEYWORDS = {
+    # Garment types
+    "dress", "dresses", "top", "tops", "blouse", "shirt", "jean", "jeans",
+    "pant", "pants", "skirt", "skirts", "jacket", "coat", "sweater", "cardigan",
+    "blazer", "hoodie", "shorts", "leggings", "romper", "jumpsuit", "bodysuit",
+    "vest", "tank", "cami", "tunic", "tee", "crop", "maxi", "midi",
+    # Materials & fabrics
+    "leather", "denim", "cotton", "silk", "linen", "lace", "mesh", "satin", "velvet",
+    # Patterns & colors (only when paired with garment type — see _register_keywords)
+    "floral", "striped", "stripe", "solid", "print",
+    # Handbags & accessories
+    "handbag", "bag", "purse", "tote", "crossbody", "backpack", "clutch", "wallet",
 }
 
 
@@ -119,38 +141,21 @@ def normalize_keyword(kw: str) -> str:
     return re.sub(r"[^a-z0-9\s-]", "", kw.lower()).strip()
 
 
-def extract_keywords_from_text(text: str, min_length: int = 2) -> Set[str]:
-    """Extract multi-word phrases from text as keywords."""
+def extract_high_value_keywords(text: str) -> Set[str]:
+    """Extract only high-value linkable keywords (product types, styles, fabrics)."""
     if not text:
         return set()
 
-    text = strip_html(text)
-    text = text.lower()
+    text = strip_html(text).lower()
+    found = set()
 
-    words = re.findall(r"\b[a-z]+(?:-[a-z]+)?\b", text)
-    keywords = set()
+    # Look for exact matches of high-value keywords
+    for keyword in HIGH_VALUE_KEYWORDS:
+        pattern = r"\b" + re.escape(keyword) + r"\b"
+        if re.search(pattern, text):
+            found.add(keyword)
 
-    # Single words (length > 3)
-    for word in words:
-        if len(word) > 3 and word not in STOP_WORDS:
-            keywords.add(word)
-
-    # 2-word phrases
-    for i in range(len(words) - 1):
-        w1, w2 = words[i], words[i + 1]
-        if w1 not in STOP_WORDS and w2 not in STOP_WORDS:
-            phrase = f"{w1} {w2}"
-            if len(phrase) > min_length:
-                keywords.add(phrase)
-
-    # 3-word phrases (especially product type patterns)
-    for i in range(len(words) - 2):
-        w1, w2, w3 = words[i], words[i + 1], words[i + 2]
-        if w1 not in STOP_WORDS and len(f"{w1} {w2} {w3}") <= 40:
-            phrase = f"{w1} {w2} {w3}"
-            keywords.add(phrase)
-
-    return keywords
+    return found
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -275,12 +280,12 @@ class LinkMap:
 
     def add_article(self, title: str, blog_handle: str, article_handle: str):
         """Register article keywords."""
-        url = f"{SITE}/blogs/{blog_handle}/posts/{article_handle}"
+        url = f"{SITE}/blogs/{blog_handle}/{article_handle}"
         self._register_keywords(title, url, title)
 
     def _register_keywords(self, text: str, url: str, anchor_text: str):
-        """Extract keywords from text and map to URL."""
-        keywords = extract_keywords_from_text(text)
+        """Extract ONLY high-value keywords and map to URL."""
+        keywords = extract_high_value_keywords(text)
         for kw in keywords:
             normalized = normalize_keyword(kw)
             if normalized and len(normalized) > 2:
@@ -454,7 +459,7 @@ def process_articles(mode: str, apply: bool, batch_size: int = None, batch_index
             article_handle = article.get("handle", "")
             article_title = article.get("title", "")
             body_html = article.get("body_html", "")
-            article_url = f"{SITE}/blogs/{blog_handle}/posts/{article_handle}"
+            article_url = f"{SITE}/blogs/{blog_handle}/{article_handle}"
 
             if not body_html:
                 continue
