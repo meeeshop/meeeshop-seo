@@ -1,33 +1,37 @@
 #!/usr/bin/env python3
 """
-revert_injected_links.py — Restore corrupted articles by recreating them with fresh AI content.
+revert_injected_links.py — Restore corrupted articles by recreating them via the
+full blog_daily pipeline (EEAT content, featured image, product cards, SEO metafields).
 
-For each article that contains injected meeeshop links, the script:
-  1. Generates fresh AI content (before touching anything)
-  2. Deletes the corrupted article
-  3. Re-publishes with the same title + handle so the URL stays identical
+For each article containing injected meeeshop links the script:
+  1. Picks a relevant product + format + keyword from the blog_daily pool
+  2. Generates full Google Discover-ready content (EEAT, product card, related products)
+  3. Generates SEO metadata (title_tag, description_tag, featured image 1200x630)
+  4. Deletes the corrupted article
+  5. Re-publishes with the SAME handle so the URL stays identical
+  6. Sets SEO metafields on the new article
 
 Usage:
   python revert_injected_links.py --dry-run        # Preview only, no changes
   python revert_injected_links.py --apply          # Fix known corrupted articles
-  python revert_injected_links.py --apply --all    # Fix ALL articles that contain meeeshop links
+  python revert_injected_links.py --apply --all    # Fix ALL articles with meeeshop links
 """
 
-import os, sys, re, time, argparse
+import os, sys, re, time, random, argparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from secrets_manager import inject_to_env, get_secret
-
 inject_to_env()
 
 import requests
-import ai_client
 
-STORE     = get_secret("SHOPIFY_STORE")
-TOKEN     = get_secret("SHOPIFY_ACCESS_TOKEN")
-HEADS     = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
-BASE      = f"https://{STORE}/admin/api/2024-01"
-STORE_URL = get_secret("STORE_BASE_URL") or f"https://{STORE}"
+# ── Reuse the full blog_daily pipeline ────────────────────────────────────────
+import blog_daily as bd
+
+STORE = get_secret("SHOPIFY_STORE")
+TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
+HEADS = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
+BASE  = f"https://{STORE}/admin/api/2024-01"
 
 REQUEST_DELAY = 0.7
 MAX_RETRIES   = 5
@@ -103,18 +107,23 @@ def delete_article(blog_id: int, article_id: int) -> bool:
     return r.status_code == 200
 
 
-def publish_article(blog_id: int, title: str, body_html: str, handle: str,
-                    summary_html: str, tags: str) -> dict | None:
+def publish_article_with_handle(blog_id: int, title: str, body_html: str,
+                                 handle: str, tags: list,
+                                 img_url: str, img_alt: str, meta_desc: str) -> dict | None:
+    """Same as blog_daily.publish_article but forces a specific handle."""
     payload = {
         "article": {
             "title":        title,
             "body_html":    body_html,
-            "summary_html": summary_html,
-            "tags":         tags,
+            "summary_html": f"<p>{meta_desc}</p>",
+            "tags":         ", ".join(tags),
             "published":    True,
-            "handle":       handle,  # Same handle = same URL
+            "handle":       handle,  # preserve original URL
         }
     }
+    if img_url:
+        payload["article"]["image"] = {"src": img_url, "alt": img_alt}
+
     r = _req("POST", f"{BASE}/blogs/{blog_id}/articles.json", json=payload)
     time.sleep(REQUEST_DELAY)
     if r.status_code in (200, 201):
@@ -123,65 +132,99 @@ def publish_article(blog_id: int, title: str, body_html: str, handle: str,
     return None
 
 
-def _guess_keyword(title: str) -> str:
-    stops = {"how", "to", "a", "an", "the", "for", "of", "in", "with", "your",
-             "and", "or", "is", "are", "what", "tips", "guide", "best", "top",
-             "about", "every", "finding", "perfect", "right", "our", "will",
-             "new", "make", "styles", "that", "its", "from", "you", "its",
-             "size", "plus"}
-    words = [w for w in re.sub(r"[^a-zA-Z0-9 ]", " ", title).lower().split()
-             if w not in stops and len(w) > 3]
-    return " ".join(words[:5]) or "women's fashion"
+def _pick_product_for_title(title: str, products: list) -> dict:
+    """Pick a product whose type or title keywords match the article title."""
+    title_lower = title.lower()
+    type_hints = {
+        "dress":    ["dress"],
+        "jean":     ["jean", "denim"],
+        "skirt":    ["skirt"],
+        "top":      ["top", "blouse", "shirt"],
+        "jacket":   ["jacket", "coat"],
+        "sweater":  ["sweater", "cardigan"],
+        "plus":     ["plus", "curvy"],
+        "size":     ["plus", "curvy"],
+        "handbag":  ["handbag", "bag", "purse"],
+    }
+    for hint, ptypes in type_hints.items():
+        if hint in title_lower:
+            matches = [p for p in products
+                       if any(pt in (p.get("product_type") or "").lower() for pt in ptypes)
+                       or any(pt in p.get("title", "").lower() for pt in ptypes)]
+            if matches:
+                return random.choice(matches)
+    # Fallback: any product with an image
+    with_imgs = [p for p in products if p.get("images")]
+    return random.choice(with_imgs) if with_imgs else random.choice(products)
 
 
-def generate_content(title: str) -> tuple[str, str]:
-    """Returns (body_html, summary_html)."""
-    from datetime import datetime
-    year  = datetime.now().year
-    month = datetime.now().strftime("%B %Y")
-    kw    = _guess_keyword(title)
+def _pick_keyword_for_title(title: str) -> str:
+    """Pick the best seed keyword from blog_daily that fits the article title."""
+    title_lower = title.lower()
+    for kw in bd.SEED_KEYWORDS:
+        kw_words = kw.lower().split()
+        if any(w in title_lower for w in kw_words if len(w) > 4):
+            return kw
+    return random.choice(bd.SEED_KEYWORDS)
 
-    prompt = (
-        f"You are a fashion editor at MeeeShop, a USA women's clothing boutique.\n"
-        f"Write a {month} blog post titled: \"{title}\"\n"
-        f"Target keyword: '{kw}'\n\n"
-        f"Requirements:\n"
-        f"- 650-850 words, helpful and specific women's fashion content\n"
-        f"- First-person voice ('I', 'we', 'our customers tell us')\n"
-        f"- Include personal experience and specific styling tips\n"
-        f"- Mention free US shipping on orders $50+, easy 7-day returns, sizes XS-3X\n"
-        f"- Use keyword '{kw}' 3-4 times naturally\n"
-        f"- Mention the year {year} at least once\n"
-        f"- Link to {STORE_URL} at least once with natural anchor text\n"
-        f"- Do NOT inject links to individual product pages or category URLs\n"
-        f"- Output ONLY clean HTML: <h1>, <h2>, <p>, <ul>, <li> — no markdown fences\n"
-        f"- Sound warm and direct, not robotic\n"
-    )
 
-    raw = ai_client.generate(prompt, max_tokens=1400, temperature=0.7)
+def recreate_article(blog_id: int, original_title: str, handle: str,
+                     original_tags: str, products: list, all_blogs: list,
+                     blog_obj: dict) -> tuple[bool, str]:
+    """
+    Generate full EEAT content via blog_daily pipeline and republish.
+    Returns (success, new_article_id).
+    """
+    import ai_client
 
-    if raw:
-        raw = raw.strip()
-        raw = re.sub(r"^```html?\s*", "", raw, flags=re.IGNORECASE)
-        raw = re.sub(r"\s*```$", "", raw).strip()
-        body = raw
-    else:
-        body = (
-            f"<h1>{title}</h1>"
-            f"<p>Our fashion editors are refreshing this guide with the latest tips for {kw} in {year}. "
-            f"Explore our full collection at <a href='{STORE_URL}'>MeeeShop</a> — "
-            f"free US shipping on orders $50+, sizes XS–3X.</p>"
-        )
+    product = _pick_product_for_title(original_title, products)
+    fmt     = random.choice(bd.FORMATS)
+    keyword = _pick_keyword_for_title(original_title)
+    ptype   = (product.get("product_type") or "women's fashion").lower()
 
-    # Extract first <p> text as summary
-    m = re.search(r"<p[^>]*>(.*?)</p>", body, re.DOTALL | re.IGNORECASE)
-    summary = f"<p>{re.sub(r'<[^>]+>', '', m.group(1)).strip()[:200]}</p>" if m else ""
+    print(f"  Product : {product['title'][:60]}")
+    print(f"  Format  : {fmt} | Keyword: '{keyword}'")
 
-    return body, summary
+    # 1. Generate body content (EEAT prompt from blog_daily)
+    prompt, h1_hint = bd._build_prompt(fmt, product, keyword)
+    print("  Generating EEAT content...")
+    raw = ai_client.generate(prompt, max_tokens=1600, temperature=0.75)
+    if not raw:
+        return False, "AI content generation failed"
+
+    body_html  = bd._clean_html(raw)
+
+    # 2. SEO metadata
+    print("  Generating SEO metadata...")
+    seo = bd.generate_seo_meta(original_title, keyword, product["title"], ptype, h1_hint)
+    print(f"  SEO title : {seo['seo_title']}")
+    print(f"  Meta desc : {seo['meta_desc'][:80]}...")
+
+    # 3. Featured image (1200x630 via Shopify CDN or Pollinations fallback)
+    img_url = bd.make_featured_image_url(product, fmt)
+    img_src = "Shopify CDN" if product.get("images") else "Pollinations.ai"
+    print(f"  Image     : {img_src} 1200x630")
+
+    # 4. Product card + related products section
+    body_html = bd.inject_product_card(body_html, product, keyword)
+    body_html += bd.make_related_products_section(products, product.get("handle", ""), keyword)
+
+    # 5. Tags (reuse original tags + blog_daily enrichment)
+    new_tags = bd._make_tags(product, fmt, keyword)
+    if original_tags:
+        for t in original_tags.split(","):
+            t = t.strip()
+            if t and t not in new_tags:
+                new_tags.append(t)
+    new_tags = list(dict.fromkeys(new_tags))[:20]
+
+    return body_html, seo, img_url, new_tags
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Restore corrupted articles by recreating with fresh AI content")
+    parser = argparse.ArgumentParser(
+        description="Restore corrupted articles using the full blog_daily EEAT pipeline"
+    )
     parser.add_argument("--dry-run", action="store_true", help="Preview without changes")
     parser.add_argument("--apply",   action="store_true", help="Delete + recreate articles")
     parser.add_argument("--all",     action="store_true", help="Scan ALL articles (not just known list)")
@@ -196,8 +239,16 @@ def main():
     print(f"Scope: {scope}")
     print("=" * 70)
 
-    blogs      = fetch_all_blogs()
-    total_ok   = 0
+    # Pre-load products once — reused for all articles
+    print("Fetching products...")
+    products = bd.fetch_products(limit=100)
+    if not products:
+        sys.exit("ERROR: No products returned from Shopify.")
+    print(f"  {len(products)} products loaded\n")
+
+    blogs     = fetch_all_blogs()
+    all_blogs = bd.get_all_blogs()   # blog_daily's copy for get_or_create_blog
+    total_ok  = 0
     total_fail = 0
 
     for blog in blogs:
@@ -210,8 +261,7 @@ def main():
             body_html  = article.get("body_html", "") or ""
             article_id = article["id"]
             handle     = article.get("handle", "")
-            summary    = article.get("summary_html", "") or ""
-            tags       = article.get("tags", "") or ""
+            orig_tags  = article.get("tags", "") or ""
 
             # Scope filter
             if args.all:
@@ -221,37 +271,57 @@ def main():
                 if title not in AFFECTED_TITLES:
                     continue
                 if not _has_injected_links(body_html):
-                    print(f"  [SKIP] '{title}' — no meeeshop links found (already clean)")
+                    print(f"  [SKIP] '{title}' — already clean")
                     continue
 
             print(f"\n[{blog_title}] '{title}'")
             print(f"  Handle: {handle}")
 
             if args.dry_run:
-                kw = _guess_keyword(title)
-                print(f"  [DRY RUN] Would recreate with keyword: '{kw}'")
+                kw = _pick_keyword_for_title(title)
+                fmt = random.choice(bd.FORMATS)
+                print(f"  [DRY RUN] Would recreate — format: {fmt}, keyword: '{kw}'")
                 continue
 
-            # 1. Generate fresh content BEFORE deleting
-            print(f"  Generating fresh content...")
-            new_body, new_summary = generate_content(title)
-            print(f"  Generated {len(new_body)} chars")
+            # Generate full EEAT content
+            result = recreate_article(
+                blog_id, title, handle, orig_tags,
+                products, all_blogs, blog
+            )
+            if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], bool):
+                # Error path: (False, error_msg)
+                print(f"  [FAIL] {result[1]}")
+                total_fail += 1
+                continue
 
-            # 2. Delete corrupted article
+            new_body, seo, img_url, new_tags = result
+
+            # Delete corrupted article
             if not delete_article(blog_id, article_id):
-                print(f"  [FAIL] Could not delete — skipping")
+                print(f"  [FAIL] Could not delete article — skipping")
                 total_fail += 1
                 continue
             print(f"  Deleted (ID {article_id})")
 
-            # 3. Re-publish with same handle
-            new_art = publish_article(blog_id, title, new_body, handle, new_summary, tags)
+            # Re-publish with same handle
+            new_art = publish_article_with_handle(
+                blog_id, title, new_body, handle,
+                new_tags, img_url, seo["img_alt"], seo["meta_desc"]
+            )
+
             if new_art:
-                print(f"  ✓ Recreated (new ID {new_art.get('id')}) — URL preserved")
+                new_id = new_art.get("id")
+                print(f"  ✓ Recreated (new ID {new_id}) — URL preserved")
+                # Set SEO metafields
+                bd.set_article_seo_metafields(blog_id, new_id,
+                                               seo["seo_title"], seo["meta_desc"])
+                print(f"  ✓ SEO metafields set")
                 total_ok += 1
             else:
-                print(f"  ✗ Re-publish failed — '{title}' is deleted but not restored!")
+                print(f"  ✗ Re-publish failed — '{title}' deleted but NOT restored!")
                 total_fail += 1
+
+            time.sleep(1.0)
 
     print("\n" + "=" * 70)
     print(f"SUMMARY: recreated={total_ok}  failed={total_fail}")
