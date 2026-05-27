@@ -24,6 +24,14 @@ on:
         options:
           - weekly    # Last 7 days only
           - force     # All articles (batched)
+      revert_first:
+        description: 'Revert injected links before linking (weekly only — use if articles are corrupted)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 env:
   PYTHONUTF8: "1"
@@ -119,6 +127,15 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      - name: Revert injected links (pre-clean)
+        if: github.event.inputs.revert_first == 'true'
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          echo "Reverting previously injected meeeshop links from all articles..."
+          python revert_injected_links.py --apply --all
 
       - name: Link articles (weekly)
         env:
