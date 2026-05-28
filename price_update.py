@@ -401,6 +401,8 @@ def load_recently_updated_ids(filepath: str = "price_update_log.json",
         ts_str = entry.get("timestamp", "")
         try:
             ts = datetime.fromisoformat(ts_str)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
         except ValueError:
             continue
         if ts < cutoff:
