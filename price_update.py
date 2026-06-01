@@ -153,23 +153,26 @@ query ($first: Int!, $after: String, $query: String!) {
 """
 
 
-def get_products(mode: str) -> List[Dict]:
+def get_products(mode: str, window_hours: Optional[int] = None) -> List[Dict]:
     """
     Fetch active products filtered by creation date.
 
-    daily  -> last 48 hours
-    weekly -> last 7 days
-    force  -> all active products (no date filter)
+    daily              -> last 48 hours (or --window override)
+    weekly             -> last 7 days
+    force              -> all active products (no date filter)
+    --window <hours>   -> override fetch window for daily/weekly
     """
     now = datetime.now(timezone.utc)
     if mode == "daily":
-        since = now - timedelta(hours=48)
+        hours = window_hours if window_hours is not None else 48
+        since = now - timedelta(hours=hours)
         date_filter = f" AND created_at:>={since.strftime('%Y-%m-%dT%H:%M:%SZ')}"
-        window_label = "last 48 hours"
+        window_label = f"last {hours} hours"
     elif mode == "weekly":
-        since = now - timedelta(days=7)
+        hours = window_hours * 24 if window_hours is not None else 7 * 24
+        since = now - timedelta(hours=hours)
         date_filter = f" AND created_at:>={since.strftime('%Y-%m-%dT%H:%M:%SZ')}"
-        window_label = "last 7 days"
+        window_label = f"last {hours} hours"
     else:  # force
         date_filter = ""
         window_label = "all time"
@@ -282,7 +285,8 @@ def update_variant_price(variant_id: str, new_price: float) -> bool:
 
 
 def update_product_prices(products: List[Dict], batch_index: int = 0,
-                          batch_size: int = 0) -> Dict:
+                          batch_size: int = 0,
+                          skip_ids: Optional[set] = None) -> Dict:
     """
     Process products list.
 
@@ -296,6 +300,8 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
         print(f"[Batch] Processing slice [{start}:{end}] — {len(slice_)} of {len(products)} products")
     else:
         slice_ = products
+
+    skip_ids = skip_ids or set()
 
     stats = {
         "mode_total_fetched": len(products),
@@ -327,6 +333,16 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
                 stats["products"].append({"sku": sku, "title": title, "status": "skipped_no_price"})
                 continue
 
+            # Skip variants updated in a recent prior run (within 23h)
+            if variant_id in skip_ids:
+                print(f"{i:<5} | {title:<36} | ${current_price:>9.2f} | {'—':>10} | SKIP (recent)")
+                stats["skipped"] += 1
+                stats["products"].append({
+                    "sku": sku, "title": title, "variant_gid": variant_id,
+                    "old_price": current_price, "status": "skipped_recent_run",
+                })
+                continue
+
             new_price = calculate_target_price(current_price)
 
             # Already correct: current price is already a valid x4.99/x9.99 AND equals new_price
@@ -334,7 +350,7 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
                 print(f"{i:<5} | {title:<36} | ${current_price:>9.2f} | ${new_price:>9.2f} | ALREADY OK")
                 stats["skipped"] += 1
                 stats["products"].append({
-                    "sku": sku, "title": title,
+                    "sku": sku, "title": title, "variant_gid": variant_id,
                     "old_price": current_price, "new_price": new_price,
                     "status": "skipped_optimal",
                 })
@@ -345,7 +361,7 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
             print(f"{i:<5} | {title:<36} | ${current_price:>9.2f} | ${new_price:>9.2f} | {label}")
 
             entry = {
-                "sku": sku, "title": title,
+                "sku": sku, "title": title, "variant_gid": variant_id,
                 "old_price": current_price, "new_price": new_price,
                 "status": "updated" if success else "error",
             }
@@ -361,8 +377,41 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
 
 
 # ---------------------------------------------------------------------------
-# Log
+# Log helpers
 # ---------------------------------------------------------------------------
+
+def load_recently_updated_ids(filepath: str = "price_update_log.json",
+                               within_hours: int = 23) -> set:
+    """
+    Return a set of variant IDs (GID strings) that were successfully updated
+    within the last `within_hours` hours.  Used to skip re-updating on the
+    next daily run that overlaps the same 48-hour product window.
+    """
+    log_path = Path(filepath)
+    if not log_path.exists():
+        return set()
+    try:
+        logs = json.loads(log_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, IOError):
+        return set()
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=within_hours)
+    updated_ids: set = set()
+    for entry in logs:
+        ts_str = entry.get("timestamp", "")
+        try:
+            ts = datetime.fromisoformat(ts_str)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if ts < cutoff:
+            continue
+        for p in entry.get("products", []):
+            if p.get("status") == "updated" and p.get("variant_gid"):
+                updated_ids.add(p["variant_gid"])
+    return updated_ids
+
 
 def save_update_log(stats: Dict, filepath: str = "price_update_log.json"):
     log_path = Path(filepath)
@@ -415,6 +464,14 @@ def parse_args():
         default=0,
         help="For force mode: which batch to process (0-based)",
     )
+    p.add_argument(
+        "--window",
+        type=int,
+        default=None,
+        metavar="HOURS",
+        help="Override the fetch window in hours (e.g. --window 12 fetches products created in last 12h). "
+             "Only applies to daily/weekly modes. Next daily run will skip these via log.",
+    )
     return p.parse_args()
 
 
@@ -424,22 +481,33 @@ if __name__ == "__main__":
     print(f"[MeeeShop] Price Update Engine — MSRP +${PRICE_MARKUP:.2f} -> x4.99/x9.99")
     print(f"Store  : {SHOPIFY_STORE}")
     print(f"Mode   : {args.mode}")
+    if args.window is not None:
+        print(f"Window : last {args.window}h (manual override)")
     if args.batch_size > 0:
         print(f"Batch  : index={args.batch_index}, size={args.batch_size}")
     print()
 
     try:
-        products = get_products(mode=args.mode)
+        products = get_products(mode=args.mode, window_hours=args.window)
         print(f"[Fetch] Total products matching filter: {len(products)}\n")
 
         if not products:
             print("[Done] No products to process.")
             sys.exit(0)
 
+        # For daily runs, skip variants already updated in the last 23h so we
+        # don't re-update products that fall in the overlapping 48h window.
+        skip_ids: set = set()
+        if args.mode == "daily":
+            skip_ids = load_recently_updated_ids(within_hours=23)
+            if skip_ids:
+                print(f"[Skip] {len(skip_ids)} variant(s) already updated in last 23h — will skip\n")
+
         stats = update_product_prices(
             products,
             batch_index=args.batch_index,
             batch_size=args.batch_size,
+            skip_ids=skip_ids,
         )
         save_update_log(stats)
 

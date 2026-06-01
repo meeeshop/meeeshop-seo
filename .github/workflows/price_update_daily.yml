@@ -27,6 +27,11 @@ on:
           - daily
           - weekly
           - force
+      window:
+        description: 'Fetch window in hours (optional, overrides default). e.g. 12 = products added in last 12h only'
+        required: false
+        default: ''
+        type: string
 
 env:
   PYTHONUTF8: "1"
@@ -117,7 +122,13 @@ jobs:
         env:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
-        run: python price_update.py --mode ${{ needs.setup.outputs.mode }}
+        run: |
+          WINDOW="${{ github.event.inputs.window }}"
+          if [ -n "$WINDOW" ]; then
+            python price_update.py --mode ${{ needs.setup.outputs.mode }} --window "$WINDOW"
+          else
+            python price_update.py --mode ${{ needs.setup.outputs.mode }}
+          fi
 
       - name: Upload log
         if: always()
