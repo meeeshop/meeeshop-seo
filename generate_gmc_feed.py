@@ -31,7 +31,6 @@ HEADERS = {"X-Shopify-Access-Token": SHOPIFY_TOKEN, "Content-Type": "application
 DEFAULT_GENDER = "female"
 DEFAULT_AGE_GROUP = "adult"
 DEFAULT_CONDITION = "new"
-DEFAULT_COUNTRY = "US"
 DEFAULT_BRAND = "MeeeShop"
 DEFAULT_GOOGLE_CATEGORY = "166" # Apparel & Accessories
 
@@ -208,7 +207,7 @@ def generate_feed():
         "id", "title", "description", "link", "image_link", "additional_image_link",
         "availability", "price", "condition", "brand", "gtin", "mpn",
         "google_product_category", "item_group_id", "gender", "age_group",
-        "color", "size", "shipping_country", "custom_label_0", "custom_label_1"
+        "color", "size", "custom_label_0", "custom_label_1", "excluded_destination"
     ]
     
     rows = []
@@ -221,10 +220,15 @@ def generate_feed():
         
         # Extract Base Product details
         prod_desc = clean_html(product.get("body_html", ""))
-        brand = product.get("vendor") or DEFAULT_BRAND
+        # Force the store brand for all products to build brand equity and prevent price shopping
+        brand = DEFAULT_BRAND
         item_group_id = str(product.get("id"))
         product_type = product.get("product_type", "")
         tags = product.get("tags", "")
+        
+        # Extract the first tag and limit to 100 characters to avoid "Text too long" and 1000 unique value limits
+        tags_list = [t.strip() for t in tags.split(",") if t.strip()]
+        first_tag = tags_list[0][:100] if tags_list else ""
         
         # Process each variant as a unique item in GMC
         for variant in product.get("variants", []):
@@ -279,9 +283,9 @@ def generate_feed():
                 "age_group": DEFAULT_AGE_GROUP,
                 "color": color,
                 "size": size,
-                "shipping_country": DEFAULT_COUNTRY,
                 "custom_label_0": product_type,
-                "custom_label_1": tags
+                "custom_label_1": first_tag,
+                "excluded_destination": "Local_inventory_ads,Free_local_listings"
             })
             
     # Write to CSV file
