@@ -45,6 +45,7 @@ if not TOKEN:
     sys.exit("ERROR: SHOPIFY_ACCESS_TOKEN not set.")
 
 STORE_URL = get_secret("STORE_BASE_URL")
+BRAND_NAME = get_secret("BRAND", "MeeeShop")
 
 YEAR  = datetime.now().year
 MONTH = datetime.now().strftime("%B %Y")
@@ -123,7 +124,7 @@ def _build_seo_prompt(post_title: str, keyword: str, product_title: str, ptype: 
         f"Post title: \"{post_title}\"\n"
         f"Target keyword: \"{keyword}\"\n"
         f"Featured product: {product_title} ({ptype})\n"
-        f"Store: MeeeShop — USA women's boutique at us.meeeshop.com\n\n"
+        f"Store: {BRAND_NAME} — USA women's boutique at {STORE_URL.replace('https://', '')}\n\n"
         f"Return ONLY these 3 lines, nothing else:\n"
         f"SEO_TITLE: [50-60 chars, keyword near start, year or 'for Women', compelling]\n"
         f"META_DESC: [140-155 chars, action-oriented, includes keyword, free shipping mention, ends with CTA]\n"
@@ -154,15 +155,15 @@ def generate_seo_meta(post_title: str, keyword: str, product_title: str, ptype: 
 
     # Deterministic fallbacks — always valid even if AI fails
     if not seo_title or len(seo_title) > 70:
-        seo_title = f"{keyword.title()} — MeeeShop {YEAR}"[:60]
+        seo_title = f"{keyword.title()} — {BRAND_NAME} {YEAR}"[:60]
     if not meta_desc or len(meta_desc) > 165:
         meta_desc = (
             f"Discover the best {ptype} for women in {YEAR}. "
-            f"Shop {product_title} at MeeeShop — free US shipping on orders $50+, "
+            f"Shop {product_title} at {BRAND_NAME} — free US shipping on orders $50+, "
             f"easy 7-day returns, sizes XS–3X."
         )[:155]
     if not img_alt:
-        img_alt = f"{product_title} — {ptype} for women, {YEAR} fashion guide at MeeeShop"
+        img_alt = f"{product_title} — {ptype} for women, {YEAR} fashion guide at {BRAND_NAME}"
 
     return {
         "seo_title":  seo_title,
@@ -237,13 +238,13 @@ def make_product_card(product: dict, keyword: str = "",
     price  = product["variants"][0]["price"] if product.get("variants") else "0"
     handle = product.get("handle", "")
     ptype  = (product.get("product_type") or "women's fashion").lower()
-    url    = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=featured_card&utm_campaign=meeeshop" if handle else STORE_URL
+    url    = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=featured_card&utm_campaign={BRAND_NAME.lower()}" if handle else STORE_URL
     img    = product_img_url(product)
 
     # Keyword-rich ALT text for inline product image
-    alt = f"{title} — {ptype} for women at MeeeShop"
+    alt = f"{title} — {ptype} for women at {BRAND_NAME}"
     if keyword:
-        alt = f"{title} — {keyword}, {ptype} at MeeeShop"
+        alt = f"{title} — {keyword}, {ptype} at {BRAND_NAME}"
 
     img_html = (
         f'<a href="{url}"><img src="{img}" alt="{alt}" '
@@ -286,12 +287,12 @@ def make_related_products_section(products: list, exclude_handle: str, keyword: 
         price  = p["variants"][0]["price"] if p.get("variants") else "0"
         handle = p.get("handle", "")
         ptype  = (p.get("product_type") or "women's fashion").lower()
-        url    = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=related_card&utm_campaign=meeeshop"
+        url    = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=related_card&utm_campaign={BRAND_NAME.lower()}"
         img    = product_img_url(p)
         # Keyword-rich ALT for related product images
-        alt    = f"{title} — {ptype} for women at MeeeShop"
+        alt    = f"{title} — {ptype} for women at {BRAND_NAME}"
         if keyword:
-            alt = f"{title} — shop {keyword} at MeeeShop"
+            alt = f"{title} — shop {keyword} at {BRAND_NAME}"
         img_tag = (
             f'<a href="{url}"><img src="{img}" alt="{alt}" '
             f'style="width:100%;height:200px;object-fit:cover;border-radius:10px;margin-bottom:12px;" loading="lazy" /></a>'
@@ -444,7 +445,7 @@ def _build_prompt(fmt: str, product: dict, keyword: str) -> tuple[str, str]:
     lsi_str = ", ".join(f'"{k}"' for k in lsi)
 
     base = (
-        f"You are a fashion editor at MeeeShop, a USA women's clothing boutique.\n"
+        f"You are a fashion editor at {BRAND_NAME}, a USA women's clothing boutique.\n"
         f"Write a {MONTH} blog post. Target keyword: '{keyword}'\n"
         f"Feature product: {title} — ${price}\n"
         f"Product page URL: {url}\n"
@@ -536,8 +537,8 @@ def _build_prompt(fmt: str, product: dict, keyword: str) -> tuple[str, str]:
             f"   - Trend #1 MUST be {title} with product URL linked naturally\n"
             f"   - Trends #2-5: invent 4 real, current women's fashion micro-trends for {MONTH}\n"
             f"   - Each trend: what it is, why it's trending, how to wear it, who it's for\n"
-            f"4. <h2> How to Mix These Trends Without Looking Overdone (60 words, practical)\n"
-            f"5. <p> Shop the trends at MeeeShop + {url} + price\n"
+            f"4. <h2> How to Mix These Trends Without Looking Overdone (60 words, practical)\n" # This is a rule for the AI, not a hardcoded value to change
+            f"5. <p> Shop the trends at {BRAND_NAME} + {url} + price\n"
             f"Target: 750-900 words. Output ONLY clean HTML."
         )
         h1_hint = f"{MONTH} Women's Fashion Trends: What I'm Wearing Right Now"
@@ -573,7 +574,7 @@ def _clean_html(raw: str) -> str:
 
 
 def _make_tags(product: dict, fmt: str, keyword: str) -> list[str]:
-    base_tags = ["fashion", "women fashion", "MeeeShop", "USA fashion",
+    base_tags = ["fashion", "women fashion", BRAND_NAME, "USA fashion",
                  "women's clothing", "affordable fashion", "style tips"]
     ptype = (product.get("product_type") or "").lower()
     fmt_tags = {

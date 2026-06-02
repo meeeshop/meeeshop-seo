@@ -18,20 +18,22 @@ import secrets_manager
 try:
     SHOPIFY_STORE = secrets_manager.get_secret("SHOPIFY_STORE_URL")
     SHOPIFY_TOKEN = secrets_manager.get_secret("SHOPIFY_ACCESS_TOKEN")
+    LIVE_THEME_ID = secrets_manager.get_secret("LIVE_THEME_ID")
 except KeyError as e:
     raise ValueError(f"Missing Shopify credentials in secrets.enc: {e}")
 
-STORE_BASE_URL = "https://us.meeeshop.com"
+STORE_BASE_URL = secrets_manager.get_secret("SHOPIFY_SITE_URL", "https://us.meeeshop.com")
 
 STORE_DOMAIN = SHOPIFY_STORE.replace("https://", "").replace("http://", "").strip("/")
 API_VER = "2024-01"
 HEADERS = {"X-Shopify-Access-Token": SHOPIFY_TOKEN, "Content-Type": "application/json"}
+REST_HEADERS = {"X-Shopify-Access-Token": SHOPIFY_TOKEN, "Content-Type": "application/json", "Accept": "application/json"}
 
 # Default MeeeShop GMC Settings
 DEFAULT_GENDER = "female"
 DEFAULT_AGE_GROUP = "adult"
 DEFAULT_CONDITION = "new"
-DEFAULT_BRAND = "MeeeShop"
+DEFAULT_BRAND = secrets_manager.get_secret("BRAND", "MeeeShop")
 DEFAULT_GOOGLE_CATEGORY = "166" # Apparel & Accessories
 
 OUTPUT_FILE = "google_merchant_feed.csv"
@@ -71,134 +73,49 @@ def fetch_all_active_products():
     print(f"Total products fetched: {len(products)}")
     return products
 
-def upload_to_shopify_files(filepath):
-    """Uploads the generated CSV directly to Shopify Files (CDN)."""
-    print("\nUploading feed to Shopify CDN...")
-    graphql_url = f"https://{STORE_DOMAIN}/admin/api/{API_VER}/graphql.json"
+def upload_to_shopify_assets(filepath):
+    """Uploads the feed to Shopify Theme Assets for a static URL."""
+    print("\nUploading feed to Shopify Theme Assets for a static URL...")
     
-    # 1. Check for existing file and delete it so the new URL stays clean
-    query_existing = """
-    query {
-      files(first: 10, query: "filename:google_merchant_feed.csv") {
-        edges {
-          node {
-            id
-          }
-        }
-      }
-    }
-    """
-    resp = requests.post(graphql_url, headers=HEADERS, json={"query": query_existing})
-    edges = resp.json().get("data", {}).get("files", {}).get("edges", [])
-    
-    if edges:
-        for edge in edges:
-            file_id = edge["node"]["id"]
-            delete_mut = """
-            mutation fileDelete($fileIds: [ID!]!) {
-              fileDelete(fileIds: $fileIds) {
-                deletedFileIds
-              }
-            }
-            """
-            requests.post(graphql_url, headers=HEADERS, json={"query": delete_mut, "variables": {"fileIds": [file_id]}})
-        print("Deleted existing feed file(s) on Shopify.")
-        time.sleep(3) # Wait for deletion to propagate
-        
-    # 2. Request Staged Upload
-    staged_mut = """
-    mutation {
-      stagedUploadsCreate(input: [{
-        resource: FILE,
-        filename: "google_merchant_feed.csv",
-        mimeType: "text/csv",
-        httpMethod: POST
-      }]) {
-        stagedTargets {
-          url
-          resourceUrl
-          parameters {
-            name
-            value
-          }
-        }
-      }
-    }
-    """
-    resp = requests.post(graphql_url, headers=HEADERS, json={"query": staged_mut})
-    data = resp.json()
+    # 1. Read the file content
     try:
-        target = data["data"]["stagedUploadsCreate"]["stagedTargets"][0]
-    except (KeyError, IndexError):
-        print(f"Failed to create staged upload: {data}")
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except Exception as e:
+        print(f"Failed to read file {filepath}: {e}")
         return
 
-    # 3. Upload file to staging target
-    with open(filepath, "rb") as f:
-        files = {"file": ("google_merchant_feed.csv", f, "text/csv")}
-        params = {p["name"]: p["value"] for p in target["parameters"]}
-        upload_resp = requests.post(target["url"], data=params, files=files)
-        upload_resp.raise_for_status()
-        
-    # 4. Create file in Shopify
-    create_mut = """
-    mutation fileCreate($files: [FileCreateInput!]!) {
-      fileCreate(files: $files) {
-        files {
-          id
-          fileStatus
-        }
-        userErrors {
-          message
-        }
-      }
-    }
-    """
-    variables = {
-      "files": [
-        {
-          "originalSource": target["resourceUrl"],
-          "contentType": "FILE"
-        }
-      ]
-    }
-    resp = requests.post(graphql_url, headers=HEADERS, json={"query": create_mut, "variables": variables})
-    create_data = resp.json()
+    # 2. Prepare the REST API request to overwrite the asset
+    asset_key = "assets/google_merchant_feed.csv"
+    url = f"https://{STORE_DOMAIN}/admin/api/{API_VER}/themes/{LIVE_THEME_ID}/assets.json"
     
+    payload = {
+        "asset": {
+            "key": asset_key,
+            "value": content
+        }
+    }
+
+    # 3. PUT the asset to Shopify
     try:
-        file_id = create_data["data"]["fileCreate"]["files"][0]["id"]
-    except (KeyError, IndexError):
-        print(f"Failed to create file: {create_data}")
-        return
+        response = requests.put(url, headers=REST_HEADERS, json=payload)
+        response.raise_for_status()
+        data = response.json()
         
-    print("File processing in Shopify...")
-    
-    # 5. Wait for file to be ready and get URL
-    public_url = None
-    for _ in range(10):
-        time.sleep(2)
-        query_file = f"""
-        query {{
-          node(id: "{file_id}") {{
-            ... on GenericFile {{
-              url
-              fileStatus
-            }}
-          }}
-        }}
-        """
-        resp = requests.post(graphql_url, headers=HEADERS, json={"query": query_file})
-        node = resp.json().get("data", {}).get("node", {})
-        if node.get("fileStatus") == "READY":
-            public_url = node.get("url")
-            break
-            
-    if public_url:
-        print(f"✅ Feed uploaded successfully to Shopify CDN!")
-        static_url = public_url.split("?")[0]
-        print(f"🔗 Google Merchant Center URL: {static_url}")
-    else:
-        print("⚠️ File uploaded, but URL could not be retrieved in time. Check Shopify Admin > Settings > Files.")
+        public_url = data.get("asset", {}).get("public_url")
+        if public_url:
+            # The public_url for assets is already static, but we'll strip the version parameter for cleanliness
+            static_url = public_url.split('?')[0]
+            print("✅ Feed uploaded successfully to Shopify Theme Assets!")
+            print(f"🔗 Your static Google Merchant Center URL is: {static_url}")
+        else:
+            print("⚠️ Upload successful, but could not retrieve public URL.")
+            print(f"   Check your theme assets for '{asset_key}'.")
+
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to upload asset to Shopify: {e}")
+        if e.response is not None:
+            print(f"Response: {e.response.text}")
 
 def generate_feed():
     products = fetch_all_active_products()
@@ -298,7 +215,7 @@ def generate_feed():
     print("✅ Google Merchant Feed generated successfully.")
 
     # Upload to Shopify
-    upload_to_shopify_files(OUTPUT_FILE)
+    upload_to_shopify_assets(OUTPUT_FILE)
 
 if __name__ == "__main__":
     generate_feed()

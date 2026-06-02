@@ -29,10 +29,10 @@ STORE  = get_secret("SHOPIFY_STORE")
 TOKEN  = get_secret("SHOPIFY_ACCESS_TOKEN")
 HEADS  = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 BASE   = f"https://{STORE}/admin/api/2024-01"
-BRAND  = "us.meeeshop.com"
-SITE   = "https://us.meeeshop.com"
+BRAND  = get_secret("SHOPIFY_STORE", "us.meeeshop.com")
+SITE   = get_secret("SHOPIFY_SITE_URL", "https://us.meeeshop.com")
 RETURN_POLICY = "7-day return policy"
-DISPLAY_BRAND = "us.meeeshop"  # For human-readable text (not in meta title)
+DISPLAY_BRAND = " + get_secret("DISPLAY_BRAND", "us.meeeshop") + r"  # For human-readable text (not in meta title)
 
 # Return policy is 7 days ONLY. Any other duration (30-day, 14-day, 60-day, etc.)
 # triggers an overwrite to the 7-day policy.
@@ -426,17 +426,17 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not 
     {
       "@type": "Organization",
       "@id": "{{ shop.url }}/#organization",
-      "name": "MeeeShop",
+      "name": " + BRAND_SECRET + r",
       "url": "{{ shop.url }}",
       "logo": {"@type": "ImageObject", "url": "{{ shop.url }}/cdn/shop/files/logo.png"},
       "description": "Premium women's fashion with free US shipping and 7-day returns",
-      "contactPoint": {"@type": "ContactPoint", "contactType": "Customer Service", "email": "support@meeeshop.com"},
+      "contactPoint": {"@type": "ContactPoint", "contactType": "Customer Service", "email": " + EMAIL_SECRET + r"},
       "sameAs": ["https://pinterest.com/meeeshop", "https://www.youtube.com/@meeeshop"]
     },
     {
       "@type": "LocalBusiness",
       "@id": "{{ shop.url }}/#localbusiness",
-      "name": "MeeeShop",
+      "name": " + BRAND_SECRET + r",
       "image": "{{ shop.url }}/cdn/shop/files/logo.png",
       "description": "Women's fashion boutique - dresses, tops, bottoms, outerwear, shoes & more",
       "url": "{{ shop.url }}",
@@ -462,7 +462,7 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not 
       "name": {{ product.title | json }},
       "url": "{{ shop.url }}/products/{{ product.handle }}",
       "description": {{ product.description | strip_html | truncate: 500 | json }},
-      "brand": {"@type": "Brand", "name": "MeeeShop"},
+      "brand": {"@type": "Brand", "name": " + BRAND_SECRET + r"},
       "image": [{% for img in product.images %}"{{ img | image_url: width: 1200 }}"{% unless forloop.last %},{% endunless %}{% endfor %}],
       "offers": {
         "@type": "AggregateOffer",
@@ -481,7 +481,7 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not 
             "priceCurrency": "USD",
             "availability": "https://schema.org/{% if v.available %}InStock{% else %}OutOfStock{% endif %}",
             "url": "{{ shop.url }}/products/{{ product.handle }}?variant={{ v.id }}",
-            "seller": {"@type": "Organization", "name": "MeeeShop"}
+            "seller": {"@type": "Organization", "name": " + BRAND_SECRET + r"}
           }{%- unless forloop.last -%},{%- endunless -%}
           {%- endfor -%}
         ]
@@ -556,7 +556,7 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not 
       "author": {"@type": "Person", "name": {{ article.author | json }}},
       "publisher": {
         "@type": "Organization",
-        "name": "MeeeShop",
+        "name": " + BRAND_SECRET + r",
         "logo": {"@type": "ImageObject", "url": "{{ shop.url }}/cdn/shop/files/logo.png"}
       },
       "isPartOf": {"@id": "{{ shop.url }}/#website"}

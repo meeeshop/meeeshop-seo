@@ -36,8 +36,8 @@ inject_to_env()
 STORE  = get_secret("SHOPIFY_STORE")
 TOKEN  = get_secret("SHOPIFY_ACCESS_TOKEN")
 HEADS  = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
-BASE   = f"https://{STORE}/admin/api/2024-01"
-SITE   = "https://us.meeeshop.com"
+BASE   = f"https://{STORE}/admin/api/2024-01" # This is fine as it uses STORE secret
+SITE   = get_secret("SHOPIFY_SITE_URL", "https://us.meeeshop.com") # Fetch from secret, with a default
 
 logging.basicConfig(
     level=logging.INFO,

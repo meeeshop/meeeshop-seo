@@ -25,7 +25,7 @@ TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
 HEADS = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 BASE  = f"https://{STORE}/admin/api/2024-01"
 SITE  = get_secret("STORE_BASE_URL")
-BRAND = "MeeeShop"
+BRAND = get_secret("BRAND", "MeeeShop")
 
 REQUEST_DELAY = 1.5
 MAX_RETRIES   = 5

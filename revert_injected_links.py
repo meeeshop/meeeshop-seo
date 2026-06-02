@@ -81,7 +81,8 @@ def _req(method: str, url: str, **kwargs) -> requests.Response:
 
 
 def _has_injected_links(html: str) -> bool:
-    return bool(re.search(r'<a\s[^>]*href=["\'][^"\']*meeeshop', html, re.IGNORECASE))
+    brand_name = get_secret("BRAND", "MeeeShop").lower()
+    return bool(re.search(r'<a\s[^>]*href=["\'][^"\']*' + re.escape(brand_name), html, re.IGNORECASE))
 
 
 def fetch_all_blogs() -> list:
@@ -278,13 +279,14 @@ def main():
         print("Specify --dry-run, --apply, or --count-only")
         sys.exit(1)
 
-    # ── count-only mode: used by the workflow setup job to build the batch matrix ──
+    brand_name = get_secret("BRAND", "MeeeShop")
+    # ── count-only mode: used by the workflow setup job to build the batch matrix ──    
     if args.count_only:
         targets = collect_targets(args.all)
         print(len(targets))
         return
 
-    scope = "ALL articles with meeeshop links" if args.all else f"{len(AFFECTED_TITLES)} known affected articles"
+    scope = f"ALL articles with {brand_name} links" if args.all else f"{len(AFFECTED_TITLES)} known affected articles"
     batch_label = f"batch {args.batch_index}/{(args.batch_size)}" if args.batch_index is not None else "all batches"
     print(f"Mode:        {'DRY RUN' if args.dry_run else 'APPLY'}")
     print(f"Scope:       {scope}")
