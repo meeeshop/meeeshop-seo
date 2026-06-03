@@ -71,6 +71,51 @@ def fetch_all_active_products():
     print(f"Total products fetched: {len(products)}")
     return products
 
+def get_live_theme_id():
+    """Fetches the ID of the live (main) theme."""
+    themes_url = f"https://{STORE_DOMAIN}/admin/api/{API_VER}/themes.json"
+    response = requests.get(themes_url, headers=HEADERS)
+    response.raise_for_status()
+    themes = response.json().get("themes", [])
+    for theme in themes:
+        if theme.get("role") == "main":
+            return theme.get("id")
+    raise Exception("Could not find the live theme ID.")
+
+def upload_csv_as_shopify_asset(filepath):
+    """Uploads the generated CSV as a theme asset to Shopify."""
+    print("\nUploading feed as Shopify theme asset...")
+    theme_id = get_live_theme_id()
+    asset_key = "assets/google_merchant_feed.csv"
+    asset_update_url = f"https://{STORE_DOMAIN}/admin/api/{API_VER}/themes/{theme_id}/assets.json"
+
+    with open(filepath, "r", encoding="utf-8") as f:
+        csv_content = f.read()
+
+    payload = {
+        "asset": {
+            "key": asset_key,
+            "value": csv_content
+        }
+    }
+    response = requests.put(asset_update_url, headers=HEADERS, json=payload)
+    response.raise_for_status()
+
+    # Query the asset to get its public URL
+    # The public_url is not directly returned by the PUT request, so we fetch it.
+    asset_get_url = f"https://{STORE_DOMAIN}/admin/api/{API_VER}/assets.json?asset[key]={asset_key}&theme_id={theme_id}"
+    asset_response = requests.get(asset_get_url, headers=HEADERS)
+    asset_response.raise_for_status()
+    asset_data = asset_response.json().get("asset", {})
+    public_url = asset_data.get("public_url")
+
+    if public_url:
+        print(f"✅ Feed uploaded successfully as theme asset!")
+        print(f"🔗 Static Google Merchant Center URL: {public_url}")
+    else:
+        print("⚠️ Asset uploaded, but public URL could not be retrieved.")
+
+
 def generate_feed():
     products = fetch_all_active_products()
     
@@ -156,7 +201,7 @@ def generate_feed():
                 "size": size,
                 "custom_label_0": product_type,
                 "custom_label_1": first_tag,
-                "excluded_destination": "local_inventory_ads,free_local_listings" # Changed to lowercase as per GMC error message
+                "excluded_destination": "local_inventory_ads,free_local_listings"
             })
             
     # Write to CSV file
@@ -167,6 +212,9 @@ def generate_feed():
         writer.writerows(rows)
         
     print("✅ Google Merchant Feed generated successfully.")
+
+    # Upload to Shopify as a theme asset
+    upload_csv_as_shopify_asset(OUTPUT_FILE)
 
 if __name__ == "__main__":
     generate_feed()
