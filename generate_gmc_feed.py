@@ -25,7 +25,7 @@ except KeyError as e:
 STORE_BASE_URL = "https://us.meeeshop.com"
 
 STORE_DOMAIN = SHOPIFY_STORE.replace("https://", "").replace("http://", "").strip("/")
-API_VER = "2024-01"
+API_VER = "2025-01"
 HEADERS = {"X-Shopify-Access-Token": SHOPIFY_TOKEN, "Content-Type": "application/json"}
 
 # Default MeeeShop GMC Settings
