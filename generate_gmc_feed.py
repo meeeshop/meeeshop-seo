@@ -195,10 +195,75 @@ def upload_to_shopify_files(filepath):
             
     if public_url:
         print(f"✅ Feed uploaded successfully to Shopify CDN!")
-        static_url = public_url.split("?")[0]
-        print(f"🔗 Google Merchant Center URL: {static_url}")
+        cdn_url = public_url.split("?")[0]
+        print(f"🔗 Temporary CDN URL: {cdn_url}")
+        create_or_update_redirect(cdn_url)
     else:
         print("⚠️ File uploaded, but URL could not be retrieved in time. Check Shopify Admin > Settings > Files.")
+
+def create_or_update_redirect(target_url):
+    """Creates or updates a URL redirect to point to the latest feed URL."""
+    print("\nCreating/updating URL redirect...")
+    graphql_url = f"https://{STORE_DOMAIN}/admin/api/{API_VER}/graphql.json"
+    redirect_path = "/a/google_merchant_feed.csv"  # A static, non-conflicting path
+
+    # 1. Check for an existing redirect for this path
+    query_redirect = f'''
+    query {{
+      urlRedirects(first: 1, query: "path:{redirect_path}") {{
+        edges {{
+          node {{
+            id
+          }}
+        }}
+      }}
+    }}
+    '''
+    resp = requests.post(graphql_url, headers=HEADERS, json={"query": query_redirect})
+    data = resp.json()
+    edges = data.get("data", {{}}).get("urlRedirects", {{}}).get("edges", [])
+
+    url_redirect_input = {{
+        "path": redirect_path,
+        "target": target_url
+    }}
+
+    if edges:
+        redirect_id = edges[0]["node"]["id"]
+        print(f"Found existing redirect. Updating it to point to new URL...")
+        update_mut = """
+        mutation urlRedirectUpdate($id: ID!, $urlRedirect: UrlRedirectInput!) {
+          urlRedirectUpdate(id: $id, urlRedirect: $urlRedirect) {
+            urlRedirect { id path target }
+            userErrors { field message }
+          }
+        }
+        """
+        variables = {{"id": redirect_id, "urlRedirect": url_redirect_input}}
+        resp = requests.post(graphql_url, headers=HEADERS, json={{"query": update_mut, "variables": variables}})
+        result = resp.json().get("data", {{}}).get("urlRedirectUpdate", {{}})
+
+    else:
+        print("No existing redirect found. Creating a new one...")
+        create_mut = """
+        mutation urlRedirectCreate($urlRedirect: UrlRedirectInput!) {
+          urlRedirectCreate(urlRedirect: $urlRedirect) {
+            urlRedirect { id path target }
+            userErrors { field message }
+          }
+        }
+        """
+        variables = {{"urlRedirect": url_redirect_input}}
+        resp = requests.post(graphql_url, headers=HEADERS, json={{"query": create_mut, "variables": variables}})
+        result = resp.json().get("data", {{}}).get("urlRedirectCreate", {{}})
+
+    user_errors = result.get("userErrors", [])
+    if user_errors:
+        print(f"⚠️ Error managing redirect: {user_errors}")
+    else:
+        static_url = f"{STORE_BASE_URL.rstrip('/')}{redirect_path}"
+        print(f"✅ Redirect is live.")
+        print(f"🔗 Static Google Merchant Center URL: {static_url}")
 
 def generate_feed():
     products = fetch_all_active_products()
