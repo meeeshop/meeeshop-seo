@@ -13,8 +13,8 @@ from secrets_manager import get_secret
 
 try:
     # Load Shopify configurations safely handling domain URLs
-    SHOPIFY_STORE_URL = get_secret('SHOPIFY_STORE_URL')
-    STORE_DOMAIN = SHOPIFY_STORE_URL.replace("https://", "").replace("http://", "").strip("/")
+    SHOPIFY_STORE = get_secret('SHOPIFY_STORE')
+    STORE_BASE_URL = get_secret('STORE_BASE_URL').rstrip('/')
     SHOPIFY_ACCESS_TOKEN = get_secret('SHOPIFY_ACCESS_TOKEN')
     
     # Load SMTP configurations
@@ -33,7 +33,7 @@ HEADERS = {"X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN}
 last_week_iso = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 def get_new_products():
-    url = f"https://{STORE_DOMAIN}/admin/api/{API_VERSION}/products.json?created_at_min={last_week_iso}&status=active"
+    url = f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}/products.json?created_at_min={last_week_iso}&status=active"
     response = requests.get(url, headers=HEADERS)
     response.raise_for_status()
     return response.json().get('products', [])
@@ -43,7 +43,7 @@ def get_new_articles():
     all_articles = []
     
     # 1. Fetch all blogs
-    blogs_url = f"https://{STORE_DOMAIN}/admin/api/{API_VERSION}/blogs.json?limit=250"
+    blogs_url = f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}/blogs.json?limit=250"
     try:
         blogs_response = requests.get(blogs_url, headers=HEADERS)
         blogs_response.raise_for_status()
@@ -55,7 +55,7 @@ def get_new_articles():
     # 2. Fetch recent articles from each blog
     for blog in blogs:
         blog_handle = blog.get('handle')
-        articles_url = f"https://{STORE_DOMAIN}/admin/api/{API_VERSION}/blogs/{blog['id']}/articles.json?published_at_min={last_week_iso}&status=published"
+        articles_url = f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}/blogs/{blog['id']}/articles.json?published_at_min={last_week_iso}&status=published"
         try:
             articles_response = requests.get(articles_url, headers=HEADERS)
             articles_response.raise_for_status()
@@ -70,7 +70,7 @@ def get_new_articles():
 
 def get_customers():
     customers = []
-    url = f"https://{STORE_DOMAIN}/admin/api/{API_VERSION}/customers.json?limit=250&accepts_marketing=true"
+    url = f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}/customers.json?limit=250&accepts_marketing=true"
     
     while url:
         response = requests.get(url, headers=HEADERS)
@@ -115,19 +115,19 @@ def build_html_template(products, articles):
     recent_articles = articles[:3] # Limit to latest 3 blogs
 
     # --- 2. HTML Building ---
-    html = """
+    html = f"""
     <!DOCTYPE html>
     <html>
     <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
     <body style="font-family: Arial, sans-serif; background-color: #f9f9f9; padding: 20px; color: #333; margin: 0;">
         <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; padding: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
-            <h1 style="text-align: center; margin-top: 0; font-size: 28px; font-weight: 800; letter-spacing: 1px;"><a href="https://{STORE_DOMAIN}" style="color: #000000; text-decoration: none;">MeeeShop</a></h1>
+            <h1 style="text-align: center; margin-top: 0; font-size: 28px; font-weight: 800; letter-spacing: 1px;"><a href="{STORE_BASE_URL}" style="color: #000000; text-decoration: none;">MeeeShop</a></h1>
             <p style="text-align: center; color: #777; font-size: 14px; margin-bottom: 30px; border-bottom: 1px solid #eee; padding-bottom: 20px;">Your Weekly Style Update</p>
     """
     
     if hero_product:
         title = hero_product.get('title')
-        link = f"https://{STORE_DOMAIN}/products/{hero_product.get('handle')}"
+        link = f"{STORE_BASE_URL}/products/{hero_product.get('handle')}"
         img_src = hero_product['images'][0].get('src') if hero_product.get('images') else ""
         price = hero_product.get('variants', [{}])[0].get('price', '') if hero_product.get('variants') else ''
         price_text = f"${price}" if price else ""
@@ -156,7 +156,7 @@ def build_html_template(products, articles):
         col_width = int(100 / len(secondary_products))
         for p in secondary_products:
             title = p.get('title')
-            link = f"https://{STORE_DOMAIN}/products/{p.get('handle')}"
+            link = f"{STORE_BASE_URL}/products/{p.get('handle')}"
             img_src = p['images'][0].get('src') if p.get('images') else ""
             
             html += f"""
@@ -177,7 +177,7 @@ def build_html_template(products, articles):
         for a in recent_articles:
             title = a.get('title')
             blog_handle = a.get('blog_handle', 'journal')
-            link = f"https://{STORE_DOMAIN}/blogs/{blog_handle}/{a.get('handle')}"
+            link = f"{STORE_BASE_URL}/blogs/{blog_handle}/{a.get('handle')}"
             img_src = a.get('image', {}).get('src') if a.get('image') else ""
             
             excerpt = ""
