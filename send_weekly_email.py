@@ -5,7 +5,7 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import re
 
 # Use your existing secrets manager to load decrypted variables natively
@@ -30,7 +30,7 @@ except Exception as e:
 API_VERSION = "2024-01"
 HEADERS = {"X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN}
 
-last_week_iso = (datetime.utcnow() - timedelta(days=7)).isoformat() + "Z"
+last_week_iso = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 def get_new_products():
     url = f"https://{STORE_DOMAIN}/admin/api/{API_VERSION}/products.json?created_at_min={last_week_iso}&status=active"
