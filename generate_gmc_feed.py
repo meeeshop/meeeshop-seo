@@ -268,6 +268,7 @@ def create_or_update_redirect(target_url):
     redirect_path = "/a/google_merchant_feed.csv"  # A static, non-conflicting path
 
     # 1. Check for an existing redirect for this path
+    # Corrected: Escaped curly braces for literal GraphQL syntax within f-string
     query_redirect = f'''
     query {{
       urlRedirects(first: 1, query: "path:{redirect_path}") {{
@@ -276,7 +277,7 @@ def create_or_update_redirect(target_url):
             id
           }}
         }}
-      }
+      }}
     }}
     '''
     resp = requests.post(graphql_url, headers=HEADERS, json={"query": query_redirect})
