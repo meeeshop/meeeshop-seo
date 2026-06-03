@@ -374,7 +374,7 @@ def generate_feed():
         "availability", "price", "condition", "brand", "gtin", "mpn",
         "google_product_category", "item_group_id", "gender", "age_group",
         "color", "size", "custom_label_0", "custom_label_1", "excluded_destination",
-        "shipping"     # Added for default shipping
+        "shipping"     # Corrected: Only 'shipping' is here now
     ]
     
     rows = []
