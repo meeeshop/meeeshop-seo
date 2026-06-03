@@ -17,12 +17,11 @@ import json # Import json for pretty printing
 
 # ── Configuration & Credentials ───────────────────────────────────────────────
 try:
-    SHOPIFY_STORE = secrets_manager.get_secret("SHOPIFY_STORE_URL")
+    SHOPIFY_STORE = secrets_manager.get_secret("SHOPIFY_STORE")
     SHOPIFY_TOKEN = secrets_manager.get_secret("SHOPIFY_ACCESS_TOKEN")
+    STORE_BASE_URL = secrets_manager.get_secret("STORE_BASE_URL")
 except KeyError as e:
     raise ValueError(f"Missing Shopify credentials in secrets.enc: {e}")
-
-STORE_BASE_URL = "https://us.meeeshop.com"
 
 STORE_DOMAIN = SHOPIFY_STORE.replace("https://", "").replace("http://", "").strip("/")
 API_VER = "2025-01"
