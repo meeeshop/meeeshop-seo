@@ -71,50 +71,202 @@ def fetch_all_active_products():
     print(f"Total products fetched: {len(products)}")
     return products
 
-def get_live_theme_id():
-    """Fetches the ID of the live (main) theme."""
-    themes_url = f"https://{STORE_DOMAIN}/admin/api/{API_VER}/themes.json"
-    response = requests.get(themes_url, headers=HEADERS)
-    response.raise_for_status()
-    themes = response.json().get("themes", [])
-    for theme in themes:
-        if theme.get("role") == "main":
-            return theme.get("id")
-    raise Exception("Could not find the live theme ID.")
-
-def upload_csv_as_shopify_asset(filepath):
-    """Uploads the generated CSV as a theme asset to Shopify."""
-    print("\nUploading feed as Shopify theme asset...")
-    theme_id = get_live_theme_id()
-    asset_key = "assets/google_merchant_feed.csv"
-    asset_update_url = f"https://{STORE_DOMAIN}/admin/api/{API_VER}/themes/{theme_id}/assets.json"
-
-    with open(filepath, "r", encoding="utf-8") as f:
-        csv_content = f.read()
-
-    payload = {
-        "asset": {
-            "key": asset_key,
-            "value": csv_content
+def upload_to_shopify_files(filepath):
+    """Uploads the generated CSV directly to Shopify Files (CDN)."""
+    print("\nUploading feed to Shopify CDN...")
+    graphql_url = f"https://{STORE_DOMAIN}/admin/api/{API_VER}/graphql.json"
+    
+    # 1. Check for existing file and delete it so the new URL stays clean
+    # We are deleting files with the exact name, but Shopify might append GUIDs.
+    # This step is primarily to clean up any previous exact matches.
+    query_existing = """
+    query {
+      files(first: 10, query: "filename:google_merchant_feed.csv") {
+        edges {
+          node {
+            id
+          }
         }
+      }
     }
-    response = requests.put(asset_update_url, headers=HEADERS, json=payload)
-    response.raise_for_status()
+    """
+    resp = requests.post(graphql_url, headers=HEADERS, json={"query": query_existing})
+    edges = resp.json().get("data", {}).get("files", {}).get("edges", [])
+    
+    if edges:
+        print(f"Found {len(edges)} existing feed file(s) on Shopify. Deleting...")
+        file_ids_to_delete = [edge["node"]["id"] for edge in edges]
+        delete_mut = """
+        mutation fileDelete($fileIds: [ID!]!) {
+          fileDelete(fileIds: $fileIds) {
+            deletedFileIds
+          }
+        }
+        """
+        requests.post(graphql_url, headers=HEADERS, json={"query": delete_mut, "variables": {"fileIds": file_ids_to_delete}})
+        print("Deleted existing feed file(s) on Shopify.")
+        time.sleep(3) # Wait for deletion to propagate
+        
+    # 2. Request Staged Upload
+    staged_mut = """
+    mutation {
+      stagedUploadsCreate(input: [{
+        resource: FILE,
+        filename: "google_merchant_feed.csv",
+        mimeType: "text/csv",
+        httpMethod: POST
+      }]) {
+        stagedTargets {
+          url
+          resourceUrl
+          parameters {
+            name
+            value
+          }
+        }
+      }
+    }
+    """
+    resp = requests.post(graphql_url, headers=HEADERS, json={"query": staged_mut})
+    data = resp.json()
+    try:
+        target = data["data"]["stagedUploadsCreate"]["stagedTargets"][0]
+    except (KeyError, IndexError):
+        print(f"Failed to create staged upload: {data}")
+        return
 
-    # Query the asset to get its public URL
-    # The public_url is not directly returned by the PUT request, so we fetch it.
-    asset_get_url = f"https://{STORE_DOMAIN}/admin/api/{API_VER}/assets.json?asset[key]={asset_key}&theme_id={theme_id}"
-    asset_response = requests.get(asset_get_url, headers=HEADERS)
-    asset_response.raise_for_status()
-    asset_data = asset_response.json().get("asset", {})
-    public_url = asset_data.get("public_url")
-
+    # 3. Upload file to staging target
+    with open(filepath, "rb") as f:
+        files = {"file": ("google_merchant_feed.csv", f, "text/csv")}
+        params = {p["name"]: p["value"] for p in target["parameters"]}
+        upload_resp = requests.post(target["url"], data=params, files=files)
+        upload_resp.raise_for_status()
+        
+    # 4. Create file in Shopify
+    create_mut = """
+    mutation fileCreate($files: [FileCreateInput!]!) {
+      fileCreate(files: $files) {
+        files {
+          id
+          fileStatus
+        }
+        userErrors {
+          message
+        }
+      }
+    }
+    """
+    variables = {
+      "files": [
+        {
+          "originalSource": target["resourceUrl"],
+          "contentType": "FILE"
+        }
+      ]
+    }
+    resp = requests.post(graphql_url, headers=HEADERS, json={"query": create_mut, "variables": variables})
+    create_data = resp.json()
+    
+    try:
+        file_id = create_data["data"]["fileCreate"]["files"][0]["id"]
+    except (KeyError, IndexError):
+        print(f"Failed to create file: {create_data}")
+        return
+        
+    print("File processing in Shopify...")
+    
+    # 5. Wait for file to be ready and get URL
+    public_url = None
+    for _ in range(10):
+        time.sleep(2)
+        query_file = f"""
+        query {{
+          node(id: "{file_id}") {{
+            ... on GenericFile {{
+              url
+              fileStatus
+            }}
+          }}
+        }}
+        """
+        resp = requests.post(graphql_url, headers=HEADERS, json={"query": query_file})
+        node = resp.json().get("data", {}).get("node", {})
+        if node.get("fileStatus") == "READY":
+            public_url = node.get("url")
+            break
+            
     if public_url:
-        print(f"✅ Feed uploaded successfully as theme asset!")
-        print(f"🔗 Static Google Merchant Center URL: {public_url}")
+        print(f"✅ Feed uploaded successfully to Shopify CDN!")
+        cdn_url = public_url.split("?")[0] # Remove any version parameters
+        print(f"🔗 Temporary CDN URL: {cdn_url}")
+        create_or_update_redirect(cdn_url)
     else:
-        print("⚠️ Asset uploaded, but public URL could not be retrieved.")
+        print("⚠️ File uploaded, but URL could not be retrieved in time. Check Shopify Admin > Settings > Files.")
 
+def create_or_update_redirect(target_url):
+    """Creates or updates a URL redirect to point to the latest feed URL."""
+    print("\nCreating/updating URL redirect...")
+    graphql_url = f"https://{STORE_DOMAIN}/admin/api/{API_VER}/graphql.json"
+    redirect_path = "/a/google_merchant_feed.csv"  # A static, non-conflicting path
+
+    # 1. Check for an existing redirect for this path
+    query_redirect = f'''
+    query {{
+      urlRedirects(first: 1, query: "path:{redirect_path}") {{
+        edges {{
+          node {{
+            id
+          }}
+        }}
+      }}
+    }}
+    '''
+    resp = requests.post(graphql_url, headers=HEADERS, json={"query": query_redirect})
+    data = resp.json()
+    # Corrected: Use {} for empty dict literals
+    edges = data.get("data", {}).get("urlRedirects", {}).get("edges", [])
+
+    url_redirect_input = {
+        "path": redirect_path,
+        "target": target_url
+    }
+
+    if edges:
+        redirect_id = edges[0]["node"]["id"]
+        print(f"Found existing redirect. Updating it to point to new URL...")
+        update_mut = """
+        mutation urlRedirectUpdate($id: ID!, $urlRedirect: UrlRedirectInput!) {
+          urlRedirectUpdate(id: $id, urlRedirect: $urlRedirect) {
+            urlRedirect { id path target }
+            userErrors { field message }
+          }
+        }
+        """
+        variables = {"id": redirect_id, "urlRedirect": url_redirect_input}
+        resp = requests.post(graphql_url, headers=HEADERS, json={"query": update_mut, "variables": variables})
+        result = resp.json().get("data", {}).get("urlRedirectUpdate", {})
+
+    else:
+        print("No existing redirect found. Creating a new one...")
+        create_mut = """
+        mutation urlRedirectCreate($urlRedirect: UrlRedirectInput!) {
+          urlRedirectCreate(urlRedirect: $urlRedirect) {
+            urlRedirect { id path target }
+            userErrors { field message }
+          }
+        }
+        """
+        variables = {"urlRedirect": url_redirect_input}
+        resp = requests.post(graphql_url, headers=HEADERS, json={"query": create_mut, "variables": variables})
+        result = resp.json().get("data", {}).get("urlRedirectCreate", {})
+
+    user_errors = result.get("userErrors", [])
+    if user_errors:
+        print(f"⚠️ Error managing redirect: {user_errors}")
+    else:
+        static_url = f"{STORE_BASE_URL.rstrip('/')}{redirect_path}"
+        print(f"✅ Redirect is live.")
+        print(f"🔗 Static Google Merchant Center URL: {static_url}")
 
 def generate_feed():
     products = fetch_all_active_products()
@@ -223,8 +375,8 @@ def generate_feed():
         
     print("✅ Google Merchant Feed generated successfully.")
 
-    # Upload to Shopify as a theme asset
-    upload_csv_as_shopify_asset(OUTPUT_FILE)
+    # Upload to Shopify
+    upload_to_shopify_files(OUTPUT_FILE)
 
 if __name__ == "__main__":
     generate_feed()
