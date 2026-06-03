@@ -69,10 +69,21 @@ def get_new_articles():
     return all_articles
 
 def get_customers():
-    url = f"https://{STORE_DOMAIN}/admin/api/{API_VERSION}/customers.json?accepts_marketing=true"
-    response = requests.get(url, headers=HEADERS)
-    response.raise_for_status()
-    return response.json().get('customers', [])
+    customers = []
+    url = f"https://{STORE_DOMAIN}/admin/api/{API_VERSION}/customers.json?limit=250&accepts_marketing=true"
+    
+    while url:
+        response = requests.get(url, headers=HEADERS)
+        response.raise_for_status()
+        customers.extend(response.json().get('customers', []))
+        
+        link_header = response.headers.get("Link", "")
+        url = None
+        for link in link_header.split(","):
+            if 'rel="next"' in link:
+                url = link[link.find("<")+1:link.find(">")]
+                break
+    return customers
 
 def build_html_template(products, articles):
     # --- 1. Selection Logic ---
@@ -110,7 +121,7 @@ def build_html_template(products, articles):
     <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
     <body style="font-family: Arial, sans-serif; background-color: #f9f9f9; padding: 20px; color: #333; margin: 0;">
         <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; padding: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
-            <h1 style="color: #ff6b81; text-align: center; margin-top: 0; font-size: 28px; font-weight: 800; letter-spacing: 1px;">MeeeShop</h1>
+            <h1 style="text-align: center; margin-top: 0; font-size: 28px; font-weight: 800; letter-spacing: 1px;"><a href="https://{STORE_DOMAIN}" style="color: #000000; text-decoration: none;">MeeeShop</a></h1>
             <p style="text-align: center; color: #777; font-size: 14px; margin-bottom: 30px; border-bottom: 1px solid #eee; padding-bottom: 20px;">Your Weekly Style Update</p>
     """
     
@@ -225,20 +236,52 @@ if __name__ == "__main__":
     
     html_content = build_html_template(recent_products, recent_articles)
     test_email = os.environ.get('TEST_EMAIL')
+    is_dry_run = os.environ.get('DRY_RUN', '').lower() == 'true'
+    
+    batch_size_str = os.environ.get('BATCH_SIZE', '0')
+    batch_size = int(batch_size_str if batch_size_str and batch_size_str.strip() else 0)
+    
+    batch_index_str = os.environ.get('BATCH_INDEX', '0')
+    batch_index = int(batch_index_str if batch_index_str and batch_index_str.strip() else 0)
     
     if test_email:
         print(f"🛠️ TEST MODE: Sending single email to {test_email}")
         send_email(test_email, html_content)
         print("✅ Test email sent!")
     else:
-        print("Production Mode: Fetching customers...")
-        customers = get_customers()
-        print(f"Found {len(customers)} marketing subscribers. Sending emails...")
-        for customer in customers:
-            email = customer.get('email')
-            if email:
-                try:
-                    send_email(email, html_content)
-                    print(f"  Sent to {email}")
-                except Exception as e:
-                    print(f"  Failed to send to {email}: {e}")
+        print(f"{'🏜️ DRY RUN MODE' if is_dry_run else 'Production Mode'}: Fetching customers...")
+        all_customers = get_customers()
+        total_customers = len(all_customers)
+        
+        if batch_size > 0:
+            start = batch_index * batch_size
+            end = start + batch_size
+            customers = all_customers[start:end]
+            print(f"📦 BATCH MODE: Processing slice [{start}:{end}] — {len(customers)} of {total_customers} customers")
+        else:
+            customers = all_customers
+            
+        print(f"Found {len(customers)} marketing subscribers in this run.")
+        
+        if is_dry_run:
+            print("No emails will be sent.")
+            for i, customer in enumerate(customers, 1):
+                email = customer.get('email')
+                if email:
+                    print(f"  {i}. Would send to: {email}")
+                else:
+                    print(f"  {i}. Warning: Customer found without email (ID: {customer.get('id')})")
+            print("\n✅ Dry run complete. No emails were sent.")
+        else:
+            print("Sending emails...")
+            sent_count = 0
+            for customer in customers:
+                email = customer.get('email')
+                if email:
+                    try:
+                        send_email(email, html_content)
+                        print(f"  Sent to {email}")
+                        sent_count += 1
+                    except Exception as e:
+                        print(f"  Failed to send to {email}: {e}")
+            print(f"\n✅ Production run complete. Successfully sent {sent_count} emails.")
