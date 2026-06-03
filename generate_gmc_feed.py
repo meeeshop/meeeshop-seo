@@ -123,7 +123,9 @@ def generate_feed():
         "id", "title", "description", "link", "image_link", "additional_image_link",
         "availability", "price", "condition", "brand", "gtin", "mpn",
         "google_product_category", "item_group_id", "gender", "age_group",
-        "color", "size", "custom_label_0", "custom_label_1", "excluded_destination"
+        "color", "size", "custom_label_0", "custom_label_1", "excluded_destination",
+        "store_code", # Added for local inventory data
+        "quantity"    # Added for local inventory data
     ]
     
     rows = []
@@ -201,7 +203,9 @@ def generate_feed():
                 "size": size,
                 "custom_label_0": product_type,
                 "custom_label_1": first_tag,
-                "excluded_destination": "local_inventory_ads,free_local_listings"
+                "excluded_destination": "local_inventory_ads,free_local_listings",
+                "store_code": "", # Added with empty value
+                "quantity": ""   # Added with empty value
             })
             
     # Write to CSV file
