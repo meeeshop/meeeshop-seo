@@ -43,7 +43,7 @@ HEADERS = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 if not TOKEN:
     sys.exit("ERROR: SHOPIFY_ACCESS_TOKEN not set.")
 
-STORE_URL = get_secret("SHOPIFY_SITE_URL", "https://us.meeeshop.com")
+STORE_URL = "https://us.meeeshop.com"
 
 # ── Shopify helpers ────────────────────────────────────────────────────────────
 def _req(method, url, **kw):
@@ -358,7 +358,7 @@ def _clean_html(raw: str) -> str:
 
 
 def _make_tags(product: dict, fmt: str, keyword: str) -> list[str]:
-    base = ["fashion", "women fashion", get_secret("BRAND", "MeeeShop"), "USA fashion",
+    base = ["fashion", "women fashion", "MeeeShop", "USA fashion",
             "women's clothing", "affordable fashion", "style tips"]
     ptype = (product.get("product_type") or "").lower()
     fmt_tags = {

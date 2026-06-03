@@ -23,7 +23,7 @@ TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
 HEADS = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 BASE = f"https://{STORE}/admin/api/2024-01"
 SITE = get_secret("STORE_BASE_URL")
-BRAND = get_secret("BRAND", "MeeeShop")
+BRAND = "MeeeShop"
 
 # Rate limiting settings
 MAX_RETRIES = 5
@@ -232,13 +232,13 @@ def organization_schema() -> Dict:
         "logo": f"{SITE}/logo.png",
         "description": "Women's fashion store specializing in dresses, tops, and accessories",
         "sameAs": [
-            get_secret("PINTEREST_URL", "https://www.pinterest.com/meeeshop"),
-            get_secret("YOUTUBE_URL", "https://www.youtube.com/@meeeshop")
+            "https://www.pinterest.com/meeeshop",
+            "https://www.youtube.com/@meeeshop"
         ],
         "contactPoint": {
             "@type": "ContactPoint",
             "contactType": "Customer Service",
-            "email": get_secret("FROM_EMAIL", "support@meeeshop.com")
+            "email": "support@meeeshop.com"
         }
     }
 

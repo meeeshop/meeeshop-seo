@@ -53,19 +53,19 @@ Find the closing `</head>` tag and add before it:
 {
   "@context": "https://schema.org",
   "@type": "Organization",
-  "name": "{{ shop.name }}",
-  "url": "{{ shop.url }}",
-  "logo": "{{ shop.url }}/logo.png",
-  "description": "{{ shop.description | escape }}",
+  "name": "MeeeShop",
+  "url": "https://us.meeeshop.com",
+  "logo": "https://us.meeeshop.com/logo.png",
+  "description": "Women's fashion store specializing in dresses, tops, and accessories",
   "sameAs": [
-    "{{ settings.social_pinterest_link }}",
-    "{{ settings.social_youtube_link }}"
+    "https://www.pinterest.com/meeeshop",
+    "https://www.youtube.com/@meeeshop"
   ],
   "contactPoint": {
     "@type": "ContactPoint",
     "contactType": "Customer Service",
-    "email": "{{ shop.email }}",
-    "telephone": "{{ shop.phone }}"
+    "email": "support@meeeshop.com",
+    "telephone": "+1-XXX-XXX-XXXX"
   }
 }
 </script>

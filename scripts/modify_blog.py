@@ -49,7 +49,6 @@ API_VER   = "2024-10"
 BASE      = f"https://{SHOP}/admin/api/{API_VER}"
 HEADERS   = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 STORE_URL = get_secret("STORE_BASE_URL")
-BRAND_NAME = get_secret("BRAND", "MeeeShop")
 
 if not TOKEN:
     sys.exit("ERROR: SHOPIFY_ACCESS_TOKEN not set.")
@@ -173,10 +172,9 @@ def fetch_article_metafields(blog_id: int, article_id: int) -> list:
 
 
 # ── Product link detection ────────────────────────────────────────────────────
-store_domain_regex = get_secret("SHOPIFY_STORE_URL", "us.meeeshop.com").replace("https://", "").replace(".", r"\.")
 PRODUCT_LINK_RE = re.compile(
-    r'href=["\']https?://' + store_domain_regex + r'/products/([a-z0-9_-]+)[^"\']*["\']',
-    re.IGNORECASE
+    r'href=["\']https?://(?:us\.)?meeeshop\.com/products/([a-z0-9_-]+)[^"\']*["\']',
+    re.IGNORECASE,
 )
 
 def extract_product_handles(html: str) -> set[str]:
@@ -187,7 +185,7 @@ def has_product_card(html: str) -> bool:
     """Detect our styled product card div or any product link in the body."""
     if not html:
         return False
-    return bool(re.search(r'/products/', html, re.IGNORECASE))
+    return bool(re.search(r'us\.meeeshop\.com/products/', html, re.IGNORECASE))
 
 
 # ── Image helpers (same as blog_daily.py) ────────────────────────────────────
@@ -219,9 +217,9 @@ def make_product_card(product: dict, keyword: str = "",
     price  = product["variants"][0]["price"] if product.get("variants") else "0"
     handle = product.get("handle", "")
     ptype  = (product.get("product_type") or "women's fashion").lower()
-    url    = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=featured_card&utm_campaign={BRAND_NAME.lower()}_refresh"
+    url    = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=featured_card&utm_campaign=meeeshop_refresh"
     img    = product_img_url(product)
-    alt    = f"{title} — {keyword or ptype} for women at {BRAND_NAME}"
+    alt    = f"{title} — {keyword or ptype} for women at MeeeShop"
 
     img_html = (
         f'<a href="{url}"><img src="{img}" alt="{alt}" '
@@ -264,9 +262,9 @@ def make_related_products_section(products: list, exclude_handle: str,
         price  = p["variants"][0]["price"] if p.get("variants") else "0"
         handle = p.get("handle", "")
         ptype  = (p.get("product_type") or "women's fashion").lower()
-        url    = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=related_card&utm_campaign={BRAND_NAME.lower()}_refresh"
+        url    = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=related_card&utm_campaign=meeeshop_refresh"
         img    = product_img_url(p)
-        alt    = f"{title} — shop {keyword or ptype} at {BRAND_NAME}"
+        alt    = f"{title} — shop {keyword or ptype} at MeeeShop"
         img_tag = (
             f'<a href="{url}"><img src="{img}" alt="{alt}" '
             f'style="width:100%;height:200px;object-fit:cover;border-radius:10px;margin-bottom:12px;" loading="lazy" /></a>'
@@ -360,13 +358,13 @@ def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
     existing_text = re.sub(r"<[^>]+>", " ", existing_body or "")[:600].strip()
 
     return (
-        f"You are a fashion editor at {BRAND_NAME}, a USA women's clothing boutique.\n"
+        f"You are a fashion editor at MeeeShop, a USA women's clothing boutique.\n"
         f"TASK: Completely rewrite the body of this existing blog post for {MONTH}.\n"
         f"Keep the title EXACTLY as-is: \"{article_title}\"\n"
         f"Featured product (in-stock): {title} — ${price}\n"
         f"Product page: {url}\n"
         f"Product type: {ptype}\n\n"
-        f"Existing content summary (for context only, do NOT copy):\n{existing_text}\n\n"
+        f"Existing content summary (do NOT copy, use as context only):\n{existing_text}\n\n"
         f"{EEAT_RULES}"
         f"SEO rules:\n"
         f"- Target keyword '{keyword}': use 3-4 times — in first paragraph, H2 subheadings, body, conclusion\n"
@@ -389,7 +387,7 @@ def generate_seo_meta(article_title: str, keyword: str,
         f"Post title: \"{article_title}\"\n"
         f"Target keyword: \"{keyword}\"\n"
         f"Featured product: {product_title} ({ptype})\n"
-        f"Store: {BRAND_NAME} — USA women's boutique at {STORE_URL.replace('https://', '')}\n\n"
+        f"Store: MeeeShop — USA women's boutique at us.meeeshop.com\n\n"
         f"Return ONLY these 3 lines:\n"
         f"SEO_TITLE: [50-60 chars, keyword near start, compelling]\n"
         f"META_DESC: [140-155 chars, action-oriented, includes keyword, free shipping mention, ends with CTA]\n"
@@ -409,15 +407,15 @@ def generate_seo_meta(article_title: str, keyword: str,
                 img_alt = line.split(":", 1)[1].strip().strip('"')
 
     if not seo_title or len(seo_title) > 70:
-        seo_title = f"{keyword.title()} — {BRAND_NAME} {YEAR}"[:60]
+        seo_title = f"{keyword.title()} — MeeeShop {YEAR}"[:60]
     if not meta_desc or len(meta_desc) > 165:
         meta_desc = (
             f"Discover the best {ptype} for women in {YEAR}. "
-            f"Shop {product_title} at {BRAND_NAME} — free US shipping on orders $50+, "
+            f"Shop {product_title} at MeeeShop — free US shipping on orders $50+, "
             f"easy 7-day returns, sizes XS–3X."
         )[:155]
     if not img_alt:
-        img_alt = f"{product_title} — {ptype} for women, {YEAR} fashion guide at {BRAND_NAME}"
+        img_alt = f"{product_title} — {ptype} for women, {YEAR} fashion guide at MeeeShop"
 
     return {"seo_title": seo_title, "meta_desc": meta_desc, "img_alt": img_alt}
 
@@ -474,8 +472,8 @@ def replace_product_links(html: str, out_handles: set[str],
             if not new_handle:
                 return m.group(0)
             new_url = (
-                f"{STORE_URL}/products/{new_handle}"
-                f"?utm_source=blog&utm_medium=refreshed_link&utm_campaign={BRAND_NAME.lower()}_refresh"
+                f"https://us.meeeshop.com/products/{new_handle}"
+                f"?utm_source=blog&utm_medium=refreshed_link&utm_campaign=meeeshop_refresh"
             )
             swaps += 1
             return f'href="{new_url}"'
@@ -628,7 +626,8 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     # ── 9. Build updated tags ─────────────────────────────────────────────────
     existing_tags = [t.strip() for t in (article.get("tags") or "").split(",") if t.strip()]
     new_tags = list(dict.fromkeys(
-        existing_tags + ["fashion", "women fashion", BRAND_NAME, "USA fashion", f"fashion {YEAR}"] +
+        existing_tags +
+        ["fashion", "women fashion", "MeeeShop", "USA fashion", f"fashion {YEAR}"] +
         [w for w in keyword.split() if len(w) > 3][:3]
     ))[:20]
     tags_str = ", ".join(new_tags)

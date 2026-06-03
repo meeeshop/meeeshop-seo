@@ -100,11 +100,11 @@ Add before `</head>`:
 {
   "@context": "https://schema.org",
   "@type": "Organization",
-  "name": "{{ shop.name }}",
-  "url": "{{ shop.url }}",
+  "name": "MeeeShop",
+  "url": "https://us.meeeshop.com",
   "contactPoint": {
     "@type": "ContactPoint",
-    "email": "{{ shop.email }}"
+    "email": "support@meeeshop.com"
   }
 }
 </script>

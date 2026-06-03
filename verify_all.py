@@ -44,8 +44,8 @@ checks = [
     ("page.metafields.json_ld_schema", "Page schema rendering"),
     ("article.metafields.json_ld_schema", "Article schema rendering"),
     ('"@type": "Organization"', "Global Organization schema"),
-    ('"name": get_secret("BRAND", "MeeeShop")', "Store name in Organization"),
-    ('"email": get_secret("FROM_EMAIL", "support@meeeshop.com")', "Contact email"),
+    ('"name": "MeeeShop"', "Store name in Organization"),
+    ('"email": "support@meeeshop.com"', "Contact email"),
 ]
 
 print("COMPONENT CHECKS:")

@@ -133,7 +133,7 @@ def _audit(name: str) -> None:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def get_secret(name: str, default: str = None) -> str:
+def get_secret(name: str) -> str:
     """Decrypt and return a single secret. Logs caller + timestamp (not the value)."""
     global _sanitizer_installed
     if not _sanitizer_installed:
@@ -143,8 +143,6 @@ def get_secret(name: str, default: str = None) -> str:
     primary, fallback = _get_keys()
     vault = _load_vault()
     if name not in vault:
-        if default is not None:
-            return default
         raise KeyError(
             f"\n[secrets_manager] Secret '{name}' not in secrets.enc.\n"
             f"  Available: {list(vault.keys())}\n"
