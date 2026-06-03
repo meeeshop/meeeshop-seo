@@ -4,6 +4,7 @@ import requests
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formataddr
 from datetime import datetime, timedelta
 import re
 
@@ -74,41 +75,95 @@ def get_customers():
     return response.json().get('customers', [])
 
 def build_html_template(products, articles):
+    # --- 1. Selection Logic ---
+    hero_product = products[0] if products else None
+    
+    secondary_products = []
+    if len(products) > 1:
+        seen_types = set()
+        if hero_product and hero_product.get('product_type'):
+            seen_types.add(hero_product.get('product_type'))
+            
+        for p in products[1:]:
+            ptype = p.get('product_type')
+            if ptype not in seen_types or not ptype:
+                secondary_products.append(p)
+                if ptype:
+                    seen_types.add(ptype)
+            if len(secondary_products) >= 4:
+                break
+        
+        # Fill up to 4 if we don't have enough diverse types
+        if len(secondary_products) < 4:
+            for p in products[1:]:
+                if p not in secondary_products and p != hero_product:
+                    secondary_products.append(p)
+                if len(secondary_products) >= 4:
+                    break
+
+    recent_articles = articles[:3] # Limit to latest 3 blogs
+
+    # --- 2. HTML Building ---
     html = """
     <!DOCTYPE html>
     <html>
     <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
     <body style="font-family: Arial, sans-serif; background-color: #f9f9f9; padding: 20px; color: #333; margin: 0;">
-        <div style="max-width: 600px; margin: 0 auto; background-color: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.05);">
-            <h1 style="color: #ff6b81; text-align: center; border-bottom: 2px solid #f0f0f0; padding-bottom: 15px;">✨ Fresh Arrivals</h1>
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; padding: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
+            <h1 style="color: #ff6b81; text-align: center; margin-top: 0; font-size: 28px; font-weight: 800; letter-spacing: 1px;">MeeeShop</h1>
+            <p style="text-align: center; color: #777; font-size: 14px; margin-bottom: 30px; border-bottom: 1px solid #eee; padding-bottom: 20px;">Your Weekly Style Update</p>
     """
     
-    if products:
-        html += '<h2 style="color: #333; text-align: center; font-size: 20px; margin-top: 20px;">New In The Shop</h2>'
-        html += '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top: 10px;">'
-        for p in products:
+    if hero_product:
+        title = hero_product.get('title')
+        link = f"https://{STORE_DOMAIN}/products/{hero_product.get('handle')}"
+        img_src = hero_product['images'][0].get('src') if hero_product.get('images') else ""
+        price = hero_product.get('variants', [{}])[0].get('price', '') if hero_product.get('variants') else ''
+        price_text = f"${price}" if price else ""
+        
+        html += f"""
+            <!-- Hero Section -->
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 30px;">
+                <tr>
+                    <td align="center">
+                        <a href="{link}"><img src="{img_src}" alt="{title}" style="width: 100%; max-width: 540px; height: auto; border-radius: 8px; object-fit: cover; max-height: 400px;"/></a>
+                        <h2 style="margin: 20px 0 10px; font-size: 24px; color: #333; line-height: 1.2;">{title}</h2>
+                        <p style="font-size: 18px; color: #666; margin: 0 0 20px;">{price_text}</p>
+                        <a href="{link}" style="display: inline-block; background-color: #ff6b81; color: #ffffff; padding: 14px 30px; text-decoration: none; border-radius: 6px; font-size: 16px; font-weight: bold;">Shop Now</a>
+                    </td>
+                </tr>
+            </table>
+        """
+
+    if secondary_products:
+        html += """
+            <!-- Product Row Grid -->
+            <h3 style="color: #333; text-align: center; font-size: 18px; margin-top: 10px; margin-bottom: 20px;">More Fresh Finds</h3>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 30px; border-bottom: 1px solid #eee; padding-bottom: 30px;">
+                <tr>
+        """
+        col_width = int(100 / len(secondary_products))
+        for p in secondary_products:
             title = p.get('title')
             link = f"https://{STORE_DOMAIN}/products/{p.get('handle')}"
             img_src = p['images'][0].get('src') if p.get('images') else ""
             
             html += f"""
-                <tr>
-                    <td width="80" style="padding-bottom: 20px;">
-                        <a href="{link}"><img src="{img_src}" alt="{title}" style="width: 70px; height: 70px; object-fit: cover; border-radius: 6px; background-color: #f0f0f0;"></a>
+                    <td width="{col_width}%" align="center" valign="top" style="padding: 0 5px;">
+                        <a href="{link}"><img src="{img_src}" alt="{title}" style="width: 100%; max-width: 120px; height: auto; border-radius: 6px;"/></a>
+                        <p style="font-size: 12px; margin: 10px 0 5px; color: #333; line-height: 1.3; height: 3.9em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;">{title}</p>
+                        <a href="{link}" style="display: inline-block; font-size: 12px; color: #ff6b81; text-decoration: none; font-weight: bold;">Shop Now &rarr;</a>
                     </td>
-                    <td style="padding-bottom: 20px; padding-left: 15px; vertical-align: middle;">
-                        <a href="{link}" style="color: #333; text-decoration: none; font-weight: bold; font-size: 16px;">{title}</a>
-                        <br>
-                        <a href="{link}" style="color: #ff6b81; text-decoration: none; font-size: 14px; margin-top: 6px; display: inline-block;">Shop Now &rarr;</a>
-                    </td>
-                </tr>
             """
-        html += "</table>"
+        html += """
+                </tr>
+            </table>
+        """
 
-    if articles:
-        html += '<h2 style="color: #333; text-align: center; font-size: 20px; margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px;">Latest From The Blog</h2>'
-        html += '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top: 10px;">'
-        for a in articles:
+    if recent_articles:
+        html += '<h3 style="color: #333; text-align: center; font-size: 18px; margin-bottom: 20px;">Latest Style Guides</h3>'
+        html += '<table width="100%" cellpadding="0" cellspacing="0" border="0">'
+        for a in recent_articles:
             title = a.get('title')
             blog_handle = a.get('blog_handle', 'journal')
             link = f"https://{STORE_DOMAIN}/blogs/{blog_handle}/{a.get('handle')}"
@@ -118,17 +173,17 @@ def build_html_template(products, articles):
             if a.get('summary_html'):
                 excerpt = re.sub('<[^<]+?>', '', a['summary_html'])
             elif a.get('body_html'):
-                excerpt = (re.sub('<[^<]+?>', '', a['body_html']))[:150] + '...'
+                excerpt = (re.sub('<[^<]+?>', '', a['body_html']))[:120] + '...'
             
             html += f"""
                 <tr>
-                    <td width="80" style="padding-bottom: 20px;">
-                        <a href="{link}"><img src="{img_src}" alt="{title}" style="width: 70px; height: 70px; object-fit: cover; border-radius: 6px; background-color: #f0f0f0;"></a>
+                    <td width="100" style="padding-bottom: 25px; vertical-align: top;">
+                        <a href="{link}"><img src="{img_src}" alt="{title}" style="width: 90px; height: 90px; object-fit: cover; border-radius: 6px; background-color: #f0f0f0;"></a>
                     </td>
-                    <td style="padding-bottom: 20px; padding-left: 15px; vertical-align: top;">
-                        <a href="{link}" style="color: #333; text-decoration: none; font-weight: bold; font-size: 16px;">{title}</a>
-                        <p style="font-size: 14px; color: #666; margin-top: 4px; margin-bottom: 6px; line-height: 1.4;">{excerpt}</p>
-                        <a href="{link}" style="color: #ff6b81; text-decoration: none; font-size: 14px; display: inline-block;">Read More &rarr;</a>
+                    <td style="padding-bottom: 25px; padding-left: 15px; vertical-align: top;">
+                        <a href="{link}" style="color: #333; text-decoration: none; font-weight: bold; font-size: 16px; display: block; margin-bottom: 5px;">{title}</a>
+                        <p style="font-size: 13px; color: #666; margin: 0 0 8px; line-height: 1.4;">{excerpt}</p>
+                        <a href="{link}" style="color: #ff6b81; text-decoration: none; font-size: 13px; font-weight: bold; display: inline-block;">Read More &rarr;</a>
                     </td>
                 </tr>
             """
@@ -136,6 +191,10 @@ def build_html_template(products, articles):
         
     html += """
         </div>
+        <p style="text-align: center; font-size: 12px; color: #999; margin-top: 20px;">
+            You are receiving this email because you subscribed to updates from MeeeShop.<br>
+            <a href="#" style="color: #999; text-decoration: underline;">Unsubscribe</a>
+        </p>
     </body>
     </html>
     """
@@ -144,7 +203,7 @@ def build_html_template(products, articles):
 def send_email(to_email, html_content):
     msg = MIMEMultipart('alternative')
     msg['Subject'] = "Your Weekly Digest: New Arrivals & Style Guides from MeeeShop"
-    msg['From'] = FROM_EMAIL
+    msg['From'] = formataddr(("MeeeShop", FROM_EMAIL))
     msg['To'] = to_email
     msg.attach(MIMEText(html_content, 'html'))
 
