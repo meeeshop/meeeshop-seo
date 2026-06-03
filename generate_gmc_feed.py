@@ -13,6 +13,7 @@ import re
 import time
 import requests
 import secrets_manager
+import json # Import json for pretty printing
 
 # ── Configuration & Credentials ───────────────────────────────────────────────
 try:
@@ -91,7 +92,14 @@ def upload_to_shopify_files(filepath):
     }
     """
     resp = requests.post(graphql_url, headers=HEADERS, json={"query": query_existing})
-    edges = resp.json().get("data", {}).get("files", {}).get("edges", [])
+    resp.raise_for_status() # Ensure HTTP errors are caught
+    data = resp.json()
+
+    if data.get("errors"):
+        print(f"⚠️ Shopify GraphQL errors when querying existing files: {json.dumps(data['errors'], indent=2)}")
+        # Continue, as this might not be critical if no files are found
+
+    edges = data.get("data", {}).get("files", {}).get("edges", [])
     
     if edges:
         print(f"Found {len(edges)} existing feed file(s) on Shopify. Deleting...")
@@ -103,7 +111,12 @@ def upload_to_shopify_files(filepath):
           }
         }
         """
-        requests.post(graphql_url, headers=HEADERS, json={"query": delete_mut, "variables": {"fileIds": file_ids_to_delete}})
+        resp = requests.post(graphql_url, headers=HEADERS, json={"query": delete_mut, "variables": {"fileIds": file_ids_to_delete}})
+        resp.raise_for_status() # Ensure HTTP errors are caught
+        delete_data = resp.json()
+        if delete_data.get("errors"):
+            print(f"⚠️ Shopify GraphQL errors when deleting files: {json.dumps(delete_data['errors'], indent=2)}")
+            # Continue, as deletion might not be critical if file was already gone
         print("Deleted existing feed file(s) on Shopify.")
         time.sleep(3) # Wait for deletion to propagate
         
@@ -128,12 +141,18 @@ def upload_to_shopify_files(filepath):
     }
     """
     resp = requests.post(graphql_url, headers=HEADERS, json={"query": staged_mut})
+    resp.raise_for_status() # Ensure HTTP errors are caught
     data = resp.json()
+
+    if data.get("errors"):
+        print(f"⚠️ Shopify GraphQL errors when creating staged upload: {json.dumps(data['errors'], indent=2)}")
+        raise Exception("Shopify GraphQL staged upload failed.")
+
     try:
         target = data["data"]["stagedUploadsCreate"]["stagedTargets"][0]
     except (KeyError, IndexError):
-        print(f"Failed to create staged upload: {data}")
-        return
+        print(f"Failed to create staged upload: {json.dumps(data, indent=2)}")
+        raise Exception("Shopify staged upload target not found in response.")
 
     # 3. Upload file to staging target
     with open(filepath, "rb") as f:
@@ -165,13 +184,18 @@ def upload_to_shopify_files(filepath):
       ]
     }
     resp = requests.post(graphql_url, headers=HEADERS, json={"query": create_mut, "variables": variables})
+    resp.raise_for_status() # Ensure HTTP errors are caught
     create_data = resp.json()
+
+    if create_data.get("errors"):
+        print(f"⚠️ Shopify GraphQL errors when creating file: {json.dumps(create_data['errors'], indent=2)}")
+        raise Exception("Shopify GraphQL file creation failed.")
     
     try:
         file_id = create_data["data"]["fileCreate"]["files"][0]["id"]
     except (KeyError, IndexError):
-        print(f"Failed to create file: {create_data}")
-        return
+        print(f"Failed to create file: {json.dumps(create_data, indent=2)}")
+        raise Exception("Shopify file ID not found in response.")
         
     print("File processing in Shopify...")
     
@@ -190,7 +214,14 @@ def upload_to_shopify_files(filepath):
         }}
         """
         resp = requests.post(graphql_url, headers=HEADERS, json={"query": query_file})
-        node = resp.json().get("data", {}).get("node", {})
+        resp.raise_for_status() # Ensure HTTP errors are caught
+        node_data = resp.json()
+
+        if node_data.get("errors"):
+            print(f"⚠️ Shopify GraphQL errors when querying file status: {json.dumps(node_data['errors'], indent=2)}")
+            # Continue, as it might just be processing
+
+        node = node_data.get("data", {}).get("node", {})
         if node.get("fileStatus") == "READY":
             public_url = node.get("url")
             break
@@ -202,6 +233,7 @@ def upload_to_shopify_files(filepath):
         create_or_update_redirect(cdn_url)
     else:
         print("⚠️ File uploaded, but URL could not be retrieved in time. Check Shopify Admin > Settings > Files.")
+        raise Exception("Failed to retrieve public URL for uploaded file.")
 
 def create_or_update_redirect(target_url):
     """Creates or updates a URL redirect to point to the latest feed URL."""
@@ -222,9 +254,21 @@ def create_or_update_redirect(target_url):
     }}
     '''
     resp = requests.post(graphql_url, headers=HEADERS, json={"query": query_redirect})
+    resp.raise_for_status() # Ensure HTTP errors are caught
     data = resp.json()
-    # Corrected: Use {} for empty dict literals
-    edges = data.get("data", {}).get("urlRedirects", {}).get("edges", [])
+
+    # Check for GraphQL errors first
+    if data.get("errors"):
+        print(f"⚠️ Shopify GraphQL errors when querying redirects: {json.dumps(data['errors'], indent=2)}")
+        raise Exception("Shopify GraphQL query for redirects failed.")
+
+    # Safely get the 'data' part of the response
+    graphql_data = data.get("data")
+    if graphql_data is None:
+        print(f"⚠️ Shopify GraphQL response missing 'data' key or it's null for query_redirect: {json.dumps(data, indent=2)}")
+        raise Exception("Shopify GraphQL response for redirects was empty or invalid.")
+
+    edges = graphql_data.get("urlRedirects", {}).get("edges", [])
 
     url_redirect_input = {
         "path": redirect_path,
@@ -244,7 +288,12 @@ def create_or_update_redirect(target_url):
         """
         variables = {"id": redirect_id, "urlRedirect": url_redirect_input}
         resp = requests.post(graphql_url, headers=HEADERS, json={"query": update_mut, "variables": variables})
-        result = resp.json().get("data", {}).get("urlRedirectUpdate", {})
+        resp.raise_for_status()
+        result = resp.json()
+        if result.get("errors"):
+            print(f"⚠️ Shopify GraphQL errors when updating redirect: {json.dumps(result['errors'], indent=2)}")
+            raise Exception("Shopify GraphQL update redirect failed.")
+        result = result.get("data", {}).get("urlRedirectUpdate", {})
 
     else:
         print("No existing redirect found. Creating a new one...")
@@ -258,11 +307,17 @@ def create_or_update_redirect(target_url):
         """
         variables = {"urlRedirect": url_redirect_input}
         resp = requests.post(graphql_url, headers=HEADERS, json={"query": create_mut, "variables": variables})
-        result = resp.json().get("data", {}).get("urlRedirectCreate", {})
+        resp.raise_for_status()
+        result = resp.json()
+        if result.get("errors"):
+            print(f"⚠️ Shopify GraphQL errors when creating redirect: {json.dumps(result['errors'], indent=2)}")
+            raise Exception("Shopify GraphQL create redirect failed.")
+        result = result.get("data", {}).get("urlRedirectCreate", {})
 
     user_errors = result.get("userErrors", [])
     if user_errors:
         print(f"⚠️ Error managing redirect: {user_errors}")
+        raise Exception(f"Shopify redirect operation failed with user errors: {user_errors}")
     else:
         static_url = f"{STORE_BASE_URL.rstrip('/')}{redirect_path}"
         print(f"✅ Redirect is live.")
