@@ -460,8 +460,8 @@ def generate_feed():
                 "custom_label_0": product_type,
                 "custom_label_1": first_tag,
                 "excluded_destination": "local_inventory_ads,free_local_listings",
-                "store_code": "", # Added with empty value
-                "quantity": "",   # Added with empty value
+                "store_code": "online_store", # Changed to a dummy value
+                "quantity": "0",   # Changed to a dummy value
                 "shipping": "US:::0.00 USD" # Default shipping for US, 0.00 price
             })
             
