@@ -54,7 +54,11 @@ def fetch_all_active_products():
     while url:
         response = requests.get(url, headers=HEADERS)
         response.raise_for_status()
-        data = response.json()
+        try:
+            data = response.json()
+        except json.JSONDecodeError:
+            print(f"⚠️ Shopify API response for products was not valid JSON: {response.text}")
+            raise Exception("Shopify API response for products was not valid JSON.")
         products.extend(data.get("products", []))
         
         # Handle cursor-based pagination
@@ -93,7 +97,11 @@ def upload_to_shopify_files(filepath):
     """
     resp = requests.post(graphql_url, headers=HEADERS, json={"query": query_existing})
     resp.raise_for_status() # Ensure HTTP errors are caught
-    data = resp.json()
+    try:
+        data = resp.json()
+    except json.JSONDecodeError:
+        print(f"⚠️ Shopify GraphQL response for querying existing files was not valid JSON: {resp.text}")
+        raise Exception("Shopify GraphQL response for querying existing files was not valid JSON.")
 
     if data.get("errors"):
         print(f"⚠️ Shopify GraphQL errors when querying existing files: {json.dumps(data['errors'], indent=2)}")
@@ -113,7 +121,12 @@ def upload_to_shopify_files(filepath):
         """
         resp = requests.post(graphql_url, headers=HEADERS, json={"query": delete_mut, "variables": {"fileIds": file_ids_to_delete}})
         resp.raise_for_status() # Ensure HTTP errors are caught
-        delete_data = resp.json()
+        try:
+            delete_data = resp.json()
+        except json.JSONDecodeError:
+            print(f"⚠️ Shopify GraphQL response for deleting files was not valid JSON: {resp.text}")
+            # Continue, as deletion might not be critical if file was already gone
+            delete_data = {} # Assign empty dict to avoid further errors
         if delete_data.get("errors"):
             print(f"⚠️ Shopify GraphQL errors when deleting files: {json.dumps(delete_data['errors'], indent=2)}")
             # Continue, as deletion might not be critical if file was already gone
@@ -142,7 +155,11 @@ def upload_to_shopify_files(filepath):
     """
     resp = requests.post(graphql_url, headers=HEADERS, json={"query": staged_mut})
     resp.raise_for_status() # Ensure HTTP errors are caught
-    data = resp.json()
+    try:
+        data = resp.json()
+    except json.JSONDecodeError:
+        print(f"⚠️ Shopify GraphQL response for creating staged upload was not valid JSON: {resp.text}")
+        raise Exception("Shopify GraphQL response for creating staged upload was not valid JSON.")
 
     if data.get("errors"):
         print(f"⚠️ Shopify GraphQL errors when creating staged upload: {json.dumps(data['errors'], indent=2)}")
@@ -185,7 +202,11 @@ def upload_to_shopify_files(filepath):
     }
     resp = requests.post(graphql_url, headers=HEADERS, json={"query": create_mut, "variables": variables})
     resp.raise_for_status() # Ensure HTTP errors are caught
-    create_data = resp.json()
+    try:
+        create_data = resp.json()
+    except json.JSONDecodeError:
+        print(f"⚠️ Shopify GraphQL response for creating file was not valid JSON: {resp.text}")
+        raise Exception("Shopify GraphQL response for creating file was not valid JSON.")
 
     if create_data.get("errors"):
         print(f"⚠️ Shopify GraphQL errors when creating file: {json.dumps(create_data['errors'], indent=2)}")
@@ -215,7 +236,12 @@ def upload_to_shopify_files(filepath):
         """
         resp = requests.post(graphql_url, headers=HEADERS, json={"query": query_file})
         resp.raise_for_status() # Ensure HTTP errors are caught
-        node_data = resp.json()
+        try:
+            node_data = resp.json()
+        except json.JSONDecodeError:
+            print(f"⚠️ Shopify GraphQL response for querying file status was not valid JSON: {resp.text}")
+            # Continue, as it might just be processing
+            node_data = {} # Assign empty dict to avoid further errors
 
         if node_data.get("errors"):
             print(f"⚠️ Shopify GraphQL errors when querying file status: {json.dumps(node_data['errors'], indent=2)}")
@@ -255,7 +281,13 @@ def create_or_update_redirect(target_url):
     '''
     resp = requests.post(graphql_url, headers=HEADERS, json={"query": query_redirect})
     resp.raise_for_status() # Ensure HTTP errors are caught
-    data = resp.json()
+    try:
+        data = resp.json()
+    except json.JSONDecodeError:
+        print(f"⚠️ Shopify GraphQL response for query_redirect was not valid JSON: {resp.text}")
+        raise Exception("Shopify GraphQL response for redirects was not valid JSON.")
+
+    print(f"Shopify GraphQL response for query_redirect: {json.dumps(data, indent=2)}") # <-- Added for debugging
 
     # Check for GraphQL errors first
     if data.get("errors"):
@@ -289,7 +321,12 @@ def create_or_update_redirect(target_url):
         variables = {"id": redirect_id, "urlRedirect": url_redirect_input}
         resp = requests.post(graphql_url, headers=HEADERS, json={"query": update_mut, "variables": variables})
         resp.raise_for_status()
-        result = resp.json()
+        try:
+            result = resp.json()
+        except json.JSONDecodeError:
+            print(f"⚠️ Shopify GraphQL response for updating redirect was not valid JSON: {resp.text}")
+            raise Exception("Shopify GraphQL response for updating redirect was not valid JSON.")
+
         if result.get("errors"):
             print(f"⚠️ Shopify GraphQL errors when updating redirect: {json.dumps(result['errors'], indent=2)}")
             raise Exception("Shopify GraphQL update redirect failed.")
@@ -308,7 +345,12 @@ def create_or_update_redirect(target_url):
         variables = {"urlRedirect": url_redirect_input}
         resp = requests.post(graphql_url, headers=HEADERS, json={"query": create_mut, "variables": variables})
         resp.raise_for_status()
-        result = resp.json()
+        try:
+            result = resp.json()
+        except json.JSONDecodeError:
+            print(f"⚠️ Shopify GraphQL response for creating redirect was not valid JSON: {resp.text}")
+            raise Exception("Shopify GraphQL response for creating redirect was not valid JSON.")
+
         if result.get("errors"):
             print(f"⚠️ Shopify GraphQL errors when creating redirect: {json.dumps(result['errors'], indent=2)}")
             raise Exception("Shopify GraphQL create redirect failed.")
@@ -332,7 +374,8 @@ def generate_feed():
         "google_product_category", "item_group_id", "gender", "age_group",
         "color", "size", "custom_label_0", "custom_label_1", "excluded_destination",
         "store_code", # Added for local inventory data
-        "quantity"    # Added for local inventory data
+        "quantity",    # Added for local inventory data
+        "shipping"     # Added for default shipping
     ]
     
     rows = []
@@ -418,7 +461,8 @@ def generate_feed():
                 "custom_label_1": first_tag,
                 "excluded_destination": "local_inventory_ads,free_local_listings",
                 "store_code": "", # Added with empty value
-                "quantity": ""   # Added with empty value
+                "quantity": "",   # Added with empty value
+                "shipping": "US:::0.00 USD" # Default shipping for US, 0.00 price
             })
             
     # Write to CSV file
