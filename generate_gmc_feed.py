@@ -35,7 +35,7 @@ DEFAULT_CONDITION = "new"
 DEFAULT_BRAND = "MeeeShop"
 DEFAULT_GOOGLE_CATEGORY = "166" # Apparel & Accessories
 
-OUTPUT_FILE = "google_merchant_feed.csv"
+OUTPUT_FILE = "google_merchant_feed.txt"
 
 def clean_html(raw_html):
     """Removes HTML tags from product descriptions for the GMC feed."""
@@ -43,7 +43,7 @@ def clean_html(raw_html):
         return ""
     cleanr = re.compile('<.*?>')
     text = re.sub(cleanr, '', raw_html)
-    return text.replace('\n', ' ').replace('\r', ' ').replace(';', ',').strip()
+    return text.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').replace(';', ',').strip()
 
 def fetch_all_active_products():
     """Fetches all active products from Shopify handling pagination via Link headers."""
@@ -86,7 +86,7 @@ def upload_to_shopify_files(filepath):
     # This step is primarily to clean up any previous exact matches.
     query_existing = """
     query {
-      files(first: 10, query: "filename:google_merchant_feed.csv") {
+      files(first: 10, query: "filename:google_merchant_feed.txt") {
         edges {
           node {
             id
@@ -138,8 +138,8 @@ def upload_to_shopify_files(filepath):
     mutation {
       stagedUploadsCreate(input: [{
         resource: FILE,
-        filename: "google_merchant_feed.csv",
-        mimeType: "text/csv",
+        filename: "google_merchant_feed.txt",
+        mimeType: "text/plain",
         httpMethod: POST
       }]) {
         stagedTargets {
@@ -173,7 +173,7 @@ def upload_to_shopify_files(filepath):
 
     # 3. Upload file to staging target
     with open(filepath, "rb") as f:
-        files = {"file": ("google_merchant_feed.csv", f, "text/csv")}
+        files = {"file": ("google_merchant_feed.txt", f, "text/plain")}
         params = {p["name"]: p["value"] for p in target["parameters"]}
         upload_resp = requests.post(target["url"], data=params, files=files)
         upload_resp.raise_for_status()
@@ -265,7 +265,7 @@ def create_or_update_redirect(target_url):
     """Creates or updates a URL redirect to point to the latest feed URL."""
     print("\nCreating/updating URL redirect...")
     graphql_url = f"https://{STORE_DOMAIN}/admin/api/{API_VER}/graphql.json"
-    redirect_path = "/a/google_merchant_feed.csv"  # A static, non-conflicting path
+    redirect_path = "/a/google_merchant_feed.csv"  # Keep this as .csv so GMC doesn't break
 
     # 1. Check for an existing redirect for this path
     # Corrected: Escaped curly braces for literal GraphQL syntax within f-string
@@ -462,14 +462,14 @@ def generate_feed():
                 "size": size,
                 "custom_label_0": product_type,
                 "custom_label_1": first_tag,
-                "excluded_destination": "Local_inventory_ads,Free_local_listings",
+                "excluded_destination": "local_inventory_ads,free_local_listings",
                 "shipping": "US:::0.00 USD" # Default shipping for US, 0.00 price
             })
             
-    # Write to CSV file
-    print(f"Writing {len(rows)} variants to {OUTPUT_FILE}...")
+    # Write to TSV file
+    print(f"Writing {len(rows)} variants to {OUTPUT_FILE} (TSV format)...")
     with open(OUTPUT_FILE, mode="w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=feed_headers)
+        writer = csv.DictWriter(f, fieldnames=feed_headers, delimiter='\t')
         writer.writeheader()
         writer.writerows(rows)
         
