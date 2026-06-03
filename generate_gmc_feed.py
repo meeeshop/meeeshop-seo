@@ -169,6 +169,12 @@ def generate_feed():
             # Price mapping
             price = f"{variant.get('price')} USD"
             
+            # GTIN validation
+            gtin_value = variant.get("barcode", "")
+            # Common GTIN lengths are 8, 12, 13, 14. If it's not one of these, send empty.
+            if gtin_value and not (len(gtin_value) in [8, 12, 13, 14] and gtin_value.isdigit()):
+                gtin_value = ""
+
             # Find Color and Size dynamically from variant options
             color = ""
             size = ""
@@ -193,7 +199,7 @@ def generate_feed():
                 "price": price,
                 "condition": DEFAULT_CONDITION,
                 "brand": brand,
-                "gtin": variant.get("barcode", ""),
+                "gtin": gtin_value, # Using validated GTIN
                 "mpn": sku,
                 "google_product_category": DEFAULT_GOOGLE_CATEGORY,
                 "item_group_id": item_group_id,
