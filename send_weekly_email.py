@@ -205,6 +205,7 @@ def build_html_template(products, articles):
     html += """
         </div>
         <div style="text-align: center; margin-top: 30px;">
+            <p style="font-size: 14px; color: #555; margin-bottom: 15px; font-weight: bold;">Love what you see? Follow us for daily style inspiration and updates!</p>
             <a href="https://www.pinterest.com/meeeshop/" style="display: inline-block; margin: 0 15px; color: #333; text-decoration: none; font-weight: bold; font-size: 14px;">Pinterest</a>
             <a href="https://www.youtube.com/c/meeeshop" style="display: inline-block; margin: 0 15px; color: #333; text-decoration: none; font-weight: bold; font-size: 14px;">YouTube</a>
         </div>
