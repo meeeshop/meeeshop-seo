@@ -12,6 +12,11 @@ on:
         description: 'Send a test email to this address instead of all customers'
         required: false
         type: string
+      dry_run:
+        description: 'Dry run: Fetch and log customer list without sending'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   send-weekly-emails:
@@ -36,4 +41,5 @@ jobs:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
           TEST_EMAIL: ${{ github.event.inputs.test_email }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: python send_weekly_email.py
