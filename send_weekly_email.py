@@ -115,19 +115,21 @@ def build_html_template(products, articles):
     recent_articles = articles[:3] # Limit to latest 3 blogs
 
     # --- 2. HTML Building ---
+    utm_params = "?utm_source=email&utm_medium=newsletter&utm_campaign=weekly_digest"
+
     html = f"""
     <!DOCTYPE html>
     <html>
     <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
     <body style="font-family: Arial, sans-serif; background-color: #f9f9f9; padding: 20px; color: #333; margin: 0;">
         <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; padding: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
-            <h1 style="text-align: center; margin-top: 0; font-size: 28px; font-weight: 800; letter-spacing: 1px;"><a href="{STORE_BASE_URL}" style="color: #000000; text-decoration: none;">MeeeShop</a></h1>
+            <h1 style="text-align: center; margin-top: 0; font-size: 28px; font-weight: 800; letter-spacing: 1px;"><a href="{STORE_BASE_URL}{utm_params}" style="color: #000000; text-decoration: none;">MeeeShop</a></h1>
             <p style="text-align: center; color: #777; font-size: 14px; margin-bottom: 30px; border-bottom: 1px solid #eee; padding-bottom: 20px;">Your Weekly Style Update</p>
     """
     
     if hero_product:
         title = hero_product.get('title')
-        link = f"{STORE_BASE_URL}/products/{hero_product.get('handle')}"
+        link = f"{STORE_BASE_URL}/products/{hero_product.get('handle')}{utm_params}"
         img_src = hero_product['images'][0].get('src') if hero_product.get('images') else ""
         price = hero_product.get('variants', [{}])[0].get('price', '') if hero_product.get('variants') else ''
         price_text = f"${price}" if price else ""
@@ -156,7 +158,7 @@ def build_html_template(products, articles):
         col_width = int(100 / len(secondary_products))
         for p in secondary_products:
             title = p.get('title')
-            link = f"{STORE_BASE_URL}/products/{p.get('handle')}"
+            link = f"{STORE_BASE_URL}/products/{p.get('handle')}{utm_params}"
             img_src = p['images'][0].get('src') if p.get('images') else ""
             
             html += f"""
@@ -177,7 +179,7 @@ def build_html_template(products, articles):
         for a in recent_articles:
             title = a.get('title')
             blog_handle = a.get('blog_handle', 'journal')
-            link = f"{STORE_BASE_URL}/blogs/{blog_handle}/{a.get('handle')}"
+            link = f"{STORE_BASE_URL}/blogs/{blog_handle}/{a.get('handle')}{utm_params}"
             img_src = a.get('image', {}).get('src') if a.get('image') else ""
             
             excerpt = ""
@@ -201,6 +203,10 @@ def build_html_template(products, articles):
         html += "</table>"
         
     html += """
+        </div>
+        <div style="text-align: center; margin-top: 30px;">
+            <a href="https://www.pinterest.com/meeeshop/" style="display: inline-block; margin: 0 15px; color: #333; text-decoration: none; font-weight: bold; font-size: 14px;">Pinterest</a>
+            <a href="https://www.youtube.com/c/meeeshop" style="display: inline-block; margin: 0 15px; color: #333; text-decoration: none; font-weight: bold; font-size: 14px;">YouTube</a>
         </div>
         <p style="text-align: center; font-size: 12px; color: #999; margin-top: 20px;">
             You are receiving this email because you subscribed to updates from MeeeShop.<br>
