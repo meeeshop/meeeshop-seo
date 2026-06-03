@@ -276,7 +276,7 @@ def create_or_update_redirect(target_url):
             id
           }}
         }}
-      }}
+      }
     }}
     '''
     resp = requests.post(graphql_url, headers=HEADERS, json={"query": query_redirect})
@@ -373,8 +373,6 @@ def generate_feed():
         "availability", "price", "condition", "brand", "gtin", "mpn",
         "google_product_category", "item_group_id", "gender", "age_group",
         "color", "size", "custom_label_0", "custom_label_1", "excluded_destination",
-        "store_code", # Added for local inventory data
-        "quantity",    # Added for local inventory data
         "shipping"     # Added for default shipping
     ]
     
@@ -394,9 +392,9 @@ def generate_feed():
         product_type = product.get("product_type", "")
         tags = product.get("tags", "")
         
-        # Extract the first tag and limit to 100 characters to avoid "Text too long" and 1000 unique value limits
+        # Extract the first tag and limit to 50 characters
         tags_list = [t.strip() for t in tags.split(",") if t.strip()]
-        first_tag = tags_list[0][:100] if tags_list else ""
+        first_tag = tags_list[0][:50] if tags_list else "" # Reduced to 50 chars
         
         # Process each variant as a unique item in GMC
         for variant in product.get("variants", []):
@@ -460,8 +458,6 @@ def generate_feed():
                 "custom_label_0": product_type,
                 "custom_label_1": first_tag,
                 "excluded_destination": "local_inventory_ads,free_local_listings",
-                "store_code": "online_store", # Changed to a dummy value
-                "quantity": "0",   # Changed to a dummy value
                 "shipping": "US:::0.00 USD" # Default shipping for US, 0.00 price
             })
             
