@@ -413,7 +413,11 @@ def generate_feed():
             # Availability mapping
             qty = variant.get("inventory_quantity", 0)
             policy = variant.get("inventory_policy", "deny")
-            availability = "in_stock" if (qty > 0 or policy == "continue") else "out_of_stock"
+            management = variant.get("inventory_management")
+            
+            # Matches Shopify's definition of "available" (not tracking inventory, backorders allowed, or qty > 0)
+            is_available = not management or policy == "continue" or qty > 0
+            availability = "in_stock" if is_available else "out_of_stock"
             
             # Price mapping
             price = f"{variant.get('price')} USD"
@@ -458,7 +462,7 @@ def generate_feed():
                 "size": size,
                 "custom_label_0": product_type,
                 "custom_label_1": first_tag,
-                "excluded_destination": "local_inventory_ads,free_local_listings",
+                "excluded_destination": "Local_inventory_ads,Free_local_listings",
                 "shipping": "US:::0.00 USD" # Default shipping for US, 0.00 price
             })
             
