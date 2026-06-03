@@ -156,7 +156,7 @@ def generate_feed():
                 "size": size,
                 "custom_label_0": product_type,
                 "custom_label_1": first_tag,
-                "excluded_destination": "Local_inventory_ads,Free_local_listings"
+                "excluded_destination": "local_inventory_ads,free_local_listings" # Changed to lowercase as per GMC error message
             })
             
     # Write to CSV file
