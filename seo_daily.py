@@ -357,12 +357,16 @@ def fetch_articles(published_since=None):
 
     # Fetch articles from each blog
     for blog in blogs:
+        blog_handle = blog.get('handle')
         article_url = f"{BASE}/blogs/{blog['id']}/articles.json?limit=250"
         if published_since:
             article_url += f"&published_at_min={published_since}"
         while article_url:
             r = requests.get(article_url, headers=HEADS); r.raise_for_status(); _check_rate(r)
-            articles.extend(r.json().get('articles', []))
+            fetched_articles = r.json().get('articles', [])
+            for article in fetched_articles:
+                article['blog_handle'] = blog_handle
+            articles.extend(fetched_articles)
             nxt = [p.split(';')[0].strip().strip('<>') for p in r.headers.get('Link','').split(',') if 'rel="next"' in p]
             article_url = nxt[0] if nxt else None
 
@@ -510,7 +514,8 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not 
       "mainEntity": {
         "@type": "ItemList",
         "itemListElement": [
-          {%- for p in collection.products limit: 12 -%}
+          {%- paginate collection.products by 250 -%}
+          {%- for p in collection.products -%}
           {
             "@type": "ListItem",
             "position": {{ forloop.index }},
@@ -530,6 +535,7 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not 
             }
           }{%- unless forloop.last -%},{%- endunless -%}
           {%- endfor -%}
+          {%- endpaginate -%}
         ]
       }
     }
@@ -1067,10 +1073,11 @@ def main():
         for i, article in enumerate(articles, 1):
             title = article['title']
             blog_id = article.get('blog_id')
+            blog_handle = article.get('blog_handle')
             art_id  = article['id']
 
-            if not blog_id:
-                print(f"  [{i}/{len(articles)}] SKIP {title[:55]} (no blog_id)")
+            if not blog_id or not blog_handle:
+                print(f"  [{i}/{len(articles)}] SKIP {title[:55]} (no blog_id or blog_handle)")
                 continue
 
             try:
@@ -1110,7 +1117,7 @@ def main():
                 log.append({
                     'type': 'article',
                     'title': title,
-                    'url': f"{SITE}/blogs/{blog_id}/{article['handle']}",
+                    'url': f"{SITE}/blogs/{blog_handle}/{article['handle']}",
                     'fixed': [
                         {"field": "meta_title", "before": cur_mtitle, "after": new_meta_title},
                         {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]},
