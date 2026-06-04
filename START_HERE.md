@@ -73,7 +73,7 @@ Add this code in the `<head>` section (before `</head>`):
   "url": "https://us.meeeshop.com",
   "contactPoint": {
     "@type": "ContactPoint",
-    "email": "meeeshop17@gmail.com"
+    "email": "support@meeeshop.com"
   }
 }
 </script>

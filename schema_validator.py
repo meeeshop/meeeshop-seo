@@ -238,7 +238,7 @@ def organization_schema() -> Dict:
         "contactPoint": {
             "@type": "ContactPoint",
             "contactType": "Customer Service",
-            "email": "meeeshop17@gmail.com"
+            "email": "support@meeeshop.com"
         }
     }
 

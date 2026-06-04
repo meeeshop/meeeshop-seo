@@ -1,45 +1,42 @@
-name: Weekly Blog Refresher
+name: MeeeShop Price Update
 
 # Schedules
-#   weekly -- Sunday 9 AM EST (14:00 UTC) -> refresh 5 oldest articles
+#   daily  -- 7:00 AM UTC every day        -> products added in last 48h
+#   weekly -- 8:00 AM UTC every Sunday     -> products added in last 7d
 #
-# Manual dispatch: normal batch (default 5) or force mode.
-# force splits ALL articles into batches of 20 so no single job exceeds
-# ~25 min (well under GitHub's 6-hour job limit).
+# Manual dispatch: choose daily / weekly / force.
+# force splits ALL active products into batches of 150 so no single job
+# exceeds ~25 min (well under GitHub's 6-hour job limit).
 #
 # Secrets: only ENCRYPTION_KEY_PRIMARY + ENCRYPTION_KEY_FALLBACK are
-# passed to the runner. secrets_manager.py decrypts secrets.enc at runtime.
+# passed to the runner. secrets_manager.py decrypts secrets.enc at
+# runtime to obtain SHOPIFY_STORE and SHOPIFY_ACCESS_TOKEN.
 
 on:
   schedule:
-    - cron: '0 14 * * 0'   # Sunday 9 AM EST (14:00 UTC)
+    - cron: '0 7 * * *'     # daily  — every day 7:00 AM UTC
+    - cron: '0 8 * * 0'     # weekly — Sunday 8:00 AM UTC
   workflow_dispatch:
     inputs:
       mode:
         description: 'Run mode'
         required: true
-        default: 'weekly'
+        default: 'daily'
         type: choice
         options:
+          - daily
           - weekly
           - force
-      limit:
-        description: 'Max articles (weekly mode only, default 5)'
-        default: '5'
+      window:
+        description: 'Fetch window in hours (optional, overrides default). e.g. 12 = products added in last 12h only'
         required: false
-      dry_run:
-        description: 'Dry run — print plan only, no Shopify writes (true/false)'
-        default: 'false'
-        required: false
-      article_id:
-        description: 'Refresh ONE specific article by Shopify article ID (weekly mode only)'
         default: ''
-        required: false
+        type: string
 
 env:
   PYTHONUTF8: "1"
   PYTHON_VERSION: "3.12"
-  BATCH_SIZE: "20"
+  BATCH_SIZE: "150"
 
 jobs:
 
@@ -58,8 +55,10 @@ jobs:
           INPUT_MODE="${{ github.event.inputs.mode }}"
           if [ -n "$INPUT_MODE" ]; then
             echo "mode=$INPUT_MODE" >> "$GITHUB_OUTPUT"
-          else
+          elif [ "$(date -u +%u)" = "7" ]; then
             echo "mode=weekly" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=daily" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: actions/checkout@v4
@@ -76,15 +75,15 @@ jobs:
         if: steps.detect.outputs.mode == 'force'
         run: pip install -r requirements.txt
 
-      - name: Count articles and build batch array
+      - name: Count products and build batch array
         id: build_matrix
         if: steps.detect.outputs.mode == 'force'
         env:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          TOTAL=$(python count_articles.py)
-          echo "Published articles: $TOTAL"
+          TOTAL=$(python count_products.py)
+          echo "Active products: $TOTAL"
           BATCHES=$(( (TOTAL + ${{ env.BATCH_SIZE }} - 1) / ${{ env.BATCH_SIZE }} ))
           echo "Batches needed: $BATCHES"
           JSON="["
@@ -100,14 +99,13 @@ jobs:
         run: echo 'batches_json=[0]' >> "$GITHUB_OUTPUT"
 
   # -------------------------------------------------------------------
-  # Job 2a: weekly — single job (limit N articles)
+  # Job 2a: daily or weekly — single job
   # -------------------------------------------------------------------
-  refresh_blogs:
+  price_update:
     needs: setup
-    if: needs.setup.outputs.mode == 'weekly'
+    if: needs.setup.outputs.mode != 'force'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -120,39 +118,30 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Refresh blog posts
+      - name: Run price update
         env:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          LIMIT="${{ github.event.inputs.limit || '5' }}"
-          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
-          ARTICLE_ID="${{ github.event.inputs.article_id || '' }}"
-
-          ARGS="--limit $LIMIT"
-          if [ "$DRY_RUN" = "true" ]; then
-            ARGS="$ARGS --dry-run"
-          fi
-          if [ -n "$ARTICLE_ID" ]; then
-            ARGS="$ARGS --article-id $ARTICLE_ID"
+          WINDOW="${{ github.event.inputs.window }}"
+          if [ -n "$WINDOW" ]; then
+            python price_update.py --mode ${{ needs.setup.outputs.mode }} --window "$WINDOW"
+          else
+            python price_update.py --mode ${{ needs.setup.outputs.mode }}
           fi
 
-          echo "Running: python scripts/modify_blog.py $ARGS"
-          python scripts/modify_blog.py $ARGS
-
-      - name: Upload refresh log
+      - name: Upload log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: blog-refresh-weekly-run${{ github.run_number }}
-          path: modify_blog_*.json
-          if-no-files-found: ignore
-          retention-days: 14
+          name: price-log-${{ needs.setup.outputs.mode }}-run${{ github.run_number }}
+          path: price_update_log.json
+          retention-days: 30
 
   # -------------------------------------------------------------------
-  # Job 2b: force — matrix of batch jobs, sequential, max-parallel 1
+  # Job 2b: force — matrix of batch jobs, sequential
   # -------------------------------------------------------------------
-  refresh_blogs_force:
+  price_update_force:
     needs: setup
     if: needs.setup.outputs.mode == 'force'
     runs-on: ubuntu-latest
@@ -162,7 +151,6 @@ jobs:
       max-parallel: 1
       matrix:
         batch_index: ${{ fromJson(needs.setup.outputs.batches_json) }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -175,13 +163,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Refresh blog posts (batch ${{ matrix.batch_index }})
+      - name: Run price update (batch ${{ matrix.batch_index }})
         env:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          python scripts/modify_blog.py \
-            --force \
+          python price_update.py \
+            --mode force \
             --batch-size ${{ env.BATCH_SIZE }} \
             --batch-index ${{ matrix.batch_index }}
 
@@ -189,7 +177,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: blog-refresh-force-b${{ matrix.batch_index }}-run${{ github.run_number }}
-          path: modify_blog_*.json
-          if-no-files-found: ignore
-          retention-days: 14
+          name: price-log-force-b${{ matrix.batch_index }}-run${{ github.run_number }}
+          path: price_update_log.json
+          retention-days: 30

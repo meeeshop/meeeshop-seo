@@ -1,0 +1,46 @@
+name: Daily Google Merchant Center Feed
+
+on:
+  # Runs everyday at 5:00 AM UTC (Right before the daily SEO run at 6 AM)
+  schedule:
+    - cron: '0 5 * * *'
+    
+  # Allows manual triggering via GitHub Actions UI
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate-gmc-feed:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests cryptography
+
+      - name: Generate GMC Feed File
+        env:
+          # Pass decryption keys, not the raw tokens
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          python generate_gmc_feed.py
+
+      - name: Commit and Push Feed to GitHub
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add google_merchant_feed.csv
+          git diff --quiet && git diff --staged --quiet || git commit -m "chore: Update Google Merchant Center feed [skip ci]"
+          git push

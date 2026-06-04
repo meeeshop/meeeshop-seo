@@ -23,6 +23,8 @@ Usage:
   python scripts/modify_blog.py --limit 10   # process up to 10
   python scripts/modify_blog.py --dry-run    # print plan, no Shopify writes
   python scripts/modify_blog.py --article-id 123456  # update one specific article
+  python scripts/modify_blog.py --force      # update ALL articles
+  python scripts/modify_blog.py --force --batch-size 20 --batch-index 0  # batch 0 of N
 """
 
 import os, sys, re, time, random, json, argparse
@@ -516,9 +518,10 @@ def remove_out_of_stock_product_cards(html: str, out_handles: set[str]) -> str:
 def refresh_article(blog: dict, article: dict, all_products: list,
                     in_stock: list, out_of_stock_handles: set[str],
                     product_by_handle: dict[str, dict],
-                    dry_run: bool = False) -> bool:
+                    dry_run: bool = False) -> dict | None:
     """
-    Refresh one article. Returns True if updated successfully.
+    Refresh one article. Returns a result dict on success, None on skip/failure.
+    Result keys: replacements (list of {old, new} dicts), featured_product (title).
     """
     blog_id    = blog["id"]
     article_id = article["id"]
@@ -536,6 +539,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
 
     # Build replacement map for out-of-stock handles
     replacement_map: dict[str, dict] = {}
+    replacements_log: list[dict] = []
     chosen_featured: dict | None = None
 
     for handle in oos_in_article:
@@ -547,6 +551,12 @@ def refresh_article(blog: dict, article: dict, all_products: list,
             replacement_map[handle] = replacement
             if chosen_featured is None:
                 chosen_featured = replacement
+            replacements_log.append({
+                "old_handle": handle,
+                "old_title":  old_product["title"],
+                "new_handle": replacement["handle"],
+                "new_title":  replacement["title"],
+            })
             print(f"    Replacing '{old_product['title'][:40]}' → '{replacement['title'][:40]}'")
         else:
             print(f"    No replacement found for '{handle}'")
@@ -565,7 +575,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
 
     if not chosen_featured:
         print("  SKIP — no in-stock products available")
-        return False
+        return None
 
     # ── 3. Pick keyword for this refresh ──────────────────────────────────────
     ptype   = (chosen_featured.get("product_type") or "women's fashion").lower()
@@ -581,7 +591,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
 
     if not new_body:
         print("  [AI] all providers failed — skipping article")
-        return False
+        return None
 
     new_body = _clean_html(new_body)
 
@@ -627,7 +637,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         preview = re.sub(r"<[^>]+>", " ", new_body)[:200].strip()
         print(f"  [DRY-RUN] would PATCH article {article_id}")
         print(f"  Preview  : {preview}…")
-        return True
+        return {"replacements": replacements_log, "featured_product": chosen_featured["title"]}
 
     # ── 11. PATCH the article (keeps same URL handle and title) ───────────────
     payload = {
@@ -648,21 +658,25 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     r = _req("put", f"{BASE}/blogs/{blog_id}/articles/{article_id}.json", json=payload)
     if r.status_code not in (200, 201):
         print(f"  PATCH FAILED {r.status_code}: {r.text[:200]}")
-        return False
+        return None
 
     print(f"  PATCHED  : article {article_id} updated successfully")
 
     # ── 12. Upsert SEO metafields ─────────────────────────────────────────────
     set_article_seo_metafields(blog_id, article_id, seo["seo_title"], seo["meta_desc"])
 
-    return True
+    return {"replacements": replacements_log, "featured_product": chosen_featured["title"]}
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
-def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None):
+def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
+        force: bool = False, batch_size: int = 20, batch_index: int = 0):
+    mode = "force" if force else ("single" if article_id else "batch")
     print(f"\n{'='*64}")
     print(f"  MeeeShop Blog Refresher — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"  Limit: {limit} | Dry-run: {dry_run}")
+    print(f"  Mode: {mode} | Limit: {limit} | Dry-run: {dry_run}")
+    if force:
+        print(f"  Batch: {batch_index} (size {batch_size})")
     print(f"{'='*64}\n")
 
     # ── Products ──────────────────────────────────────────────────────────────
@@ -697,16 +711,23 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None):
         if not work_items:
             sys.exit(f"ERROR: Article {article_id} not found in any blog.")
     else:
-        # Gather articles across all blogs, oldest published_at first
+        # Gather ALL articles across all blogs, oldest published_at first
         all_articles: list[tuple[dict, dict]] = []
         for blog in blogs:
-            arts = fetch_articles_for_blog(blog["id"], limit=50)
+            arts = fetch_articles_for_blog(blog["id"], limit=500)
             for art in arts:
                 all_articles.append((blog, art))
 
-        # Sort oldest first so we refresh the most stale posts first
         all_articles.sort(key=lambda x: x[1].get("published_at") or "")
-        work_items = all_articles[:limit]
+
+        if force:
+            # Slice this batch out of the full sorted list
+            start = batch_index * batch_size
+            end   = start + batch_size
+            work_items = all_articles[start:end]
+            print(f"  Force batch {batch_index}: articles {start}–{end-1} of {len(all_articles)} total")
+        else:
+            work_items = all_articles[:limit]
 
     print(f"Articles to refresh: {len(work_items)}\n")
 
@@ -716,15 +737,17 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None):
 
     for blog, article in work_items:
         try:
-            ok = refresh_article(
+            result = refresh_article(
                 blog, article, all_products,
                 in_stock, out_of_stock_handles, product_by_handle,
                 dry_run=dry_run,
             )
-            if ok:
+            if result:
                 updated += 1
                 log.append({"id": article["id"], "title": article["title"],
-                             "status": "updated", "dry_run": dry_run})
+                             "status": "updated", "dry_run": dry_run,
+                             "replacements": result.get("replacements", []),
+                             "featured_product": result.get("featured_product")})
             else:
                 skipped += 1
                 log.append({"id": article["id"], "title": article["title"],
@@ -757,9 +780,19 @@ if __name__ == "__main__":
         pass
 
     ap = argparse.ArgumentParser(description="MeeeShop weekly blog refresher")
-    ap.add_argument("--dry-run",    action="store_true", help="Print plan, no Shopify writes")
-    ap.add_argument("--limit",      type=int, default=5, help="Max articles to refresh per run (default 5)")
-    ap.add_argument("--article-id", type=int, default=None, help="Refresh one specific article by ID")
+    ap.add_argument("--dry-run",     action="store_true", help="Print plan, no Shopify writes")
+    ap.add_argument("--limit",       type=int, default=5,  help="Max articles per run (default 5; ignored in --force)")
+    ap.add_argument("--article-id",  type=int, default=None, help="Refresh one specific article by ID")
+    ap.add_argument("--force",       action="store_true", help="Update ALL articles (use with --batch-size/--batch-index)")
+    ap.add_argument("--batch-size",  type=int, default=20, help="Articles per batch in force mode (default 20)")
+    ap.add_argument("--batch-index", type=int, default=0,  help="Which batch to process (0-based)")
     args = ap.parse_args()
 
-    run(limit=args.limit, dry_run=args.dry_run, article_id=args.article_id)
+    run(
+        limit=args.limit,
+        dry_run=args.dry_run,
+        article_id=args.article_id,
+        force=args.force,
+        batch_size=args.batch_size,
+        batch_index=args.batch_index,
+    )

@@ -2,23 +2,38 @@
 Dynamic pricing engine for MeeeShop inventory.
 
 Rules:
-  - Multiplier: 2.3-2.5x cost per item
-  - Shipping: $7-10 USD added
-  - Target profit: $20+ per product after all expenses
-  - Price ending: .99 psychology (e.g., 70.99 -> 74.99, 76.99 -> 79.99)
-  - Skip: Products already at target price (no unnecessary API calls)
+  - Take current MSRP (selling price) from Shopify
+  - Add $10.00 to every variant
+  - Snap to nearest x4.99 or x9.99 ending
+      e.g. $71.99 + $10 = $81.99 -> $84.99
+           $76.99 + $10 = $86.99 -> $89.99
+           $45.00 + $10 = $55.00 -> $59.99
+  - Skip variants already at the correct target price
+
+Modes:
+  daily  -- products created in the last 48 hours (default)
+  weekly -- products created in the last 7 days
+  force  -- ALL active products, supports --batch-size / --batch-index
+            for splitting across multiple GitHub Actions jobs
+
+Usage:
+  python price_update.py --mode daily
+  python price_update.py --mode weekly
+  python price_update.py --mode force --batch-size 200 --batch-index 0
+  python price_update.py --mode force --batch-size 200 --batch-index 1
 """
 
 import os
 import sys
 import json
+import time
+import argparse
 import requests
 from pathlib import Path
 from typing import Optional, Dict, List
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 import logging
-import ai_client
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 _log = logging.getLogger(__name__)
@@ -29,7 +44,7 @@ try:
     inject_to_env()
     _log.info("[secrets] inject_to_env() succeeded")
 except Exception as _e:
-    _log.critical("[secrets] inject_to_env() FAILED — price_update cannot run: %s", _e, exc_info=True)
+    _log.critical("[secrets] inject_to_env() FAILED: %s", _e, exc_info=True)
     sys.exit(1)
 
 try:
@@ -38,106 +53,97 @@ try:
 except Exception as _e:
     _log.critical("[secrets] Failed to load Shopify credentials: %s", _e, exc_info=True)
     sys.exit(1)
+
 API_VERSION = "2025-01"
-
-# Pricing configuration
-COST_MULTIPLIER_MIN = 2.3
-COST_MULTIPLIER_MAX = 2.5
-SHIPPING_COST_MIN = 7
-SHIPPING_COST_MAX = 10
-TARGET_PROFIT = 20
+PRICE_MARKUP = 10.00
+# Shopify REST API allows ~2 req/s on standard plans; stay well under to avoid 429s
+API_DELAY_SECONDS = 0.6
 
 
-def _shopify_request(method: str, endpoint: str, data: Optional[Dict] = None, params: Optional[Dict] = None) -> Dict:
-    """Make authenticated Shopify API request."""
-    if not SHOPIFY_ACCESS_TOKEN:
-        raise RuntimeError("SHOPIFY_ACCESS_TOKEN not set in environment")
+# ---------------------------------------------------------------------------
+# Shopify API helpers
+# ---------------------------------------------------------------------------
 
+def _shopify_request(method: str, endpoint: str, data: Optional[Dict] = None,
+                     params: Optional[Dict] = None) -> Dict:
     url = f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}/{endpoint}.json"
     headers = {
         "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
         "Content-Type": "application/json",
     }
+    for attempt in range(3):
+        try:
+            if method == "GET":
+                r = requests.get(url, headers=headers, params=params, timeout=30)
+            elif method == "PUT":
+                r = requests.put(url, headers=headers, json=data, timeout=30)
+            else:
+                raise ValueError(f"Unsupported method: {method}")
 
-    try:
-        if method == "GET":
-            r = requests.get(url, headers=headers, params=params, timeout=30)
-        elif method == "POST":
-            r = requests.post(url, headers=headers, json=data, timeout=30)
-        elif method == "PUT":
-            r = requests.put(url, headers=headers, json=data, timeout=30)
-        else:
-            raise ValueError(f"Unsupported method: {method}")
+            if r.status_code == 429:
+                retry_after = int(r.headers.get("Retry-After", 4))
+                _log.warning("[RateLimit] 429 received, sleeping %ds", retry_after)
+                time.sleep(retry_after)
+                continue
 
-        if r.status_code >= 400:
-            raise RuntimeError(f"{method} {endpoint}: HTTP {r.status_code} - {r.text[:200]}")
+            if r.status_code >= 400:
+                raise RuntimeError(f"{method} {endpoint}: HTTP {r.status_code} - {r.text[:200]}")
 
-        result = r.json()
-        result["_link_header"] = r.headers.get("Link", None)
-        return result
-    except requests.exceptions.Timeout:
-        raise RuntimeError(f"{method} {endpoint}: Request timeout")
-    except ValueError as e:
-        raise RuntimeError(f"{method} {endpoint}: Invalid JSON response - {e}")
+            result = r.json()
+            result["_link_header"] = r.headers.get("Link")
+            return result
+        except requests.exceptions.Timeout:
+            if attempt == 2:
+                raise RuntimeError(f"{method} {endpoint}: Request timeout after 3 attempts")
+            time.sleep(2)
+    raise RuntimeError(f"{method} {endpoint}: Failed after 3 attempts")
 
 
 def _shopify_graphql(query: str, variables: Optional[Dict] = None) -> Dict:
-    """Make Shopify GraphQL API request."""
-    if not SHOPIFY_ACCESS_TOKEN:
-        raise RuntimeError("SHOPIFY_ACCESS_TOKEN not set in environment")
-
     url = f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}/graphql.json"
     headers = {
         "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
         "Content-Type": "application/json",
     }
-    payload = {"query": query}
-    if variables:
-        payload["variables"] = variables
+    payload = {"query": query, **({"variables": variables} if variables else {})}
 
-    try:
-        r = requests.post(url, headers=headers, json=payload, timeout=30)
-        if r.status_code >= 400:
-            raise RuntimeError(f"GraphQL: HTTP {r.status_code} - {r.text[:200]}")
+    for attempt in range(3):
+        try:
+            r = requests.post(url, headers=headers, json=payload, timeout=30)
+            if r.status_code == 429:
+                retry_after = int(r.headers.get("Retry-After", 4))
+                _log.warning("[RateLimit] 429 on GraphQL, sleeping %ds", retry_after)
+                time.sleep(retry_after)
+                continue
+            if r.status_code >= 400:
+                raise RuntimeError(f"GraphQL: HTTP {r.status_code} - {r.text[:200]}")
+            result = r.json()
+            if "errors" in result:
+                raise RuntimeError(f"GraphQL errors: {result['errors']}")
+            return result
+        except requests.exceptions.Timeout:
+            if attempt == 2:
+                raise RuntimeError("GraphQL: timeout after 3 attempts")
+            time.sleep(2)
+    raise RuntimeError("GraphQL: Failed after 3 attempts")
 
-        result = r.json()
-        if "errors" in result:
-            raise RuntimeError(f"GraphQL errors: {result['errors']}")
-        return result
-    except requests.exceptions.Timeout:
-        raise RuntimeError("GraphQL: Request timeout")
-    except ValueError as e:
-        raise RuntimeError(f"GraphQL: Invalid JSON response - {e}")
 
+# ---------------------------------------------------------------------------
+# Product fetching
+# ---------------------------------------------------------------------------
 
-def get_products(status: str = "active") -> List[Dict]:
-    """Fetch all products from Shopify store via GraphQL with cost data."""
-    products = []
-    cursor = None
-
-    query = """
-query ($first: Int!, $after: String) {
-  products(first: $first, after: $after, query: "status:active") {
-    pageInfo {
-      hasNextPage
-      endCursor
-    }
+_PRODUCT_QUERY = """
+query ($first: Int!, $after: String, $query: String!) {
+  products(first: $first, after: $after, query: $query) {
+    pageInfo { hasNextPage endCursor }
     edges {
       node {
         id
         title
+        createdAt
         variants(first: 100) {
           edges {
-            node {
-              id
-              sku
-              price
-              inventoryItem {
-                unitCost {
-                  amount
-                }
-              }
-            }
+            node { id sku price }
           }
         }
       }
@@ -146,15 +152,43 @@ query ($first: Int!, $after: String) {
 }
 """
 
+
+def get_products(mode: str, window_hours: Optional[int] = None) -> List[Dict]:
+    """
+    Fetch active products filtered by creation date.
+
+    daily              -> last 48 hours (or --window override)
+    weekly             -> last 7 days
+    force              -> all active products (no date filter)
+    --window <hours>   -> override fetch window for daily/weekly
+    """
+    now = datetime.now(timezone.utc)
+    if mode == "daily":
+        hours = window_hours if window_hours is not None else 48
+        since = now - timedelta(hours=hours)
+        date_filter = f" AND created_at:>={since.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+        window_label = f"last {hours} hours"
+    elif mode == "weekly":
+        hours = window_hours * 24 if window_hours is not None else 7 * 24
+        since = now - timedelta(hours=hours)
+        date_filter = f" AND created_at:>={since.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+        window_label = f"last {hours} hours"
+    else:  # force
+        date_filter = ""
+        window_label = "all time"
+
+    gql_query_filter = f"status:active{date_filter}"
+    print(f"[Fetch] Mode={mode}, window={window_label}")
+    print(f"[Fetch] GraphQL filter: {gql_query_filter}")
+
+    products = []
+    cursor = None
     page = 1
+
     while True:
         try:
-            variables = {
-                "first": 50,
-                "after": cursor
-            }
-
-            response = _shopify_graphql(query, variables)
+            variables = {"first": 50, "after": cursor, "query": gql_query_filter}
+            response = _shopify_graphql(_PRODUCT_QUERY, variables)
             data = response.get("data", {}).get("products", {})
 
             batch = []
@@ -163,248 +197,323 @@ query ($first: Int!, $after: String) {
                 product = {
                     "id": node.get("id"),
                     "title": node.get("title"),
-                    "variants": []
+                    "created_at": node.get("createdAt"),
+                    "variants": [],
                 }
                 for var_edge in node.get("variants", {}).get("edges", []):
-                    var_node = var_edge.get("node", {})
-                    inv_item = var_node.get("inventoryItem", {})
-                    unit_cost_data = inv_item.get("unitCost", {})
-                    cost = float(unit_cost_data.get("amount") or 0)
-
+                    v = var_edge.get("node", {})
                     product["variants"].append({
-                        "id": var_node.get("id"),
-                        "sku": var_node.get("sku"),
-                        "price": float(var_node.get("price") or 0),
-                        "cost": cost,
+                        "id": v.get("id"),
+                        "sku": v.get("sku", ""),
+                        "price": float(v.get("price") or 0),
                     })
                 batch.append(product)
 
             products.extend(batch)
-            print(f"[Fetch] Page {page}: {len(batch)} products (total: {len(products)})")
+            print(f"[Fetch] Page {page}: {len(batch)} products (total so far: {len(products)})")
 
             page_info = data.get("pageInfo", {})
             if not page_info.get("hasNextPage"):
                 break
-
             cursor = page_info.get("endCursor")
             page += 1
+
         except Exception as e:
-            print(f"[Error] Failed to fetch page {page}: {e}")
+            _log.error("[Fetch] Failed on page %d: %s", page, e)
             break
 
     return products
 
 
-def calculate_target_price(cost: float, multiplier: Optional[float] = None, verbose: bool = True) -> float:
+# ---------------------------------------------------------------------------
+# Pricing logic
+# ---------------------------------------------------------------------------
+
+def calculate_target_price(current_price: float) -> float:
     """
-    Calculate target retail price using dynamic multiplier.
+    Add $10 to current MSRP, then snap up to the nearest x4.99 or x9.99.
 
-    Uses AI to suggest optimal multiplier based on product category/cost range,
-    then applies psychology pricing (.99 ending).
-    Falls back to fixed multiplier if AI fails.
+    The rule: valid endings are ...4.99 and ...9.99 (ones digit 4 or 9).
+    We always round UP so we never under-price.
+
+    Examples:
+      $71.99 + $10 = $81.99 -> $84.99
+      $76.99 + $10 = $86.99 -> $89.99
+      $45.00 + $10 = $55.00 -> $59.99  (55.00 is not a valid ending, go up)
+      $34.99 + $10 = $44.99 -> $44.99  (already valid, keep)
+      $14.99 + $10 = $24.99 -> $29.99
     """
-    if cost <= 0:
-        return 0
+    raw = round(current_price + PRICE_MARKUP, 2)
+    base = int(raw)
 
-    multiplier = multiplier or COST_MULTIPLIER_MIN
-    shipping = (SHIPPING_COST_MIN + SHIPPING_COST_MAX) / 2
+    # Collect all valid x4.99 / x9.99 candidates in a tight window above base
+    candidates = []
+    for b in range(base - 1, base + 11):
+        if b % 10 in (4, 9):
+            candidates.append(round(b + 0.99, 2))
 
-    # For low-cost items, use higher multiplier to meet profit target
-    # Items under $20 cost benefit from 2.5x multiplier
-    if cost < 20 and multiplier == COST_MULTIPLIER_MIN:
-        multiplier = COST_MULTIPLIER_MAX
+    # Pick the smallest candidate that is >= raw (round up, never down)
+    above = [c for c in candidates if c >= raw]
+    if above:
+        return above[0]
+    return candidates[-1]
 
-    # Skip AI if no API key is configured to avoid timeout overhead
+
+def is_already_correct(price: float) -> bool:
+    """Return True if price is already a valid x4.99 or x9.99 value."""
+    cents = round(price % 10, 2)
+    return cents in (4.99, 9.99)
+
+
+# ---------------------------------------------------------------------------
+# Price update
+# ---------------------------------------------------------------------------
+
+def update_variant_price(variant_id: str, new_price: float) -> bool:
+    numeric_id = variant_id.split("/")[-1]
     try:
-        import os
-        if os.getenv("OPENROUTER_API_KEY") or os.getenv("GEMINI_API_KEY"):
-            prompt = f"""Given a product cost of ${cost:.2f}, suggest the best price multiplier (2.3-2.5) to maximize sales while maintaining $20+ profit after $8.50 shipping cost.
-
-Only respond with a single decimal number between 2.3 and 2.5, nothing else.
-Example response: 2.4"""
-
-            ai_multiplier = ai_client.generate(prompt, max_tokens=10, temperature=0.3, category="pricing")
-            if ai_multiplier:
-                try:
-                    m = float(ai_multiplier.strip())
-                    if COST_MULTIPLIER_MIN <= m <= COST_MULTIPLIER_MAX:
-                        multiplier = m
-                        if verbose:
-                            print(f"    [Pricing] AI suggested multiplier: {m}")
-                except (ValueError, AttributeError):
-                    if verbose:
-                        print(f"    [Pricing] AI response not parseable: {ai_multiplier}, using default")
-    except Exception:
-        pass
-
-    raw_price = (cost * multiplier) + shipping
-
-    integer_part = int(raw_price)
-    price_99 = integer_part + 0.99
-
-    if price_99 < raw_price:
-        price_99 = (integer_part + 1) + 0.99
-
-    return round(price_99, 2)
-
-
-def should_update_price(product: Dict, new_price: float) -> bool:
-    """Check if price actually needs updating (avoid unnecessary API calls)."""
-    for variant in product.get("variants", []):
-        current = float(variant.get("price", 0))
-        if abs(current - new_price) > 0.01:
-            return True
-    return False
-
-
-def update_variant_prices(product_id: str, variant_id: str, new_price: float) -> bool:
-    """Update a single variant price in Shopify."""
-    try:
-        data = {
-            "variant": {
-                "id": variant_id,
-                "price": new_price,
-            }
-        }
-        _shopify_request("PUT", f"variants/{variant_id}", data)
+        _shopify_request(
+            "PUT",
+            f"variants/{numeric_id}",
+            {"variant": {"id": numeric_id, "price": f"{new_price:.2f}"}},
+        )
+        time.sleep(API_DELAY_SECONDS)
         return True
     except Exception as e:
-        print(f"    ERROR updating variant {variant_id}: {e}")
+        print(f"    ERROR updating variant {numeric_id}: {e}")
         return False
 
 
+def update_product_prices(products: List[Dict], batch_index: int = 0,
+                          batch_size: int = 0,
+                          skip_ids: Optional[set] = None) -> Dict:
+    """
+    Process products list.
 
+    When batch_size > 0, only process the slice [batch_index*batch_size :
+    (batch_index+1)*batch_size] — used by force mode to split work across jobs.
+    """
+    if batch_size > 0:
+        start = batch_index * batch_size
+        end = start + batch_size
+        slice_ = products[start:end]
+        print(f"[Batch] Processing slice [{start}:{end}] — {len(slice_)} of {len(products)} products")
+    else:
+        slice_ = products
 
-def update_product_prices(products: List[Dict]) -> Dict:
-    """Update prices for all products based on calculated multipliers."""
+    skip_ids = skip_ids or set()
+
     stats = {
-        "total": len(products),
+        "mode_total_fetched": len(products),
+        "batch_index": batch_index,
+        "batch_size": batch_size,
+        "total": len(slice_),
         "updated": 0,
         "skipped": 0,
         "errors": 0,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "products": [],
     }
 
-    print(f"\n[PriceUpdate] Processing {len(products)} products...")
-    print(f"\n{'Seq':<5} | {'Product Title':<35} | {'Old Price':<10} | {'New Price':<10} | {'Cost':<8} | {'Profit':<8} | {'Status':<10}")
-    print("-" * 110)
+    col = f"{'#':<5} | {'Product':<36} | {'Old Price':>10} | {'New Price':>10} | Status"
+    print(f"\n{col}")
+    print("-" * len(col))
 
-    for i, product in enumerate(products, 1):
-        product_id = product.get("id")
-        title = product.get("title", "Unknown")[:32]
+    for i, product in enumerate(slice_, 1):
+        title = product.get("title", "Unknown")[:33]
 
         for variant in product.get("variants", []):
-            variant_id = variant.get("id")
+            variant_id = variant.get("id", "")
             sku = variant.get("sku", "N/A")
-            cost = float(variant.get("cost", 0))
             current_price = float(variant.get("price", 0))
 
-            if cost <= 0:
-                status = "NO COST"
-                print(f"{i:<5} | {title:<35} | {'—':<10} | {'—':<10} | {'—':<8} | {'—':<8} | {status:<10}")
+            if current_price <= 0:
+                print(f"{i:<5} | {title:<36} | {'—':>10} | {'—':>10} | NO PRICE")
+                stats["skipped"] += 1
+                stats["products"].append({"sku": sku, "title": title, "status": "skipped_no_price"})
+                continue
+
+            # Skip variants updated in a recent prior run (within 23h)
+            if variant_id in skip_ids:
+                print(f"{i:<5} | {title:<36} | ${current_price:>9.2f} | {'—':>10} | SKIP (recent)")
                 stats["skipped"] += 1
                 stats["products"].append({
-                    "sku": sku,
-                    "title": title,
-                    "old_price": None,
-                    "new_price": None,
-                    "cost": None,
-                    "profit": None,
-                    "status": "skipped_no_cost"
+                    "sku": sku, "title": title, "variant_gid": variant_id,
+                    "old_price": current_price, "status": "skipped_recent_run",
                 })
                 continue
 
-            new_price = calculate_target_price(cost, verbose=False)
-            profit = new_price - cost - (SHIPPING_COST_MAX / 2)
+            new_price = calculate_target_price(current_price)
 
+            # Already correct: current price is already a valid x4.99/x9.99 AND equals new_price
             if abs(current_price - new_price) < 0.01:
-                status = "OPTIMAL"
-                print(f"{i:<5} | {title:<35} | ${current_price:<9.2f} | ${new_price:<9.2f} | ${cost:<7.2f} | ${profit:<7.2f} | {status:<10}")
+                print(f"{i:<5} | {title:<36} | ${current_price:>9.2f} | ${new_price:>9.2f} | ALREADY OK")
                 stats["skipped"] += 1
                 stats["products"].append({
-                    "sku": sku,
-                    "title": title,
-                    "old_price": current_price,
-                    "new_price": new_price,
-                    "cost": cost,
-                    "profit": profit,
-                    "status": "skipped_optimal"
+                    "sku": sku, "title": title, "variant_gid": variant_id,
+                    "old_price": current_price, "new_price": new_price,
+                    "status": "skipped_optimal",
                 })
                 continue
 
-            print(f"{i:<5} | {title:<35} | ${current_price:<9.2f} | ${new_price:<9.2f} | ${cost:<7.2f} | ${profit:<7.2f} | UPDATED   ")
+            success = update_variant_price(variant_id, new_price)
+            label = "UPDATED" if success else "ERROR"
+            print(f"{i:<5} | {title:<36} | ${current_price:>9.2f} | ${new_price:>9.2f} | {label}")
 
-            if update_variant_prices(product_id, variant_id, new_price):
+            entry = {
+                "sku": sku, "title": title, "variant_gid": variant_id,
+                "old_price": current_price, "new_price": new_price,
+                "status": "updated" if success else "error",
+            }
+            if success:
                 stats["updated"] += 1
-                stats["products"].append({
-                    "sku": sku,
-                    "title": title,
-                    "old_price": current_price,
-                    "new_price": new_price,
-                    "cost": cost,
-                    "profit": profit,
-                    "status": "updated"
-                })
             else:
                 stats["errors"] += 1
-                stats["products"].append({
-                    "sku": sku,
-                    "title": title,
-                    "old_price": current_price,
-                    "new_price": new_price,
-                    "cost": cost,
-                    "profit": profit,
-                    "status": "error"
-                })
+            stats["products"].append(entry)
 
-    print("-" * 110)
-    print(f"\n[PriceUpdate] Complete: {stats['updated']} updated, {stats['skipped']} skipped, {stats['errors']} errors")
+    print("-" * len(col))
+    print(f"\n[Done] {stats['updated']} updated, {stats['skipped']} skipped, {stats['errors']} errors")
     return stats
 
 
+# ---------------------------------------------------------------------------
+# Log helpers
+# ---------------------------------------------------------------------------
+
+def load_recently_updated_ids(filepath: str = "price_update_log.json",
+                               within_hours: int = 23) -> set:
+    """
+    Return a set of variant IDs (GID strings) that were successfully updated
+    within the last `within_hours` hours.  Used to skip re-updating on the
+    next daily run that overlaps the same 48-hour product window.
+    """
+    log_path = Path(filepath)
+    if not log_path.exists():
+        return set()
+    try:
+        logs = json.loads(log_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, IOError):
+        return set()
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=within_hours)
+    updated_ids: set = set()
+    for entry in logs:
+        ts_str = entry.get("timestamp", "")
+        try:
+            ts = datetime.fromisoformat(ts_str)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if ts < cutoff:
+            continue
+        for p in entry.get("products", []):
+            if p.get("status") == "updated" and p.get("variant_gid"):
+                updated_ids.add(p["variant_gid"])
+    return updated_ids
+
+
 def save_update_log(stats: Dict, filepath: str = "price_update_log.json"):
-    """Save detailed update statistics to JSON log with product-level info."""
-    log_entry = {
+    log_path = Path(filepath)
+    logs = []
+    if log_path.exists():
+        try:
+            logs = json.loads(log_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, IOError):
+            logs = []
+
+    logs.append({
         "timestamp": stats["timestamp"],
         "summary": {
-            "total_products": stats["total"],
+            "mode_total_fetched": stats.get("mode_total_fetched"),
+            "batch_index": stats.get("batch_index"),
+            "batch_size": stats.get("batch_size"),
+            "total_in_batch": stats["total"],
             "updated": stats["updated"],
             "skipped": stats["skipped"],
             "errors": stats["errors"],
         },
-        "products": stats.get("products", [])
-    }
+        "products": stats.get("products", []),
+    })
 
-    logs = []
-    if Path(filepath).exists():
-        try:
-            logs = json.loads(Path(filepath).read_text())
-        except (json.JSONDecodeError, IOError):
-            logs = []
+    log_path.write_text(json.dumps(logs, indent=2), encoding="utf-8")
+    print(f"[Log] Saved to {filepath}")
 
-    logs.append(log_entry)
-    Path(filepath).write_text(json.dumps(logs, indent=2))
-    print(f"[Log] Saved detailed log to {filepath}")
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def parse_args():
+    p = argparse.ArgumentParser(description="MeeeShop price update engine")
+    p.add_argument(
+        "--mode",
+        choices=["daily", "weekly", "force"],
+        default="daily",
+        help="daily=48h, weekly=7d, force=all products (default: daily)",
+    )
+    p.add_argument(
+        "--batch-size",
+        type=int,
+        default=0,
+        help="For force mode: how many products per batch job (0=no batching)",
+    )
+    p.add_argument(
+        "--batch-index",
+        type=int,
+        default=0,
+        help="For force mode: which batch to process (0-based)",
+    )
+    p.add_argument(
+        "--window",
+        type=int,
+        default=None,
+        metavar="HOURS",
+        help="Override the fetch window in hours (e.g. --window 12 fetches products created in last 12h). "
+             "Only applies to daily/weekly modes. Next daily run will skip these via log.",
+    )
+    return p.parse_args()
 
 
 if __name__ == "__main__":
-    print(f"[MeeeShop] Price Update Engine (LIVE mode)")
-    print(f"Store: {SHOPIFY_STORE}")
-    print(f"Pricing: {COST_MULTIPLIER_MIN}x - {COST_MULTIPLIER_MAX}x cost + ${SHIPPING_COST_MIN}-${SHIPPING_COST_MAX} shipping")
-    print(f"Target profit: ${TARGET_PROFIT} minimum\n")
+    args = parse_args()
+
+    print(f"[MeeeShop] Price Update Engine — MSRP +${PRICE_MARKUP:.2f} -> x4.99/x9.99")
+    print(f"Store  : {SHOPIFY_STORE}")
+    print(f"Mode   : {args.mode}")
+    if args.window is not None:
+        print(f"Window : last {args.window}h (manual override)")
+    if args.batch_size > 0:
+        print(f"Batch  : index={args.batch_index}, size={args.batch_size}")
+    print()
 
     try:
-        print("[Fetch] Retrieving active products from Shopify...")
-        products = get_products(status="active")
-        print(f"[Fetch] Found {len(products)} products")
+        products = get_products(mode=args.mode, window_hours=args.window)
+        print(f"[Fetch] Total products matching filter: {len(products)}\n")
 
-        stats = update_product_prices(products)
+        if not products:
+            print("[Done] No products to process.")
+            sys.exit(0)
+
+        # For daily runs, skip variants already updated in the last 23h so we
+        # don't re-update products that fall in the overlapping 48h window.
+        skip_ids: set = set()
+        if args.mode == "daily":
+            skip_ids = load_recently_updated_ids(within_hours=23)
+            if skip_ids:
+                print(f"[Skip] {len(skip_ids)} variant(s) already updated in last 23h — will skip\n")
+
+        stats = update_product_prices(
+            products,
+            batch_index=args.batch_index,
+            batch_size=args.batch_size,
+            skip_ids=skip_ids,
+        )
         save_update_log(stats)
 
     except KeyboardInterrupt:
-        print("\n[Cancelled] Update interrupted by user")
+        print("\n[Cancelled] Interrupted by user")
         sys.exit(1)
     except Exception as e:
-        print(f"\n[Error] {e}")
+        _log.exception("[Fatal] %s", e)
         sys.exit(1)

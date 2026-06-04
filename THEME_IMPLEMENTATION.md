@@ -64,7 +64,7 @@ Find the closing `</head>` tag and add before it:
   "contactPoint": {
     "@type": "ContactPoint",
     "contactType": "Customer Service",
-    "email": "meeeshop17@gmail.com",
+    "email": "support@meeeshop.com",
     "telephone": "+1-XXX-XXX-XXXX"
   }
 }

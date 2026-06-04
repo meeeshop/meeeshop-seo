@@ -45,7 +45,7 @@ checks = [
     ("article.metafields.json_ld_schema", "Article schema rendering"),
     ('"@type": "Organization"', "Global Organization schema"),
     ('"name": "MeeeShop"', "Store name in Organization"),
-    ('"email": "meeeshop17@gmail.com"', "Contact email"),
+    ('"email": "support@meeeshop.com"', "Contact email"),
 ]
 
 print("COMPONENT CHECKS:")

@@ -55,14 +55,17 @@ SMALL_WORDS = {
     'per','than','over','also','plus','vs','w'
 }
 
+ACRONYMS = {'USA','UK','US','UV','XL','XS','XXL','XXXL','2XL','3XL','NYC','LA','NY','DJ','TV','PC'}
+
 def title_case(text):
     words = text.strip().split()
     if not words:
         return text
     out = []
     for i, w in enumerate(words):
-        if re.match(r'^[A-Z0-9]{3,}$', w):   # keep acronyms
-            out.append(w)
+        upper = w.upper()
+        if upper in ACRONYMS:           # known acronyms stay uppercase
+            out.append(upper)
         elif i == 0 or i == len(words) - 1:
             out.append(w.capitalize())
         elif w.lower() in SMALL_WORDS:
@@ -415,7 +418,7 @@ def create_redirect(old, new):
 # JSON-LD THEME INJECTION  (one-time, idempotent)
 # ══════════════════════════════════════════════════════════════════════════════
 
-JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v2 — auto-generated, do not remove{% endcomment %}
+JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not remove{% endcomment %}
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -423,7 +426,7 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v2 — auto-generated, do not 
     {
       "@type": "Organization",
       "@id": "{{ shop.url }}/#organization",
-      "name": "us.meeeshop",
+      "name": "MeeeShop",
       "url": "{{ shop.url }}",
       "logo": {"@type": "ImageObject", "url": "{{ shop.url }}/cdn/shop/files/logo.png"},
       "description": "Premium women's fashion with free US shipping and 7-day returns",
@@ -433,18 +436,18 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v2 — auto-generated, do not 
     {
       "@type": "LocalBusiness",
       "@id": "{{ shop.url }}/#localbusiness",
-      "name": "us.meeeshop",
+      "name": "MeeeShop",
       "image": "{{ shop.url }}/cdn/shop/files/logo.png",
       "description": "Women's fashion boutique - dresses, tops, bottoms, outerwear, shoes & more",
       "url": "{{ shop.url }}",
-      "priceRange": "$",
+      "priceRange": "$$",
       "areaServed": "US"
     },
     {
       "@type": "WebSite",
       "@id": "{{ shop.url }}/#website",
       "url": "{{ shop.url }}",
-      "name": "us.meeeshop - Women's Fashion Store",
+      "name": "MeeeShop - Women's Fashion Store",
       "publisher": {"@id": "{{ shop.url }}/#organization"},
       "potentialAction": {
         "@type": "SearchAction",
@@ -452,14 +455,14 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v2 — auto-generated, do not 
         "query-input": "required name=search_term_string"
       }
     }
-    {%- if template.name == 'product' -%}
+    {%- if template.name == 'product' and product != blank -%}
     ,{
       "@type": "Product",
       "@id": "{{ shop.url }}/products/{{ product.handle }}",
       "name": {{ product.title | json }},
       "url": "{{ shop.url }}/products/{{ product.handle }}",
       "description": {{ product.description | strip_html | truncate: 500 | json }},
-      "brand": {"@type": "Brand", "name": "us.meeeshop"},
+      "brand": {"@type": "Brand", "name": "MeeeShop"},
       "image": [{% for img in product.images %}"{{ img | image_url: width: 1200 }}"{% unless forloop.last %},{% endunless %}{% endfor %}],
       "offers": {
         "@type": "AggregateOffer",
@@ -467,28 +470,28 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v2 — auto-generated, do not 
         "lowPrice": "{{ product.price_min | money_without_currency | remove: ',' }}",
         "highPrice": "{{ product.price_max | money_without_currency | remove: ',' }}",
         "offerCount": {{ product.variants.size }},
+        "availability": "https://schema.org/{% if product.available %}InStock{% else %}OutOfStock{% endif %}",
         "offers": [
           {%- for v in product.variants -%}
           {
             "@type": "Offer",
             "name": {{ v.title | json }},
-            "sku": {{ v.sku | json }},
+            "sku": {{ v.sku | default: "" | json }},
             "price": "{{ v.price | money_without_currency | remove: ',' }}",
             "priceCurrency": "USD",
             "availability": "https://schema.org/{% if v.available %}InStock{% else %}OutOfStock{% endif %}",
             "url": "{{ shop.url }}/products/{{ product.handle }}?variant={{ v.id }}",
-            "seller": {"@type": "Organization", "name": "us.meeeshop"}
+            "seller": {"@type": "Organization", "name": "MeeeShop"}
           }{%- unless forloop.last -%},{%- endunless -%}
           {%- endfor -%}
         ]
-      },
-      "aggregateRating": {"@type": "AggregateRating", "ratingValue": "4.8", "ratingCount": 100}
+      }
     }
     ,{
       "@type": "BreadcrumbList",
       "itemListElement": [
         {"@type": "ListItem", "position": 1, "name": "Home", "item": "{{ shop.url }}"},
-        {%- if collection -%}
+        {%- if collection != blank -%}
         {"@type": "ListItem", "position": 2, "name": {{ collection.title | json }}, "item": "{{ shop.url }}/collections/{{ collection.handle }}"},
         {"@type": "ListItem", "position": 3, "name": {{ product.title | json }}, "item": "{{ shop.url }}/products/{{ product.handle }}"}
         {%- else -%}
@@ -497,14 +500,38 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v2 — auto-generated, do not 
       ]
     }
     {%- endif -%}
-    {%- if template.name == 'collection' -%}
+    {%- if template.name == 'collection' and collection != blank -%}
     ,{
       "@type": "CollectionPage",
       "name": {{ collection.title | json }},
       "url": "{{ shop.url }}/collections/{{ collection.handle }}",
-      "description": {{ collection.description | strip_html | json }},
+      "description": {{ collection.description | strip_html | default: collection.title | json }},
       "publisher": {"@id": "{{ shop.url }}/#organization"},
-      "mainEntity": {"@type": "ItemList", "itemListElement": [{% for p in collection.products limit: 12 %}{"@type": "Product", "name": {{ p.title | json }}, "url": "{{ shop.url }}/products/{{ p.handle }}"}{% unless forloop.last %},{% endunless %}{% endfor %}]}
+      "mainEntity": {
+        "@type": "ItemList",
+        "itemListElement": [
+          {%- for p in collection.products limit: 12 -%}
+          {
+            "@type": "ListItem",
+            "position": {{ forloop.index }},
+            "item": {
+              "@type": "Product",
+              "name": {{ p.title | json }},
+              "url": "{{ shop.url }}/products/{{ p.handle }}",
+              "image": "{{ p.featured_image | image_url: width: 800 }}",
+              "offers": {
+                "@type": "AggregateOffer",
+                "priceCurrency": "USD",
+                "lowPrice": "{{ p.price_min | money_without_currency | remove: ',' }}",
+                "highPrice": "{{ p.price_max | money_without_currency | remove: ',' }}",
+                "offerCount": {{ p.variants.size }},
+                "availability": "https://schema.org/{% if p.available %}InStock{% else %}OutOfStock{% endif %}"
+              }
+            }
+          }{%- unless forloop.last -%},{%- endunless -%}
+          {%- endfor -%}
+        ]
+      }
     }
     ,{
       "@type": "BreadcrumbList",
@@ -514,12 +541,41 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v2 — auto-generated, do not 
       ]
     }
     {%- endif -%}
+    {%- if template.name == 'article' and article != blank -%}
+    ,{
+      "@type": "BlogPosting",
+      "@id": "{{ shop.url }}{{ article.url }}",
+      "headline": {{ article.title | json }},
+      "description": {{ article.excerpt | default: article.title | strip_html | truncate: 160 | json }},
+      "url": "{{ shop.url }}{{ article.url }}",
+      "datePublished": "{{ article.published_at | date: '%Y-%m-%dT%H:%M:%SZ' }}",
+      "dateModified": "{{ article.updated_at | date: '%Y-%m-%dT%H:%M:%SZ' }}",
+      {%- if article.image != blank -%}
+      "image": "{{ article.image | image_url: width: 1200 }}",
+      {%- endif -%}
+      "author": {"@type": "Person", "name": {{ article.author | json }}},
+      "publisher": {
+        "@type": "Organization",
+        "name": "MeeeShop",
+        "logo": {"@type": "ImageObject", "url": "{{ shop.url }}/cdn/shop/files/logo.png"}
+      },
+      "isPartOf": {"@id": "{{ shop.url }}/#website"}
+    }
+    ,{
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {"@type": "ListItem", "position": 1, "name": "Home", "item": "{{ shop.url }}"},
+        {"@type": "ListItem", "position": 2, "name": {{ blog.title | json }}, "item": "{{ shop.url }}/blogs/{{ blog.handle }}"},
+        {"@type": "ListItem", "position": 3, "name": {{ article.title | json }}, "item": "{{ shop.url }}{{ article.url }}"}
+      ]
+    }
+    {%- endif -%}
     {%- if template.name == 'index' -%}
     ,{
       "@type": "WebPage",
       "@id": "{{ shop.url }}/#homepage",
       "url": "{{ shop.url }}",
-      "name": "us.meeeshop - Women's Fashion",
+      "name": "MeeeShop - Women's Fashion",
       "isPartOf": {"@id": "{{ shop.url }}/#website"},
       "about": {"@id": "{{ shop.url }}/#organization"}
     }
@@ -811,12 +867,14 @@ def process(product, stats, log, existing_mfs=None, force=False):
 
 def main():
     ap = argparse.ArgumentParser(description='SEO automation: daily/weekly/force modes')
-    ap.add_argument('--daily',      action='store_true', help='Daily mode: last 48hrs (default)')
-    ap.add_argument('--weekly',     action='store_true', help='Weekly mode: last 7 days, skip recent')
-    ap.add_argument('--force',      action='store_true', help='Force mode: entire catalog, normalize all')
-    ap.add_argument('--hours',      type=int, default=0,  help='Custom lookback (overrides mode)')
-    ap.add_argument('--limit',      type=int, default=0,  help='Max products (0=all)')
-    ap.add_argument('--skip-jsonld',action='store_true', help='Skip JSON-LD injection')
+    ap.add_argument('--daily',       action='store_true', help='Daily mode: last 48hrs (default)')
+    ap.add_argument('--weekly',      action='store_true', help='Weekly mode: last 7 days, skip recent')
+    ap.add_argument('--force',       action='store_true', help='Force mode: entire catalog, normalize all')
+    ap.add_argument('--hours',       type=int, default=0,  help='Custom lookback (overrides mode)')
+    ap.add_argument('--limit',       type=int, default=0,  help='Max products (0=all, non-force only)')
+    ap.add_argument('--batch-size',  type=int, default=0,  help='For force mode: products per batch job (0=no batching)')
+    ap.add_argument('--batch-index', type=int, default=0,  help='For force mode: which batch to process (0-based)')
+    ap.add_argument('--skip-jsonld', action='store_true', help='Skip JSON-LD injection')
     args = ap.parse_args()
 
     print("=== MeeeShop SEO Automation v2.0 ===\n")
@@ -826,6 +884,8 @@ def main():
         mode = 'force'
         since = None
         print("Mode: FORCE (entire catalog, normalize all SEO fields)")
+        if args.batch_size > 0:
+            print(f"Batch: index={args.batch_index}, size={args.batch_size} (products only; pages/collections/articles always fully processed)")
         print("Processing: Products, Pages, Collections, Blog Posts\n")
     elif args.weekly:
         mode = 'weekly'
@@ -861,7 +921,13 @@ def main():
     # Articles: published_at_min — new blog posts published since cutoff
     print("Fetching products...")
     products = fetch_products(since)
-    if args.limit:
+    total_fetched = len(products)
+    if mode == 'force' and args.batch_size > 0:
+        start = args.batch_index * args.batch_size
+        end   = start + args.batch_size
+        products = products[start:end]
+        print(f"  Fetched {total_fetched} products total; processing batch {args.batch_index} [{start}:{end}] = {len(products)} products")
+    elif args.limit:
         products = products[:args.limit]
     print(f"  Found {len(products)} products\n")
 
@@ -1094,11 +1160,14 @@ def main():
 
     report = {
         **stats,
-        "run_at":   datetime.now(timezone.utc).isoformat(),
-        "mode":     mode,
+        "run_at":      datetime.now(timezone.utc).isoformat(),
+        "mode":        mode,
+        "batch_index": args.batch_index if mode == 'force' else None,
+        "batch_size":  args.batch_size  if mode == 'force' else None,
         "products_fixed": log,
     }
-    fname = f"seo_report_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
+    batch_suffix = f"_b{args.batch_index}" if (mode == 'force' and args.batch_size > 0) else ""
+    fname = f"seo_report_{datetime.now().strftime('%Y%m%d_%H%M')}{batch_suffix}.json"
     with open(fname, 'w') as f:
         json.dump(report, f, indent=2)
     print(f"\nFull report saved: {fname}")
