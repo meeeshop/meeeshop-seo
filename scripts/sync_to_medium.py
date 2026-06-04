@@ -124,7 +124,7 @@ def get_medium_user_id() -> str:
         sys.exit(f"ERROR: Invalid Medium Token. Response: {r.text}")
     return r.json()["data"]["id"]
 
-def publish_to_medium(user_id: str, title: str, content: str, canonical_url: str, tags: list, collection_links: list, dry_run: bool) -> bool:
+def publish_to_medium(user_id: str, title: str, content: str, canonical_url: str, tags: list, collection_links: list, dry_run: bool):
     """Publish the article to Medium."""
     # Medium has a max limit of 5 tags
     tags = tags[:5]
@@ -160,8 +160,8 @@ def publish_to_medium(user_id: str, title: str, content: str, canonical_url: str
     elif r.status_code == 429:
         print(f"  [FAILED] Medium API Rate Limit (429). Response: {r.text}")
         print(f"           Medium caps publishing at ~10 posts/day [1].")
-        print(f"           Halting execution to prevent API ban. Please resume tomorrow.")
-        sys.exit(1)
+        print(f"           Stopping today's run gracefully. Please resume tomorrow.")
+        return "RATE_LIMIT"
     else:
         print(f"  [FAILED] Medium API Error ({r.status_code}): {r.text}")
         return False
@@ -205,6 +205,10 @@ def run(days: int, limit: int, force: bool, dry_run: bool):
         print(f"[{i}/{len(articles)}] Syndicating: '{title}'")
         success = publish_to_medium(user_id, title, body, canonical_url, medium_tags, collection_links, dry_run)
         
+        if success == "RATE_LIMIT":
+            print("\n🚨 Account rate-limited by Medium. Stopping gracefully so GitHub Action succeeds.")
+            break
+            
         if success and not dry_run:
             mark_as_synced(blog_id, article_id, raw_tags)
             
