@@ -79,6 +79,9 @@ jobs:
 
       - name: Run Page Speed Analysis
         id: speed
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           echo "Analyzing page speed..."
           python page_speed_optimizer.py
