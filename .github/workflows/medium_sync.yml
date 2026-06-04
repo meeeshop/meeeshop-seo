@@ -1,0 +1,54 @@
+name: Medium Blog Syndication
+
+on:
+  schedule:
+    # Runs daily at 12:00 UTC (Adjust to run shortly after your blog generation)
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Days to look back'
+        required: false
+        default: '7'
+      limit:
+        description: 'Max articles to push (Medium daily API limit is 10)'
+        required: false
+        default: '10'
+      force:
+        description: 'Force push ALL available articles'
+        type: boolean
+        required: false
+        default: false
+      dry_run:
+        description: 'Dry run (Print plan, do NOT post)'
+        type: boolean
+        required: false
+        default: true
+
+jobs:
+  sync_to_medium:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install requests cryptography
+
+      - name: Run Medium Syndication
+        env:
+          # Pass your GitHub repository secrets into the environment so secrets_manager.py can use them
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          FLAGS="--days ${{ github.event.inputs.days || '7' }} --limit ${{ github.event.inputs.limit || '10' }}"
+          if [ "${{ github.event.inputs.force }}" == "true" ]; then FLAGS="$FLAGS --force"; fi
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then FLAGS="$FLAGS --dry-run"; fi
+          
+          python scripts/sync_to_medium.py $FLAGS
