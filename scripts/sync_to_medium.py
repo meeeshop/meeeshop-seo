@@ -51,7 +51,7 @@ if not SHOP_TOKEN or not MEDIUM_TOKEN:
 
 # ── Shopify Helpers ───────────────────────────────────────────────────────────
 def fetch_articles(days: int, limit: int, force: bool) -> list:
-    """Fetch articles from Shopify."""
+    """Fetch articles from all Shopify blogs."""
     print(f"Fetching Shopify blogs...")
     r = requests.get(f"{SHOP_BASE}/blogs.json", headers=SHOP_HEADERS)
     r.raise_for_status()
@@ -61,23 +61,60 @@ def fetch_articles(days: int, limit: int, force: bool) -> list:
         print("No blogs found on Shopify.")
         return []
         
-    blog_id = blogs[0]["id"]
-    blog_handle = blogs[0]["handle"]
+    all_articles = []
     
-    params = {"limit": limit}
-    if not force:
-        cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        params["published_at_min"] = cutoff_date
-    
-    r = requests.get(f"{SHOP_BASE}/blogs/{blog_id}/articles.json", headers=SHOP_HEADERS, params=params)
-    r.raise_for_status()
-    
-    articles = r.json().get("articles", [])
-    # Attach the blog handle to construct the full canonical URL later
-    for art in articles:
-        art["_full_url"] = f"{STORE_URL}/blogs/{blog_handle}/{art['handle']}"
+    for blog in blogs:
+        blog_id = blog["id"]
+        blog_handle = blog["handle"]
         
-    return articles
+        params = {"limit": 250}
+        if not force:
+            cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+            params["published_at_min"] = cutoff_date
+        
+        r = requests.get(f"{SHOP_BASE}/blogs/{blog_id}/articles.json", headers=SHOP_HEADERS, params=params)
+        r.raise_for_status()
+        
+        articles = r.json().get("articles", [])
+        for art in articles:
+            art["_full_url"] = f"{STORE_URL}/blogs/{blog_handle}/{art['handle']}"
+            art["_blog_id"] = blog_id
+            all_articles.append(art)
+            
+    # Sort newest first
+    all_articles.sort(key=lambda x: x.get("published_at", ""), reverse=True)
+    
+    # Filter out already synced
+    pending = []
+    for art in all_articles:
+        tags = [t.strip() for t in (art.get("tags") or "").split(",") if t.strip()]
+        if "medium_synced" not in tags:
+            pending.append(art)
+            
+    return pending[:limit]
+
+def mark_as_synced(blog_id: int, article_id: int, existing_tags: str):
+    """Add 'medium_synced' tag to Shopify article to prevent duplicate posting."""
+    tags = [t.strip() for t in (existing_tags or "").split(",") if t.strip()]
+    if "medium_synced" not in tags:
+        tags.append("medium_synced")
+        payload = {"article": {"id": article_id, "tags": ", ".join(tags)}}
+        r = requests.put(f"{SHOP_BASE}/blogs/{blog_id}/articles/{article_id}.json", headers=SHOP_HEADERS, json=payload)
+        if not r.ok:
+            print(f"    [WARN] Failed to tag Shopify article as synced: {r.text}")
+
+def fetch_sample_collections(limit=5) -> list:
+    """Fetch a few store collections to link in the footer."""
+    try:
+        r = requests.get(f"{SHOP_BASE}/custom_collections.json", headers=SHOP_HEADERS, params={"limit": limit})
+        if r.ok and r.json().get("custom_collections"):
+            return r.json()["custom_collections"]
+        r = requests.get(f"{SHOP_BASE}/smart_collections.json", headers=SHOP_HEADERS, params={"limit": limit})
+        if r.ok and r.json().get("smart_collections"):
+            return r.json()["smart_collections"]
+    except Exception as e:
+        print(f"    [WARN] Could not fetch collections for footer: {e}")
+    return []
 
 # ── Medium Helpers ────────────────────────────────────────────────────────────
 def get_medium_user_id() -> str:
@@ -87,13 +124,17 @@ def get_medium_user_id() -> str:
         sys.exit(f"ERROR: Invalid Medium Token. Response: {r.text}")
     return r.json()["data"]["id"]
 
-def publish_to_medium(user_id: str, title: str, content: str, canonical_url: str, tags: list, dry_run: bool) -> bool:
+def publish_to_medium(user_id: str, title: str, content: str, canonical_url: str, tags: list, collection_links: list, dry_run: bool) -> bool:
     """Publish the article to Medium."""
     # Medium has a max limit of 5 tags
     tags = tags[:5]
     
     # Append a small footer linking back to the store for extra CTR
     footer = f"<hr><p><em>This article originally appeared on <a href='{canonical_url}'>MeeeShop</a>, your destination for premium women's fashion in the USA.</em></p>"
+    
+    if collection_links:
+        footer += f"<p><strong>Explore Our Collections:</strong> {' &bull; '.join(collection_links)}</p>"
+
     full_content = content + footer
 
     payload = {
@@ -134,6 +175,13 @@ def run(days: int, limit: int, force: bool, dry_run: bool):
     print(f"{'='*60}\n")
 
     user_id = get_medium_user_id()
+    
+    collections_data = fetch_sample_collections(5)
+    collection_links = [
+        f"<a href='{STORE_URL}/collections/{c['handle']}'>{c['title']}</a>" 
+        for c in collections_data if c.get("handle")
+    ]
+
     articles = fetch_articles(days, limit, force)
     
     if not articles:
@@ -155,7 +203,7 @@ def run(days: int, limit: int, force: bool, dry_run: bool):
         medium_tags = list(dict.fromkeys(existing_tags + ["Womens Fashion", "Style", "Fashion", "Boutique"]))
         
         print(f"[{i}/{len(articles)}] Syndicating: '{title}'")
-        success = publish_to_medium(user_id, title, body, canonical_url, medium_tags, dry_run)
+        success = publish_to_medium(user_id, title, body, canonical_url, medium_tags, collection_links, dry_run)
         
         if success and not dry_run:
             mark_as_synced(blog_id, article_id, raw_tags)
