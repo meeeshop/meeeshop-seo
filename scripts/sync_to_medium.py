@@ -87,7 +87,7 @@ def get_medium_user_id() -> str:
         sys.exit(f"ERROR: Invalid Medium Token. Response: {r.text}")
     return r.json()["data"]["id"]
 
-def publish_to_medium(user_id: str, title: str, content: str, canonical_url: str, tags: list, dry_run: bool):
+def publish_to_medium(user_id: str, title: str, content: str, canonical_url: str, tags: list, dry_run: bool) -> bool:
     """Publish the article to Medium."""
     # Medium has a max limit of 5 tags
     tags = tags[:5]
@@ -109,18 +109,21 @@ def publish_to_medium(user_id: str, title: str, content: str, canonical_url: str
         print(f"  [DRY-RUN] Would post to Medium: '{title}'")
         print(f"  [DRY-RUN] Tags: {tags}")
         print(f"  [DRY-RUN] Canonical URL: {canonical_url}\n")
-        return
+        return True
         
     r = requests.post(f"{MEDIUM_API}/users/{user_id}/posts", headers=MEDIUM_HEADERS, json=payload)
     if r.status_code in (200, 201):
         medium_url = r.json()["data"]["url"]
         print(f"  [SUCCESS] Published to Medium: {medium_url}")
+        return True
     elif r.status_code == 429:
-        print(f"  [FAILED] Medium API Rate Limit (429). Medium caps publishing at ~10 posts/day [1].")
+        print(f"  [FAILED] Medium API Rate Limit (429). Response: {r.text}")
+        print(f"           Medium caps publishing at ~10 posts/day [1].")
         print(f"           Halting execution to prevent API ban. Please resume tomorrow.")
         sys.exit(1)
     else:
         print(f"  [FAILED] Medium API Error ({r.status_code}): {r.text}")
+        return False
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def run(days: int, limit: int, force: bool, dry_run: bool):
@@ -134,22 +137,29 @@ def run(days: int, limit: int, force: bool, dry_run: bool):
     articles = fetch_articles(days, limit, force)
     
     if not articles:
-        print(f"No articles found matching criteria.")
+        print(f"No unsynced articles found matching criteria.")
         return
         
-    print(f"Found {len(articles)} article(s). Syndicating to Medium...\n")
+    print(f"Found {len(articles)} unsynced article(s). Syndicating to Medium...\n")
     
     for i, art in enumerate(articles, 1):
         title = art.get("title")
         body = art.get("body_html")
         canonical_url = art.get("_full_url")
+        blog_id = art.get("_blog_id")
+        article_id = art.get("id")
+        raw_tags = art.get("tags") or ""
         
         # Grab tags from Shopify and add targeted audience tags
-        existing_tags = [t.strip() for t in (art.get("tags") or "").split(",") if t.strip()]
+        existing_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
         medium_tags = list(dict.fromkeys(existing_tags + ["Womens Fashion", "Style", "Fashion", "Boutique"]))
         
         print(f"[{i}/{len(articles)}] Syndicating: '{title}'")
-        publish_to_medium(user_id, title, body, canonical_url, medium_tags, dry_run)
+        success = publish_to_medium(user_id, title, body, canonical_url, medium_tags, dry_run)
+        
+        if success and not dry_run:
+            mark_as_synced(blog_id, article_id, raw_tags)
+            
         time.sleep(2) # Prevent Medium API rate limits
 
 if __name__ == "__main__":
