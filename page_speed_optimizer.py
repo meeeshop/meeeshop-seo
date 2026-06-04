@@ -322,6 +322,103 @@ def generate_optimized_product_liquid() -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# AUTOMATED THEME OPTIMIZATION
+# ══════════════════════════════════════════════════════════════════════════════
+
+def apply_theme_optimizations() -> List[str]:
+    """Applies automated speed optimizations to the active Shopify theme."""
+    logger.info("=" * 60)
+    logger.info("APPLYING AUTOMATED SPEED OPTIMIZATIONS")
+    logger.info("=" * 60)
+    
+    try:
+        # 1. Get active theme ID
+        response = requests.get(f"{BASE}/themes.json", headers=HEADS)
+        response.raise_for_status()
+        theme_id = None
+        for theme in response.json().get("themes", []):
+            if theme.get("role") == "main":
+                theme_id = theme.get("id")
+                break
+                
+        if not theme_id:
+            logger.error("Active theme not found.")
+            return []
+
+        # 2. Get layout/theme.liquid
+        url = f"{BASE}/themes/{theme_id}/assets.json?asset[key]=layout/theme.liquid"
+        response = requests.get(url, headers=HEADS)
+        if response.status_code != 200:
+            logger.error("layout/theme.liquid not found or accessible.")
+            return []
+            
+        theme_liquid = response.json().get("asset", {}).get("value")
+        if not theme_liquid:
+            logger.error("layout/theme.liquid content is empty.")
+            return []
+            
+        # 3. Create backup
+        logger.info("Creating backup of theme.liquid as layout/theme.liquid.backup...")
+        backup_payload = {
+            "asset": {
+                "key": "layout/theme.liquid.backup",
+                "value": theme_liquid
+            }
+        }
+        requests.put(f"{BASE}/themes/{theme_id}/assets.json", headers=HEADS, json=backup_payload)
+        
+        # 4. Apply Optimizations
+        original_html = theme_liquid
+        optimized_html = original_html
+        changes_made = []
+
+        # Optimization A: Defer scripts
+        script_pattern = re.compile(r'<script\s+(?![^>]*?(?:defer|async))([^>]*?src=["\'][^"\']+["\'][^>]*?)>', re.IGNORECASE)
+        def defer_script(match):
+            return f'<script defer {match.group(1)}>'
+        
+        new_html, script_count = script_pattern.subn(defer_script, optimized_html)
+        if script_count > 0:
+            optimized_html = new_html
+            changes_made.append(f"Added 'defer' attribute to {script_count} <script> tags.")
+
+        # Optimization B: Inject Preconnects
+        preconnects = "\n  <!-- Automated Speed Optimizations -->\n  <link rel=\"preconnect\" href=\"https://cdn.shopify.com\" crossorigin>\n  <link rel=\"preconnect\" href=\"https://fonts.shopifycdn.com\" crossorigin>\n"
+        if "https://cdn.shopify.com" not in optimized_html and "<head>" in optimized_html:
+            optimized_html = optimized_html.replace("<head>", f"<head>{preconnects}", 1)
+            changes_made.append("Injected resource preconnects for Shopify CDN in <head>.")
+
+        # Optimization C: Font display swap
+        font_css = "\n  <style>\n    /* Force font-display: swap to prevent FOIT */\n    @font-face { font-display: swap; }\n  </style>\n"
+        if "font-display: swap" not in optimized_html and "</head>" in optimized_html:
+            optimized_html = optimized_html.replace("</head>", f"{font_css}</head>", 1)
+            changes_made.append("Injected CSS for font-display: swap.")
+            
+        if not changes_made:
+            logger.info("No new optimizations were necessary. Theme is already optimized.")
+            return []
+            
+        # 5. Save optimized theme
+        update_payload = {
+            "asset": {
+                "key": "layout/theme.liquid",
+                "value": optimized_html
+            }
+        }
+        update_response = requests.put(f"{BASE}/themes/{theme_id}/assets.json", headers=HEADS, json=update_payload)
+        update_response.raise_for_status()
+        
+        logger.info("✅ Optimizations successfully applied to layout/theme.liquid!")
+        for change in changes_made:
+            logger.info(f"  - {change}")
+            
+        return changes_made
+            
+    except Exception as e:
+        logger.error(f"Failed to apply optimizations: {str(e)}")
+        return []
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MAIN OPTIMIZATION REPORT
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -395,7 +492,11 @@ def generate_optimization_report() -> Dict:
 
 
 if __name__ == "__main__":
+    # Apply optimizations first
+    applied_changes = apply_theme_optimizations()
+
     report = generate_optimization_report()
+    report["applied_optimizations"] = applied_changes
 
     # Print summary
     print("\n" + "=" * 80)
@@ -412,6 +513,12 @@ if __name__ == "__main__":
         print(f"   Estimated Savings: {action['estimated_savings']}")
         print(f"   Effort Level:      {action['effort']}")
         print(f"   Implementation:    {action['implementation']}")
+
+    if applied_changes:
+        print("\n" + "-" * 80)
+        print("✅ AUTOMATED OPTIMIZATIONS APPLIED:")
+        for change in applied_changes:
+            print(f"  - {change}")
 
     # Save report
     report_file = f"speed_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
