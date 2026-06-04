@@ -510,7 +510,8 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not 
       "mainEntity": {
         "@type": "ItemList",
         "itemListElement": [
-          {%- for p in collection.products limit: 12 -%}
+          {%- paginate collection.products by 250 -%}
+          {%- for p in collection.products -%}
           {
             "@type": "ListItem",
             "position": {{ forloop.index }},
@@ -530,6 +531,7 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not 
             }
           }{%- unless forloop.last -%},{%- endunless -%}
           {%- endfor -%}
+          {%- endpaginate -%}
         ]
       }
     }
