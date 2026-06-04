@@ -47,7 +47,7 @@ def clean_html(raw_html):
 def fetch_all_active_products():
     """Fetches all active products from Shopify handling pagination via Link headers."""
     products = []
-    url = f"https://{STORE_DOMAIN}/admin/api/{API_VER}/products.json?limit=250&status=active"
+    url = f"https://{STORE_DOMAIN}/admin/api/{API_VER}/products.json?limit=250&status=active&published_status=published"
     
     print(f"Fetching active products from {STORE_DOMAIN}...")
     while url:
@@ -372,13 +372,17 @@ def generate_feed():
         "id", "title", "description", "link", "image_link", "additional_image_link",
         "availability", "price", "condition", "brand", "gtin", "mpn",
         "google_product_category", "item_group_id", "gender", "age_group",
-        "color", "size", "custom_label_0", "custom_label_1", "excluded_destination",
+        "color", "size", "custom_label_0", "custom_label_1", "included_destination",
         "shipping"     # Corrected: Only 'shipping' is here now
     ]
     
     rows = []
     
     for product in products:
+        # Skip products that aren't actually published to the online store
+        if not product.get("published_at"):
+            continue
+
         # Extract Images
         images = product.get("images", [])
         main_image = images[0].get("src") if images else ""
@@ -416,7 +420,12 @@ def generate_feed():
             
             # Matches Shopify's definition of "available" (not tracking inventory, backorders allowed, or qty > 0)
             is_available = not management or policy == "continue" or qty > 0
-            availability = "in_stock" if is_available else "out_of_stock"
+            
+            # Skip out of stock items to only show approved/available inventory
+            if not is_available:
+                continue
+                
+            availability = "in_stock"
             
             # Price mapping
             price = f"{variant.get('price')} USD"
@@ -461,7 +470,7 @@ def generate_feed():
                 "size": size,
                 "custom_label_0": product_type,
                 "custom_label_1": first_tag,
-                "excluded_destination": "local_inventory_ads,free_local_listings",
+                "included_destination": "Shopping_ads,Free_listings",
                 "shipping": "US:::0.00 USD" # Default shipping for US, 0.00 price
             })
             
