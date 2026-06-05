@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-#!/usr/bin/env python3
 """
 sync_to_flipboard.py — Automate flipping Shopify blogs to Flipboard
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Uses Playwright browser automation to log into Flipboard and "flip"
+Uses Selenium browser automation to log into Flipboard and "flip"
 newly published Shopify articles into a specific Flipboard magazine.
 
 Flipboard acts as a directory — it links directly to your Shopify store,
@@ -18,6 +17,7 @@ Usage:
 
 import logging
 import os
+import json
 import sys
 import time
 import argparse
@@ -26,14 +26,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 try:
-    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+    from selenium import webdriver
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.chrome.options import Options
+    from webdriver_manager.chrome import ChromeDriverManager
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.common.exceptions import TimeoutException
 except ImportError:
-    sys.exit("Playwright not installed. Please run: pip install playwright && playwright install chromium")
-
-try:
-    from playwright_stealth import stealth_sync
-except ImportError:
-    stealth_sync = None
+    sys.exit("Selenium not installed. Please run: pip install selenium webdriver-manager")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
@@ -53,11 +55,51 @@ STORE_URL = get_secret("STORE_BASE_URL") or "https://us.meeeshop.com"
 
 FLIPBOARD_EMAIL = get_secret("FLIPBOARD_EMAIL")
 FLIPBOARD_PASSWORD = get_secret("FLIPBOARD_PASSWORD")
-FLIPBOARD_MAGAZINE = get_secret("FLIPBOARD_MAGAZINE") or "MeeeShop Style Guide" # Fallback name
+try:
+    FLIPBOARD_MAGAZINE = get_secret("FLIPBOARD_MAGAZINE")
+    if FLIPBOARD_MAGAZINE == "MeeeShop Style Guide":
+        FLIPBOARD_MAGAZINE = "Trending Clothing Tips & Styles For Women"
+except KeyError:
+    FLIPBOARD_MAGAZINE = "Trending Clothing Tips & Styles For Women"
 
 API_VER = "2024-10"
 SHOP_BASE = f"https://{SHOP}/admin/api/{API_VER}"
 SHOP_HEADERS = {"X-Shopify-Access-Token": SHOP_TOKEN, "Content-Type": "application/json"}
+
+# ── routing ───────────────────────────────────────────────────────────────────
+MAGAZINE_ROUTING = {
+    "dress": "Women's Dresses",
+    "skirt": "Women's Dresses",
+    "jean": "Women's Jeans & Bottoms",
+    "denim": "Women's Jeans & Bottoms",
+    "pant": "Women's Jeans & Bottoms",
+    "trouser": "Women's Jeans & Bottoms",
+    "bottom": "Women's Jeans & Bottoms",
+    "legging": "Women's Jeans & Bottoms",
+    "short": "Women's Jeans & Bottoms",
+    "plus": "Curvy | Plus Size Styles & Tips",
+    "curvy": "Curvy | Plus Size Styles & Tips",
+    "bag": "Handbags",
+    "handbag": "Handbags",
+    "purse": "Handbags",
+    "shoe": "Women's footwear",
+    "boot": "Women's footwear",
+    "sandal": "Women's footwear",
+    "sneaker": "Women's footwear",
+    "vegan": "Veganism | Eco-Friendly & Sustainable",
+    "eco": "Veganism | Eco-Friendly & Sustainable",
+    "sustainable": "Veganism | Eco-Friendly & Sustainable",
+    "top": "Trending Clothing Tips & Styles For Women",
+    "blouse": "Trending Clothing Tips & Styles For Women",
+    "shirt": "Trending Clothing Tips & Styles For Women",
+    "sweater": "Trending Clothing Tips & Styles For Women",
+    "cardigan": "Trending Clothing Tips & Styles For Women",
+    "jacket": "Trending Clothing Tips & Styles For Women",
+    "coat": "Trending Clothing Tips & Styles For Women",
+    "outerwear": "Trending Clothing Tips & Styles For Women",
+    "activewear": "Trending Clothing Tips & Styles For Women",
+    "swimwear": "Trending Clothing Tips & Styles For Women"
+}
 
 if not all([SHOP_TOKEN, FLIPBOARD_EMAIL, FLIPBOARD_PASSWORD, SHOP]):
     logging.error("Missing one or more required secrets: SHOPIFY_STORE, SHOPIFY_ACCESS_TOKEN, FLIPBOARD_EMAIL, FLIPBOARD_PASSWORD")
@@ -112,87 +154,126 @@ def mark_as_synced(blog_id: int, article_id: int, existing_tags: str):
             logging.warning(f"Failed to tag Shopify article as synced: {r.text}")
 
 # ── Flipboard Automation ──────────────────────────────────────────────────────
-def perform_login(page):
+def get_browser(headless=True):
+    """Create a selenium webdriver mimicking a real browser."""
+    options = Options()
+    if headless:
+        options.add_argument("--headless=new")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    options.add_argument("--window-size=1920,1080")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+    
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=options)
+    
+    # Override navigator.webdriver flag
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+        "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    })
+    return driver
+
+def load_session_cookies(driver):
+    if FLIPBOARD_SESSION:
+        try:
+            driver.get("https://flipboard.com/404")
+            time.sleep(1)
+            cookies = json.loads(FLIPBOARD_SESSION)
+            for cookie in cookies:
+                if 'sameSite' in cookie and cookie['sameSite'] not in ['Strict', 'Lax', 'None']:
+                    del cookie['sameSite']
+                if 'expiry' in cookie:
+                    cookie['expiry'] = int(cookie['expiry'])
+                driver.add_cookie(cookie)
+            logging.info("Injected saved session cookies.")
+        except Exception as e:
+            logging.error(f"Failed to load FLIPBOARD_SESSION JSON: {e}")
+
+def perform_login(driver):
     """Helper to log into Flipboard using human-like interaction to bypass Captchas."""
     logging.info("Navigating to Flipboard sign-in page...")
-    page.goto("https://flipboard.com/signin", wait_until="domcontentloaded")
-    page.wait_for_timeout(3000) # Let bot protection settle
+    driver.get("https://flipboard.com/signin")
+    time.sleep(3) # Let bot protection settle
     
     logging.info("Entering credentials like a human...")
-    email_loc = page.locator('input[name="username"], input[type="email"]').first
+    email_loc = driver.find_element(By.CSS_SELECTOR, 'input[name="username"], input[type="email"]')
     email_loc.click()
-    page.wait_for_timeout(500)
-    email_loc.press_sequentially(FLIPBOARD_EMAIL, delay=100)
+    time.sleep(0.5)
+    for char in FLIPBOARD_EMAIL:
+        email_loc.send_keys(char)
+        time.sleep(0.1)
     
-    page.wait_for_timeout(1000)
+    time.sleep(1)
     
-    pass_loc = page.locator('input[name="password"], input[type="password"]').first
+    pass_loc = driver.find_element(By.CSS_SELECTOR, 'input[name="password"], input[type="password"]')
     pass_loc.click()
-    page.wait_for_timeout(500)
-    pass_loc.press_sequentially(FLIPBOARD_PASSWORD, delay=100)
+    time.sleep(0.5)
+    for char in FLIPBOARD_PASSWORD:
+        pass_loc.send_keys(char)
+        time.sleep(0.1)
     
-    page.wait_for_timeout(1000)
-    page.click('button[type="submit"]')
+    time.sleep(1)
+    driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]').click()
     
     logging.info("Waiting for login confirmation...")
-    page.wait_for_selector('button[aria-label="Profile"], button[aria-label="Create a Flip"]', timeout=20000)
+    WebDriverWait(driver, 20).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, '[aria-label="Profile"], [aria-label="Create a Flip"], [aria-label="Create"], a[href^="/@"]'))
+    )
 
 def test_flipboard_login(headless: bool = True):
     """Tests Flipboard login without posting."""
     logging.info("--- Starting Flipboard Login Test (Dry Run) ---")
+    driver = None
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=headless)
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        driver = get_browser(headless)
+        load_session_cookies(driver)
+        
+        logging.info("Attempting to load Flipboard...")
+        driver.get("https://flipboard.com/")
+        try:
+            WebDriverWait(driver, 7).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, '[aria-label="Profile"], [aria-label="Create a Flip"], [aria-label="Create"], a[href^="/@"]'))
             )
-            page = context.new_page()
-            if stealth_sync:
-                stealth_sync(page)
+            logging.info("✅ Login successful (likely via saved session).")
+        except TimeoutException:
+            logging.info("Session login failed or expired. Falling back to credential login.")
+            perform_login(driver)
+            logging.info("✅ Login successful (via credentials).")
             
-            perform_login(page)
-            
-            logging.info("✅ Flipboard login successful.")
-            browser.close()
-            logging.info("--- Flipboard Login Test Finished ---")
-            return True
-    except PlaywrightTimeoutError:
-        logging.error("❌ Flipboard login failed. Credentials may be wrong or a CAPTCHA is present.")
-        logging.error("Run with the --headed flag locally to solve CAPTCHAs manually.")
-        return False
+        logging.info("--- Flipboard Login Test Finished ---")
+        return True
     except Exception as e:
         logging.error(f"❌ An unexpected error occurred during login test: {e}")
         return False
+    finally:
+        if driver:
+            driver.quit()
 
 def flip_articles(articles: list, headless: bool):
     """Use Playwright to log in and flip articles."""
     logging.info("Starting browser automation to post to Flipboard...")
-    
-    with sync_playwright() as p:
-        # Launch browser. Use headless=False if you need to solve captchas manually on the first run.
-        browser = p.chromium.launch(headless=headless)
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-        page = context.new_page()
+    driver = get_browser(headless)
+
+    try:
+        load_session_cookies(driver)
         
-        # 1. Log in to Flipboard
-        logging.info("Logging into Flipboard...")
-        page.goto("https://flipboard.com/signin")
-        
+        logging.info("Attempting to log in...")
+        driver.get("https://flipboard.com/")
         try:
-            # Flipboard's login flow
-            page.fill('input[name="username"], input[type="email"]', FLIPBOARD_EMAIL)
-            page.fill('input[name="password"], input[type="password"]', FLIPBOARD_PASSWORD)
-            page.click('button[type="submit"]')
-            
-            # Wait for successful login (avatar or main feed appears)
-            page.wait_for_selector('button[aria-label="Profile"], button[aria-label="Create a Flip"]', timeout=15000)
-            logging.info("✓ Successfully logged in.")
-        except PlaywrightTimeoutError:
-            logging.error("Login failed or took too long. If there's a Captcha, run with --headed flag to solve it manually.")
-            browser.close()
-            return
+            WebDriverWait(driver, 7).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, '[aria-label="Profile"], [aria-label="Create a Flip"], [aria-label="Create"], a[href^="/@"]'))
+            )
+            logging.info("✅ Login successful (likely via saved session).")
+        except TimeoutException:
+            logging.info("Session login failed or expired. Falling back to credential login.")
+            try:
+                perform_login(driver)
+                logging.info("✅ Login successful (via credentials).")
+            except Exception as e:
+                logging.error(f"❌ Login with credentials also failed: {e}")
+                logging.error("You must run 'python scripts/save_flipboard_session.py' locally to create a valid session file.")
+                return
             
         # 2. Flip each article
         for i, art in enumerate(articles, 1):
@@ -200,31 +281,63 @@ def flip_articles(articles: list, headless: bool):
             title = art["title"]
             logging.info(f"[{i}/{len(articles)}] Flipping: '{title}'")
             
+            # Determine target magazine
+            tags = [t.strip().lower() for t in (art.get("tags") or "").split(",") if t.strip()]
+            target_mag = FLIPBOARD_MAGAZINE
+            for tag in tags:
+                for kw, mag in MAGAZINE_ROUTING.items():
+                    if kw in tag:
+                        target_mag = mag
+                        break
+                if target_mag != FLIPBOARD_MAGAZINE:
+                    break
+                    
+            logging.info(f"  Routing to Magazine: '{target_mag}'")
+            
             try:
                 # Click the Create/Pencil icon
-                page.click('button[aria-label="Create a Flip"], [aria-label="Create"]')
+                create_btn = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, '[aria-label="Create a Flip"], [aria-label="Create"]'))
+                )
+                create_btn.click()
                 
                 # Wait for the input field to appear and paste the URL
-                page.wait_for_selector('input[placeholder*="URL"], textarea[placeholder*="URL"]')
-                page.fill('input[placeholder*="URL"], textarea[placeholder*="URL"]', url)
+                url_input = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, 'input[placeholder*="URL"], textarea[placeholder*="URL"]'))
+                )
+                url_input.send_keys(url)
                 
                 # Flipboard auto-fetches the preview. Wait for the "Next" or "Flip" button to activate.
-                page.wait_for_timeout(3000) # Give Flipboard a moment to scrape the Open Graph tags
+                time.sleep(4)
                 
                 # Sometimes there's a "Next" button, sometimes it goes straight to magazine selection
-                if page.is_visible('button:has-text("Next")'):
-                    page.click('button:has-text("Next")')
-                    page.wait_for_timeout(1000)
+                try:
+                    next_btn = driver.find_element(By.XPATH, '//button[contains(text(), "Next")]')
+                    if next_btn.is_displayed():
+                        next_btn.click()
+                        time.sleep(2)
+                except:
+                    pass
                 
                 # Select Magazine
-                page.wait_for_selector(f'text={FLIPBOARD_MAGAZINE}')
-                page.click(f'text={FLIPBOARD_MAGAZINE}')
+                try:
+                    mag_btn = WebDriverWait(driver, 4).until(
+                        EC.element_to_be_clickable((By.XPATH, f'//*[contains(text(), "{target_mag}")]'))
+                    )
+                    mag_btn.click()
+                except TimeoutException:
+                    logging.warning(f"  Magazine '{target_mag}' not found. Falling back to '{FLIPBOARD_MAGAZINE}'")
+                    mag_btn = WebDriverWait(driver, 5).until(
+                        EC.element_to_be_clickable((By.XPATH, f'//*[contains(text(), "{FLIPBOARD_MAGAZINE}")]'))
+                    )
+                    mag_btn.click()
                 
                 # Click the final Add / Flip button
-                page.click('button:has-text("Add"), button:has-text("Flip")')
+                flip_btn = driver.find_element(By.XPATH, '//*[contains(text(), "Add") or contains(text(), "Flip")]')
+                flip_btn.click()
                 
                 # Wait for success toast/notification
-                page.wait_for_timeout(2000)
+                time.sleep(3)
                 logging.info(f"  ✓ Flipped successfully.")
                 
                 # Update Shopify Tag
@@ -235,7 +348,8 @@ def flip_articles(articles: list, headless: bool):
                 
             time.sleep(2) # Brief pause between flips to act human
 
-        browser.close()
+    finally:
+        driver.quit()
         logging.info("Browser automation finished.")
 
 if __name__ == "__main__":
