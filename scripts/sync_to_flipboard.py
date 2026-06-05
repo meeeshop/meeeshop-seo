@@ -322,26 +322,45 @@ def flip_articles(articles: list, headless: bool):
             logging.info(f"  Routing to Magazine: '{target_mag}'")
             
             try:
-                # Click the Create/Pencil icon
-                logging.info("  [Trace] Waiting for Create/Pencil icon to appear...")
-                create_btn = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.XPATH, '//*[@aria-label="CREATE A FLIP"] | //*[@title="CREATE A FLIP"] | //*[contains(text(), "CREATE A FLIP")] | //*[@aria-label="Create a Flip"] | //*[@title="Create a Flip"] | //*[contains(text(), "Create a Flip")] | //*[@aria-label="CREATE"] | //*[@aria-label="Create"]'))
-                )
-                logging.info("  [Trace] Found Create/Pencil icon, clicking via JS...")
-                # Use JS click to avoid ElementClickInterceptedException if there is an overlay
-                driver.execute_script("arguments[0].click();", create_btn)
-                
-                # Wait for the input field to appear and paste the URL
-                logging.info("  [Trace] Waiting for URL input field...")
-                url_input = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, 'input[placeholder*="URL" i], textarea[placeholder*="URL" i], input[placeholder*="link" i], textarea[placeholder*="link" i], input[type="url"], input[placeholder*="share" i], textarea[placeholder*="share" i], input[aria-label*="link" i], input[aria-label*="URL" i], textarea[aria-label*="link" i]'))
-                )
-                logging.info("  [Trace] Found URL input field, sending URL...")
-                url_input.send_keys(url)
-                
-                # Flipboard auto-fetches the preview. Wait for the "Next" or "Flip" button to activate.
-                logging.info("  [Trace] Waiting 4s for preview auto-fetch...")
-                time.sleep(4)
+                try:
+                    # Click the Create/Pencil icon
+                    logging.info("  [Trace] Waiting for Create/Pencil icon to appear...")
+                    time.sleep(2) # Give DOM a moment
+                    
+                    xpath = '//*[@aria-label="CREATE A FLIP"] | //*[@title="CREATE A FLIP"] | //*[contains(text(), "CREATE A FLIP")] | //*[@aria-label="Create a Flip"] | //*[@title="Create a Flip"] | //*[contains(text(), "Create a Flip")] | //*[@aria-label="CREATE"] | //*[@aria-label="Create"] | //button[contains(@aria-label, "Create") or contains(@aria-label, "Flip")] | //a[contains(@aria-label, "Create") or contains(@aria-label, "Flip")]'
+                    
+                    create_btns = driver.find_elements(By.XPATH, xpath)
+                    visible_btns = [b for b in create_btns if b.is_displayed()]
+                    
+                    if visible_btns:
+                        # Sort by Y-coordinate to ensure we click the one in the header, not a feed article
+                        visible_btns.sort(key=lambda b: b.location['y'])
+                        target_btn = visible_btns[0]
+                        logging.info(f"  [Trace] Found {len(visible_btns)} Create/Pencil icons. Clicking the top-most one via JS...")
+                        driver.execute_script("arguments[0].click();", target_btn)
+                    else:
+                        logging.warning("  [Trace] No visible Create/Pencil buttons found!")
+                    
+                    # Wait for the input field to appear and paste the URL
+                    logging.info("  [Trace] Waiting for URL input field...")
+                    url_input = WebDriverWait(driver, 5).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, 'input[placeholder*="URL" i], textarea[placeholder*="URL" i], input[placeholder*="link" i], textarea[placeholder*="link" i], input[type="url"], input[placeholder*="share" i], textarea[placeholder*="share" i], input[aria-label*="link" i], input[aria-label*="URL" i], textarea[aria-label*="link" i]'))
+                    )
+                    logging.info("  [Trace] Found URL input field, sending URL...")
+                    url_input.send_keys(url)
+                    
+                    # Wait for the "Next" button to activate
+                    logging.info("  [Trace] Waiting 4s for preview auto-fetch...")
+                    time.sleep(4)
+                    
+                except Exception as ex:
+                    logging.warning(f"  [Trace] URL input field did not appear ({type(ex).__name__}). Wrong button clicked?")
+                    logging.info("  [Trace] Fallback: Navigating directly to Flipboard Share Popout URL...")
+                    import urllib.parse
+                    encoded_url = urllib.parse.quote(url)
+                    encoded_title = urllib.parse.quote(title)
+                    driver.get(f"https://share.flipboard.com/bookmarklet/popout?v=2&title={encoded_title}&url={encoded_url}")
+                    time.sleep(4) # Let the share popout load
                 
                 # Sometimes there's a "Next" button, sometimes it goes straight to magazine selection
                 try:
