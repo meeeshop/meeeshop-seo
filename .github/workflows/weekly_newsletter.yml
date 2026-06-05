@@ -17,6 +17,11 @@ on:
         required: false
         type: boolean
         default: false
+      skip_sent:
+        description: 'Skip emails already sent (use when resuming failed run)'
+        required: false
+        type: boolean
+        default: false
       batch_size:
         description: 'Batch size (0 for all customers)'
         required: false
@@ -52,6 +57,16 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
           TEST_EMAIL: ${{ github.event.inputs.test_email }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
+          SKIP_SENT: ${{ github.event.inputs.skip_sent || 'false' }}
           BATCH_SIZE: ${{ github.event.inputs.batch_size }}
           BATCH_INDEX: ${{ github.event.inputs.batch_index }}
         run: python send_weekly_email.py
+
+      - name: Commit sent emails log
+        if: always()
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          touch sent_emails.log
+          git add sent_emails.log
+          git diff-index --quiet HEAD || (git commit -m "chore: update sent emails log [skip ci]" && git push)

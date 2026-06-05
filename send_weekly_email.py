@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import requests
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -218,17 +219,13 @@ def build_html_template(products, articles):
     """
     return html
 
-def send_email(to_email, html_content):
+def send_email(server, to_email, html_content):
     msg = MIMEMultipart('alternative')
     msg['Subject'] = "Your Weekly Digest: New Arrivals & Style Guides from MeeeShop"
     msg['From'] = formataddr(("MeeeShop", FROM_EMAIL))
     msg['To'] = to_email
     msg.attach(MIMEText(html_content, 'html'))
-
-    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-        server.starttls()
-        server.login(SMTP_USER, SMTP_PASS)
-        server.send_message(msg)
+    server.send_message(msg)
 
 if __name__ == "__main__":
     print("Checking for new products and blogs from the last 7 days...")
@@ -253,8 +250,14 @@ if __name__ == "__main__":
     
     if test_email:
         print(f"🛠️ TEST MODE: Sending single email to {test_email}")
-        send_email(test_email, html_content)
-        print("✅ Test email sent!")
+        try:
+            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                server.starttls()
+                server.login(SMTP_USER, SMTP_PASS)
+                send_email(server, test_email, html_content)
+            print("✅ Test email sent!")
+        except Exception as e:
+            print(f"❌ Failed to send test email: {e}")
     else:
         print(f"{'🏜️ DRY RUN MODE' if is_dry_run else 'Production Mode'}: Fetching customers...")
         all_customers = get_customers()
@@ -268,7 +271,32 @@ if __name__ == "__main__":
         else:
             customers = all_customers
             
-        print(f"Found {len(customers)} marketing subscribers in this run.")
+        # Apply Skip Sent Logic
+        skip_sent_str = os.environ.get('SKIP_SENT', 'false')
+        skip_sent = skip_sent_str.lower() == 'true'
+
+        SENT_LOG_FILE = "sent_emails.log"
+        already_sent = set()
+        if skip_sent and os.path.exists(SENT_LOG_FILE):
+            with open(SENT_LOG_FILE, "r") as f:
+                already_sent = set(line.strip() for line in f if line.strip())
+        elif not skip_sent:
+            # Clear the log for a fresh run
+            open(SENT_LOG_FILE, "w").close()
+
+        valid_customers = []
+        for c in customers:
+            email = c.get('email')
+            if skip_sent and email and email in already_sent:
+                continue
+            valid_customers.append(c)
+
+        if skip_sent and already_sent:
+            print(f"Found {len(customers)} marketing subscribers in this run. Skipping {len(customers) - len(valid_customers)} already sent.")
+        else:
+            print(f"Found {len(customers)} marketing subscribers in this run.")
+
+        customers = valid_customers
         
         if is_dry_run:
             print("No emails will be sent.")
@@ -280,15 +308,36 @@ if __name__ == "__main__":
                     print(f"  {i}. Warning: Customer found without email (ID: {customer.get('id')})")
             print("\n✅ Dry run complete. No emails were sent.")
         else:
-            print("Sending emails...")
+            print("Sending emails in batches of 50...")
             sent_count = 0
-            for customer in customers:
-                email = customer.get('email')
-                if email:
-                    try:
-                        send_email(email, html_content)
-                        print(f"  Sent to {email}")
-                        sent_count += 1
-                    except Exception as e:
-                        print(f"  Failed to send to {email}: {e}")
+            chunk_size = 50
+
+            for i in range(0, len(customers), chunk_size):
+                chunk = customers[i:i + chunk_size]
+                print(f"📦 Processing batch {i//chunk_size + 1} ({len(chunk)} emails)...")
+
+                try:
+                    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                        server.starttls()
+                        server.login(SMTP_USER, SMTP_PASS)
+
+                        for customer in chunk:
+                            email = customer.get('email')
+                            if email:
+                                try:
+                                    send_email(server, email, html_content)
+                                    print(f"  Sent to {email}")
+                                    sent_count += 1
+                                    with open(SENT_LOG_FILE, "a") as f:
+                                        f.write(email + "\n")
+                                    time.sleep(0.5) # Slight delay to avoid overwhelming SMTP
+                                except Exception as e:
+                                    print(f"  Failed to send to {email}: {e}")
+                except Exception as e:
+                    print(f"  ❌ Failed to connect to SMTP for batch {i//chunk_size + 1}: {e}")
+
+                if i + chunk_size < len(customers):
+                    print("⏳ Waiting 5 seconds before next batch to prevent connection drops...")
+                    time.sleep(5)
+                    
             print(f"\n✅ Production run complete. Successfully sent {sent_count} emails.")
