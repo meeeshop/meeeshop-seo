@@ -299,7 +299,7 @@ def flip_articles(articles: list, headless: bool):
                 # Click the Create/Pencil icon
                 logging.info("  [Trace] Waiting for Create/Pencil icon to appear...")
                 create_btn = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, '[aria-label="Create a Flip" i], [aria-label="Create" i], button[aria-label*="Create" i], a[aria-label*="Create" i], button[aria-label*="Flip" i], [title*="Create" i]'))
+                    EC.presence_of_element_located((By.XPATH, '//*[@aria-label="CREATE A FLIP"] | //*[@title="CREATE A FLIP"] | //*[contains(text(), "CREATE A FLIP")] | //*[@aria-label="Create a Flip"] | //*[@title="Create a Flip"] | //*[contains(text(), "Create a Flip")] | //*[@aria-label="CREATE"] | //*[@aria-label="Create"]'))
                 )
                 logging.info("  [Trace] Found Create/Pencil icon, clicking via JS...")
                 # Use JS click to avoid ElementClickInterceptedException if there is an overlay
@@ -364,6 +364,18 @@ def flip_articles(articles: list, headless: bool):
                 
             except Exception as e:
                 logging.error(f"  FAILED to flip article. Error: {str(e)}")
+                
+                # Debugging: Save screenshot and page source to figure out the UI
+                debug_time = int(time.time())
+                screenshot_file = f"flipboard_error_{debug_time}.png"
+                html_file = f"flipboard_error_{debug_time}.html"
+                try:
+                    driver.save_screenshot(screenshot_file)
+                    with open(html_file, "w", encoding="utf-8") as f:
+                        f.write(driver.page_source)
+                    logging.info(f"  [Debug] Saved screenshot to {screenshot_file} and HTML to {html_file}")
+                except Exception as debug_e:
+                    logging.error(f"  [Debug] Failed to save debug files: {debug_e}")
                 
             time.sleep(2) # Brief pause between flips to act human
 
