@@ -30,6 +30,11 @@ try:
 except ImportError:
     sys.exit("Playwright not installed. Please run: pip install playwright && playwright install chromium")
 
+try:
+    from playwright_stealth import stealth_sync
+except ImportError:
+    stealth_sync = None
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
 def handle_exception(exc_type, exc_value, exc_traceback):
@@ -107,6 +112,31 @@ def mark_as_synced(blog_id: int, article_id: int, existing_tags: str):
             logging.warning(f"Failed to tag Shopify article as synced: {r.text}")
 
 # ── Flipboard Automation ──────────────────────────────────────────────────────
+def perform_login(page):
+    """Helper to log into Flipboard using human-like interaction to bypass Captchas."""
+    logging.info("Navigating to Flipboard sign-in page...")
+    page.goto("https://flipboard.com/signin", wait_until="domcontentloaded")
+    page.wait_for_timeout(3000) # Let bot protection settle
+    
+    logging.info("Entering credentials like a human...")
+    email_loc = page.locator('input[name="username"], input[type="email"]').first
+    email_loc.click()
+    page.wait_for_timeout(500)
+    email_loc.press_sequentially(FLIPBOARD_EMAIL, delay=100)
+    
+    page.wait_for_timeout(1000)
+    
+    pass_loc = page.locator('input[name="password"], input[type="password"]').first
+    pass_loc.click()
+    page.wait_for_timeout(500)
+    pass_loc.press_sequentially(FLIPBOARD_PASSWORD, delay=100)
+    
+    page.wait_for_timeout(1000)
+    page.click('button[type="submit"]')
+    
+    logging.info("Waiting for login confirmation...")
+    page.wait_for_selector('button[aria-label="Profile"], button[aria-label="Create a Flip"]', timeout=20000)
+
 def test_flipboard_login(headless: bool = True):
     """Tests Flipboard login without posting."""
     logging.info("--- Starting Flipboard Login Test (Dry Run) ---")
@@ -117,15 +147,11 @@ def test_flipboard_login(headless: bool = True):
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
             page = context.new_page()
-            logging.info("Navigating to Flipboard sign-in page...")
-            page.goto("https://flipboard.com/signin")
+            if stealth_sync:
+                stealth_sync(page)
             
-            page.fill('input[name="username"], input[type="email"]', FLIPBOARD_EMAIL)
-            page.fill('input[name="password"], input[type="password"]', FLIPBOARD_PASSWORD)
-            page.click('button[type="submit"]')
+            perform_login(page)
             
-            logging.info("Waiting for login confirmation...")
-            page.wait_for_selector('button[aria-label="Profile"], button[aria-label="Create a Flip"]', timeout=20000)
             logging.info("✅ Flipboard login successful.")
             browser.close()
             logging.info("--- Flipboard Login Test Finished ---")
