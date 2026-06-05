@@ -55,6 +55,7 @@ STORE_URL = get_secret("STORE_BASE_URL") or "https://us.meeeshop.com"
 
 FLIPBOARD_EMAIL = get_secret("FLIPBOARD_EMAIL")
 FLIPBOARD_PASSWORD = get_secret("FLIPBOARD_PASSWORD")
+FLIPBOARD_SESSION = get_secret("FLIPBOARD_SESSION")
 try:
     FLIPBOARD_MAGAZINE = get_secret("FLIPBOARD_MAGAZINE")
     if FLIPBOARD_MAGAZINE == "MeeeShop Style Guide":
