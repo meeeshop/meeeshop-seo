@@ -303,6 +303,11 @@ def flip_articles(articles: list, headless: bool):
             title = art["title"]
             logging.info(f"[{i}/{len(articles)}] Flipping: '{title}'")
             
+            # Reset state for each article to ensure no stuck popups from previous runs
+            driver.get("https://flipboard.com/")
+            driver.refresh()
+            time.sleep(3)
+            
             # Determine target magazine
             tags = [t.strip().lower() for t in (art.get("tags") or "").split(",") if t.strip()]
             target_mag = FLIPBOARD_MAGAZINE
@@ -329,7 +334,7 @@ def flip_articles(articles: list, headless: bool):
                 # Wait for the input field to appear and paste the URL
                 logging.info("  [Trace] Waiting for URL input field...")
                 url_input = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, 'input[placeholder*="URL" i], textarea[placeholder*="URL" i], input[placeholder*="link" i], textarea[placeholder*="link" i], input[type="url"], input[placeholder*="share" i], textarea[placeholder*="share" i]'))
+                    EC.presence_of_element_located((By.CSS_SELECTOR, 'input[placeholder*="URL" i], textarea[placeholder*="URL" i], input[placeholder*="link" i], textarea[placeholder*="link" i], input[type="url"], input[placeholder*="share" i], textarea[placeholder*="share" i], input[aria-label*="link" i], input[aria-label*="URL" i], textarea[aria-label*="link" i]'))
                 )
                 logging.info("  [Trace] Found URL input field, sending URL...")
                 url_input.send_keys(url)
@@ -359,9 +364,11 @@ def flip_articles(articles: list, headless: bool):
                 available_mags = []
                 for el in elements:
                     try:
-                        txt = el.text.strip()
-                        if txt and len(txt) > 3:
-                            available_mags.append((txt, el))
+                        txt = driver.execute_script("return arguments[0].textContent;", el)
+                        if txt:
+                            txt = txt.strip()
+                            if len(txt) > 3:
+                                available_mags.append((txt, el))
                     except:
                         pass
                 
@@ -409,11 +416,22 @@ def flip_articles(articles: list, headless: bool):
                 
                 # Click the final Next / Add / Flip button
                 logging.info("  [Trace] Looking for final Next/Add/Flip button...")
-                flip_btn = WebDriverWait(driver, 5).until(
-                    EC.presence_of_element_located((By.XPATH, '//*[(self::button or @role="button" or self::a) and (contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "next") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "add") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "flip") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "create"))] | //*[contains(@aria-label, "Next") or contains(@aria-label, "Add") or contains(@aria-label, "Flip")]'))
-                )
-                logging.info("  [Trace] Found final Next/Add/Flip button, clicking...")
-                driver.execute_script("arguments[0].click();", flip_btn)
+                time.sleep(1) # Let UI settle
+                flip_btns = driver.find_elements(By.XPATH, '//*[(self::button or @role="button" or self::a) and (contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "next") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "add") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "flip") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "create"))] | //*[contains(@aria-label, "Next") or contains(@aria-label, "Add") or contains(@aria-label, "Flip")]')
+                
+                if flip_btns:
+                    target_btn = flip_btns[-1]
+                    for btn in reversed(flip_btns):
+                        if btn.is_displayed():
+                            target_btn = btn
+                            break
+                    logging.info("  [Trace] Found final Next/Add/Flip button, clicking...")
+                    driver.execute_script("arguments[0].click();", target_btn)
+                else:
+                    logging.warning("  [Trace] Could not find final Next/Add/Flip button via XPath! Trying generic fallback...")
+                    all_btns = driver.find_elements(By.XPATH, '//button')
+                    if all_btns:
+                        driver.execute_script("arguments[0].click();", all_btns[-1])
                 
                 # Wait for success toast/notification
                 logging.info("  [Trace] Waiting 3s for success confirmation...")
