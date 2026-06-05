@@ -297,47 +297,65 @@ def flip_articles(articles: list, headless: bool):
             
             try:
                 # Click the Create/Pencil icon
+                logging.info("  [Trace] Waiting for Create/Pencil icon to appear...")
                 create_btn = WebDriverWait(driver, 10).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, '[aria-label="Create a Flip"], [aria-label="Create"]'))
+                    EC.presence_of_element_located((By.CSS_SELECTOR, '[aria-label="Create a Flip" i], [aria-label="Create" i], button[aria-label*="Create" i], a[aria-label*="Create" i], button[aria-label*="Flip" i], [title*="Create" i]'))
                 )
-                create_btn.click()
+                logging.info("  [Trace] Found Create/Pencil icon, clicking via JS...")
+                # Use JS click to avoid ElementClickInterceptedException if there is an overlay
+                driver.execute_script("arguments[0].click();", create_btn)
                 
                 # Wait for the input field to appear and paste the URL
+                logging.info("  [Trace] Waiting for URL input field...")
                 url_input = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, 'input[placeholder*="URL"], textarea[placeholder*="URL"]'))
+                    EC.presence_of_element_located((By.CSS_SELECTOR, 'input[placeholder*="URL" i], textarea[placeholder*="URL" i], input[placeholder*="link" i], textarea[placeholder*="link" i], input[type="url"], input[placeholder*="share" i], textarea[placeholder*="share" i]'))
                 )
+                logging.info("  [Trace] Found URL input field, sending URL...")
                 url_input.send_keys(url)
                 
                 # Flipboard auto-fetches the preview. Wait for the "Next" or "Flip" button to activate.
+                logging.info("  [Trace] Waiting 4s for preview auto-fetch...")
                 time.sleep(4)
                 
                 # Sometimes there's a "Next" button, sometimes it goes straight to magazine selection
                 try:
+                    logging.info("  [Trace] Checking for 'Next' button...")
                     next_btn = driver.find_element(By.XPATH, '//button[contains(text(), "Next")]')
                     if next_btn.is_displayed():
+                        logging.info("  [Trace] 'Next' button displayed, clicking...")
                         next_btn.click()
                         time.sleep(2)
-                except:
-                    pass
+                    else:
+                        logging.info("  [Trace] 'Next' button found but not displayed.")
+                except Exception as e:
+                    logging.info(f"  [Trace] No 'Next' button found ({type(e).__name__}). Proceeding to magazine selection.")
                 
                 # Select Magazine
+                logging.info(f"  [Trace] Looking for target magazine '{target_mag}'...")
                 try:
                     mag_btn = WebDriverWait(driver, 4).until(
-                        EC.element_to_be_clickable((By.XPATH, f'//*[contains(text(), "{target_mag}")]'))
+                        EC.presence_of_element_located((By.XPATH, f'//*[contains(text(), "{target_mag}")]'))
                     )
-                    mag_btn.click()
+                    logging.info("  [Trace] Found target magazine, clicking...")
+                    driver.execute_script("arguments[0].click();", mag_btn)
                 except TimeoutException:
                     logging.warning(f"  Magazine '{target_mag}' not found. Falling back to '{FLIPBOARD_MAGAZINE}'")
                     mag_btn = WebDriverWait(driver, 5).until(
-                        EC.element_to_be_clickable((By.XPATH, f'//*[contains(text(), "{FLIPBOARD_MAGAZINE}")]'))
+                        EC.presence_of_element_located((By.XPATH, f'//*[contains(text(), "{FLIPBOARD_MAGAZINE}")]'))
                     )
-                    mag_btn.click()
+                    logging.info(f"  [Trace] Found fallback magazine '{FLIPBOARD_MAGAZINE}', clicking...")
+                    driver.execute_script("arguments[0].click();", mag_btn)
                 
                 # Click the final Add / Flip button
-                flip_btn = driver.find_element(By.XPATH, '//*[contains(text(), "Add") or contains(text(), "Flip")]')
-                flip_btn.click()
+                logging.info("  [Trace] Looking for final Add/Flip button...")
+                flip_btn = WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located((By.XPATH, '//*[contains(text(), "Add") or contains(text(), "Flip")]'))
+                )
+                logging.info("  [Trace] Found final Add/Flip button, clicking...")
+                driver.execute_script("arguments[0].click();", flip_btn)
                 
                 # Wait for success toast/notification
+                logging.info("  [Trace] Waiting 3s for success confirmation...")
                 time.sleep(3)
                 logging.info(f"  ✓ Flipped successfully.")
                 
