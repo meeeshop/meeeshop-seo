@@ -57,3 +57,13 @@ jobs:
           LIMIT="${{ github.event.inputs.limit || '10' }}"
           
           python scripts/sync_to_flipboard.py --days $DAYS --limit $LIMIT $DRY_RUN_FLAG
+
+      - name: Upload Debug Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flipboard-debug-files
+          path: |
+            *.png
+            *.html
+          retention-days: 3
