@@ -68,5 +68,5 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           touch sent_emails.log
-          git add sent_emails.log
+          git add -f sent_emails.log
           git diff-index --quiet HEAD || (git commit -m "chore: update sent emails log [skip ci]" && git push)

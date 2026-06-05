@@ -33,6 +33,13 @@ HEADERS = {"X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN}
 
 last_week_iso = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
 
+def is_valid_email(email):
+    """Basic validation for email format."""
+    if not email:
+        return False
+    pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
+    return re.match(pattern, email) is not None
+
 def get_new_products():
     url = f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}/products.json?created_at_min={last_week_iso}&status=active"
     response = requests.get(url, headers=HEADERS)
@@ -227,6 +234,12 @@ def send_email(server, to_email, html_content):
     msg.attach(MIMEText(html_content, 'html'))
     server.send_message(msg)
 
+def get_smtp_connection():
+    server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+    server.starttls()
+    server.login(SMTP_USER, SMTP_PASS)
+    return server
+
 if __name__ == "__main__":
     print("Checking for new products and blogs from the last 7 days...")
     recent_products = get_new_products()
@@ -251,10 +264,9 @@ if __name__ == "__main__":
     if test_email:
         print(f"🛠️ TEST MODE: Sending single email to {test_email}")
         try:
-            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-                server.starttls()
-                server.login(SMTP_USER, SMTP_PASS)
-                send_email(server, test_email, html_content)
+            server = get_smtp_connection()
+            send_email(server, test_email, html_content)
+            server.quit()
             print("✅ Test email sent!")
         except Exception as e:
             print(f"❌ Failed to send test email: {e}")
@@ -316,28 +328,54 @@ if __name__ == "__main__":
                 chunk = customers[i:i + chunk_size]
                 print(f"📦 Processing batch {i//chunk_size + 1} ({len(chunk)} emails)...")
 
+                server = None
                 try:
-                    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-                        server.starttls()
-                        server.login(SMTP_USER, SMTP_PASS)
+                    server = get_smtp_connection()
 
-                        for customer in chunk:
-                            email = customer.get('email')
-                            if email:
-                                try:
-                                    send_email(server, email, html_content)
-                                    print(f"  Sent to {email}")
-                                    sent_count += 1
-                                    with open(SENT_LOG_FILE, "a") as f:
-                                        f.write(email + "\n")
-                                    time.sleep(0.5) # Slight delay to avoid overwhelming SMTP
-                                except Exception as e:
-                                    print(f"  Failed to send to {email}: {e}")
+                    for customer in chunk:
+                        email = customer.get('email')
+                        
+                        if not is_valid_email(email):
+                            print(f"  ⏭️ Skipped invalid email format: {email}")
+                            continue
+                            
+                        try:
+                            send_email(server, email, html_content)
+                            print(f"  ✅ Sent to {email}")
+                            sent_count += 1
+                            with open(SENT_LOG_FILE, "a") as f:
+                                f.write(email + "\n")
+                            time.sleep(0.5) # Slight delay to avoid overwhelming SMTP
+                        except smtplib.SMTPResponseException as e:
+                            print(f"  ❌ Failed to send to {email}: {e}")
+                            if e.smtp_code == 550 and b'limit exceeded' in e.smtp_error.lower():
+                                print("🚨 Gmail daily sending limit reached! Exiting to preserve progress.")
+                                sys.exit(0)
+                        except smtplib.SMTPServerDisconnected as e:
+                            print(f"  ⚠️ Connection dropped for {email}: {e}. Attempting reconnect...")
+                            try:
+                                server = get_smtp_connection()
+                                send_email(server, email, html_content)
+                                print(f"  ✅ Sent to {email} (after reconnect)")
+                                sent_count += 1
+                                with open(SENT_LOG_FILE, "a") as f:
+                                    f.write(email + "\n")
+                                time.sleep(0.5)
+                            except Exception as ex:
+                                print(f"  ❌ Failed to send to {email} even after reconnect: {ex}")
+                        except Exception as e:
+                            print(f"  ❌ Failed to send to {email}: {e}")
                 except Exception as e:
                     print(f"  ❌ Failed to connect to SMTP for batch {i//chunk_size + 1}: {e}")
+                finally:
+                    if server:
+                        try:
+                            server.quit()
+                        except:
+                            pass
 
                 if i + chunk_size < len(customers):
-                    print("⏳ Waiting 5 seconds before next batch to prevent connection drops...")
-                    time.sleep(5)
+                    print("⏳ Waiting 30 seconds before next batch to prevent connection drops and rate limits...")
+                    time.sleep(30)
                     
             print(f"\n✅ Production run complete. Successfully sent {sent_count} emails.")
