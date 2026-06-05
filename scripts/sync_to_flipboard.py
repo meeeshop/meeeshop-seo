@@ -198,17 +198,27 @@ def perform_login(driver):
     time.sleep(3) # Let bot protection settle
     
     logging.info("Entering credentials like a human...")
-    email_loc = driver.find_element(By.CSS_SELECTOR, 'input[name="username"], input[type="email"]')
-    email_loc.click()
+    try:
+        email_loc = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, 'input[name="username"], input[type="email"], input[name="email"]'))
+        )
+    except TimeoutException:
+        email_btn = driver.find_element(By.XPATH, '//*[contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue with email")]')
+        driver.execute_script("arguments[0].click();", email_btn)
+        email_loc = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, 'input[name="username"], input[type="email"], input[name="email"]'))
+        )
+    driver.execute_script("arguments[0].click();", email_loc)
     time.sleep(0.5)
     for char in FLIPBOARD_EMAIL:
         email_loc.send_keys(char)
         time.sleep(0.1)
     
     time.sleep(1)
-    
-    pass_loc = driver.find_element(By.CSS_SELECTOR, 'input[name="password"], input[type="password"]')
-    pass_loc.click()
+    pass_loc = WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, 'input[name="password"], input[type="password"]'))
+    )
+    driver.execute_script("arguments[0].click();", pass_loc)
     time.sleep(0.5)
     for char in FLIPBOARD_PASSWORD:
         pass_loc.send_keys(char)
@@ -245,6 +255,12 @@ def test_flipboard_login(headless: bool = True):
         logging.info("--- Flipboard Login Test Finished ---")
         return True
     except Exception as e:
+        if driver:
+            try:
+                driver.save_screenshot("login_test_failure.png")
+                with open("login_test_failure.html", "w", encoding="utf-8") as f:
+                    f.write(driver.page_source)
+            except Exception: pass
         logging.error(f"❌ An unexpected error occurred during login test: {e}")
         return False
     finally:
@@ -273,6 +289,11 @@ def flip_articles(articles: list, headless: bool):
                 logging.info("✅ Login successful (via credentials).")
             except Exception as e:
                 logging.error(f"❌ Login with credentials also failed: {e}")
+                try:
+                    driver.save_screenshot("flipboard_login_error.png")
+                    with open("flipboard_login_error.html", "w", encoding="utf-8") as f:
+                        f.write(driver.page_source)
+                except Exception: pass
                 logging.error("You must run 'python scripts/save_flipboard_session.py' locally to create a valid session file.")
                 return
             
