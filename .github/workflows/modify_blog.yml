@@ -83,7 +83,7 @@ jobs:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          TOTAL=$(python count_articles.py)
+          TOTAL=$(python scripts/count_articles.py)
           echo "Published articles: $TOTAL"
           BATCHES=$(( (TOTAL + ${{ env.BATCH_SIZE }} - 1) / ${{ env.BATCH_SIZE }} ))
           echo "Batches needed: $BATCHES"

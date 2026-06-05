@@ -1,0 +1,61 @@
+name: Weekly Flipboard Syndication
+
+on:
+  schedule:
+    # Run every Sunday at 08:00 UTC
+    - cron: '0 8 * * 0'
+  
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry Run (Test connections, do not post)'
+        required: false
+        type: boolean
+        default: true
+      days:
+        description: 'Sync articles published in the last X days'
+        required: false
+        type: string
+        default: '7'
+      limit:
+        description: 'Max articles to flip'
+        required: false
+        type: string
+        default: '10'
+
+jobs:
+  flipboard-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests playwright cryptography
+          # Install Playwright browser and OS dependencies
+          playwright install --with-deps chromium
+
+      - name: Run Flipboard Sync
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          DRY_RUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          fi
+          
+          DAYS="${{ github.event.inputs.days || '7' }}"
+          LIMIT="${{ github.event.inputs.limit || '10' }}"
+          
+          python scripts/sync_to_flipboard.py --days $DAYS --limit $LIMIT $DRY_RUN_FLAG
