@@ -42,9 +42,9 @@ jobs:
           COUNT="${{ github.event.inputs.count || '1' }}"
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
           if [ "$DRY_RUN" = "true" ]; then
-            python blog_daily.py --count "$COUNT" --dry-run
+            python scripts/blog_daily.py --count "$COUNT" --dry-run
           else
-            python blog_daily.py --count "$COUNT"
+            python scripts/blog_daily.py --count "$COUNT"
           fi
 
       - name: Upload blog generation log
