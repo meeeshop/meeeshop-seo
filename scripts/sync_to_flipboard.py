@@ -398,11 +398,19 @@ def flip_articles(articles: list, headless: bool):
                 
                 mag_clicked = False
                 
+                def safe_click_mag(el, name):
+                    logging.info(f"  [Trace] Clicking magazine match: '{name}'")
+                    try:
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", el)
+                        time.sleep(0.5)
+                        el.click()
+                    except Exception:
+                        driver.execute_script("arguments[0].click();", el)
+                
                 # 1. Try exact/partial match for target_mag (avoiding footwear)
                 for txt, el in available_mags:
                     if target_mag.lower() in txt.lower() and "footwear" not in txt.lower():
-                        logging.info(f"  [Trace] Found target magazine match: '{txt}'")
-                        driver.execute_script("arguments[0].click();", el)
+                        safe_click_mag(el, txt)
                         mag_clicked = True
                         break
                 
@@ -411,8 +419,7 @@ def flip_articles(articles: list, headless: bool):
                     logging.warning(f"  Magazine '{target_mag}' not found. Falling back to '{FLIPBOARD_MAGAZINE}'")
                     for txt, el in available_mags:
                         if FLIPBOARD_MAGAZINE.lower() in txt.lower() and "footwear" not in txt.lower():
-                            logging.info(f"  [Trace] Found fallback magazine match: '{txt}'")
-                            driver.execute_script("arguments[0].click();", el)
+                            safe_click_mag(el, txt)
                             mag_clicked = True
                             break
                             
@@ -426,8 +433,7 @@ def flip_articles(articles: list, headless: bool):
                             continue
                         for km in known_mags:
                             if km.lower() in txt.lower() and "footwear" not in km.lower():
-                                logging.info(f"  [Trace] Found alternative known magazine: '{txt}'")
-                                driver.execute_script("arguments[0].click();", el)
+                                safe_click_mag(el, txt)
                                 mag_clicked = True
                                 break
                         if mag_clicked:
@@ -441,16 +447,15 @@ def flip_articles(articles: list, headless: bool):
                         try:
                             txt = driver.execute_script("return arguments[0].textContent;", row)
                             if txt and len(txt.strip()) > 3 and txt.strip().lower() not in ["close", "cancel", "back", "next", "add", "flip"]:
-                                driver.execute_script("arguments[0].click();", row)
+                                safe_click_mag(row, txt.strip())
                                 mag_clicked = True
-                                logging.info(f"  [Trace] Clicked generic magazine row: '{txt.strip()}'")
                                 break
                         except: pass
                             
                 if not mag_clicked:
                     logging.warning("  [Trace] Still could not identify any magazine to click. Relying on auto-selected default (if any).")
                 
-                time.sleep(1) # Let selection register
+                time.sleep(2) # Let selection register
                 
                 # Click the final Next / Add / Flip / Done button
                 logging.info("  [Trace] Looking for final Next/Add/Flip/Done button...")
@@ -458,13 +463,17 @@ def flip_articles(articles: list, headless: bool):
                 flip_btns = driver.find_elements(By.XPATH, '//*[(self::button or @role="button" or self::a) and (contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "next") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "add") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "flip") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "create") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "done") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "save"))] | //*[contains(@aria-label, "Next") or contains(@aria-label, "Add") or contains(@aria-label, "Flip") or contains(@aria-label, "Done")]')
                 
                 if flip_btns:
-                    target_btn = flip_btns[-1]
-                    for btn in reversed(flip_btns):
-                        if btn.is_displayed():
-                            target_btn = btn
-                            break
+                    # Prefer enabled buttons that are displayed
+                    enabled_btns = [b for b in flip_btns if b.is_displayed() and not b.get_attribute("disabled")]
+                    target_btn = enabled_btns[-1] if enabled_btns else flip_btns[-1]
+                    
                     logging.info("  [Trace] Found final button, clicking...")
-                    driver.execute_script("arguments[0].click();", target_btn)
+                    try:
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target_btn)
+                        time.sleep(0.5)
+                        target_btn.click()
+                    except Exception:
+                        driver.execute_script("arguments[0].click();", target_btn)
                 else:
                     logging.warning("  [Trace] Could not find final button via XPath! Trying generic fallback...")
                     # UI sometimes auto-saves on magazine selection now
@@ -478,7 +487,12 @@ def flip_articles(articles: list, headless: bool):
                         except: pass
                     
                     if fallback_btn:
-                        driver.execute_script("arguments[0].click();", fallback_btn)
+                        try:
+                            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", fallback_btn)
+                            time.sleep(0.5)
+                            fallback_btn.click()
+                        except Exception:
+                            driver.execute_script("arguments[0].click();", fallback_btn)
                         logging.info("  [Trace] Clicked fallback button by text.")
                     else:
                         logging.info("  [Trace] No obvious submit button found. Flipboard may have auto-flipped upon magazine selection.")
