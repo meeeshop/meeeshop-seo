@@ -145,6 +145,56 @@ def fetch_articles(days: int, limit: int) -> list:
             
     return pending[:limit]
 
+def fetch_old_articles(limit: int) -> list:
+    """Fetch previously synced Shopify articles to re-flip."""
+    logging.info("Fetching Shopify blogs to locate old articles...")
+    try:
+        r = requests.get(f"{SHOP_BASE}/blogs.json", headers=SHOP_HEADERS)
+        r.raise_for_status()
+        blogs = r.json().get("blogs", [])
+    except Exception as e:
+        logging.error(f"Failed to fetch blogs for old articles: {e}")
+        return []
+        
+    all_articles = []
+    for blog in blogs:
+        blog_id = blog["id"]
+        blog_handle = blog["handle"]
+        
+        # Fetch up to 250 articles (no date limit, to get old ones)
+        params = {"limit": 250}
+        logging.info(f"  Fetching articles from '{blog['title']}' for re-flipping...")
+        try:
+            r = requests.get(f"{SHOP_BASE}/blogs/{blog_id}/articles.json", headers=SHOP_HEADERS, params=params)
+            r.raise_for_status()
+            articles_batch = r.json().get("articles", [])
+        except Exception as e:
+            logging.warning(f"  Failed to fetch articles from blog {blog_id}: {e}")
+            continue
+            
+        for art in articles_batch:
+            art["_full_url"] = f"{STORE_URL}/blogs/{blog_handle}/{art['handle']}"
+            art["_blog_id"] = blog_id
+            all_articles.append(art)
+            
+    # Filter to only those already synced
+    synced_articles = []
+    for art in all_articles:
+        tags = [t.strip() for t in (art.get("tags") or "").split(",") if t.strip()]
+        if "flipboard_synced" in tags:
+            synced_articles.append(art)
+            
+    if not synced_articles:
+        # Fallback to all articles if none are marked synced yet
+        synced_articles = all_articles
+        
+    if not synced_articles:
+        return []
+        
+    # Return a random selection of old articles to keep it dynamic
+    sample_size = min(limit, len(synced_articles))
+    return random.sample(synced_articles, sample_size)
+
 def mark_as_synced(blog_id: int, article_id: int, existing_tags: str):
     """Add 'flipboard_synced' tag to Shopify article to prevent duplicate posting."""
     tags = [t.strip() for t in (existing_tags or "").split(",") if t.strip()]
@@ -735,8 +785,9 @@ if __name__ == "__main__":
     ap.add_argument("--limit", type=int, default=10, help="Max articles to flip per run.")
     ap.add_argument("--dry-run", action="store_true", help="Print plan, do not flip.")
     ap.add_argument("--headed", action="store_true", help="Show browser window (helpful for initial setup).")
-    ap.add_argument("--reflip", action="store_true", help="Also find and re-flip trending articles related to our niche to boost magazine visibility.")
-    ap.add_argument("--reflip-limit", type=int, default=3, help="Max trending articles to re-flip.")
+    ap.add_argument("--no-reflip", dest="reflip", action="store_false", help="Disable finding and re-flipping trending articles.")
+    ap.add_argument("--reflip-limit", type=int, default=5, help="Max trending articles to re-flip.")
+    ap.set_defaults(reflip=True)
     args = ap.parse_args()
     
     logging.info("="*60)
@@ -745,23 +796,40 @@ if __name__ == "__main__":
 
     articles = fetch_articles(args.days, args.limit)
     
+    is_fallback = False
+    if not articles:
+        logging.info("No new unsynced articles found matching criteria. Falling back to fetching old articles to re-flip...")
+        articles = fetch_old_articles(limit=2)
+        is_fallback = True
+        
     if not articles and not args.reflip:
-        logging.info("No new unsynced articles found matching criteria and reflip is disabled. Exiting.")
+        logging.info("No new or old articles found matching criteria and reflip is disabled. Exiting.")
         sys.exit(0)
         
     if articles:
-        logging.info(f"Found {len(articles)} unsynced article(s) to process.")
+        if is_fallback:
+            logging.info(f"Found {len(articles)} old article(s) to re-flip.")
+        else:
+            logging.info(f"Found {len(articles)} unsynced article(s) to process.")
+            
+    # Randomize trending articles count to 4 or 5 when using the default (5)
+    reflip_limit = args.reflip_limit
+    if args.reflip and reflip_limit == 5:
+        reflip_limit = random.randint(4, 5)
     
     if args.dry_run:
         logging.info("--- DRY RUN MODE ---")
         test_flipboard_login(headless=not args.headed)
         if articles:
-            logging.info("Articles that would be flipped:")
+            if is_fallback:
+                logging.info("Old articles that would be re-flipped:")
+            else:
+                logging.info("Articles that would be flipped:")
             for art in articles:
                 logging.info(f"  - '{art['title']}' ({art['_full_url']})")
         if args.reflip:
-            logging.info(f"Would also reflip up to {args.reflip_limit} trending articles.")
+            logging.info(f"Would also reflip up to {reflip_limit} trending articles.")
         logging.info("--- END DRY RUN ---")
     else:
         logging.info("--- LIVE MODE ---")
-        flip_articles(articles, headless=not args.headed, do_reflip=args.reflip, reflip_limit=args.reflip_limit)
+        flip_articles(articles, headless=not args.headed, do_reflip=args.reflip, reflip_limit=reflip_limit)

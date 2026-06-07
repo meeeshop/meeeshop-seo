@@ -1,9 +1,9 @@
-name: Weekly Flipboard Syndication
+name: Daily Flipboard Syndication
 
 on:
   schedule:
-    # Run every Sunday at 08:00 UTC
-    - cron: '0 8 * * 0'
+    # Run every day at 08:00 UTC
+    - cron: '0 8 * * *'
   
   workflow_dispatch:
     inputs:
