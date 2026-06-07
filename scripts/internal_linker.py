@@ -387,26 +387,82 @@ def find_unlinked_keywords(article_text: str, existing_links: Set[str], link_map
 def inject_link_into_html(html: str, keyword: str, url: str, anchor_text: str) -> Tuple[str, bool]:
     """
     Inject an <a> tag for the first unlinked occurrence of keyword in HTML.
-    Avoids linking text that's already inside an <a> tag.
+    Avoids linking text that's already inside an <a> tag or tag attributes (alt, title, etc).
     Returns (modified_html, was_link_injected).
     """
+    from bs4 import BeautifulSoup, NavigableString
+
+    if not html:
+        return "", False
+
     existing_links = extract_existing_links(html)
     if url.lower() in existing_links:
         return html, False
 
-    # Build regex to find the keyword outside of HTML tags
-    pattern = r"(?<![a-z>])\b" + re.escape(keyword) + r"\b(?![a-z<])"
+    # Standardize HTML wrapping to avoid BeautifulSoup adding <html>/<body> tags
+    soup = BeautifulSoup(f"<div>{html}</div>", "html.parser")
+    root = soup.div
+    if not root:
+        return html, False
 
-    replaced = [False]
-    def replace_first(match):
-        if not replaced[0]:
-            replaced[0] = True
-            return f'<a href="{url}">{match.group(0)}</a>'
-        return match.group(0)
+    # Find all text nodes that are NOT descendants of 'a', 'script', 'style'
+    text_nodes = []
+    for node in root.find_all(string=True):
+        parent = node.parent
+        in_forbidden_tag = False
+        while parent and parent != root:
+            if parent.name in ('a', 'script', 'style'):
+                in_forbidden_tag = True
+                break
+            parent = parent.parent
+        if not in_forbidden_tag:
+            text_nodes.append(node)
 
-    # Replace only first occurrence
-    result = re.sub(pattern, replace_first, html, count=1, flags=re.IGNORECASE)
-    return result, replaced[0]
+    pattern = re.compile(r"\b" + re.escape(keyword) + r"\b", re.IGNORECASE)
+    was_injected = False
+
+    for node in text_nodes:
+        node_text = str(node)
+        match = pattern.search(node_text)
+        if match:
+            # We found the first unlinked match!
+            start, end = match.span()
+            matched_text = node_text[start:end]
+
+            # Create the new <a> tag
+            link_tag = soup.new_tag("a", href=url)
+            link_tag.string = matched_text
+
+            # Get before and after text strings
+            before_text = node_text[:start]
+            after_text = node_text[end:]
+
+            # Replace the old text node with: before_text, link_tag, after_text
+            parent = node.parent
+            if parent:
+                try:
+                    idx = parent.contents.index(node)
+                    node.extract()
+
+                    # Insert back in reverse order at the same index
+                    if after_text:
+                        parent.insert(idx, NavigableString(after_text))
+                    parent.insert(idx, link_tag)
+                    if before_text:
+                        parent.insert(idx, NavigableString(before_text))
+
+                    was_injected = True
+                    break
+                except ValueError:
+                    continue
+
+    if was_injected:
+        # Reconstruct the inner HTML contents
+        res_html = "".join(str(c) for c in root.contents)
+        return res_html, True
+
+    return html, False
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -79,30 +79,19 @@ def fetch_products(limit=100) -> list:
     return r.json().get("products", [])
 
 
-def make_featured_image(product_title: str, ptype: str, fmt: str) -> str:
+def make_featured_image(product: dict, fmt: str) -> str:
     """
-    Generate a professional 1200x630 editorial fashion image via Pollinations.ai.
-    - AI-generated = copyright-free
-    - Editorial/lifestyle style = clear, attractive, Google Discover eligible
-    - Minimum 1200px wide (Google Discover requirement)
+    Shopify product image resized to 1200x630 via CDN.
+    Google Discover requires minimum 1200px wide.
     """
-    scene_map = {
-        "buying_guide":   "elegant woman wearing stylish outfit in bright modern boutique, natural light, editorial photography",
-        "comparison":     "flat lay fashion editorial, multiple clothing items styled on white surface, professional photography",
-        "problem_solver": "confident stylish woman smiling, perfect outfit, mirror reflection, morning light, lifestyle photo",
-        "trend_report":   "fashion editorial collage, trendy women outfits, street style photography, vibrant colors",
-        "outfit_formula": "stylish woman in versatile outfit, city background, golden hour, fashion editorial",
-    }
-    scene = scene_map.get(fmt, "beautiful women fashion editorial, modern style, natural light")
-    ptype_hint = ptype.replace("'s", "").strip()
-    prompt = (
-        f"professional fashion editorial photo, {ptype_hint} clothing, "
-        f"{scene}, high quality, sharp focus, no text, no watermark, "
-        f"photorealistic, magazine quality, bright and inviting"
-    )
-    encoded = quote(prompt)
-    seed = random.randint(1, 99999)
-    return f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=630&nologo=true&seed={seed}"
+    images = product.get("images", [])
+    if not images:
+        raise ValueError(f"Product '{product.get('title')}' has no images. Direct CDN images are required for Discover.")
+    src = images[0]["src"]
+    # Shopify CDN image transform: insert _1200x630_crop_center before extension
+    src = re.sub(r'\.(jpg|jpeg|png|webp)(\?.*)?$',
+                 r'_1200x630_crop_center.\1', src, flags=re.IGNORECASE)
+    return src
 
 
 def product_img_url(product: dict) -> str | None:
@@ -217,15 +206,14 @@ YEAR = datetime.now().year
 MONTH = datetime.now().strftime("%B %Y")
 
 EEAT_RULES = (
-    "EEAT requirements (mandatory — every post must include these):\n"
-    "1. Write as a MeeeShop fashion editor in first-person ('I', 'we', 'our customers tell us')\n"
-    "2. Add at least 2 sentences of real personal experience "
-    "   (e.g. 'I wore this to a rooftop event and got three compliments')\n"
-    "3. Mention real specifics: fabric feel, fit notes, body-type suitability\n"
-    "4. Include trust signals: free US shipping, easy 7-day returns, sizes XS-3X\n"
-    "5. Every sentence must be actionable or insightful — cut generic filler\n"
-    "6. Do NOT write anything that sounds AI-generated or robotic\n"
-    "7. Do NOT say 'as an AI' or reveal AI authorship in any way\n\n"
+    "E-E-A-T requirements (Google trust signals):\n"
+    "1. Write from the perspective of an expert MeeeShop fashion stylist/editor.\n"
+    "2. Focus on objective product specifications (e.g., fabric blend, cut structure, weight, how the garment drapes).\n"
+    "3. Provide genuine, actionable styling advice (e.g., what shoes/accessories pair best, how to transition from casual to formal).\n"
+    "4. Address real-world questions from customer interactions (e.g., 'our customers often ask how the shoulders fit' or 'how to care for this fabric').\n"
+    "5. Highlight merchant trust elements: free US shipping on orders $50+, easy 7-day returns, size availability from XS to 3X.\n"
+    "6. Avoid fake personal anecdotes (e.g., do NOT invent stories like 'I wore this to a party last weekend'). Stick to professional analysis.\n"
+    "7. Use varied, authentic vocabulary. Keep tone warm, clean, and helpful, and cut generic filler.\n\n"
 )
 
 
@@ -246,7 +234,8 @@ def _build_prompt(fmt: str, product: dict, keyword: str) -> tuple[str, str]:
         f"- Use target keyword 3-4 times naturally\n"
         f"- Include 3-5 LSI keywords (related phrases)\n"
         f"- Link to product URL at least twice with natural anchor text\n"
-        f"- H1 title must include year {YEAR} or 'for Women'\n\n"
+        f"- H1 title must include year {YEAR} or 'for Women'\n"
+        f"- To avoid programmatic footprints, vary your structure. Occasionally include a <blockquote style='border-left: 3px solid #ccc; padding-left: 10px; margin: 15px 0; font-style: italic;'> for a 'Stylist Tip', or distinct visual callouts. Make the flow feel like a hand-written editorial, not a template.\n\n"
         f"Store info: Free US shipping on orders $50+. Easy 7-day returns. Sizes XS-3X.\n\n"
     )
 
@@ -388,8 +377,14 @@ def run(count: int = 3, dry_run: bool = False):
         sys.exit("ERROR: No products returned.")
     # Prefer products that have images for the featured 1200px image
     products_with_imgs = [p for p in products if p.get("images")]
-    pool = products_with_imgs if len(products_with_imgs) >= count else products
-    print(f"  {len(products)} products ({len(products_with_imgs)} with images)\n")
+    # Strictly restrict pool to products with images to ensure high quality for Discover
+    pool = products_with_imgs
+    if not pool:
+        sys.exit("ERROR: No products with images found in Shopify. Cannot generate Discover-ready blog drafts without product images.")
+    if len(pool) < count:
+        print(f"  [Warning] Only found {len(pool)} products with images, but requested {count} posts. Adjusting count to {len(pool)}.")
+        count = len(pool)
+    print(f"  {len(products)} products ({len(products_with_imgs)} with images used as pool)\n")
 
     blog_id = None if dry_run else get_blog_id()
     if not dry_run:
@@ -408,8 +403,8 @@ def run(count: int = 3, dry_run: bool = False):
         print(f"  Product: {product['title'][:70]}")
 
         ptype   = (product.get("product_type") or "women's fashion").lower()
-        img_url = make_featured_image(product["title"], ptype, fmt)
-        print(f"  Image  : AI editorial (Pollinations.ai 1200x630)")
+        img_url = make_featured_image(product, fmt)
+        print(f"  Image  : Shopify CDN 1200x630 image")
 
         prompt, h1_hint = _build_prompt(fmt, product, keyword)
         html_body = ai_client.generate(prompt, max_tokens=1400, temperature=0.75)
