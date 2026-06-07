@@ -20,6 +20,7 @@ import os
 import json
 import sys
 import time
+import random
 import argparse
 import requests
 from datetime import datetime, timedelta, timezone
@@ -271,8 +272,207 @@ def test_flipboard_login(headless: bool = True):
     finally:
         if driver:
             driver.quit()
+            
+def handle_flip_popup(driver, target_mag):
+    """Helper to handle the magazine selection popup and submitting the flip."""
+    # Sometimes there's a "Next" button, sometimes it goes straight to magazine selection
+    try:
+        logging.info("  [Trace] Checking for 'Next' button...")
+        next_btn = driver.find_element(By.XPATH, '//*[(self::button or @role="button") and contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "next")]')
+        if next_btn.is_displayed():
+            logging.info("  [Trace] 'Next' button displayed, clicking...")
+            next_btn.click()
+            time.sleep(2)
+        else:
+            logging.info("  [Trace] 'Next' button found but not displayed.")
+    except Exception as e:
+        logging.info(f"  [Trace] No 'Next' button found ({type(e).__name__}). Proceeding to magazine selection.")
+    
+    # Select Magazine
+    logging.info(f"  [Trace] Looking for target magazine '{target_mag}'...")
+    time.sleep(2) # Wait for popup to render
+    
+    elements = driver.find_elements(By.XPATH, '//div | //span | //button | //h3 | //h4 | //p | //a')
+    available_mags = []
+    for el in elements:
+        try:
+            txt = driver.execute_script("return arguments[0].textContent;", el)
+            if txt:
+                txt = txt.strip()
+                if len(txt) > 3:
+                    available_mags.append((txt, el))
+        except:
+            pass
+    
+    mag_clicked = False
+    
+    def safe_click_mag(el, name):
+        logging.info(f"  [Trace] Clicking magazine match: '{name}'")
+        try:
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", el)
+            time.sleep(0.5)
+            el.click()
+        except Exception:
+            driver.execute_script("arguments[0].click();", el)
+    
+    # 1. Try exact/partial match for target_mag (avoiding footwear)
+    for txt, el in available_mags:
+        if target_mag.lower() in txt.lower() and "footwear" not in txt.lower():
+            safe_click_mag(el, txt)
+            mag_clicked = True
+            break
+    
+    # 2. Try fallback FLIPBOARD_MAGAZINE
+    if not mag_clicked:
+        logging.warning(f"  Magazine '{target_mag}' not found. Falling back to '{FLIPBOARD_MAGAZINE}'")
+        for txt, el in available_mags:
+            if FLIPBOARD_MAGAZINE.lower() in txt.lower() and "footwear" not in txt.lower():
+                safe_click_mag(el, txt)
+                mag_clicked = True
+                break
+                
+    # 3. Try any known magazine except footwear
+    if not mag_clicked:
+        known_mags = set(MAGAZINE_ROUTING.values())
+        known_mags.add(FLIPBOARD_MAGAZINE)
+        logging.warning("  [Trace] Fallback not found. Trying ANY known magazine (avoiding footwear)...")
+        for txt, el in available_mags:
+            if "footwear" in txt.lower():
+                continue
+            for km in known_mags:
+                if km.lower() in txt.lower() and "footwear" not in km.lower():
+                    safe_click_mag(el, txt)
+                    mag_clicked = True
+                    break
+            if mag_clicked:
+                break
+                
+    # 4. Try any available item (since user simplified to 1 magazine)
+    if not mag_clicked:
+        logging.warning("  [Trace] Could not identify specific magazine. Clicking first available option for single-magazine setup...")
+        mag_rows = driver.find_elements(By.CSS_SELECTOR, 'button[aria-label], div[role="button"], li[role="menuitem"], div[role="checkbox"]')
+        for row in mag_rows:
+            try:
+                txt = driver.execute_script("return arguments[0].textContent;", row)
+                if txt and len(txt.strip()) > 3 and txt.strip().lower() not in ["close", "cancel", "back", "next", "add", "flip"]:
+                    safe_click_mag(row, txt.strip())
+                    mag_clicked = True
+                    break
+            except: pass
+                
+    if not mag_clicked:
+        logging.warning("  [Trace] Still could not identify any magazine to click. Relying on auto-selected default (if any).")
+    
+    time.sleep(2) # Let selection register
+    
+    # Click the final Next / Add / Flip / Done button
+    logging.info("  [Trace] Looking for final Next/Add/Flip/Done button...")
+    time.sleep(1) # Let UI settle
+    flip_btns = driver.find_elements(By.XPATH, '//*[(self::button or @role="button" or self::a) and (contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "next") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "add") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "flip") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "create") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "done") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "save"))] | //*[contains(@aria-label, "Next") or contains(@aria-label, "Add") or contains(@aria-label, "Flip") or contains(@aria-label, "Done")]')
+    
+    if flip_btns:
+        # Prefer enabled buttons that are displayed
+        enabled_btns = [b for b in flip_btns if b.is_displayed() and not b.get_attribute("disabled")]
+        target_btn = enabled_btns[-1] if enabled_btns else flip_btns[-1]
+        
+        logging.info("  [Trace] Found final button, clicking...")
+        try:
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target_btn)
+            time.sleep(0.5)
+            target_btn.click()
+        except Exception:
+            driver.execute_script("arguments[0].click();", target_btn)
+    else:
+        logging.warning("  [Trace] Could not find final button via XPath! Trying generic fallback...")
+        # UI sometimes auto-saves on magazine selection now
+        all_btns = driver.find_elements(By.XPATH, '//button[not(@disabled)]')
+        fallback_btn = None
+        for b in reversed(all_btns):
+            try:
+                if b.is_displayed() and b.text.strip().lower() in ["add", "done", "save", "next", "flip"]:
+                    fallback_btn = b
+                    break
+            except: pass
+        
+        if fallback_btn:
+            try:
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", fallback_btn)
+                time.sleep(0.5)
+                fallback_btn.click()
+            except Exception:
+                driver.execute_script("arguments[0].click();", fallback_btn)
+            logging.info("  [Trace] Clicked fallback button by text.")
+        else:
+            logging.info("  [Trace] No obvious submit button found. Flipboard may have auto-flipped upon magazine selection.")
+    
+    # Wait for success toast/notification
+    logging.info("  [Trace] Waiting 3s for success confirmation...")
+    time.sleep(3)
+    logging.info(f"  ✓ Flipped successfully.")
 
-def flip_articles(articles: list, headless: bool):
+def reflip_trending(driver, limit):
+    logging.info(f"--- Starting Reflip of Trending Articles (limit={limit}) ---")
+    topic_mag_map = {
+        "womensfashion": FLIPBOARD_MAGAZINE,
+        "streetstyle": FLIPBOARD_MAGAZINE,
+        "dresses": "Women's Dresses",
+        "jeans": "Women's Jeans & Bottoms",
+        "handbags": "Handbags",
+        "shoes": "Women's footwear",
+        "plussize": "Curvy | Plus Size Styles & Tips"
+    }
+    
+    topics = list(topic_mag_map.keys())
+    
+    for i in range(limit):
+        topic = random.choice(topics)
+        target_mag = topic_mag_map.get(topic, FLIPBOARD_MAGAZINE)
+        logging.info(f"[{i+1}/{limit}] Finding trending article in topic '{topic}' -> to mag '{target_mag}'...")
+        
+        try:
+            driver.get(f"https://flipboard.com/topic/{topic}")
+            time.sleep(6) # Let the feed load fully
+            
+            # Scroll down slightly to make sure articles render
+            driver.execute_script("window.scrollBy(0, 500);")
+            time.sleep(2)
+            
+            xpath = '//button[contains(@aria-label, "Flip") or contains(@title, "Flip") or @aria-label="Add to Magazine"] | //button//*[local-name()="svg" and contains(@aria-label, "Flip")]/ancestor::button'
+            flip_btns = driver.find_elements(By.XPATH, xpath)
+            
+            visible_btns = [b for b in flip_btns if b.is_displayed()]
+            
+            if not visible_btns:
+                fallback_xpath = '//article//button[contains(@class, "flip") or contains(@aria-label, "Add") or contains(@aria-label, "Save")]'
+                article_btns = driver.find_elements(By.XPATH, fallback_xpath)
+                visible_btns = [b for b in article_btns if b.is_displayed()]
+            
+            if not visible_btns:
+                logging.warning(f"  [Trace] Could not find article flip buttons on topic '{topic}'. Skipping.")
+                continue
+                
+            btn = random.choice(visible_btns[:min(5, len(visible_btns))])
+            
+            logging.info("  [Trace] Clicking Flip button on a trending article...")
+            try:
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
+                time.sleep(1)
+                driver.execute_script("arguments[0].click();", btn)
+            except Exception:
+                btn.click()
+                
+            time.sleep(3)
+            
+            handle_flip_popup(driver, target_mag)
+            
+        except Exception as e:
+            logging.error(f"Failed to reflip trending article: {e}")
+            
+        time.sleep(4)
+        
+    logging.info("--- Finished Reflip of Trending Articles ---")
+
+def flip_articles(articles: list, headless: bool, do_reflip: bool = False, reflip_limit: int = 3):
     """Use Playwright to log in and flip articles."""
     logging.info("Starting browser automation to post to Flipboard...")
     driver = get_browser(headless)
@@ -521,6 +721,9 @@ def flip_articles(articles: list, headless: bool):
                     logging.error(f"  [Debug] Failed to save debug files: {debug_e}")
                 
             time.sleep(2) # Brief pause between flips to act human
+        
+    if do_reflip:
+        reflip_trending(driver, reflip_limit)
 
     finally:
         driver.quit()
@@ -532,6 +735,8 @@ if __name__ == "__main__":
     ap.add_argument("--limit", type=int, default=10, help="Max articles to flip per run.")
     ap.add_argument("--dry-run", action="store_true", help="Print plan, do not flip.")
     ap.add_argument("--headed", action="store_true", help="Show browser window (helpful for initial setup).")
+    ap.add_argument("--reflip", action="store_true", help="Also find and re-flip trending articles related to our niche to boost magazine visibility.")
+    ap.add_argument("--reflip-limit", type=int, default=3, help="Max trending articles to re-flip.")
     args = ap.parse_args()
     
     logging.info("="*60)
@@ -540,19 +745,23 @@ if __name__ == "__main__":
 
     articles = fetch_articles(args.days, args.limit)
     
-    if not articles:
-        logging.info("No new unsynced articles found matching criteria. Exiting.")
+    if not articles and not args.reflip:
+        logging.info("No new unsynced articles found matching criteria and reflip is disabled. Exiting.")
         sys.exit(0)
         
-    logging.info(f"Found {len(articles)} unsynced article(s) to process.")
+    if articles:
+        logging.info(f"Found {len(articles)} unsynced article(s) to process.")
     
     if args.dry_run:
         logging.info("--- DRY RUN MODE ---")
         test_flipboard_login(headless=not args.headed)
-        logging.info("Articles that would be flipped:")
-        for art in articles:
-            logging.info(f"  - '{art['title']}' ({art['_full_url']})")
+        if articles:
+            logging.info("Articles that would be flipped:")
+            for art in articles:
+                logging.info(f"  - '{art['title']}' ({art['_full_url']})")
+        if args.reflip:
+            logging.info(f"Would also reflip up to {args.reflip_limit} trending articles.")
         logging.info("--- END DRY RUN ---")
     else:
         logging.info("--- LIVE MODE ---")
-        flip_articles(articles, headless=not args.headed)
+        flip_articles(articles, headless=not args.headed, do_reflip=args.reflip, reflip_limit=args.reflip_limit)
