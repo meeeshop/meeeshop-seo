@@ -722,8 +722,8 @@ def flip_articles(articles: list, headless: bool, do_reflip: bool = False, refli
                 
             time.sleep(2) # Brief pause between flips to act human
         
-    if do_reflip:
-        reflip_trending(driver, reflip_limit)
+        if do_reflip:
+            reflip_trending(driver, reflip_limit)
 
     finally:
         driver.quit()
