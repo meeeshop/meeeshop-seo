@@ -7,7 +7,7 @@ Go to: **GitHub repo > Settings > Secrets and variables > Actions**
 ### Add These Secrets:
 
 #### 1. **SHOPIFY_ACCESS_TOKEN** (Required)
-- **Value**: `<YOUR_SHOPIFY_ACCESS_TOKEN>`
+- **Value**: `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`
 - **Purpose**: Authenticate to Shopify Admin API
 - **Get from**: Shopify Admin > Apps & integrations > API credentials
 - **Status**: ✓ Ready to add
@@ -39,7 +39,7 @@ Go to: **GitHub repo > Settings > Secrets and variables > Actions**
 ### Step 2: Add SHOPIFY_ACCESS_TOKEN
 ```
 Name:  SHOPIFY_ACCESS_TOKEN
-Value: <YOUR_SHOPIFY_ACCESS_TOKEN>
+Value: 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
 ```
 Click **"Add secret"**
 

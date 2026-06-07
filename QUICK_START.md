@@ -6,7 +6,7 @@
 ```
 URL: https://github.com/meeeshop/meeeshop-invt/settings/secrets/actions
 Name: SHOPIFY_ACCESS_TOKEN
-Value: <YOUR_SHOPIFY_ACCESS_TOKEN>
+Value: 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
 ```
 
 ### 2. (Optional) Add GEMINI_API_KEY Secret
