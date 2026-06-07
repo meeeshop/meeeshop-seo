@@ -82,7 +82,7 @@ jobs:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          TOTAL=$(python count_products.py)
+          TOTAL=$(python scripts/count_products.py)
           echo "Active products: $TOTAL"
           BATCHES=$(( (TOTAL + ${{ env.BATCH_SIZE }} - 1) / ${{ env.BATCH_SIZE }} ))
           echo "Batches needed: $BATCHES"
@@ -125,9 +125,9 @@ jobs:
         run: |
           WINDOW="${{ github.event.inputs.window }}"
           if [ -n "$WINDOW" ]; then
-            python price_update.py --mode ${{ needs.setup.outputs.mode }} --window "$WINDOW"
+            python scripts/price_update.py --mode ${{ needs.setup.outputs.mode }} --window "$WINDOW"
           else
-            python price_update.py --mode ${{ needs.setup.outputs.mode }}
+            python scripts/price_update.py --mode ${{ needs.setup.outputs.mode }}
           fi
 
       - name: Upload log
@@ -168,7 +168,7 @@ jobs:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          python price_update.py \
+          python scripts/price_update.py \
             --mode force \
             --batch-size ${{ env.BATCH_SIZE }} \
             --batch-index ${{ matrix.batch_index }}

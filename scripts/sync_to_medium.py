@@ -25,7 +25,7 @@ from pathlib import Path
 
 # ── credentials ───────────────────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+# Assuming secrets_manager.py is in the same directory
 from secrets_manager import inject_to_env, get_secret
 inject_to_env()
 

@@ -52,7 +52,7 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           echo "Running schema fixer in ${{ steps.mode.outputs.mode }} mode..."
-          python schema_fixer.py --${{ steps.mode.outputs.mode }}
+          python scripts/schema_fixer.py --${{ steps.mode.outputs.mode }}
 
           FIX_REPORT=$(ls -t schema_fix_report_*.json 2>/dev/null | head -1)
           echo "fix_report=${FIX_REPORT}" >> $GITHUB_OUTPUT
@@ -71,7 +71,7 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           echo "Running schema validation in ${{ steps.mode.outputs.mode }} mode..."
-          python schema_validator.py --${{ steps.mode.outputs.mode }}
+          python scripts/schema_validator.py --${{ steps.mode.outputs.mode }}
 
           # Capture results
           REPORT=$(ls -t schema_report_*.json | head -1)
@@ -84,7 +84,7 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           echo "Analyzing page speed..."
-          python page_speed_optimizer.py
+          python scripts/page_speed_optimizer.py
 
           # Capture results
           SPEED_REPORT=$(ls -t speed_report_*.json | head -1)

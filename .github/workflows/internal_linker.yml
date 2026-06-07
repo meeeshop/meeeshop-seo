@@ -87,9 +87,8 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           TOTAL=$(python -c "
-          import sys; sys.path.insert(0, '.')
-          from secrets_manager import inject_to_env, get_secret
-          inject_to_env()
+          import sys; sys.path.insert(0, 'scripts')
+          # internal_linker.py will handle its own dependency on secrets_manager.py
           from internal_linker import fetch_all_blogs, fetch_articles
           blogs = fetch_all_blogs()
           total = sum(len(fetch_articles(blog['id'])) for blog in blogs)
@@ -113,7 +112,7 @@ jobs:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          TOTAL=$(python revert_injected_links.py --count-only --all 2>/dev/null || echo "50")
+          TOTAL=$(python scripts/revert_injected_links.py --count-only --all 2>/dev/null || echo "50")
           echo "Corrupted articles found: $TOTAL"
           BATCHES=$(( (TOTAL + ${{ env.REVERT_BATCH_SIZE }} - 1) / ${{ env.REVERT_BATCH_SIZE }} ))
           [ $BATCHES -lt 1 ] && BATCHES=1
@@ -158,7 +157,7 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           echo "Revert batch ${{ matrix.batch_index }} / batch-size ${{ env.REVERT_BATCH_SIZE }}..."
-          python revert_injected_links.py \
+          python scripts/revert_injected_links.py \
             --apply \
             --all \
             --batch-size ${{ env.REVERT_BATCH_SIZE }} \
@@ -204,7 +203,7 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           echo "Linking articles created in last 7 days..."
-          python internal_linker.py --weekly --apply
+          python scripts/internal_linker.py --weekly --apply
 
       - name: Upload report
         if: always()
@@ -256,7 +255,7 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           echo "Processing batch ${{ matrix.batch_index }}..."
-          python internal_linker.py \
+          python scripts/internal_linker.py \
             --force \
             --apply \
             --batch-size ${{ env.BATCH_SIZE }} \

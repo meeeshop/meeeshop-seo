@@ -34,9 +34,9 @@ from urllib.parse import quote
 
 import requests
 
-# ── resolve project root so we can import ai_client from root ─────────────────
+# ── resolve project root and import local modules ─────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+# Assuming local utility scripts (ai_client, secrets_manager) are in the same directory
 import ai_client
 
 # ── env / credentials ─────────────────────────────────────────────────────────
