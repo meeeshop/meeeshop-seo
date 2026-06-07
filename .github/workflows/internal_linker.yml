@@ -36,6 +36,14 @@ on:
         options:
           - 'false'
           - 'true'
+      dry_run:
+        description: 'Dry run — suggest links only, no Shopify writes (true/false)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 env:
   PYTHONUTF8: "1"
@@ -203,7 +211,12 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           echo "Linking articles created in last 7 days..."
-          python scripts/internal_linker.py --weekly --apply
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          if [ "$DRY_RUN" = "true" ]; then
+            python scripts/internal_linker.py --weekly
+          else
+            python scripts/internal_linker.py --weekly --apply
+          fi
 
       - name: Upload report
         if: always()
@@ -255,11 +268,19 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           echo "Processing batch ${{ matrix.batch_index }}..."
-          python scripts/internal_linker.py \
-            --force \
-            --apply \
-            --batch-size ${{ env.BATCH_SIZE }} \
-            --batch-index ${{ matrix.batch_index }}
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          if [ "$DRY_RUN" = "true" ]; then
+            python scripts/internal_linker.py \
+              --force \
+              --batch-size ${{ env.BATCH_SIZE }} \
+              --batch-index ${{ matrix.batch_index }}
+          else
+            python scripts/internal_linker.py \
+              --force \
+              --apply \
+              --batch-size ${{ env.BATCH_SIZE }} \
+              --batch-index ${{ matrix.batch_index }}
+          fi
 
       - name: Upload batch report
         if: always()
