@@ -104,17 +104,14 @@ def mark_as_synced(blog_id: int, article_id: int, existing_tags: str):
             print(f"    [WARN] Failed to tag Shopify article as synced: {r.text}")
 
 def fetch_sample_collections(limit=5) -> list:
-    """Fetch a few store collections to link in the footer."""
-    try:
-        r = requests.get(f"{SHOP_BASE}/custom_collections.json", headers=SHOP_HEADERS, params={"limit": limit})
-        if r.ok and r.json().get("custom_collections"):
-            return r.json()["custom_collections"]
-        r = requests.get(f"{SHOP_BASE}/smart_collections.json", headers=SHOP_HEADERS, params={"limit": limit})
-        if r.ok and r.json().get("smart_collections"):
-            return r.json()["smart_collections"]
-    except Exception as e:
-        print(f"    [WARN] Could not fetch collections for footer: {e}")
-    return []
+    """Fetch specific store collections to link in the footer."""
+    return [
+        {"title": "New Products", "handle": "new-products"},
+        {"title": "Best Selling Products", "handle": "best-selling-products"},
+        {"title": "Jeans", "handle": "jeans"},
+        {"title": "Dresses", "handle": "dresses"},
+        {"title": "Handbags", "handle": "handbags"}
+    ]
 
 # ── Medium Helpers ────────────────────────────────────────────────────────────
 def get_medium_user_id() -> str:
