@@ -409,17 +409,12 @@ def handle_flip_popup(driver, target_mag):
                     mag_clicked = True
                     break
             except: pass
-                
-    if not mag_clicked:
-        logging.warning("  [Trace] Still could not identify any magazine to click. Relying on auto-selected default (if any).")
-    
-    time.sleep(2) # Let selection register
-    
-    # Click the final Next / Add / Flip / Done button
+
     logging.info("  [Trace] Looking for final Next/Add/Flip/Done button...")
     time.sleep(1) # Let UI settle
     flip_btns = driver.find_elements(By.XPATH, '//*[(self::button or @role="button" or self::a) and (contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "next") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "add") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "flip") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "create") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "done") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "save"))] | //*[contains(@aria-label, "Next") or contains(@aria-label, "Add") or contains(@aria-label, "Flip") or contains(@aria-label, "Done")]')
     
+    button_clicked = False
     if flip_btns:
         # Prefer enabled buttons that are displayed
         enabled_btns = [b for b in flip_btns if b.is_displayed() and not b.get_attribute("disabled")]
@@ -430,8 +425,13 @@ def handle_flip_popup(driver, target_mag):
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target_btn)
             time.sleep(0.5)
             target_btn.click()
+            button_clicked = True
         except Exception:
-            driver.execute_script("arguments[0].click();", target_btn)
+            try:
+                driver.execute_script("arguments[0].click();", target_btn)
+                button_clicked = True
+            except Exception as e:
+                logging.warning(f"  [Trace] Failed to click final button: {e}")
     else:
         logging.warning("  [Trace] Could not find final button via XPath! Trying generic fallback...")
         # UI sometimes auto-saves on magazine selection now
@@ -449,16 +449,28 @@ def handle_flip_popup(driver, target_mag):
                 driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", fallback_btn)
                 time.sleep(0.5)
                 fallback_btn.click()
+                button_clicked = True
             except Exception:
-                driver.execute_script("arguments[0].click();", fallback_btn)
+                try:
+                    driver.execute_script("arguments[0].click();", fallback_btn)
+                    button_clicked = True
+                except Exception as e:
+                    logging.warning(f"  [Trace] Failed to click fallback button: {e}")
             logging.info("  [Trace] Clicked fallback button by text.")
         else:
             logging.info("  [Trace] No obvious submit button found. Flipboard may have auto-flipped upon magazine selection.")
-    
-    # Wait for success toast/notification
-    logging.info("  [Trace] Waiting 3s for success confirmation...")
-    time.sleep(3)
-    logging.info(f"  ✓ Flipped successfully.")
+            if mag_clicked:
+                button_clicked = True
+                
+    if button_clicked:
+        # Wait for success toast/notification
+        logging.info("  [Trace] Waiting 3s for success confirmation...")
+        time.sleep(3)
+        logging.info(f"  ✓ Flipped successfully.")
+        return True
+    else:
+        logging.warning("  ✗ Failed to click any submit/done button in popup.")
+        return False
 
 def reflip_trending(driver, limit):
     logging.info(f"--- Starting Reflip of Trending Articles (limit={limit}) ---")
@@ -473,11 +485,21 @@ def reflip_trending(driver, limit):
     }
     
     topics = list(topic_mag_map.keys())
+    # Shuffle topics initially to randomize rotation
+    random.shuffle(topics)
     
-    for i in range(limit):
-        topic = random.choice(topics)
+    successful_flips = 0
+    attempt = 0
+    max_attempts = 15
+    topic_idx = 0
+    
+    while successful_flips < limit and attempt < max_attempts:
+        attempt += 1
+        topic = topics[topic_idx % len(topics)]
+        topic_idx += 1
+        
         target_mag = topic_mag_map.get(topic, FLIPBOARD_MAGAZINE)
-        logging.info(f"[{i+1}/{limit}] Finding trending article in topic '{topic}' -> to mag '{target_mag}'...")
+        logging.info(f"[{successful_flips + 1}/{limit}] Attempt {attempt}: Finding trending article in topic '{topic}' -> to mag '{target_mag}'...")
         
         try:
             driver.get(f"https://flipboard.com/topic/{topic}")
@@ -501,6 +523,7 @@ def reflip_trending(driver, limit):
                 logging.warning(f"  [Trace] Could not find article flip buttons on topic '{topic}'. Skipping.")
                 continue
                 
+            # Randomly choose one of the top visible flip buttons
             btn = random.choice(visible_btns[:min(5, len(visible_btns))])
             
             logging.info("  [Trace] Clicking Flip button on a trending article...")
@@ -513,14 +536,17 @@ def reflip_trending(driver, limit):
                 
             time.sleep(3)
             
-            handle_flip_popup(driver, target_mag)
+            if handle_flip_popup(driver, target_mag):
+                successful_flips += 1
+                logging.info(f"  ✓ Successfully flipped trending article {successful_flips} of {limit}.")
+            else:
+                logging.warning("  ✗ Failed to flip popup for this article.")
             
         except Exception as e:
             logging.error(f"Failed to reflip trending article: {e}")
             
         time.sleep(4)
-        
-    logging.info("--- Finished Reflip of Trending Articles ---")
+    logging.info(f"--- Finished Reflip of Trending Articles. Flipped {successful_flips}/{limit} in {attempt} attempts. ---")
 
 def flip_articles(articles: list, headless: bool, do_reflip: bool = False, reflip_limit: int = 3):
     """Use Playwright to log in and flip articles."""
