@@ -342,6 +342,21 @@ def handle_flip_popup(driver, target_mag):
     logging.info(f"  [Trace] Looking for target magazine '{target_mag}'...")
     time.sleep(2) # Wait for popup to render
     
+    # Check if there is an "Expand" button/link and click it to reveal all magazines
+    try:
+        expand_btns = driver.find_elements(By.XPATH, '//*[(self::button or self::a or self::span or self::div) and (translate(text(), "EXPAND", "expand")="expand" or contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "expand"))]')
+        for btn in expand_btns:
+            if btn.is_displayed():
+                logging.info("  [Trace] Found 'Expand' button, clicking to reveal all magazines...")
+                try:
+                    driver.execute_script("arguments[0].click();", btn)
+                except Exception:
+                    btn.click()
+                time.sleep(2) # Let the list expand
+                break
+    except Exception as e:
+        logging.info(f"  [Trace] Error trying to click Expand button: {e}")
+
     elements = driver.find_elements(By.XPATH, '//div | //span | //button | //h3 | //h4 | //p | //a')
     available_mags = []
     for el in elements:
@@ -349,7 +364,7 @@ def handle_flip_popup(driver, target_mag):
             txt = driver.execute_script("return arguments[0].textContent;", el)
             if txt:
                 txt = txt.strip()
-                if len(txt) > 3:
+                if len(txt) > 3 and len(txt) < 80:
                     available_mags.append((txt, el))
         except:
             pass
@@ -656,6 +671,21 @@ def flip_articles(articles: list, headless: bool, do_reflip: bool = False, refli
                 except Exception as e:
                     logging.info(f"  [Trace] No 'Next' button found ({type(e).__name__}). Proceeding to magazine selection.")
                 
+                # Check if there is an "Expand" button/link and click it to reveal all magazines
+                try:
+                    expand_btns = driver.find_elements(By.XPATH, '//*[(self::button or self::a or self::span or self::div) and (translate(text(), "EXPAND", "expand")="expand" or contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "expand"))]')
+                    for btn in expand_btns:
+                        if btn.is_displayed():
+                            logging.info("  [Trace] Found 'Expand' button, clicking to reveal all magazines...")
+                            try:
+                                driver.execute_script("arguments[0].click();", btn)
+                            except Exception:
+                                btn.click()
+                            time.sleep(2) # Let the list expand
+                            break
+                except Exception as e:
+                    logging.info(f"  [Trace] Error trying to click Expand button: {e}")
+
                 # Select Magazine
                 logging.info(f"  [Trace] Looking for target magazine '{target_mag}'...")
                 time.sleep(2) # Wait for popup to render
@@ -667,7 +697,7 @@ def flip_articles(articles: list, headless: bool, do_reflip: bool = False, refli
                         txt = driver.execute_script("return arguments[0].textContent;", el)
                         if txt:
                             txt = txt.strip()
-                            if len(txt) > 3:
+                            if len(txt) > 3 and len(txt) < 80:
                                 available_mags.append((txt, el))
                     except:
                         pass
