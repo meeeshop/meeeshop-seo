@@ -203,8 +203,13 @@ def perform_login(driver):
             EC.presence_of_element_located((By.CSS_SELECTOR, 'input[name="username"], input[type="email"], input[name="email"]'))
         )
     except TimeoutException:
-        email_btn = driver.find_element(By.XPATH, '//*[contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue with email")]')
-        driver.execute_script("arguments[0].click();", email_btn)
+        try:
+            # Broaden the search for the email login button
+            email_btn = driver.find_element(By.XPATH, '//*[(self::button or self::a) and (contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "email") or contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "log in"))]')
+            driver.execute_script("arguments[0].click();", email_btn)
+        except Exception as e:
+            logging.warning(f"Could not find email login button: {type(e).__name__}")
+            
         email_loc = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, 'input[name="username"], input[type="email"], input[name="email"]'))
         )
@@ -428,15 +433,29 @@ def flip_articles(articles: list, headless: bool):
                         if mag_clicked:
                             break
                             
+                # 4. Try any available item (since user simplified to 1 magazine)
                 if not mag_clicked:
-                    logging.warning("  [Trace] Could not identify any valid magazine to click. Relying on auto-selected default (if any).")
+                    logging.warning("  [Trace] Could not identify specific magazine. Clicking first available option for single-magazine setup...")
+                    mag_rows = driver.find_elements(By.CSS_SELECTOR, 'button[aria-label], div[role="button"], li[role="menuitem"], div[role="checkbox"]')
+                    for row in mag_rows:
+                        try:
+                            txt = driver.execute_script("return arguments[0].textContent;", row)
+                            if txt and len(txt.strip()) > 3 and txt.strip().lower() not in ["close", "cancel", "back", "next", "add", "flip"]:
+                                driver.execute_script("arguments[0].click();", row)
+                                mag_clicked = True
+                                logging.info(f"  [Trace] Clicked generic magazine row: '{txt.strip()}'")
+                                break
+                        except: pass
+                            
+                if not mag_clicked:
+                    logging.warning("  [Trace] Still could not identify any magazine to click. Relying on auto-selected default (if any).")
                 
                 time.sleep(1) # Let selection register
                 
-                # Click the final Next / Add / Flip button
-                logging.info("  [Trace] Looking for final Next/Add/Flip button...")
+                # Click the final Next / Add / Flip / Done button
+                logging.info("  [Trace] Looking for final Next/Add/Flip/Done button...")
                 time.sleep(1) # Let UI settle
-                flip_btns = driver.find_elements(By.XPATH, '//*[(self::button or @role="button" or self::a) and (contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "next") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "add") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "flip") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "create"))] | //*[contains(@aria-label, "Next") or contains(@aria-label, "Add") or contains(@aria-label, "Flip")]')
+                flip_btns = driver.find_elements(By.XPATH, '//*[(self::button or @role="button" or self::a) and (contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "next") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "add") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "flip") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "create") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "done") or contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "save"))] | //*[contains(@aria-label, "Next") or contains(@aria-label, "Add") or contains(@aria-label, "Flip") or contains(@aria-label, "Done")]')
                 
                 if flip_btns:
                     target_btn = flip_btns[-1]
@@ -444,13 +463,25 @@ def flip_articles(articles: list, headless: bool):
                         if btn.is_displayed():
                             target_btn = btn
                             break
-                    logging.info("  [Trace] Found final Next/Add/Flip button, clicking...")
+                    logging.info("  [Trace] Found final button, clicking...")
                     driver.execute_script("arguments[0].click();", target_btn)
                 else:
-                    logging.warning("  [Trace] Could not find final Next/Add/Flip button via XPath! Trying generic fallback...")
-                    all_btns = driver.find_elements(By.XPATH, '//button')
-                    if all_btns:
-                        driver.execute_script("arguments[0].click();", all_btns[-1])
+                    logging.warning("  [Trace] Could not find final button via XPath! Trying generic fallback...")
+                    # UI sometimes auto-saves on magazine selection now
+                    all_btns = driver.find_elements(By.XPATH, '//button[not(@disabled)]')
+                    fallback_btn = None
+                    for b in reversed(all_btns):
+                        try:
+                            if b.is_displayed() and b.text.strip().lower() in ["add", "done", "save", "next", "flip"]:
+                                fallback_btn = b
+                                break
+                        except: pass
+                    
+                    if fallback_btn:
+                        driver.execute_script("arguments[0].click();", fallback_btn)
+                        logging.info("  [Trace] Clicked fallback button by text.")
+                    else:
+                        logging.info("  [Trace] No obvious submit button found. Flipboard may have auto-flipped upon magazine selection.")
                 
                 # Wait for success toast/notification
                 logging.info("  [Trace] Waiting 3s for success confirmation...")

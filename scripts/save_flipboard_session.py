@@ -42,7 +42,7 @@ def run():
     email = ""
     try:
         email = get_secret("FLIPBOARD_EMAIL")
-    except KeyError:
+    except Exception:
         pass
 
     print("Launching a visible browser...")
