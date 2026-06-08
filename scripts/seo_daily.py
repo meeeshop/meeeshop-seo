@@ -617,6 +617,7 @@ def inject_jsonld(theme_id):
     """Create JSON-LD snippet and include it in theme.liquid. Idempotent."""
     SNIPPET_KEY = "snippets/meeeshop-jsonld.liquid"
     MARKER      = "meeeshop-jsonld"
+    ROBOTS_TAG  = '<meta name="robots" content="max-image-preview:large">'
 
     # 1. Upload the snippet file
     if put_asset(theme_id, SNIPPET_KEY, JSONLD_SNIPPET):
@@ -631,19 +632,30 @@ def inject_jsonld(theme_id):
         print("  ! Could not read layout/theme.liquid")
         return False
 
-    if MARKER in layout:
-        print("  JSON-LD already present in theme.liquid — skipped")
-        return True
+    changed = False
 
-    tag    = "{% render 'meeeshop-jsonld' %}"
-    layout = layout.replace("</head>", f"  {tag}\n</head>", 1)
-
-    if put_asset(theme_id, "layout/theme.liquid", layout):
+    if MARKER not in layout:
+        tag = "{% render 'meeeshop-jsonld' %}"
+        layout = layout.replace("</head>", f"  {tag}\n</head>", 1)
+        changed = True
         print("  JSON-LD render tag added to layout/theme.liquid")
+
+    if "max-image-preview:large" not in layout:
+        layout = layout.replace("</head>", f"  {ROBOTS_TAG}\n</head>", 1)
+        changed = True
+        print("  Discover robots meta tag added to layout/theme.liquid")
+
+    if changed:
+        if put_asset(theme_id, "layout/theme.liquid", layout):
+            print("  theme.liquid updated successfully")
+            return True
+        else:
+            print("  ! Could not update layout/theme.liquid")
+            return False
+    else:
+        print("  JSON-LD & Robots tags already present in theme.liquid — skipped")
         return True
 
-    print("  ! Could not update layout/theme.liquid")
-    return False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
