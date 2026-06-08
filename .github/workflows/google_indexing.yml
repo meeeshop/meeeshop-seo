@@ -33,10 +33,12 @@ on:
     types: [completed]
 
   # 2. Scheduled — 30 minutes after each blog publish window
+  #    (articles from last 1 day only — preserves daily quota for products)
   schedule:
-    - cron: '30 13 * * 2'   # Tuesday  8:30 AM EST
-    - cron: '30 13 * * 4'   # Thursday 8:30 AM EST
-    - cron: '30 14 * * 6'   # Saturday 9:30 AM EST
+    - cron: '30 13 * * 2'   # Tuesday  8:30 AM EST — articles only
+    - cron: '30 13 * * 4'   # Thursday 8:30 AM EST — articles only
+    - cron: '30 14 * * 6'   # Saturday 9:30 AM EST — articles only
+    - cron: '0 15 * * 0'    # Sunday   10:00 AM EST — products + collections (weekly)
 
   # 3. Manual dispatch with full control
   workflow_dispatch:
@@ -127,6 +129,30 @@ jobs:
           COLLECTIONS="${{ github.event.inputs.include_collections || 'false' }}"
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
           LIMIT="${{ github.event.inputs.limit || '200' }}"
+
+          # ── Auto-detect what to include based on schedule day ──────────
+          # Sunday (0) = weekly full run: products + collections
+          # Tue/Thu/Sat  = articles only (preserve quota for blog posts)
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            DAY_OF_WEEK=$(date +%w)  # 0=Sun, 2=Tue, 4=Thu, 6=Sat
+            if [ "$DAY_OF_WEEK" = "0" ]; then
+              echo "[SCHEDULE] Sunday — running full index: articles + products + collections"
+              PRODUCTS="true"
+              COLLECTIONS="true"
+              DAYS="7"  # catch any articles from last week too
+            else
+              echo "[SCHEDULE] Weekday — running articles-only to preserve daily quota"
+              PRODUCTS="false"
+              COLLECTIONS="false"
+            fi
+          fi
+
+          # ── Chain trigger: articles only ───────────────────────────────
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "[CHAIN] Triggered by Blog Daily Generator — submitting new articles only"
+            PRODUCTS="false"
+            COLLECTIONS="false"
+          fi
 
           ARGS="--days $DAYS --limit $LIMIT"
 
