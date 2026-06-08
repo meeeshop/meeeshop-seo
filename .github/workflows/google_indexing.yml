@@ -71,6 +71,23 @@ on:
         default: '200'
         required: false
         type: string
+      force:
+        description: 'Force resubmit ALL URLs ignoring history (overrides skip-hours)'
+        default: 'false'
+        required: false
+        type: choice
+        options: ['false', 'true']
+      pending_only:
+        description: 'Only submit quota-backlog URLs from previous runs'
+        default: 'false'
+        required: false
+        type: choice
+        options: ['false', 'true']
+      skip_hours:
+        description: 'Skip URLs submitted within this many hours (default: 48)'
+        default: '48'
+        required: false
+        type: string
 
 jobs:
   index-urls:
@@ -96,6 +113,44 @@ jobs:
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt
+
+      # ── Restore history from previous run artifact ────────────────────────
+      # indexing_history.json tracks submitted URLs + pending queue.
+      # Downloading it here means the script knows what was already submitted
+      # and which URLs are pending from a quota-limited previous run.
+      - name: Download submission history
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          name: google-indexing-history
+          path: .
+          if_no_artifact_found: warn   # first run has no history yet
+          workflow_conclusion: ""
+          search_artifacts: true
+        continue-on-error: true        # first run: no history exists yet
+
+      - name: Show history status
+        run: |
+          if [ -f indexing_history.json ]; then
+            echo "[HISTORY] Loaded indexing_history.json from previous run:"
+            python -c "
+          import json
+          with open('indexing_history.json') as f:
+              d = json.load(f)
+          print(f'  total ever submitted : {len(d.get(\"submitted\", {}))}')
+          print(f'  pending queue        : {len(d.get(\"pending\", []))} URL(s)')
+          stats = d.get(\"stats\", {})
+          print(f'  last run at          : {stats.get(\"last_run_at\", \"never\")}')
+          pending = d.get(\"pending\", [])
+          if pending:
+              print(f'  pending URLs (quota backlog):')
+              for u in pending[:10]:
+                  print(f'    - {u}')
+              if len(pending) > 10:
+                  print(f'    ... and {len(pending) - 10} more')
+          "
+          else
+            echo "[HISTORY] No history file found — this appears to be the first run."
+          fi
 
       - name: Log run context
         run: |
@@ -129,6 +184,9 @@ jobs:
           COLLECTIONS="${{ github.event.inputs.include_collections || 'false' }}"
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
           LIMIT="${{ github.event.inputs.limit || '200' }}"
+          FORCE="${{ github.event.inputs.force || 'false' }}"
+          PENDING_ONLY="${{ github.event.inputs.pending_only || 'false' }}"
+          SKIP_HOURS="${{ github.event.inputs.skip_hours || '48' }}"
 
           # ── Auto-detect what to include based on schedule day ──────────
           # Sunday (0) = weekly full run: products + collections
@@ -136,12 +194,12 @@ jobs:
           if [ "${{ github.event_name }}" = "schedule" ]; then
             DAY_OF_WEEK=$(date +%w)  # 0=Sun, 2=Tue, 4=Thu, 6=Sat
             if [ "$DAY_OF_WEEK" = "0" ]; then
-              echo "[SCHEDULE] Sunday — running full index: articles + products + collections"
+              echo "[SCHEDULE] Sunday — full index: articles + products + collections"
               PRODUCTS="true"
               COLLECTIONS="true"
               DAYS="7"  # catch any articles from last week too
             else
-              echo "[SCHEDULE] Weekday — running articles-only to preserve daily quota"
+              echo "[SCHEDULE] Weekday — articles-only to preserve daily quota"
               PRODUCTS="false"
               COLLECTIONS="false"
             fi
@@ -154,19 +212,13 @@ jobs:
             COLLECTIONS="false"
           fi
 
-          ARGS="--days $DAYS --limit $LIMIT"
+          ARGS="--days $DAYS --limit $LIMIT --skip-hours $SKIP_HOURS"
 
-          if [ "$PRODUCTS" = "true" ]; then
-            ARGS="$ARGS --products"
-          fi
-
-          if [ "$COLLECTIONS" = "true" ]; then
-            ARGS="$ARGS --collections"
-          fi
-
-          if [ "$DRY_RUN" = "true" ]; then
-            ARGS="$ARGS --dry-run"
-          fi
+          [ "$PRODUCTS" = "true" ]      && ARGS="$ARGS --products"
+          [ "$COLLECTIONS" = "true" ]   && ARGS="$ARGS --collections"
+          [ "$DRY_RUN" = "true" ]       && ARGS="$ARGS --dry-run"
+          [ "$FORCE" = "true" ]         && ARGS="$ARGS --force"
+          [ "$PENDING_ONLY" = "true" ]  && ARGS="$ARGS --pending-only"
 
           echo "Command: python scripts/google_indexing.py $ARGS"
           python scripts/google_indexing.py $ARGS
@@ -232,14 +284,37 @@ jobs:
           import json
           with open('$JSON_FILE') as f:
               d = json.load(f)
-          s = d.get('summary', {})
-          print(f'  total_urls     : {s.get(\"total_urls\", 0)}')
-          print(f'  submitted      : {s.get(\"submitted\", 0)}')
-          print(f'  success        : {s.get(\"success\", 0)}')
-          print(f'  failed         : {s.get(\"failed\", 0)}')
-          print(f'  quota_used     : {s.get(\"quota_used_today\", 0)} / 200')
-          print(f'  quota_remaining: {s.get(\"quota_remaining\", 0)}')
-          print(f'  dry_run        : {s.get(\"dry_run\", False)}')
+          s  = d.get('summary', {})
+          dd = d.get('dedup', {})
+          pd = d.get('pending', {})
+          h  = d.get('history', {})
+          print('  [HISTORY]')
+          print(f'    ever submitted     : {h.get("total_ever_submitted", 0)}')
+          print(f'    pending (backlog)  : {h.get("pending_count", 0)}')
+          print(f'    last run at        : {h.get("last_run_at", "never")}')
+          print('  [DEDUP]')
+          print(f'    total found        : {dd.get("total_found", 0)}')
+          print(f'    skipped (< {dd.get("skip_hours",48)}h)  : {dd.get("skipped_recent", 0)}')
+          print(f'    pending loaded     : {dd.get("pending_loaded", 0)}')
+          print(f'    queued to submit   : {dd.get("to_submit", 0)}')
+          print(f'    force mode         : {dd.get("force_mode", False)}')
+          print('  [SUBMISSIONS]')
+          print(f'    submitted          : {s.get("submitted", 0)}')
+          print(f'    success            : {s.get("success", 0)}')
+          print(f'    failed             : {s.get("failed", 0)}')
+          print(f'    added to pending   : {s.get("added_to_pending", 0)}')
+          print(f'    pending queue now  : {s.get("pending_loaded", 0)}')
+          print(f'  [QUOTA]')
+          print(f'    used today         : ~{s.get("quota_used_today", 0)} / 200')
+          print(f'    remaining          : ~{s.get("quota_remaining", 0)}')
+          print(f'    dry_run            : {s.get("dry_run", False)}')
+          added = pd.get('added_to_queue', [])
+          if added:
+              print(f'  [PENDING QUEUE] {len(added)} URL(s) queued for next run:')
+              for u in added[:5]:
+                  print(f'    + {u}')
+              if len(added) > 5:
+                  print(f'    ... and {len(added)-5} more')
           "
           else
             echo "No JSON report file found."
@@ -256,3 +331,17 @@ jobs:
             google_indexing_*.log
           if-no-files-found: warn
           retention-days: 30
+
+      # ── Persist history for next run ─────────────────────────────────
+      # Upload indexing_history.json as a persistent named artifact.
+      # The download step at the start of the next run will restore it,
+      # giving the script memory of what was already submitted.
+      - name: Upload submission history (persist for next run)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: google-indexing-history
+          path: indexing_history.json
+          if-no-files-found: warn
+          retention-days: 90   # keep 90 days of history
+          overwrite: true      # always replace with latest version
