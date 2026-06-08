@@ -286,10 +286,26 @@ def fetch_all_products() -> List[Dict]:
 
 
 def fetch_all_collections() -> List[Dict]:
-    """Fetch all collections."""
-    r = _req("get", f"{BASE}/custom_collections.json", params={"limit": 250})
-    r.raise_for_status()
-    return r.json().get("custom_collections", [])
+    """Fetch all collections (both custom and smart)."""
+    collections = []
+    
+    # 1. Custom collections
+    try:
+        r = _req("get", f"{BASE}/custom_collections.json", params={"limit": 250})
+        r.raise_for_status()
+        collections.extend(r.json().get("custom_collections", []))
+    except Exception as e:
+        logger.error(f"Failed to fetch custom collections: {e}")
+
+    # 2. Smart collections
+    try:
+        r = _req("get", f"{BASE}/smart_collections.json", params={"limit": 250})
+        r.raise_for_status()
+        collections.extend(r.json().get("smart_collections", []))
+    except Exception as e:
+        logger.error(f"Failed to fetch smart collections: {e}")
+
+    return collections
 
 
 def update_article(blog_id: int, article_id: int, body_html: str) -> bool:
