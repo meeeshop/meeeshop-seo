@@ -45,6 +45,13 @@ def has_stale_return_policy(text):
     return bool(STALE_RETURN_RE.search(text))
 
 
+def clean_return_policy(text):
+    """Replace any stale return policies with the required 7-day policy."""
+    if not text:
+        return text
+    return STALE_RETURN_RE.sub(RETURN_POLICY, text)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # TEXT HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -230,9 +237,19 @@ def build_size_chart(word):
 # ── SEO description with keywords + size chart ───────────────────────────────
 def build_description(product, force=False):
     title    = product['title']
-    html_body = product.get('body_html', '')
+    html_body = product.get('body_html', '') or ''
     existing = strip_html(html_body)
     cat, word = detect_cat(title)
+
+    # Detect if product already has a custom/storytelling description
+    if len(existing) >= 200 and not ("Discover the" in html_body and "Why Choose" in html_body):
+        # Preserve the custom description, clean return policies, and append size table if missing
+        cleaned_body = clean_return_policy(html_body)
+        if not has_size_table(cleaned_body):
+            size_chart = build_size_chart(word)
+            return cleaned_body.strip() + "\n\n" + size_chart
+        return cleaned_body
+
     keywords = extract_keywords(title)
     keywords_str = ' '.join(keywords) if keywords else ''
 
@@ -271,7 +288,7 @@ def build_description(product, force=False):
         size_chart = build_size_chart(word)
 
     if not force and len(existing) >= 500:
-        return (product.get('body_html') or '')
+        return html_body
 
     return intro + features + why_choose + size_chart
 
@@ -734,7 +751,14 @@ def validate_seo(item, item_type, existing_mfs):
         ]
         has_all_markers = all(m in body_html for m in required_markers)
         has_stale_body  = has_stale_return_policy(body_html)
-        body_ok = has_all_markers and not has_stale_body and plain_len >= 500 and has_table
+
+        # Allow custom descriptions (length >= 200, without SEO template markers) if they have a table and no stale return policy
+        is_custom = len(strip_html(body_html)) >= 200 and not ("Discover the" in body_html and "Why Choose" in body_html)
+        if is_custom:
+            body_ok = has_table and not has_stale_body
+        else:
+            body_ok = has_all_markers and not has_stale_body and plain_len >= 500 and has_table
+
         if not body_ok:
             new_desc = build_description(item, force=True)
             mismatches.append({
@@ -792,9 +816,16 @@ def process(product, stats, log, existing_mfs=None, force=False):
                         'Why Choose', RETURN_POLICY]
     has_all_markers = all(m in body_html for m in required_markers)
     has_stale_body  = has_stale_return_policy(body_html)
-    needs_body_rewrite = force or plain_len < 500 or not has_table or has_stale_body or not has_all_markers
+
+    # Allow custom descriptions to bypass complete overwrite, only rewriting if force or missing table/stale return
+    is_custom = len(strip_html(body_html)) >= 200 and not ("Discover the" in body_html and "Why Choose" in body_html)
+    if is_custom:
+        needs_body_rewrite = force or not has_table or has_stale_body
+    else:
+        needs_body_rewrite = force or plain_len < 500 or not has_table or has_stale_body or not has_all_markers
+
     if needs_body_rewrite:
-        missing.append(f"body_html ({plain_len} chars, table={has_table}, stale={has_stale_body}, markers={has_all_markers})")
+        missing.append(f"body_html ({plain_len} chars, table={has_table}, stale={has_stale_body}, markers={has_all_markers}, custom={is_custom})")
         new_body = build_description(product, force=True)
         prod_updates['body_html'] = new_body
         stats['descriptions'] += 1
