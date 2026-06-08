@@ -2,6 +2,8 @@
 .env
 client_secret.json
 youtube_token.pickle
+google_sa_key.json
+*_sa_key.json
 
 # Generated files
 bg_music.mp3
