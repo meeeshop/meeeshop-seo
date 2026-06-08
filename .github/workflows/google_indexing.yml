@@ -1,0 +1,347 @@
+name: Google Indexing API
+
+# ─────────────────────────────────────────────────────────────────
+# Submits newly published Shopify blog articles, products, and
+# collection pages to the Google Indexing API for fast crawling.
+#
+# Triggers:
+#   1. Automatically after blog_daily.yml completes (chain trigger)
+#   2. Scheduled cron 30 min after each blog publish window
+#   3. Manual dispatch with configurable options
+#
+# Credentials (all from secrets.enc — no extra GitHub secrets needed):
+#   ENCRYPTION_KEY_PRIMARY  — already set as GitHub secret
+#   ENCRYPTION_KEY_FALLBACK — already set as GitHub secret
+#   GOOGLE_SA_KEY_JSON      — encrypted inside secrets.enc vault
+#
+# Logs uploaded as workflow artifacts:
+#   google_indexing_YYYYMMDD_HHMMSS.json — structured run report
+#   google_indexing_YYYYMMDD_HHMMSS.log  — plain text console log
+#
+# One-time setup:
+#   1. Enable "Web Search Indexing API" in Google Cloud Console
+#   2. python scripts/add_google_sa_key.py --key-file google_sa_key.json
+#   3. Add service account as Owner in Google Search Console (URL-prefix property)
+#   4. git add secrets.enc && git commit && git push
+#   5. See GOOGLE_INDEXING_SETUP.md for full guide
+# ─────────────────────────────────────────────────────────────────
+
+on:
+  # 1. Chain trigger — fires after blog_daily.yml completes successfully
+  workflow_run:
+    workflows: ["Blog Daily Generator"]
+    types: [completed]
+
+  # 2. Scheduled — 30 minutes after each blog publish window
+  #    (articles from last 1 day only — preserves daily quota for products)
+  schedule:
+    - cron: '30 13 * * 2'   # Tuesday  8:30 AM EST — articles only
+    - cron: '30 13 * * 4'   # Thursday 8:30 AM EST — articles only
+    - cron: '30 14 * * 6'   # Saturday 9:30 AM EST — articles only
+    - cron: '0 15 * * 0'    # Sunday   10:00 AM EST — products + collections (weekly)
+
+  # 3. Manual dispatch with full control
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Blog lookback window in days'
+        default: '1'
+        required: false
+        type: string
+      include_products:
+        description: 'Submit all published product pages'
+        default: 'false'
+        required: false
+        type: choice
+        options: ['false', 'true']
+      include_collections:
+        description: 'Submit all published collection pages'
+        default: 'false'
+        required: false
+        type: choice
+        options: ['false', 'true']
+      dry_run:
+        description: 'Dry run — log only, no API calls to Google'
+        default: 'false'
+        required: false
+        type: choice
+        options: ['false', 'true']
+      limit:
+        description: 'Max URLs to submit (Google quota: 200/day)'
+        default: '200'
+        required: false
+        type: string
+      force:
+        description: 'Force resubmit ALL URLs ignoring history (overrides skip-hours)'
+        default: 'false'
+        required: false
+        type: choice
+        options: ['false', 'true']
+      pending_only:
+        description: 'Only submit quota-backlog URLs from previous runs'
+        default: 'false'
+        required: false
+        type: choice
+        options: ['false', 'true']
+      skip_hours:
+        description: 'Skip URLs submitted within this many hours (default: 48)'
+        default: '48'
+        required: false
+        type: string
+
+jobs:
+  index-urls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Only run if triggered manually/cron, OR if blog workflow succeeded
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      # ── Restore history from previous run artifact ────────────────────────
+      # indexing_history.json tracks submitted URLs + pending queue.
+      # Downloading it here means the script knows what was already submitted
+      # and which URLs are pending from a quota-limited previous run.
+      - name: Download submission history
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          name: google-indexing-history
+          path: .
+          if_no_artifact_found: warn   # first run has no history yet
+          workflow_conclusion: ""
+          search_artifacts: true
+        continue-on-error: true        # first run: no history exists yet
+
+      - name: Show history status
+        run: |
+          if [ -f indexing_history.json ]; then
+            echo "[HISTORY] Loaded indexing_history.json from previous run:"
+            python -c "
+          import json
+          with open('indexing_history.json') as f:
+              d = json.load(f)
+          print(f'  total ever submitted : {len(d.get(\"submitted\", {}))}')
+          print(f'  pending queue        : {len(d.get(\"pending\", []))} URL(s)')
+          stats = d.get(\"stats\", {})
+          print(f'  last run at          : {stats.get(\"last_run_at\", \"never\")}')
+          pending = d.get(\"pending\", [])
+          if pending:
+              print(f'  pending URLs (quota backlog):')
+              for u in pending[:10]:
+                  print(f'    - {u}')
+              if len(pending) > 10:
+                  print(f'    ... and {len(pending) - 10} more')
+          "
+          else
+            echo "[HISTORY] No history file found — this appears to be the first run."
+          fi
+
+      - name: Log run context
+        run: |
+          echo "=========================================="
+          echo "  Google Indexing API — Run Context"
+          echo "=========================================="
+          echo "  Triggered by : ${{ github.event_name }}"
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "  Parent workflow : ${{ github.event.workflow_run.name }}"
+            echo "  Parent status   : ${{ github.event.workflow_run.conclusion }}"
+          fi
+          echo "  Days lookback   : ${{ github.event.inputs.days || '1' }}"
+          echo "  Products        : ${{ github.event.inputs.include_products || 'false' }}"
+          echo "  Collections     : ${{ github.event.inputs.include_collections || 'false' }}"
+          echo "  Dry run         : ${{ github.event.inputs.dry_run || 'false' }}"
+          echo "  URL limit       : ${{ github.event.inputs.limit || '200' }}"
+          echo "  Run number      : ${{ github.run_number }}"
+          echo "  Runner OS       : ${{ runner.os }}"
+          echo "=========================================="
+
+      - name: Submit URLs to Google Indexing API
+        id: indexing
+        env:
+          PYTHONUTF8: "1"
+          # Decrypt secrets.enc at runtime (contains Shopify + Google SA key)
+          ENCRYPTION_KEY_PRIMARY:  ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          DAYS="${{ github.event.inputs.days || '1' }}"
+          PRODUCTS="${{ github.event.inputs.include_products || 'false' }}"
+          COLLECTIONS="${{ github.event.inputs.include_collections || 'false' }}"
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          LIMIT="${{ github.event.inputs.limit || '200' }}"
+          FORCE="${{ github.event.inputs.force || 'false' }}"
+          PENDING_ONLY="${{ github.event.inputs.pending_only || 'false' }}"
+          SKIP_HOURS="${{ github.event.inputs.skip_hours || '48' }}"
+
+          # ── Auto-detect what to include based on schedule day ──────────
+          # Sunday (0) = weekly full run: products + collections
+          # Tue/Thu/Sat  = articles only (preserve quota for blog posts)
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            DAY_OF_WEEK=$(date +%w)  # 0=Sun, 2=Tue, 4=Thu, 6=Sat
+            if [ "$DAY_OF_WEEK" = "0" ]; then
+              echo "[SCHEDULE] Sunday — full index: articles + products + collections"
+              PRODUCTS="true"
+              COLLECTIONS="true"
+              DAYS="7"  # catch any articles from last week too
+            else
+              echo "[SCHEDULE] Weekday — articles-only to preserve daily quota"
+              PRODUCTS="false"
+              COLLECTIONS="false"
+            fi
+          fi
+
+          # ── Chain trigger: articles only ───────────────────────────────
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "[CHAIN] Triggered by Blog Daily Generator — submitting new articles only"
+            PRODUCTS="false"
+            COLLECTIONS="false"
+          fi
+
+          ARGS="--days $DAYS --limit $LIMIT --skip-hours $SKIP_HOURS"
+
+          [ "$PRODUCTS" = "true" ]      && ARGS="$ARGS --products"
+          [ "$COLLECTIONS" = "true" ]   && ARGS="$ARGS --collections"
+          [ "$DRY_RUN" = "true" ]       && ARGS="$ARGS --dry-run"
+          [ "$FORCE" = "true" ]         && ARGS="$ARGS --force"
+          [ "$PENDING_ONLY" = "true" ]  && ARGS="$ARGS --pending-only"
+
+          echo "Command: python scripts/google_indexing.py $ARGS"
+          python scripts/google_indexing.py $ARGS
+
+      - name: Show JSON report summary
+        if: always()
+        run: |
+          echo "=========================================="
+          echo "  Indexing Run Report Summary"
+          echo "=========================================="
+          # Find the most recent JSON log and print summary section
+          JSON_FILE=$(ls -t google_indexing_*.json 2>/dev/null | head -1)
+          if [ -n "$JSON_FILE" ]; then
+            echo "Report file: $JSON_FILE"
+            echo ""
+            echo "--- AUTH ---"
+            python -c "
+          import json, sys
+          with open('$JSON_FILE') as f:
+              d = json.load(f)
+          auth = d.get('auth', {})
+          print(f'  success         : {auth.get(\"success\", \"?\")}')
+          print(f'  service_account : {auth.get(\"service_account\", \"?\")}')
+          if auth.get('error'):
+              print(f'  error           : {auth[\"error\"]}')
+          "
+            echo ""
+            echo "--- DISCOVERY ---"
+            python -c "
+          import json
+          with open('$JSON_FILE') as f:
+              d = json.load(f)
+          disc = d.get('discovery', {})
+          blogs = disc.get('blogs', [])
+          total_articles = sum(b.get('article_count', 0) for b in blogs)
+          prods = disc.get('products', {})
+          cols  = disc.get('collections', {})
+          print(f'  blogs scanned   : {len(blogs)}')
+          print(f'  articles found  : {total_articles}')
+          print(f'  products found  : {prods.get(\"count\", 0) if isinstance(prods, dict) else 0}')
+          print(f'  collections     : {cols.get(\"count\", 0) if isinstance(cols, dict) else 0}')
+          for b in blogs:
+              print(f'    blog: {b[\"blog_title\"]} ({b[\"article_count\"]} articles)')
+              for a in b.get('articles', []):
+                  print(f'      + [{a[\"published_at\"][:10]}] {a[\"title\"]}')
+          "
+            echo ""
+            echo "--- SUBMISSIONS ---"
+            python -c "
+          import json
+          with open('$JSON_FILE') as f:
+              d = json.load(f)
+          for s in d.get('submissions', []):
+              icon = 'OK ' if s['success'] else 'ERR'
+              dry  = '[DRY] ' if s.get('dry_run') else ''
+              nt   = f' notifyTime={s[\"notify_time\"]}' if s.get('notify_time') else ''
+              err  = f' error={s[\"error\"]}' if s.get('error') else ''
+              print(f'  {icon} {dry}[{s[\"type\"]:>10}] {s[\"url\"]}{nt}{err}')
+          "
+            echo ""
+            echo "--- SUMMARY ---"
+            python -c "
+          import json
+          with open('$JSON_FILE') as f:
+              d = json.load(f)
+          s  = d.get('summary', {})
+          dd = d.get('dedup', {})
+          pd = d.get('pending', {})
+          h  = d.get('history', {})
+          print('  [HISTORY]')
+          print(f'    ever submitted     : {h.get("total_ever_submitted", 0)}')
+          print(f'    pending (backlog)  : {h.get("pending_count", 0)}')
+          print(f'    last run at        : {h.get("last_run_at", "never")}')
+          print('  [DEDUP]')
+          print(f'    total found        : {dd.get("total_found", 0)}')
+          print(f'    skipped (< {dd.get("skip_hours",48)}h)  : {dd.get("skipped_recent", 0)}')
+          print(f'    pending loaded     : {dd.get("pending_loaded", 0)}')
+          print(f'    queued to submit   : {dd.get("to_submit", 0)}')
+          print(f'    force mode         : {dd.get("force_mode", False)}')
+          print('  [SUBMISSIONS]')
+          print(f'    submitted          : {s.get("submitted", 0)}')
+          print(f'    success            : {s.get("success", 0)}')
+          print(f'    failed             : {s.get("failed", 0)}')
+          print(f'    added to pending   : {s.get("added_to_pending", 0)}')
+          print(f'    pending queue now  : {s.get("pending_loaded", 0)}')
+          print(f'  [QUOTA]')
+          print(f'    used today         : ~{s.get("quota_used_today", 0)} / 200')
+          print(f'    remaining          : ~{s.get("quota_remaining", 0)}')
+          print(f'    dry_run            : {s.get("dry_run", False)}')
+          added = pd.get('added_to_queue', [])
+          if added:
+              print(f'  [PENDING QUEUE] {len(added)} URL(s) queued for next run:')
+              for u in added[:5]:
+                  print(f'    + {u}')
+              if len(added) > 5:
+                  print(f'    ... and {len(added)-5} more')
+          "
+          else
+            echo "No JSON report file found."
+          fi
+          echo "=========================================="
+
+      - name: Upload indexing logs as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: google-indexing-run-${{ github.run_number }}
+          path: |
+            google_indexing_*.json
+            google_indexing_*.log
+          if-no-files-found: warn
+          retention-days: 30
+
+      # ── Persist history for next run ─────────────────────────────────
+      # Upload indexing_history.json as a persistent named artifact.
+      # The download step at the start of the next run will restore it,
+      # giving the script memory of what was already submitted.
+      - name: Upload submission history (persist for next run)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: google-indexing-history
+          path: indexing_history.json
+          if-no-files-found: warn
+          retention-days: 90   # keep 90 days of history
+          overwrite: true      # always replace with latest version

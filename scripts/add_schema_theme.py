@@ -34,6 +34,7 @@ OLD_MARKERS = [
 
 # The correct render tag (added by seo_daily.py inject_jsonld)
 RENDER_TAG = "{% render 'meeeshop-jsonld' %}"
+ROBOTS_TAG = '<meta name="robots" content="max-image-preview:large">'
 
 
 # ── theme.liquid helpers ──────────────────────────────────────────────────────
@@ -128,6 +129,18 @@ def ensure_render_tag(content: str) -> tuple[str, bool]:
     return content, True
 
 
+def ensure_robots_tag(content: str) -> tuple[str, bool]:
+    """Ensure <meta name="robots" content="max-image-preview:large"> is present in head."""
+    if "max-image-preview:large" in content:
+        return content, False
+    if "</head>" not in content:
+        print("  [!] </head> not found — cannot add robots meta tag")
+        return content, False
+    content = content.replace("</head>", f"  {ROBOTS_TAG}\n</head>", 1)
+    print("  [OK] Added <meta name=\"robots\" content=\"max-image-preview:large\"> before </head>")
+    return content, True
+
+
 # ── metafield purge ───────────────────────────────────────────────────────────
 
 def get_all_products():
@@ -194,9 +207,10 @@ if __name__ == "__main__":
     print(f"[OK] Fetched theme.liquid ({len(content):,} bytes)")
 
     content, removed = remove_old_injection(content)
-    content, added   = ensure_render_tag(content)
+    content, added_render = ensure_render_tag(content)
+    content, added_robots = ensure_robots_tag(content)
 
-    if removed or added:
+    if removed or added_render or added_robots:
         if put_theme_liquid(content):
             print("[OK] theme.liquid updated successfully")
         else:
@@ -209,15 +223,20 @@ if __name__ == "__main__":
     final = get_theme_liquid()
     has_old = any(m in (final or "") for m in OLD_MARKERS)
     has_new = RENDER_TAG in (final or "")
+    has_robots = "max-image-preview:large" in (final or "")
     print(f"\nVerification:")
     print(f"  Old injection removed: {'YES' if not has_old else 'NO — still present!'}")
     print(f"  Render tag present:    {'YES' if has_new else 'NO — missing!'}")
+    print(f"  Robots tag present:    {'YES' if has_robots else 'NO — missing!'}")
 
     if has_old:
         print("\n[!] Old injection still detected — re-run this script")
         sys.exit(1)
     if not has_new:
         print("\n[!] Render tag missing — check theme.liquid manually")
+        sys.exit(1)
+    if not has_robots:
+        print("\n[!] Robots tag missing — check theme.liquid manually")
         sys.exit(1)
 
     print("\n[OK] Theme is clean. Single schema source: snippets/meeeshop-jsonld.liquid")

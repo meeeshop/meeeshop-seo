@@ -116,19 +116,15 @@ def split_products(products: list) -> tuple[list, list]:
 
 
 def find_best_replacement(out_product: dict, in_stock: list) -> dict | None:
-    """Find best in-stock replacement: same product_type first, then any with image."""
+    """Find best in-stock replacement: same product_type first (must have image), then any with image."""
     ptype = (out_product.get("product_type") or "").lower()
     # Same type with image
     same = [p for p in in_stock if (p.get("product_type") or "").lower() == ptype and p.get("images")]
     if same:
         return random.choice(same)
-    # Same type without image
-    same_any = [p for p in in_stock if (p.get("product_type") or "").lower() == ptype]
-    if same_any:
-        return random.choice(same_any)
     # Any in-stock with image
     with_img = [p for p in in_stock if p.get("images")]
-    return random.choice(with_img) if with_img else (random.choice(in_stock) if in_stock else None)
+    return random.choice(with_img) if with_img else None
 
 
 # ── Blog / article fetching ───────────────────────────────────────────────────
@@ -196,18 +192,11 @@ def product_img_url(product: dict) -> str | None:
 
 def make_featured_image_url(product: dict) -> str:
     imgs = product.get("images", [])
-    if imgs:
-        src = imgs[0]["src"]
-        return re.sub(r'\.(jpg|jpeg|png|webp)(\?.*)?$',
-                      r'_1200x630_crop_center.\1', src, flags=re.IGNORECASE)
-    ptype = (product.get("product_type") or "women's fashion").lower().replace("'s", "").strip()
-    prompt = (
-        f"professional fashion editorial photo, {ptype} clothing, "
-        "elegant woman in stylish outfit, natural light, magazine quality, "
-        "high quality, sharp focus, no text, no watermark, photorealistic, bright"
-    )
-    seed = random.randint(1, 99999)
-    return f"https://image.pollinations.ai/prompt/{quote(prompt)}?width=1200&height=630&nologo=true&seed={seed}"
+    if not imgs:
+        raise ValueError(f"Product '{product.get('title')}' has no images. Direct CDN images are required for Discover.")
+    src = imgs[0]["src"]
+    return re.sub(r'\.(jpg|jpeg|png|webp)(\?.*)?$',
+                  r'_1200x630_crop_center.\1', src, flags=re.IGNORECASE)
 
 
 # ── Product card HTML (same style as blog_daily.py) ──────────────────────────
@@ -299,13 +288,14 @@ def make_related_products_section(products: list, exclude_handle: str,
 
 # ── SEO metadata generation ───────────────────────────────────────────────────
 EEAT_RULES = (
-    "EEAT requirements (mandatory):\n"
-    "1. Write as a MeeeShop fashion editor — first-person ('I', 'we', 'our customers tell us')\n"
-    "2. Include ≥2 sentences of real personal experience (e.g. 'I wore this to a rooftop dinner')\n"
-    "3. Mention real specifics: fabric feel, fit notes, body-type suitability\n"
-    "4. Include trust signals: free US shipping on orders $50+, easy 7-day returns, sizes XS-3X\n"
-    "5. Every sentence must be actionable or insightful — cut generic filler\n"
-    "6. Do NOT sound AI-generated or robotic. Sound like a real woman helping another woman shop.\n\n"
+    "E-E-A-T requirements (Google trust signals):\n"
+    "1. Write from the perspective of an expert MeeeShop fashion stylist/editor.\n"
+    "2. Focus on objective product specifications (e.g., fabric blend, cut structure, weight, how the garment drapes).\n"
+    "3. Provide genuine, actionable styling advice (e.g., what shoes/accessories pair best, how to transition from casual to formal).\n"
+    "4. Address real-world questions from customer interactions (e.g., 'our customers often ask how the shoulders fit' or 'how to care for this fabric').\n"
+    "5. Highlight merchant trust elements: free US shipping on orders $50+, easy 7-day returns, size availability from XS to 3X.\n"
+    "6. Avoid fake personal anecdotes (e.g., do NOT invent stories like 'I wore this to a party last weekend'). Stick to professional analysis.\n"
+    "7. Use varied, authentic vocabulary. Keep tone warm, clean, and helpful, and cut generic filler.\n\n"
 )
 
 SEED_KEYWORDS = [
@@ -374,7 +364,8 @@ def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
         f"- Use <h2>, <h3>, <p>, <ul>, <li> for structure\n"
         f"- Include sizing notes, styling tips, outfit ideas specific to this product\n"
         f"- End with a warm CTA linking to the product\n"
-        f"- Answer a real problem women face when shopping for {ptype}\n\n"
+        f"- Answer a real problem women face when shopping for {ptype}\n"
+        f"- To avoid programmatic footprints, vary your structure. Occasionally include a <blockquote style='border-left: 3px solid #ccc; padding-left: 10px; margin: 15px 0; font-style: italic;'> for a 'Stylist Tip', or distinct visual callouts. Make the flow feel like a hand-written editorial, not a template.\n\n"
         f"Store info: Free US shipping on orders $50+. 7-day returns. Sizes XS-3X.\n\n"
         f"Target: 750-900 words. Output ONLY clean HTML — no markdown, no code fences.\n"
     )
@@ -638,6 +629,23 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         print(f"  [DRY-RUN] would PATCH article {article_id}")
         print(f"  Preview  : {preview}…")
         return {"replacements": replacements_log, "featured_product": chosen_featured["title"]}
+
+    # Save a backup of the original article content before we edit it
+    backup_data = {
+        "article_id": article_id,
+        "title": art_title,
+        "handle": art_handle,
+        "body_html": body,
+        "summary_html": article.get("summary_html", ""),
+        "tags": article.get("tags", ""),
+        "image": article.get("image", {}),
+        "backup_timestamp": datetime.now().isoformat()
+    }
+    backup_dir = ROOT / "backup_articles"
+    backup_dir.mkdir(exist_ok=True)
+    backup_file = backup_dir / f"article_{article_id}_{int(time.time())}.json"
+    backup_file.write_text(json.dumps(backup_data, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"    [Backup] Saved original article content to backup_articles/{backup_file.name}")
 
     # ── 11. PATCH the article (keeps same URL handle and title) ───────────────
     payload = {
