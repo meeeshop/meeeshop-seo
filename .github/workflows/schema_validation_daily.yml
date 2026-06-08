@@ -24,7 +24,7 @@ env:
 jobs:
 
   # -------------------------------------------------------------------
-  # Job 1: detect mode + build batch-index array for force mode
+  # Job 1: detect mode + build batch matrix
   # -------------------------------------------------------------------
   setup:
     runs-on: ubuntu-latest
@@ -56,7 +56,7 @@ jobs:
         if: steps.detect.outputs.mode == 'force'
         run: pip install -r requirements.txt
 
-      - name: Count products and build batch array
+      - name: Count products and build batch matrix
         id: build_matrix
         if: steps.detect.outputs.mode == 'force'
         env:
@@ -67,17 +67,24 @@ jobs:
           echo "Active products: $TOTAL"
           BATCHES=$(( (TOTAL + ${{ env.BATCH_SIZE }} - 1) / ${{ env.BATCH_SIZE }} ))
           echo "Batches needed: $BATCHES"
+          
           JSON="["
+          # Add collections, pages, blogs
+          JSON+="{\"resource\":\"collections\",\"batch_index\":0},"
+          JSON+="{\"resource\":\"pages\",\"batch_index\":0},"
+          JSON+="{\"resource\":\"blogs\",\"batch_index\":0}"
+          
+          # Add products
           for (( i=0; i<BATCHES; i++ )); do
-            [ $i -gt 0 ] && JSON+=","
-            JSON+="$i"
+            JSON+=",{\"resource\":\"products\",\"batch_index\":$i}"
           done
           JSON+="]"
+          
           echo "batches_json=$JSON" >> "$GITHUB_OUTPUT"
 
       - name: Set dummy batches (non-force)
         if: steps.detect.outputs.mode != 'force'
-        run: echo 'batches_json=[0]' >> "$GITHUB_OUTPUT"
+        run: echo 'batches_json=[{"resource":"all","batch_index":0}]' >> "$GITHUB_OUTPUT"
 
   # -------------------------------------------------------------------
   # Job 2: Run matrix schema validation and fixer
@@ -88,9 +95,9 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      max-parallel: 1  # Safe rate limits
+      max-parallel: 5  # Safe parallel execution to respect rate limits
       matrix:
-        batch_index: ${{ fromJson(needs.setup.outputs.batches_json) }}
+        include: ${{ fromJson(needs.setup.outputs.batches_json) }}
 
     steps:
       - uses: actions/checkout@v4
@@ -112,8 +119,8 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           MODE="${{ needs.setup.outputs.mode }}"
-          echo "Running schema fixer in $MODE mode (batch ${{ matrix.batch_index }})..."
-          python scripts/schema_fixer.py --$MODE --batch-size ${{ env.BATCH_SIZE }} --batch-index ${{ matrix.batch_index }}
+          echo "Running schema fixer in $MODE mode for ${{ matrix.resource }} (batch ${{ matrix.batch_index }})..."
+          python scripts/schema_fixer.py --$MODE --batch-size ${{ env.BATCH_SIZE }} --batch-index ${{ matrix.batch_index }} --resource ${{ matrix.resource }}
 
           FIX_REPORT=$(ls -t schema_fix_report_*.json 2>/dev/null | head -1)
           echo "fix_report=${FIX_REPORT}" >> $GITHUB_OUTPUT
@@ -132,8 +139,8 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           MODE="${{ needs.setup.outputs.mode }}"
-          echo "Running schema validation in $MODE mode (batch ${{ matrix.batch_index }})..."
-          python scripts/schema_validator.py --$MODE --batch-size ${{ env.BATCH_SIZE }} --batch-index ${{ matrix.batch_index }}
+          echo "Running schema validation in $MODE mode for ${{ matrix.resource }} (batch ${{ matrix.batch_index }})..."
+          python scripts/schema_validator.py --$MODE --batch-size ${{ env.BATCH_SIZE }} --batch-index ${{ matrix.batch_index }} --resource ${{ matrix.resource }}
 
           # Capture results
           REPORT=$(ls -t schema_report_*.json | head -1)
@@ -141,7 +148,7 @@ jobs:
 
       - name: Run Page Speed Analysis
         id: speed
-        if: matrix.batch_index == 0
+        if: matrix.resource == 'collections' || matrix.resource == 'all'
         env:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
@@ -157,12 +164,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fix-report-b${{ matrix.batch_index }}-${{ github.run_number }}
+          name: fix-report-${{ matrix.resource }}-b${{ matrix.batch_index }}-${{ github.run_number }}
           path: schema_fix_report_*.json
           retention-days: 90
 
       - name: Generate HTML Report
-        if: matrix.batch_index == 0
+        if: matrix.resource == 'collections' || matrix.resource == 'all'
         run: |
           python << 'EOF'
           import json, os
@@ -331,12 +338,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: schema-report-b${{ matrix.batch_index }}-${{ github.run_number }}
+          name: schema-report-${{ matrix.resource }}-b${{ matrix.batch_index }}-${{ github.run_number }}
           path: schema_report_*.json
           retention-days: 90
 
       - name: Upload Speed Report
-        if: matrix.batch_index == 0 && always()
+        if: (matrix.resource == 'collections' || matrix.resource == 'all') && always()
         uses: actions/upload-artifact@v4
         with:
           name: speed-report-${{ github.run_number }}
@@ -344,7 +351,7 @@ jobs:
           retention-days: 90
 
       - name: Upload HTML Report
-        if: matrix.batch_index == 0 && always()
+        if: (matrix.resource == 'collections' || matrix.resource == 'all') && always()
         uses: actions/upload-artifact@v4
         with:
           name: html-report-${{ github.run_number }}
@@ -355,26 +362,26 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: validation-logs-b${{ matrix.batch_index }}-${{ github.run_number }}
+          name: validation-logs-${{ matrix.resource }}-b${{ matrix.batch_index }}-${{ github.run_number }}
           path: |
             schema_logs/
             speed_logs/
           retention-days: 30
 
       - name: Slack Notification
-        if: matrix.batch_index == 0 && always()
+        if: (matrix.resource == 'collections' || matrix.resource == 'all') && always()
         uses: slackapi/slack-github-action@v1.24.0
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK }}
           payload: |
             {
-              "text": "MeeeShop Schema & Speed Report (Batch 0)",
+              "text": "MeeeShop Schema & Speed Report",
               "blocks": [
                 {
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*Daily Schema Validation & Speed Check (Batch 0)*\n*Status:* ✅ Complete\n*Mode:* ${{ needs.setup.outputs.mode }}"
+                    "text": "*Daily Schema Validation & Speed Check*\n*Status:* ✅ Complete\n*Mode:* ${{ needs.setup.outputs.mode }}"
                   }
                 },
                 {
@@ -382,19 +389,7 @@ jobs:
                   "fields": [
                     {
                       "type": "mrkdwn",
-                      "text": "*Products Added*\n${{ steps.schema.outputs.products_added }}"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Collections Added*\n${{ steps.schema.outputs.collections_added }}"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Current LCP*\nPoor (4042ms)"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Target LCP*\nGood (<2500ms)"
+                      "text": "*Status*\nComplete"
                     }
                   ]
                 },
@@ -417,7 +412,7 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Schema Validation, Fix & Speed Optimization (Batch ${{ matrix.batch_index }})" >> $GITHUB_STEP_SUMMARY
+          echo "## Schema Validation, Fix & Speed Optimization (${{ matrix.resource }} - Batch ${{ matrix.batch_index }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Mode**: ${{ needs.setup.outputs.mode }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -427,14 +422,14 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Validation" >> $GITHUB_STEP_SUMMARY
           echo "- Schema validation: complete" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ matrix.batch_index }}" = "0" ]; then
+          if [ "${{ matrix.resource }}" = "collections" ] || [ "${{ matrix.resource }}" = "all" ]; then
             echo "- Page speed analysis: complete" >> $GITHUB_STEP_SUMMARY
           fi
           echo "- Reports uploaded to artifacts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
           echo "1. Check Google Search Console in 3-7 days for issue resolution" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ matrix.batch_index }}" = "0" ]; then
+          if [ "${{ matrix.resource }}" = "collections" ] || [ "${{ matrix.resource }}" = "all" ]; then
             echo "2. Download HTML report from artifacts for full details" >> $GITHUB_STEP_SUMMARY
             echo "3. Implement speed optimizations (priority order)" >> $GITHUB_STEP_SUMMARY
           fi
