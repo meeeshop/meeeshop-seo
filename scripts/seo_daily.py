@@ -332,15 +332,33 @@ def fetch_pages(published_since=None):
 
 
 def fetch_collections(created_since=None):
-    """Fetch custom collections created since cutoff."""
-    collections, url = [], f"{BASE}/custom_collections.json?limit=250"
+    """Fetch both custom and smart collections created since cutoff."""
+    collections = []
+    
+    # 1. Fetch custom collections
+    url = f"{BASE}/custom_collections.json?limit=250"
     if created_since:
         url += f"&created_at_min={created_since}"
     while url:
         r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
-        collections.extend(r.json().get('custom_collections', []))
+        for c in r.json().get('custom_collections', []):
+            c['_type'] = 'custom_collections'
+            collections.append(c)
         nxt = [p.split(';')[0].strip().strip('<>') for p in r.headers.get('Link','').split(',') if 'rel="next"' in p]
         url = nxt[0] if nxt else None
+
+    # 2. Fetch smart collections
+    url = f"{BASE}/smart_collections.json?limit=250"
+    if created_since:
+        url += f"&created_at_min={created_since}"
+    while url:
+        r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
+        for c in r.json().get('smart_collections', []):
+            c['_type'] = 'smart_collections'
+            collections.append(c)
+        nxt = [p.split(';')[0].strip().strip('<>') for p in r.headers.get('Link','').split(',') if 'rel="next"' in p]
+        url = nxt[0] if nxt else None
+
     return collections
 
 
@@ -1052,7 +1070,8 @@ def main():
         print("\nProcessing collections...")
         for i, coll in enumerate(collections, 1):
             title = coll['title']
-            mfs = get_metafields("custom_collections", coll['id'])
+            coll_type = coll.get('_type', 'custom_collections')
+            mfs = get_metafields(coll_type, coll['id'])
 
             # Strict validation
             cur_mtitle = mfs.get('global.title_tag', {}).get('value', '')
@@ -1078,7 +1097,7 @@ def main():
                 155
             )
             try:
-                set_seo_metafields("custom_collections", coll['id'], new_meta_title, new_meta_desc, mfs)
+                set_seo_metafields(coll_type, coll['id'], new_meta_title, new_meta_desc, mfs)
                 stats['meta_titles'] += 1
                 stats['meta_descs'] += 1
                 stats['collections'] += 1

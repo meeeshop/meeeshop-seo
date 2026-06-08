@@ -369,30 +369,35 @@ def get_products(hours: int = 0) -> List[Dict]:
 
 
 def get_collections(hours: int = 0) -> List[Dict]:
-    """Fetch collections created since cutoff. 0 = all collections."""
-    url = f"{BASE}/custom_collections.json"
+    """Fetch both custom and smart collections created since cutoff. 0 = all collections."""
     params = {"limit": 250}
-
-    # Add time filter if hours specified
     if hours > 0:
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
         params["created_at_min"] = cutoff
-        logger.debug(f"Filtering collections created since {cutoff}")
 
+    all_collections = []
+
+    # 1. Custom Collections
+    url = f"{BASE}/custom_collections.json"
     resp = make_request_with_retry("get", url, params=params)
-    if resp is None:
-        logger.error("Failed to fetch collections")
-        validation_health["critical_errors"] += 1
-        return []
-    try:
-        collections = resp.json().get("custom_collections", [])
-        cutoff_desc = f"(created in last {hours}h)" if hours > 0 else "(all collections)"
-        logger.info(f"Fetched {len(collections)} collections {cutoff_desc}")
-        return collections
-    except Exception as e:
-        logger.error(f"Error parsing collections: {e}")
-        validation_health["critical_errors"] += 1
-        return []
+    if resp is not None:
+        try:
+            all_collections.extend(resp.json().get("custom_collections", []))
+        except Exception as e:
+            logger.error(f"Error parsing custom collections: {e}")
+
+    # 2. Smart Collections
+    url = f"{BASE}/smart_collections.json"
+    resp = make_request_with_retry("get", url, params=params)
+    if resp is not None:
+        try:
+            all_collections.extend(resp.json().get("smart_collections", []))
+        except Exception as e:
+            logger.error(f"Error parsing smart collections: {e}")
+
+    cutoff_desc = f"(created in last {hours}h)" if hours > 0 else "(all collections)"
+    logger.info(f"Fetched {len(all_collections)} collections (custom + smart) {cutoff_desc}")
+    return all_collections
 
 
 def get_pages(hours: int = 0) -> List[Dict]:

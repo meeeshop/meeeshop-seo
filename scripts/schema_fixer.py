@@ -337,6 +337,7 @@ def run(mode: str):
     # Collections
     logger.info("Scanning collections...")
     colls = get_all_pages(f"{BASE}/custom_collections.json", "custom_collections", cutoff_params.copy())
+    colls.extend(get_all_pages(f"{BASE}/smart_collections.json", "smart_collections", cutoff_params.copy()))
     for c in colls:
         fix_resource("collection", c)
 
