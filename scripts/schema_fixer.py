@@ -318,7 +318,7 @@ def fix_resource(resource_type: str, resource: Dict, extra=None) -> int:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def run(mode: str):
+def run(mode: str, batch_size: int = 0, batch_index: int = 0):
     hours = 48 if mode == "daily" else 0
     cutoff_params = {}
     if hours:
@@ -331,6 +331,13 @@ def run(mode: str):
     logger.info("Scanning products...")
     products = get_all_pages(f"{BASE}/products.json", "products",
                              {"status": "active", **cutoff_params})
+    if mode in ('force', 'weekly') and batch_size > 0:
+        start = batch_index * batch_size
+        end = start + batch_size
+        total_fetched = len(products)
+        products = products[start:end]
+        logger.info(f"Batch {batch_index}: fixing products {start} to {min(end, total_fetched)} of {total_fetched}")
+
     for p in products:
         fix_resource("product", p)
 
@@ -389,11 +396,14 @@ if __name__ == "__main__":
     parser.add_argument("--daily",  action="store_true")
     parser.add_argument("--weekly", action="store_true")
     parser.add_argument("--force",  action="store_true")
+    parser.add_argument("--batch-size", type=int, default=0)
+    parser.add_argument("--batch-index", type=int, default=0)
     args = parser.parse_args()
 
     if args.daily:
-        run("daily")
+        run("daily", batch_size=args.batch_size, batch_index=args.batch_index)
     elif args.weekly or args.force:
-        run("weekly")
+        mode = "force" if args.force else "weekly"
+        run(mode, batch_size=args.batch_size, batch_index=args.batch_index)
     else:
-        run("daily")
+        run("daily", batch_size=args.batch_size, batch_index=args.batch_index)

@@ -492,7 +492,7 @@ def set_metafield(resource_type: str, resource_id: str, schema: Dict) -> bool:
 # MAIN VALIDATION & ADDITION
 # ══════════════════════════════════════════════════════════════════════════════
 
-def validate_and_add_schemas(mode: str = "daily"):
+def validate_and_add_schemas(mode: str = "daily", batch_size: int = 0, batch_index: int = 0):
     """Main validation and schema addition loop"""
 
     report = {
@@ -522,6 +522,13 @@ def validate_and_add_schemas(mode: str = "daily"):
 
     try:
         products = get_products(hours)
+        if mode in ('force', 'weekly') and batch_size > 0:
+            start = batch_index * batch_size
+            end = start + batch_size
+            total_fetched = len(products)
+            products = products[start:end]
+            logger.info(f"Batch {batch_index}: validating products {start} to {min(end, total_fetched)} of {total_fetched}")
+
         for product in products:
             report["products"]["checked"] += 1
             product_id = product.get("id")
@@ -769,6 +776,8 @@ if __name__ == "__main__":
     parser.add_argument("--daily", action="store_true", help="Daily mode (48h)")
     parser.add_argument("--weekly", action="store_true", help="Weekly mode (7d)")
     parser.add_argument("--force", action="store_true", help="Force all resources")
+    parser.add_argument("--batch-size", type=int, default=0, help="Batch size for force mode")
+    parser.add_argument("--batch-index", type=int, default=0, help="Batch index for force mode")
 
     args = parser.parse_args()
 
@@ -778,4 +787,4 @@ if __name__ == "__main__":
     elif args.force:
         mode = "force"
 
-    validate_and_add_schemas(mode)
+    validate_and_add_schemas(mode, batch_size=args.batch_size, batch_index=args.batch_index)
