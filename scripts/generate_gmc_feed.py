@@ -365,15 +365,65 @@ def create_or_update_redirect(target_url):
         print(f"✅ Redirect is live.")
         print(f"🔗 Static Google Merchant Center URL: {static_url}")
 
+def extract_color(product, variant, current_color):
+    """Dynamically extracts product color from options, title, tags, description, or defaults to Multi."""
+    if current_color and current_color.strip():
+        return current_color.strip()
+
+    title_lower = product.get("title", "").lower()
+    tags_lower = [t.lower().strip() for t in product.get("tags", "").split(",") if t.strip()]
+    desc_clean = clean_html(product.get("body_html", "")).lower()
+
+    common_colors = [
+        "black", "white", "red", "blue", "pink", "green", "yellow", "orange", "purple", "brown",
+        "grey", "gray", "cream", "beige", "navy", "gold", "silver", "olive", "mustard", "burgundy",
+        "rust", "lavender", "coral", "peach", "mint", "ivory", "denim", "camel", "taupe", "tan",
+        "multi", "teal", "charcoal", "khaki", "plum", "apricot", "lilac", "mauve", "fuchsia",
+        "turquoise", "maroon", "bronze", "indigo", "magenta", "leopard", "cheetah", "floral", "animal"
+    ]
+
+    # 1. Search in variant options (in case option name is 'Title' but value is 'Navy' or 'Navy / S')
+    for pos in [1, 2, 3]:
+        opt_val = variant.get(f"option{pos}", "")
+        if opt_val:
+            opt_val_lower = opt_val.lower().strip()
+            for word in re.split(r'[\s/]+', opt_val_lower):
+                if word in common_colors:
+                    return word.capitalize()
+
+    # 2. Search tags
+    for tag in tags_lower:
+        if tag in common_colors:
+            return tag.capitalize()
+
+    # 3. Search title words
+    for word in re.split(r'[\s,\-\(\)]+', title_lower):
+        if word in common_colors:
+            return word.capitalize()
+
+    # 4. Search description for a pattern like "color: [color]"
+    match = re.search(r'colou?r:\s*([a-z]+)', desc_clean)
+    if match:
+        color_word = match.group(1)
+        if color_word in common_colors:
+            return color_word.capitalize()
+
+    # 5. Search description for any color keyword
+    for word in re.split(r'[\s,\.\!\?]+', desc_clean):
+        if word in common_colors:
+            return word.capitalize()
+
+    return "Multi"
+
 def generate_feed():
     products = fetch_all_active_products()
     
     feed_headers = [
         "id", "title", "description", "link", "image_link", "additional_image_link",
         "availability", "price", "condition", "brand", "gtin", "mpn",
-        "google_product_category", "item_group_id", "gender", "age_group",
+        "identifier_exists", "google_product_category", "item_group_id", "gender", "age_group",
         "color", "size", "custom_label_0", "custom_label_1", "included_destination",
-        "shipping"     # Corrected: Only 'shipping' is here now
+        "shipping"
     ]
     
     rows = []
@@ -449,6 +499,9 @@ def generate_feed():
                 elif "size" in opt_name:
                     size = val
                     
+            # Fallback for missing color (required for Free Listings in USA)
+            color = extract_color(product, variant, color)
+                    
             rows.append({
                 "id": feed_id,
                 "title": title,
@@ -462,6 +515,7 @@ def generate_feed():
                 "brand": brand,
                 "gtin": gtin_value, # Using validated GTIN
                 "mpn": sku,
+                "identifier_exists": "yes" if gtin_value else "no",
                 "google_product_category": DEFAULT_GOOGLE_CATEGORY,
                 "item_group_id": item_group_id,
                 "gender": DEFAULT_GENDER,
