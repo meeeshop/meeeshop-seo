@@ -59,7 +59,7 @@ def _req(method: str, url: str, **kwargs) -> Optional[requests.Response]:
         try:
             resp = getattr(requests, method)(url, headers=HEADS, **kwargs)
             if resp.status_code == 429:
-                wait = int(resp.headers.get('Retry-After', backoff))
+                wait = float(resp.headers.get('Retry-After', backoff))
                 logger.warning(f"Rate limited — waiting {wait}s")
                 time.sleep(wait)
                 backoff = min(backoff * 2, MAX_BACKOFF)

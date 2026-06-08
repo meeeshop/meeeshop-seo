@@ -85,7 +85,7 @@ def make_request_with_retry(method: str, url: str, max_retries: int = MAX_RETRIE
 
             # Handle rate limiting (429)
             if resp.status_code == 429:
-                retry_after = int(resp.headers.get('Retry-After', backoff))
+                retry_after = float(resp.headers.get('Retry-After', backoff))
                 logger.warning(f"Rate limited (429). Waiting {retry_after}s before retry {attempt + 1}/{max_retries}")
                 validation_health["total_errors"] += 1
                 time.sleep(retry_after)
