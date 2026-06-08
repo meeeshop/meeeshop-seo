@@ -371,9 +371,9 @@ def generate_feed():
     feed_headers = [
         "id", "title", "description", "link", "image_link", "additional_image_link",
         "availability", "price", "condition", "brand", "gtin", "mpn",
-        "google_product_category", "item_group_id", "gender", "age_group",
+        "identifier_exists", "google_product_category", "item_group_id", "gender", "age_group",
         "color", "size", "custom_label_0", "custom_label_1", "included_destination",
-        "shipping"     # Corrected: Only 'shipping' is here now
+        "shipping"
     ]
     
     rows = []
@@ -462,6 +462,7 @@ def generate_feed():
                 "brand": brand,
                 "gtin": gtin_value, # Using validated GTIN
                 "mpn": sku,
+                "identifier_exists": "yes" if gtin_value else "no",
                 "google_product_category": DEFAULT_GOOGLE_CATEGORY,
                 "item_group_id": item_group_id,
                 "gender": DEFAULT_GENDER,
