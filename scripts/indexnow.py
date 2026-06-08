@@ -271,8 +271,8 @@ def submit_to_indexnow(urls: list[str], dry_run: bool = False):
     
     try:
         resp = requests.post(endpoint, json=payload, headers={"Content-Type": "application/json; charset=utf-8"}, timeout=15)
-        if resp.status_code == 200:
-            print("✅ IndexNow submission successful! URLs submitted to search engine queue.")
+        if resp.status_code in (200, 202):
+            print(f"✅ IndexNow submission successful (HTTP {resp.status_code})! URLs submitted to search engine queue.")
         else:
             print(f"⚠️ IndexNow submission failed with HTTP status {resp.status_code}: {resp.text}")
     except Exception as e:
