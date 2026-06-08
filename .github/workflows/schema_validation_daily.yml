@@ -95,7 +95,7 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      max-parallel: 5  # Safe parallel execution to respect rate limits
+      max-parallel: 1  # Sequential execution to avoid Shopify API rate limits
       matrix:
         include: ${{ fromJson(needs.setup.outputs.batches_json) }}
 
