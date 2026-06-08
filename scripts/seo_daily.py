@@ -468,28 +468,43 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not 
       "description": {{ product.description | strip_html | truncate: 500 | json }},
       "brand": {"@type": "Brand", "name": "MeeeShop"},
       "image": [{% for img in product.images %}"{{ img | image_url: width: 1200 }}"{% unless forloop.last %},{% endunless %}{% endfor %}],
-      "offers": {
-        "@type": "AggregateOffer",
-        "priceCurrency": "USD",
-        "lowPrice": "{{ product.price_min | money_without_currency | remove: ',' }}",
-        "highPrice": "{{ product.price_max | money_without_currency | remove: ',' }}",
-        "offerCount": {{ product.variants.size }},
-        "availability": "https://schema.org/{% if product.available %}InStock{% else %}OutOfStock{% endif %}",
-        "offers": [
-          {%- for v in product.variants -%}
-          {
-            "@type": "Offer",
-            "name": {{ v.title | json }},
-            "sku": {{ v.sku | default: "" | json }},
-            "price": "{{ v.price | money_without_currency | remove: ',' }}",
-            "priceCurrency": "USD",
-            "availability": "https://schema.org/{% if v.available %}InStock{% else %}OutOfStock{% endif %}",
-            "url": "{{ shop.url }}/products/{{ product.handle }}?variant={{ v.id }}",
-            "seller": {"@type": "Organization", "name": "MeeeShop"}
-          }{%- unless forloop.last -%},{%- endunless -%}
-          {%- endfor -%}
-        ]
-      }
+      "offers": [
+        {%- for v in product.variants -%}
+        {
+          "@type": "Offer",
+          "name": {{ v.title | json }},
+          "sku": {{ v.sku | default: "" | json }},
+          {%- if v.barcode != blank -%}
+          "gtin": {{ v.barcode | json }},
+          {%- endif -%}
+          "price": "{{ v.price | money_without_currency | remove: ',' }}",
+          "priceCurrency": "USD",
+          "availability": "https://schema.org/{% if v.available %}InStock{% else %}OutOfStock{% endif %}",
+          "url": "{{ shop.url }}/products/{{ product.handle }}?variant={{ v.id }}",
+          "seller": {"@type": "Organization", "name": "MeeeShop"},
+          "shippingDetails": {
+            "@type": "OfferShippingDetails",
+            "shippingAddress": {
+              "@type": "DefinedRegion",
+              "addressCountry": "US"
+            },
+            "shippingRate": {
+              "@type": "MonetaryAmount",
+              "value": "0.00",
+              "currency": "USD"
+            }
+          },
+          "hasMerchantReturnPolicy": {
+            "@type": "MerchantReturnPolicy",
+            "applicableCountry": "US",
+            "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnPeriod",
+            "merchantReturnDays": 7,
+            "returnMethod": "https://schema.org/ReturnByMail",
+            "returnFees": "https://schema.org/FreeReturn"
+          }
+        }{%- unless forloop.last -%},{%- endunless -%}
+        {%- endfor -%}
+      ]
     }
     ,{
       "@type": "BreadcrumbList",

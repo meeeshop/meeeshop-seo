@@ -144,26 +144,18 @@ def _product_schema(p: Dict) -> Dict:
         "url": f"{SITE}/products/{p.get('handle', '')}",
         "image": [img["src"] for img in (p.get("images") or [])[:3] if img.get("src")],
         "brand": {"@type": "Brand", "name": vendor},
-        "offers": {
-            "@type": "AggregateOffer",
-            "priceCurrency": "USD",
-            "lowPrice": low,
-            "highPrice": high,
-            "offerCount": len(variants),
-            "availability": f"https://schema.org/{'InStock' if p.get('status') == 'active' else 'OutOfStock'}",
-            "offers": [
-                {
-                    "@type": "Offer",
-                    "sku": str(v.get("sku") or ""),
-                    "price": str(v.get("price", "0")),
-                    "priceCurrency": "USD",
-                    "availability": f"https://schema.org/{'InStock' if v.get('inventory_quantity', 1) > 0 else 'OutOfStock'}",
-                    "url": f"{SITE}/products/{p.get('handle', '')}?variant={v.get('id', '')}",
-                    "seller": {"@type": "Organization", "name": BRAND}
-                }
-                for v in variants
-            ]
-        }
+        "offers": [
+            {
+                "@type": "Offer",
+                "sku": str(v.get("sku") or ""),
+                "price": str(v.get("price", "0")),
+                "priceCurrency": "USD",
+                "availability": f"https://schema.org/{'InStock' if v.get('inventory_quantity', 1) > 0 else 'OutOfStock'}",
+                "url": f"{SITE}/products/{p.get('handle', '')}?variant={v.get('id', '')}",
+                "seller": {"@type": "Organization", "name": BRAND}
+            }
+            for v in variants
+        ]
     }
 
 
