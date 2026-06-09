@@ -304,21 +304,49 @@ def _check_rate(r):
         time.sleep(0.6)
 
 
+def api_request(method, path_or_url, max_retries=5, **kwargs):
+    """Make HTTP request to Shopify API with exponential backoff on 429 / rate limit."""
+    url = path_or_url if path_or_url.startswith("http") else f"{BASE}{path_or_url}"
+    
+    headers = kwargs.pop("headers", HEADS)
+    
+    backoff = 5
+    for attempt in range(max_retries):
+        try:
+            r = requests.request(method, url, headers=headers, **kwargs)
+            
+            # If 429 rate limit hit, backoff and retry
+            if r.status_code == 429:
+                retry_after = float(r.headers.get("Retry-After", backoff))
+                print(f"  [Rate Limit 429] Waiting {retry_after}s before retry {attempt + 1}/{max_retries}...")
+                time.sleep(retry_after)
+                backoff = min(backoff * 2, 60)
+                continue
+                
+            r.raise_for_status()
+            _check_rate(r)
+            return r
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                print(f"  [Request Error] {e}. Retrying in {backoff}s...")
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 60)
+            else:
+                raise e
+
+
 def api_get(path, params=None):
-    r = requests.get(f"{BASE}{path}", headers=HEADS, params=params)
-    r.raise_for_status(); _check_rate(r)
+    r = api_request("GET", path, params=params)
     return r.json()
 
 
 def api_put(path, body):
-    r = requests.put(f"{BASE}{path}", headers=HEADS, json=body)
-    r.raise_for_status(); _check_rate(r)
+    r = api_request("PUT", path, json=body)
     return r.json()
 
 
 def api_post(path, body):
-    r = requests.post(f"{BASE}{path}", headers=HEADS, json=body)
-    r.raise_for_status(); _check_rate(r)
+    r = api_request("POST", path, json=body)
     return r.json()
 
 
@@ -328,7 +356,7 @@ def fetch_products(created_since=None):
     if created_since:
         url += f"&created_at_min={created_since}"
     while url:
-        r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
+        r = api_request("GET", url)
         products.extend(r.json().get('products', []))
         nxt = [p.split(';')[0].strip().strip('<>') for p in r.headers.get('Link','').split(',') if 'rel="next"' in p]
         url = nxt[0] if nxt else None
@@ -341,7 +369,7 @@ def fetch_pages(published_since=None):
     if published_since:
         url += f"&published_at_min={published_since}"
     while url:
-        r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
+        r = api_request("GET", url)
         pages.extend(r.json().get('pages', []))
         nxt = [p.split(';')[0].strip().strip('<>') for p in r.headers.get('Link','').split(',') if 'rel="next"' in p]
         url = nxt[0] if nxt else None
@@ -357,7 +385,7 @@ def fetch_collections(created_since=None):
     if created_since:
         url += f"&created_at_min={created_since}"
     while url:
-        r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
+        r = api_request("GET", url)
         for c in r.json().get('custom_collections', []):
             c['_type'] = 'custom_collections'
             collections.append(c)
@@ -369,7 +397,7 @@ def fetch_collections(created_since=None):
     if created_since:
         url += f"&created_at_min={created_since}"
     while url:
-        r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
+        r = api_request("GET", url)
         for c in r.json().get('smart_collections', []):
             c['_type'] = 'smart_collections'
             collections.append(c)
@@ -385,7 +413,7 @@ def fetch_articles(published_since=None):
 
     blogs = []
     while url:
-        r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
+        r = api_request("GET", url)
         blogs.extend(r.json().get('blogs', []))
         nxt = [p.split(';')[0].strip().strip('<>') for p in r.headers.get('Link','').split(',') if 'rel="next"' in p]
         url = nxt[0] if nxt else None
@@ -397,7 +425,7 @@ def fetch_articles(published_since=None):
         if published_since:
             article_url += f"&published_at_min={published_since}"
         while article_url:
-            r = requests.get(article_url, headers=HEADS); r.raise_for_status(); _check_rate(r)
+            r = api_request("GET", article_url)
             fetched_articles = r.json().get('articles', [])
             for article in fetched_articles:
                 article['blog_handle'] = blog_handle
@@ -436,21 +464,24 @@ def set_seo_metafields(resource_path, rid, meta_title, meta_desc, existing_mfs):
 
 # ── Image alt text ────────────────────────────────────────────────────────────
 def update_image_alt(pid, iid, alt):
-    r = requests.put(f"{BASE}/products/{pid}/images/{iid}.json",
-                     headers=HEADS, json={"image": {"id": iid, "alt": alt}})
-    _check_rate(r)
-    return r.status_code == 200
+    try:
+        r = api_request("PUT", f"/products/{pid}/images/{iid}.json", json={"image": {"id": iid, "alt": alt}})
+        return r.status_code == 200
+    except Exception:
+        return False
 
 
 # ── Redirects ─────────────────────────────────────────────────────────────────
 def create_redirect(old, new):
-    r = requests.get(f"{BASE}/redirects.json", headers=HEADS,
-                     params={"path": f"/products/{old}"})
-    if r.json().get('redirects'):
+    try:
+        r = api_request("GET", f"/redirects.json", params={"path": f"/products/{old}"})
+        if r.json().get('redirects'):
+            return False
+        api_post("/redirects.json",
+                 {"redirect": {"path": f"/products/{old}", "target": f"/products/{new}"}})
+        return True
+    except Exception:
         return False
-    api_post("/redirects.json",
-             {"redirect": {"path": f"/products/{old}", "target": f"/products/{new}"}})
-    return True
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -664,18 +695,21 @@ def get_live_theme_id():
 
 
 def get_asset(theme_id, key):
-    r = requests.get(f"{BASE}/themes/{theme_id}/assets.json",
-                     headers=HEADS, params={"asset[key]": key})
-    if r.status_code == 200:
-        return r.json().get('asset', {}).get('value', '')
+    try:
+        r = api_request("GET", f"/themes/{theme_id}/assets.json", params={"asset[key]": key})
+        if r.status_code == 200:
+            return r.json().get('asset', {}).get('value', '')
+    except Exception:
+        return None
     return None
 
 
 def put_asset(theme_id, key, value):
-    r = requests.put(f"{BASE}/themes/{theme_id}/assets.json",
-                     headers=HEADS, json={"asset": {"key": key, "value": value}})
-    _check_rate(r)
-    return r.status_code in (200, 201)
+    try:
+        r = api_request("PUT", f"/themes/{theme_id}/assets.json", json={"asset": {"key": key, "value": value}})
+        return r.status_code in (200, 201)
+    except Exception:
+        return False
 
 
 def inject_jsonld(theme_id):
