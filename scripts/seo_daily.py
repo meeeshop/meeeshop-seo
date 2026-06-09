@@ -519,7 +519,7 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not 
           "seller": {"@type": "Organization", "name": "MeeeShop"},
           "shippingDetails": {
             "@type": "OfferShippingDetails",
-            "shippingAddress": {
+            "shippingDestination": {
               "@type": "DefinedRegion",
               "addressCountry": "US"
             },
@@ -527,12 +527,27 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not 
               "@type": "MonetaryAmount",
               "value": "0.00",
               "currency": "USD"
+            },
+            "deliveryTime": {
+              "@type": "ShippingDeliveryTime",
+              "handlingTime": {
+                "@type": "QuantitativeValue",
+                "minValue": 0,
+                "maxValue": 1,
+                "unitCode": "DAY"
+              },
+              "transitTime": {
+                "@type": "QuantitativeValue",
+                "minValue": 2,
+                "maxValue": 5,
+                "unitCode": "DAY"
+              }
             }
           },
           "hasMerchantReturnPolicy": {
             "@type": "MerchantReturnPolicy",
             "applicableCountry": "US",
-            "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnPeriod",
+            "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
             "merchantReturnDays": 7,
             "returnMethod": "https://schema.org/ReturnByMail",
             "returnFees": "https://schema.org/FreeReturn"
@@ -1213,9 +1228,9 @@ def main():
                 print(f"    ! Error processing article: {e}")
 
     # ── Report ────────────────────────────────────────────────────────────────
-    print("\n" + "─"*60)
+    print("\n" + "-"*60)
     print("SEO Automation Report")
-    print("─"*60)
+    print("-"*60)
     labels = {
         'products':     'Products updated',
         'pages':        'Pages updated',
@@ -1232,7 +1247,7 @@ def main():
     for k, label in labels.items():
         if k in stats:
             print(f"  {label:<22}: {stats[k]}")
-    print("─"*60)
+    print("-"*60)
 
     # ── Detailed change log ───────────────────────────────────────────────────
     if log:
