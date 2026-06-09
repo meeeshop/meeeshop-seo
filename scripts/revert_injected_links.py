@@ -66,7 +66,7 @@ def _req(method: str, url: str, **kwargs) -> requests.Response:
     for attempt in range(MAX_RETRIES):
         r = requests.request(method, url, headers=HEADS, **kwargs)
         if r.status_code == 429:
-            wait = max(int(r.headers.get("Retry-After", 4)), 2 ** attempt)
+            wait = max(int(float(r.headers.get("Retry-After", 4))), 2 ** attempt)
             print(f"  [RATE LIMIT] waiting {wait}s...")
             time.sleep(wait)
             continue
