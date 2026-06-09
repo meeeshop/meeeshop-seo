@@ -71,34 +71,38 @@ jobs:
         if: steps.detect.outputs.mode == 'force'
         run: pip install -r requirements.txt
 
-      - name: Count products and build batch array
+      - name: Build batch matrix
         id: build_matrix
-        if: steps.detect.outputs.mode == 'force'
         env:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          TOTAL=$(python scripts/count_products.py)
-          echo "Active products: $TOTAL"
-          BATCHES=$(( (TOTAL + ${{ env.BATCH_SIZE }} - 1) / ${{ env.BATCH_SIZE }} ))
-          echo "Batches needed: $BATCHES"
-          
-          JSON="["
-          # Add collections, pages, blogs
-          JSON+="{\"resource\":\"collections\",\"batch_index\":0},"
-          JSON+="{\"resource\":\"pages\",\"batch_index\":0},"
-          JSON+="{\"resource\":\"blogs\",\"batch_index\":0}"
-          
-          # Add products
-          for (( i=0; i<BATCHES; i++ )); do
-            JSON+=",{\"resource\":\"products\",\"batch_index\":$i}"
-          done
-          JSON+="]"
-          echo "batches_json=$JSON" >> "$GITHUB_OUTPUT"
-
-      - name: Set dummy batches (non-force)
-        if: steps.detect.outputs.mode != 'force'
-        run: echo 'batches_json=[{"resource":"all","batch_index":0}]' >> "$GITHUB_OUTPUT"
+          MODE="${{ steps.detect.outputs.mode }}"
+          if [ "$MODE" = "force" ]; then
+            TOTAL=$(python scripts/count_products.py)
+            if [ -z "$TOTAL" ]; then
+              echo "Error: Failed to retrieve product count"
+              exit 1
+            fi
+            echo "Active products: $TOTAL"
+            BATCHES=$(( (TOTAL + ${{ env.BATCH_SIZE }} - 1) / ${{ env.BATCH_SIZE }} ))
+            echo "Batches needed: $BATCHES"
+            
+            JSON="["
+            # Add collections, pages, blogs
+            JSON+="{\"resource\":\"collections\",\"batch_index\":0},"
+            JSON+="{\"resource\":\"pages\",\"batch_index\":0},"
+            JSON+="{\"resource\":\"blogs\",\"batch_index\":0}"
+            
+            # Add products
+            for (( i=0; i<BATCHES; i++ )); do
+              JSON+=",{\"resource\":\"products\",\"batch_index\":$i}"
+            done
+            JSON+="]"
+            echo "batches_json=$JSON" >> "$GITHUB_OUTPUT"
+          else
+            echo 'batches_json=[{"resource":"all","batch_index":0}]' >> "$GITHUB_OUTPUT"
+          fi
 
   seo_optimize:
     needs: setup
