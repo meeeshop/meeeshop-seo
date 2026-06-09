@@ -108,6 +108,7 @@ def _call_openrouter(prompt: str, max_tokens: int, temperature: float, category:
 
     for model in models:
         try:
+            print(f"    [OpenRouter] Trying model: {model}...", flush=True)
             r = requests.post(
                 _OPENROUTER_URL,
                 headers={
@@ -126,6 +127,7 @@ def _call_openrouter(prompt: str, max_tokens: int, temperature: float, category:
             )
 
             if r.status_code == 429:
+                print(f"      [OpenRouter] {model}: rate-limited (HTTP 429)", flush=True)
                 attempt_logs.append(f"{model}: rate-limited (HTTP 429)")
                 continue
 
@@ -137,15 +139,19 @@ def _call_openrouter(prompt: str, max_tokens: int, temperature: float, category:
                     err_msg = r.text
 
                 if "context_length_exceeded" in err_msg.lower() or "token" in err_msg.lower():
+                    print(f"      [OpenRouter] {model}: token limit - {err_msg[:120]}", flush=True)
                     attempt_logs.append(f"{model}: token limit - {err_msg}")
                     continue
 
+                print(f"      [OpenRouter] {model}: error {r.status_code} - {err_msg[:120]}", flush=True)
                 attempt_logs.append(f"{model}: error {r.status_code} - {err_msg}")
                 continue
 
+            print(f"      [OpenRouter] {model}: success", flush=True)
             attempt_logs.append(f"{model}: OK")
             return r.json()["choices"][0]["message"]["content"].strip()
         except Exception as e:
+            print(f"      [OpenRouter] {model}: exception - {e}", flush=True)
             attempt_logs.append(f"{model}: exception - {e}")
             continue
 

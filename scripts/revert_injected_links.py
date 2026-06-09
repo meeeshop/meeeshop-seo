@@ -63,6 +63,7 @@ AFFECTED_TITLES = [
 
 
 def _req(method: str, url: str, **kwargs) -> requests.Response:
+    kwargs.setdefault("timeout", 30)
     for attempt in range(MAX_RETRIES):
         r = requests.request(method, url, headers=HEADS, **kwargs)
         if r.status_code == 429:
