@@ -348,8 +348,6 @@ def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
     title  = product["title"]
     ptype  = (product.get("product_type") or "women's fashion").lower()
     price  = product["variants"][0]["price"] if product.get("variants") else "49"
-    handle = product.get("handle", "")
-    url    = f"{STORE_URL}/products/{handle}" if handle else STORE_URL
     lsi    = _lsi_keywords(ptype)
     lsi_str = ", ".join(f'"{k}"' for k in lsi)
 
@@ -361,18 +359,18 @@ def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
         f"TASK: Completely rewrite the body of this existing blog post for {MONTH}.\n"
         f"Keep the title EXACTLY as-is: \"{article_title}\"\n"
         f"Featured product (in-stock): {title} — ${price}\n"
-        f"Product page: {url}\n"
         f"Product type: {ptype}\n\n"
         f"Existing content summary (do NOT copy, use as context only):\n{existing_text}\n\n"
         f"{EEAT_RULES}"
         f"SEO rules:\n"
         f"- Target keyword '{keyword}': use 3-4 times — in first paragraph, H2 subheadings, body, conclusion\n"
         f"- LSI keywords (weave in naturally, at least 2 in H2 subheadings): {lsi_str}\n"
-        f"- Link to {url} at least twice with natural anchor text\n"
+        f"- Do NOT write or include any HTML links (<a> tags) to the product page or MeeeShop anywhere in the body text. The product card and shop-the-look widgets will be programmatically injected by the developer, so manual linking inside the article is redundant and violates SEO guidelines by looking spammy.\n"
+        f"- Limit mentions of the product title '{title}' to a maximum of 2 times in the entire body. When referring to the product subsequent times, use pronouns or generic terms (e.g., 'this dress', 'the top', 'it', 'this piece') instead of repeating the full product name.\n"
         f"- Do NOT include the <h1> tag — that is the article title already, start with <p>\n"
         f"- Use <h2>, <h3>, <p>, <ul>, <li> for structure\n"
         f"- Include sizing notes, styling tips, outfit ideas specific to this product\n"
-        f"- End with a warm CTA linking to the product\n"
+        f"- End with a warm CTA recommendation and price (do NOT include HTML links)\n"
         f"- Answer a real problem women face when shopping for {ptype}\n"
         f"- To avoid programmatic footprints, vary your structure. Occasionally include a <blockquote style='border-left: 3px solid #ccc; padding-left: 10px; margin: 15px 0; font-style: italic;'> for a 'Stylist Tip', or distinct visual callouts. Make the flow feel like a hand-written editorial, not a template.\n\n"
         f"Store info: Free US shipping on orders $50+. 7-day returns. Sizes XS-3X.\n\n"

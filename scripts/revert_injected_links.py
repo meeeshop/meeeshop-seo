@@ -25,6 +25,19 @@ Batch mode (for large stores — mirrors internal_linker.yml pattern):
 
 import os, sys, re, time, random, argparse
 
+# Ensure stdout/stderr use UTF-8 on Windows to avoid UnicodeEncodeErrors
+if sys.platform.startswith("win"):
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+    if hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from secrets_manager import inject_to_env, get_secret
 inject_to_env()
@@ -82,16 +95,25 @@ def _req(method: str, url: str, **kwargs) -> requests.Response:
 
 
 def clean_article_html(html_str: str) -> str:
-    from bs4 import BeautifulSoup, Comment
+    import re
+    from bs4 import BeautifulSoup
     if not html_str:
         return ""
+
+    # Remove previous shop-the-look widgets via robust regex
+    html_str = re.sub(r'<!--\s*meeeshop-shop-the-look-start\s*-->[\s\S]*?<!--\s*meeeshop-shop-the-look-end\s*-->', '', html_str)
+    html_str = html_str.replace("meeeshop-shop-the-look-start", "").replace("meeeshop-shop-the-look-end", "")
 
     soup = BeautifulSoup(f"<div>{html_str}</div>", "html.parser")
     root = soup.div
     if not root:
         return html_str
 
-    # 1. Remove featured product cards and related products sections
+    # 1. Remove featured product cards, related products sections, and shop-the-look widgets
+    for h3 in root.find_all("h3"):
+        if h3.get_text().strip().lower() == "shop the look":
+            h3.decompose()
+
     for div in root.find_all("div"):
         if div.attrs is None:
             continue
@@ -99,23 +121,22 @@ def clean_article_html(html_str: str) -> str:
         style = style.replace(" ", "").lower()
         if "background:#f8f6f3" in style or "background:#fafafa" in style or "background:#f0ede8" in style:
             div.decompose()
+            continue
+        if "display:grid" in style and "grid-template-columns" in style:
+            div.decompose()
+            continue
+        if "border:1pxsolid#f0f0f0" in style or "background:#fff" in style:
+            div.decompose()
+            continue
 
-    # 2. Remove any comments and elements in shop-the-look widgets
-    comments = root.find_all(string=lambda text: isinstance(text, Comment))
-    for comment in comments:
-        if "meeeshop-shop-the-look-start" in comment:
-            # Find and remove siblings until the end comment
-            curr = comment.next_sibling
-            while curr:
-                next_sib = curr.next_sibling
-                if isinstance(curr, Comment) and "meeeshop-shop-the-look-end" in curr:
-                    curr.extract()
-                    break
-                curr.extract()
-                curr = next_sib
-            comment.extract()
+    # Remove leftover <hr> tags that might have divided the widget
+    for hr in root.find_all("hr"):
+        style = hr.get("style", "") or ""
+        style = style.replace(" ", "").lower()
+        if "border-top:1pxsolid#eee" in style:
+            hr.decompose()
 
-    # 3. Strip all internal links pointing to meeeshop
+    # 2. Strip all internal links pointing to meeeshop
     for a in root.find_all("a"):
         href = a.get("href", "").lower()
         if "meeeshop" in href or "/collections/" in href or "/products/" in href:
@@ -187,6 +208,18 @@ def publish_article_with_handle(blog_id: int, title: str, body_html: str,
         return r.json().get("article", {})
     print(f"  [PUBLISH FAILED] {r.status_code}: {r.text[:300]}")
     return None
+
+
+def update_article(blog_id: int, article_id: int, body_html: str) -> bool:
+    """Update article body HTML via API."""
+    try:
+        r = _req("PUT", f"{BASE}/blogs/{blog_id}/articles/{article_id}.json",
+                 json={"article": {"body_html": body_html}})
+        time.sleep(REQUEST_DELAY)
+        return r.status_code in (200, 201)
+    except Exception as e:
+        print(f"Failed to update article {article_id}: {e}")
+        return False
 
 
 def _pick_product_for_title(title: str, products: list) -> dict:

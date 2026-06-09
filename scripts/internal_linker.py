@@ -469,6 +469,46 @@ def find_unlinked_keywords(article_text: str, existing_links: Set[str], link_map
     return sorted(suggestions, key=lambda x: (-x["relevance_score"], x["first_position"]))
 
 
+def clean_previous_widgets(html_str: str) -> str:
+    import re
+    from bs4 import BeautifulSoup
+    if not html_str:
+        return ""
+
+    # 1. Regex remove comments
+    html_str = re.sub(r'<!--\s*meeeshop-shop-the-look-start\s*-->[\s\S]*?<!--\s*meeeshop-shop-the-look-end\s*-->', '', html_str)
+    html_str = html_str.replace("meeeshop-shop-the-look-start", "").replace("meeeshop-shop-the-look-end", "")
+
+    soup = BeautifulSoup(f"<div>{html_str}</div>", "html.parser")
+    root = soup.div
+    if not root:
+        return html_str
+
+    for h3 in root.find_all("h3"):
+        if h3.get_text().strip().lower() == "shop the look":
+            h3.decompose()
+
+    for div in root.find_all("div"):
+        if div.attrs is None:
+            continue
+        style = div.get("style", "") or ""
+        style = style.replace(" ", "").lower()
+        if "display:grid" in style and "grid-template-columns" in style:
+            div.decompose()
+            continue
+        if "border:1pxsolid#f0f0f0" in style or "background:#fff" in style:
+            div.decompose()
+            continue
+
+    for hr in root.find_all("hr"):
+        style = hr.get("style", "") or ""
+        style = style.replace(" ", "").lower()
+        if "border-top:1pxsolid#eee" in style:
+            hr.decompose()
+
+    return "".join(str(c) for c in root.contents).strip()
+
+
 def inject_link_into_html(html: str, keyword: str, url: str, anchor_text: str) -> Tuple[str, bool]:
     """
     Inject an <a> tag for the first unlinked occurrence of keyword in HTML.
@@ -731,9 +771,7 @@ def process_articles(mode: str, apply: bool, batch_size: int = None, batch_index
                 in_stock_prods = fetch_products_for_collection(cid)
                 if len(in_stock_prods) >= 2:
                     # Clean previous widget if present
-                    clean_html = modified_html
-                    if "<!-- meeeshop-shop-the-look-start -->" in clean_html:
-                        clean_html = re.sub(r'<!-- meeeshop-shop-the-look-start -->[\s\S]*?<!-- meeeshop-shop-the-look-end -->', '', clean_html).strip()
+                    clean_html = clean_previous_widgets(modified_html)
                     
                     # Generate dynamic widget HTML
                     widget_html = (
