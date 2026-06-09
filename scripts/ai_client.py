@@ -26,30 +26,12 @@ _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 _OPENROUTER_FREE_MODELS = [
-    "poolside/laguna-m1:free",
-    "inclusionai/ring-2.6-1t:free",
-    "openai/gpt-oss-120b:free",
-    "qwen/qwen3-coder-480b-a35b:free",
-    "nvidia/nemotron-3-nano-30b-a3b:free",
-    "openai/gpt-oss-20b:free",
-    "poolside/laguna-xs2:free",
-    "baidu/qianfan-cobuddy:free",
-    "minimax/minimax-m2.5:free",
-    "z-ai/glm-4.5-air:free",
-    "liquidai/lfm2.5-1.2b-thinking:free",
-    "nous/hermes-3-405b-instruct:free",
-    "nvidia/nemotron-3-nano-omni:free",
-    "google/gemma-4-31b:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "qwen/qwen3-next-80b-a3b-instruct:free",
     "openrouter/free",
 ]
 
 _OPENROUTER_MODEL_CATEGORIES = {
     "pricing": [
-        "nous/hermes-3-405b-instruct:free",
-        "openai/gpt-oss-120b:free",
-        "meta-llama/llama-3.3-70b-instruct:free",
+        "openrouter/free",
     ],
     "general": _OPENROUTER_FREE_MODELS,
 }
