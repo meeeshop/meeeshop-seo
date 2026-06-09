@@ -150,29 +150,37 @@ _PROVIDERS = [
 
 def generate(prompt: str, max_tokens: int = 400, temperature: float = 0.8, category: str = None) -> str | None:
     """Try Gemini → Groq → OpenRouter. Returns text on first success, None if all fail."""
-    if category == "pricing":
-        try:
-            text = _call_openrouter(prompt, max_tokens, temperature, category="pricing")
-            if text:
-                print(f"  [AI:OpenRouter-Pricing] OK")
-                return text
-        except Exception as e:
-            print(f"  [AI:OpenRouter-Pricing] {e} - falling back...")
-            time.sleep(0.5)
-
-    for name, fn in _PROVIDERS:
-        try:
-            if category == "pricing":
+    max_attempts = 4
+    for attempt in range(max_attempts):
+        if category == "pricing":
+            try:
                 text = _call_openrouter(prompt, max_tokens, temperature, category="pricing")
-            else:
-                text = fn(prompt, max_tokens, temperature)
-            if text:
-                print(f"  [AI:{name}] OK")
-                return text
-        except Exception as e:
-            print(f"  [AI:{name}] {e} - trying next...")
-            time.sleep(0.5)
-    print("  [AI] all providers failed - using fallback")
+                if text:
+                    print(f"  [AI:OpenRouter-Pricing] OK")
+                    return text
+            except Exception as e:
+                print(f"  [AI:OpenRouter-Pricing] {e} - falling back...")
+                time.sleep(0.5)
+
+        for name, fn in _PROVIDERS:
+            try:
+                if category == "pricing":
+                    text = _call_openrouter(prompt, max_tokens, temperature, category="pricing")
+                else:
+                    text = fn(prompt, max_tokens, temperature)
+                if text:
+                    print(f"  [AI:{name}] OK")
+                    return text
+            except Exception as e:
+                print(f"  [AI:{name}] {e} - trying next...")
+                time.sleep(0.5)
+
+        if attempt < max_attempts - 1:
+            wait_time = 20 * (attempt + 1)
+            print(f"  [AI] All providers rate-limited or failed on attempt {attempt+1}/{max_attempts}. Sleeping {wait_time}s before retry...", flush=True)
+            time.sleep(wait_time)
+
+    print("  [AI] all providers failed - returning None")
     return None
 
 
