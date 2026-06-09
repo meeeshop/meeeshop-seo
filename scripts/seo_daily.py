@@ -956,6 +956,7 @@ def main():
     ap.add_argument('--limit',       type=int, default=0,  help='Max products (0=all, non-force only)')
     ap.add_argument('--batch-size',  type=int, default=0,  help='For force mode: products per batch job (0=no batching)')
     ap.add_argument('--batch-index', type=int, default=0,  help='For force mode: which batch to process (0-based)')
+    ap.add_argument('--resource',    type=str, default='all', choices=['all', 'products', 'collections', 'pages', 'blogs'], help='Resource type to validate/optimize')
     ap.add_argument('--skip-jsonld', action='store_true', help='Skip JSON-LD injection')
     args = ap.parse_args()
 
@@ -967,8 +968,8 @@ def main():
         since = None
         print("Mode: FORCE (entire catalog, normalize all SEO fields)")
         if args.batch_size > 0:
-            print(f"Batch: index={args.batch_index}, size={args.batch_size} (products only; pages/collections/articles always fully processed)")
-        print("Processing: Products, Pages, Collections, Blog Posts\n")
+            print(f"Batch: index={args.batch_index}, size={args.batch_size} (resource={args.resource})")
+        print(f"Processing: {args.resource.capitalize()}\n")
     elif args.weekly:
         mode = 'weekly'
         since = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -1001,29 +1002,37 @@ def main():
     # Products: created_at_min — catches new dropship imports (Trendsi, Cemi Cari, etc.)
     # Pages/Collections: created_at_min — new pages/collections published since cutoff
     # Articles: published_at_min — new blog posts published since cutoff
-    print("Fetching products...")
-    products = fetch_products(since)
-    total_fetched = len(products)
-    if mode == 'force' and args.batch_size > 0:
-        start = args.batch_index * args.batch_size
-        end   = start + args.batch_size
-        products = products[start:end]
-        print(f"  Fetched {total_fetched} products total; processing batch {args.batch_index} [{start}:{end}] = {len(products)} products")
-    elif args.limit:
-        products = products[:args.limit]
-    print(f"  Found {len(products)} products\n")
+    products = []
+    if args.resource in ('all', 'products'):
+        print("Fetching products...")
+        products = fetch_products(since)
+        total_fetched = len(products)
+        if mode == 'force' and args.batch_size > 0:
+            start = args.batch_index * args.batch_size
+            end   = start + args.batch_size
+            products = products[start:end]
+            print(f"  Fetched {total_fetched} products total; processing batch {args.batch_index} [{start}:{end}] = {len(products)} products")
+        elif args.limit:
+            products = products[:args.limit]
+        print(f"  Found {len(products)} products\n")
 
-    print("Fetching pages...")
-    pages = fetch_pages(since)
-    print(f"  Found {len(pages)} pages\n")
+    pages = []
+    if args.resource in ('all', 'pages'):
+        print("Fetching pages...")
+        pages = fetch_pages(since)
+        print(f"  Found {len(pages)} pages\n")
 
-    print("Fetching collections...")
-    collections = fetch_collections(since)
-    print(f"  Found {len(collections)} collections\n")
+    collections = []
+    if args.resource in ('all', 'collections'):
+        print("Fetching collections...")
+        collections = fetch_collections(since)
+        print(f"  Found {len(collections)} collections\n")
 
-    print("Fetching articles...")
-    articles = fetch_articles(since)
-    print(f"  Found {len(articles)} articles\n")
+    articles = []
+    if args.resource in ('all', 'blogs'):
+        print("Fetching articles...")
+        articles = fetch_articles(since)
+        print(f"  Found {len(articles)} articles\n")
 
     total_items = len(products) + len(pages) + len(collections) + len(articles)
     print(f"Total items to process: {total_items}\n")
@@ -1251,7 +1260,8 @@ def main():
         "products_fixed": log,
     }
     batch_suffix = f"_b{args.batch_index}" if (mode == 'force' and args.batch_size > 0) else ""
-    fname = f"seo_report_{datetime.now().strftime('%Y%m%d_%H%M')}{batch_suffix}.json"
+    resource_suffix = f"_{args.resource}" if args.resource != "all" else ""
+    fname = f"seo_report_{datetime.now().strftime('%Y%m%d_%H%M')}{resource_suffix}{batch_suffix}.json"
     with open(fname, 'w') as f:
         json.dump(report, f, indent=2)
     print(f"\nFull report saved: {fname}")
