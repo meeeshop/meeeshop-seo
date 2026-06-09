@@ -20,7 +20,7 @@ Usage:
   python internal_linker.py --force --apply --batch-size 50 --batch-index 0
 """
 
-import os, sys, re, json, time, argparse, logging
+import os, sys, re, json, time, argparse, logging, html
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Tuple, Set
@@ -117,7 +117,7 @@ def text_within_tag(html: str, tag: str = "p") -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 STOP_WORDS = {
-    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from",
+    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from", "s",
     "had", "has", "have", "he", "her", "his", "how", "i", "if", "in", "is",
     "it", "its", "just", "of", "on", "or", "she", "that", "the", "to", "too",
     "was", "what", "when", "where", "which", "who", "will", "with", "you",
@@ -189,6 +189,9 @@ def extract_high_value_keywords(text: str) -> List[Tuple[str, float]]:
     # Priority 2: Any 2-word phrase with a high-value keyword (less selective)
     for i in range(len(words) - 1):
         phrase = f"{words[i]} {words[i+1]}"
+        word1, word2 = words[i], words[i+1]
+        if len(word1) <= 1 or len(word2) <= 1 or word1 in STOP_WORDS or word2 in STOP_WORDS:
+            continue
         if any(kw in phrase.split() for kw in HIGH_VALUE_KEYWORDS):
             if phrase not in STOP_WORDS and phrase not in scored_keywords:
                 scored_keywords[phrase] = 0.7
@@ -396,13 +399,25 @@ class LinkMap:
                 if not any(item[0] == url for item in self.keyword_to_urls[normalized]):
                     self.keyword_to_urls[normalized].append((url, anchor_text, is_collection))
 
-    def find_link_for_keyword(self, keyword: str) -> Tuple[str, str]:
+    def find_link_for_keyword(self, keyword: str, article_context: str = None) -> Tuple[str, str]:
         """Find best URL + anchor text for keyword. Returns (url, anchor_text) or (None, None)."""
         normalized = normalize_keyword(keyword)
         if normalized in self.keyword_to_urls and self.keyword_to_urls[normalized]:
             # Prioritize collections over other matches
-            matches = sorted(self.keyword_to_urls[normalized], key=lambda x: not x[2])
-            url, anchor, _ = matches[0]
+            collections = [m for m in self.keyword_to_urls[normalized] if m[2]]
+            products_or_articles = [m for m in self.keyword_to_urls[normalized] if not m[2]]
+            
+            candidates = collections if collections else products_or_articles
+            if not candidates:
+                return None, None
+                
+            if article_context:
+                import hashlib
+                # Stable hash selection to distribute links evenly across articles
+                idx = int(hashlib.md5(article_context.encode("utf-8")).hexdigest(), 16) % len(candidates)
+                url, anchor, _ = candidates[idx]
+            else:
+                url, anchor, _ = candidates[0]
             return url, anchor
         return None, None
 
@@ -411,7 +426,7 @@ class LinkMap:
 # LINK INJECTION & SCANNING
 # ══════════════════════════════════════════════════════════════════════════════
 
-def find_unlinked_keywords(article_text: str, existing_links: Set[str], link_map: LinkMap) -> List[Dict]:
+def find_unlinked_keywords(article_text: str, existing_links: Set[str], link_map: LinkMap, article_context: str = None) -> List[Dict]:
     """
     Scan article for keywords that appear in link_map but are not yet linked.
     Returns list of {keyword, url, anchor_text, count, relevance_score} sorted by priority.
@@ -428,7 +443,7 @@ def find_unlinked_keywords(article_text: str, existing_links: Set[str], link_map
             continue
 
         # Find URL in link_map (try exact match first, then substring)
-        url, anchor_text = link_map.find_link_for_keyword(keyword)
+        url, anchor_text = link_map.find_link_for_keyword(keyword, article_context)
         if not url:
             continue
 
@@ -643,7 +658,7 @@ def process_articles(mode: str, apply: bool, batch_size: int = None, batch_index
             existing_links = extract_existing_links(body_html)
 
             # Find unlinked keywords
-            suggestions = find_unlinked_keywords(body_html, existing_links, link_map)
+            suggestions = find_unlinked_keywords(body_html, existing_links, link_map, article_context=article_title)
 
             modified_html = body_html
             injected_count = 0
@@ -668,6 +683,20 @@ def process_articles(mode: str, apply: bool, batch_size: int = None, batch_index
                     url = suggestion["url"]
                     anchor_text = suggestion["anchor_text"]
                     mention_count = suggestion["count"]
+
+                    # Check if collection is empty or low stock before linking to it
+                    if "/collections/" in url:
+                        handle_part = url.split("/collections/")[-1].split("?")[0].strip("/")
+                        cid = COLLECTION_HANDLE_TO_ID.get(handle_part)
+                        if cid:
+                            in_stock_prods = fetch_products_for_collection(cid)
+                            if len(in_stock_prods) < 2:
+                                logger.info(f"  ⊘ Skipping low-stock/empty collection '{handle_part}' ({len(in_stock_prods)} products in stock)")
+                                links_skipped.append({
+                                    "keyword": keyword,
+                                    "reason": f"Collection '{handle_part}' has only {len(in_stock_prods)} in-stock products"
+                                })
+                                continue
 
                     new_html, was_injected = inject_link_into_html(modified_html, keyword, url, anchor_text)
 
@@ -712,27 +741,29 @@ def process_articles(mode: str, apply: bool, batch_size: int = None, batch_index
                     # Generate dynamic widget HTML
                     widget_html = (
                         "\n\n<!-- meeeshop-shop-the-look-start -->\n"
-                        "<hr style='border: 0; border-top: 1px solid #eee; margin: 40px 0;'>\n"
-                        "<h3 style='text-align: center; margin-bottom: 20px; font-family: sans-serif; letter-spacing: 1px;'>Shop the Look</h3>\n"
-                        "<div style='display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 20px;'>\n"
+                        '<hr style="border: 0; border-top: 1px solid #eee; margin: 40px 0;">\n'
+                        '<h3 style="text-align: center; margin-bottom: 20px; font-family: sans-serif; letter-spacing: 1px;">Shop the Look</h3>\n'
+                        '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 20px;">\n'
                     )
                     for p in in_stock_prods[:4]:
-                        title = p.get("title", "")
+                        raw_title = p.get("title", "")
+                        escaped_title = html.escape(raw_title)
+                        alt_title = raw_title.replace('"', "'")
                         p_handle = p.get("handle", "")
                         price = p.get("variants", [{}])[0].get("price", "0.00")
                         img_src = p.get("images", [{}])[0].get("src", "")
                         
                         widget_html += (
-                            f"  <div style='border: 1px solid #f0f0f0; padding: 10px; text-align: center; border-radius: 8px; background: #fff;'>\n"
-                            f"    <a href='{SITE}/products/{p_handle}' style='text-decoration: none; color: #333;'>\n"
+                            f'  <div style="border: 1px solid #f0f0f0; padding: 10px; text-align: center; border-radius: 8px; background: #fff;">\n'
+                            f'    <a href="{SITE}/products/{p_handle}" style="text-decoration: none; color: #333;">\n'
                         )
                         if img_src:
-                            widget_html += f"      <img src='{img_src}' style='width: 100%; max-height: 200px; object-fit: cover; border-radius: 4px; margin-bottom: 8px;'>\n"
+                            widget_html += f'      <img src="{img_src}" alt="{alt_title}" style="width: 100%; max-height: 200px; object-fit: cover; border-radius: 4px; margin-bottom: 8px;">\n'
                         widget_html += (
-                            f"      <div style='font-size: 13px; font-weight: bold; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;'>{title}</div>\n"
-                            f"      <div style='font-size: 12px; color: #888;'>${price}</div>\n"
-                            f"    </a>\n"
-                            f"  </div>\n"
+                            f'      <div style="font-size: 13px; font-weight: bold; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{escaped_title}</div>\n'
+                            f'      <div style="font-size: 12px; color: #888;">${price}</div>\n'
+                            f'    </a>\n'
+                            f'  </div>\n'
                         )
                     widget_html += "</div>\n<!-- meeeshop-shop-the-look-end -->\n"
                     

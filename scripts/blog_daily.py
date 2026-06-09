@@ -215,7 +215,9 @@ def product_img_url(product: dict) -> str | None:
 # ── Product cards ──────────────────────────────────────────────────────────────
 def make_product_card(product: dict, keyword: str = "",
                       label: str = "FEATURED PICK — IN STOCK NOW") -> str:
-    title  = product["title"]
+    import html
+    raw_title = product["title"]
+    escaped_title = html.escape(raw_title)
     price  = product["variants"][0]["price"] if product.get("variants") else "0"
     handle = product.get("handle", "")
     ptype  = (product.get("product_type") or "women's fashion").lower()
@@ -223,12 +225,14 @@ def make_product_card(product: dict, keyword: str = "",
     img    = product_img_url(product)
 
     # Keyword-rich ALT text for inline product image
-    alt = f"{title} — {ptype} for women at MeeeShop"
+    alt = f"{raw_title} — {ptype} for women at MeeeShop"
     if keyword:
-        alt = f"{title} — {keyword}, {ptype} at MeeeShop"
+        alt = f"{raw_title} — {keyword}, {ptype} at MeeeShop"
+
+    alt_clean = alt.replace('"', "'")
 
     img_html = (
-        f'<a href="{url}"><img src="{img}" alt="{alt}" '
+        f'<a href="{url}"><img src="{img}" alt="{alt_clean}" '
         f'style="width:220px;height:220px;object-fit:cover;border-radius:10px;flex-shrink:0;" loading="lazy" /></a>'
         if img else ""
     )
@@ -240,7 +244,7 @@ def make_product_card(product: dict, keyword: str = "",
   {img_html}
   <div style="flex:1;min-width:200px;">
     <p style="font-size:11px;color:#999;margin:0 0 6px;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;">{label}</p>
-    <h3 style="font-size:18px;font-weight:700;margin:0 0 8px;color:#1a1a1a;line-height:1.3;">{title}</h3>
+    <h3 style="font-size:18px;font-weight:700;margin:0 0 8px;color:#1a1a1a;line-height:1.3;">{escaped_title}</h3>
     <p style="font-size:26px;font-weight:800;color:#1a1a1a;margin:0 0 6px;">${price}</p>
     <p style="font-size:12px;color:#777;margin:0 0 18px;">
       Free US shipping on orders $50+ &nbsp;&bull;&nbsp; 7-day easy returns &nbsp;&bull;&nbsp; Sizes XS–3X
@@ -257,6 +261,7 @@ def make_product_card(product: dict, keyword: str = "",
 
 
 def make_related_products_section(products: list, exclude_handle: str, keyword: str = "") -> str:
+    import html
     related = [p for p in products if p.get("handle") != exclude_handle and p.get("images")]
     if not related:
         related = [p for p in products if p.get("handle") != exclude_handle]
@@ -264,25 +269,29 @@ def make_related_products_section(products: list, exclude_handle: str, keyword: 
 
     cards_html = ""
     for p in picks:
-        title  = p["title"]
+        raw_title  = p["title"]
+        escaped_title = html.escape(raw_title)
         price  = p["variants"][0]["price"] if p.get("variants") else "0"
         handle = p.get("handle", "")
         ptype  = (p.get("product_type") or "women's fashion").lower()
         url    = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=related_card&utm_campaign=meeeshop"
         img    = product_img_url(p)
         # Keyword-rich ALT for related product images
-        alt    = f"{title} — {ptype} for women at MeeeShop"
+        alt    = f"{raw_title} — {ptype} for women at MeeeShop"
         if keyword:
-            alt = f"{title} — shop {keyword} at MeeeShop"
+            alt = f"{raw_title} — shop {keyword} at MeeeShop"
+        
+        alt_clean = alt.replace('"', "'")
+
         img_tag = (
-            f'<a href="{url}"><img src="{img}" alt="{alt}" '
+            f'<a href="{url}"><img src="{img}" alt="{alt_clean}" '
             f'style="width:100%;height:200px;object-fit:cover;border-radius:10px;margin-bottom:12px;" loading="lazy" /></a>'
             if img else ""
         )
         cards_html += f"""
   <div style="flex:1;min-width:200px;max-width:260px;font-family:sans-serif;text-align:center;">
     {img_tag}
-    <p style="font-size:14px;font-weight:700;color:#1a1a1a;margin:0 0 4px;line-height:1.3;">{title}</p>
+    <p style="font-size:14px;font-weight:700;color:#1a1a1a;margin:0 0 4px;line-height:1.3;">{escaped_title}</p>
     <p style="font-size:16px;font-weight:800;color:#1a1a1a;margin:0 0 12px;">${price}</p>
     <a href="{url}"
        style="background:#f0ede8;color:#1a1a1a;padding:9px 20px;text-decoration:none;
