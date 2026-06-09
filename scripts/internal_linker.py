@@ -308,6 +308,45 @@ def fetch_all_collections() -> List[Dict]:
     return collections
 
 
+def fetch_products_for_collection(collection_id: int) -> List[Dict]:
+    """Fetch active, in-stock products belonging to a collection."""
+    if collection_id in COLLECTION_ID_TO_PRODUCTS:
+        return COLLECTION_ID_TO_PRODUCTS[collection_id]
+
+    url = f"{BASE}/products.json"
+    try:
+        # Fetch up to 25 products to filter for in-stock ones
+        r = _req("get", url, params={"collection_id": collection_id, "limit": 25, "status": "active"})
+        r.raise_for_status()
+        all_prods = r.json().get("products", [])
+
+        in_stock_prods = []
+        for p in all_prods:
+            # Check if active
+            if p.get("status") and p.get("status") != "active":
+                continue
+            # Check if in stock
+            variants = p.get("variants", [])
+            is_in_stock = False
+            for v in variants:
+                qty = v.get("inventory_quantity", 0)
+                policy = v.get("inventory_policy", "deny")
+                mgmt = v.get("inventory_management")
+                if mgmt is None or qty > 0 or policy == "continue":
+                    is_in_stock = True
+                    break
+            if is_in_stock:
+                in_stock_prods.append(p)
+                if len(in_stock_prods) >= 4:
+                    break
+
+        COLLECTION_ID_TO_PRODUCTS[collection_id] = in_stock_prods
+        return in_stock_prods
+    except Exception as e:
+        logger.error(f"Failed to fetch products for collection {collection_id}: {e}")
+        return []
+
+
 def update_article(blog_id: int, article_id: int, body_html: str) -> bool:
     """Update article body HTML via API."""
     try:
@@ -328,24 +367,24 @@ class LinkMap:
     """Maps keywords to linkable URLs."""
 
     def __init__(self):
-        self.keyword_to_urls: Dict[str, List[Tuple[str, str]]] = {}  # keyword -> [(url, anchor_text)]
+        self.keyword_to_urls: Dict[str, List[Tuple[str, str, bool]]] = {}  # keyword -> [(url, anchor_text, is_collection)]
 
     def add_product(self, title: str, handle: str):
         """Register product keywords."""
         url = f"{SITE}/products/{handle}"
-        self._register_keywords(title, url, title)
+        self._register_keywords(title, url, title, is_collection=False)
 
     def add_collection(self, title: str, handle: str):
         """Register collection keywords."""
         url = f"{SITE}/collections/{handle}"
-        self._register_keywords(title, url, title)
+        self._register_keywords(title, url, title, is_collection=True)
 
     def add_article(self, title: str, blog_handle: str, article_handle: str):
         """Register article keywords."""
         url = f"{SITE}/blogs/{blog_handle}/{article_handle}"
-        self._register_keywords(title, url, title)
+        self._register_keywords(title, url, title, is_collection=False)
 
-    def _register_keywords(self, text: str, url: str, anchor_text: str):
+    def _register_keywords(self, text: str, url: str, anchor_text: str, is_collection: bool):
         """Extract ONLY high-value keywords and map to URL."""
         keywords_scored = extract_high_value_keywords(text)
         for kw, score in keywords_scored:  # Now returns (keyword, score) tuples
@@ -354,14 +393,16 @@ class LinkMap:
                 if normalized not in self.keyword_to_urls:
                     self.keyword_to_urls[normalized] = []
                 # Avoid duplicates
-                if (url, anchor_text) not in self.keyword_to_urls[normalized]:
-                    self.keyword_to_urls[normalized].append((url, anchor_text))
+                if not any(item[0] == url for item in self.keyword_to_urls[normalized]):
+                    self.keyword_to_urls[normalized].append((url, anchor_text, is_collection))
 
     def find_link_for_keyword(self, keyword: str) -> Tuple[str, str]:
         """Find best URL + anchor text for keyword. Returns (url, anchor_text) or (None, None)."""
         normalized = normalize_keyword(keyword)
         if normalized in self.keyword_to_urls and self.keyword_to_urls[normalized]:
-            url, anchor = self.keyword_to_urls[normalized][0]  # First match
+            # Prioritize collections over other matches
+            matches = sorted(self.keyword_to_urls[normalized], key=lambda x: not x[2])
+            url, anchor, _ = matches[0]
             return url, anchor
         return None, None
 
@@ -494,6 +535,11 @@ def inject_link_into_html(html: str, keyword: str, url: str, anchor_text: str) -
 
 
 
+# Global cache for collection lookups
+COLLECTION_HANDLE_TO_ID = {}
+COLLECTION_ID_TO_PRODUCTS = {}
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN LOGIC
 # ══════════════════════════════════════════════════════════════════════════════
@@ -524,6 +570,9 @@ def build_link_map() -> LinkMap:
     for collection in collections:
         title = collection.get("title", "")
         handle = collection.get("handle", "")
+        cid = collection.get("id")
+        if handle and cid:
+            COLLECTION_HANDLE_TO_ID[handle] = cid
         if title and handle:
             link_map.add_collection(title, handle)
     logger.info(f"    Added {len(collections)} collections")
@@ -596,30 +645,23 @@ def process_articles(mode: str, apply: bool, batch_size: int = None, batch_index
             # Find unlinked keywords
             suggestions = find_unlinked_keywords(body_html, existing_links, link_map)
 
-            if suggestions:
-                article_log = {
-                    "article_title": article_title,
-                    "article_url": article_url,
-                    "blog_name": blog_title,
-                    "links_injected": [],
-                    "links_skipped": []
-                }
+            modified_html = body_html
+            injected_count = 0
+            links_injected = []
+            links_skipped = []
 
+            if suggestions:
                 logger.info(f"Article '{article_title}': {len(suggestions)} link suggestions (limiting to {max_links_per_article})")
                 total_links_suggested += len(suggestions)
 
                 # Inject links (with per-article limit)
-                modified_html = body_html
-                injected_count = 0
-
                 for suggestion in suggestions:
                     # HARD LIMIT: stop after max_links_per_article injected
                     if injected_count >= max_links_per_article:
-                        link_info = {
+                        links_skipped.append({
                             "keyword": suggestion["keyword"],
                             "reason": f"Limit reached ({max_links_per_article} max per article)"
-                        }
-                        article_log["links_skipped"].append(link_info)
+                        })
                         continue
 
                     keyword = suggestion["keyword"]
@@ -632,33 +674,93 @@ def process_articles(mode: str, apply: bool, batch_size: int = None, batch_index
                     if was_injected:
                         modified_html = new_html
                         injected_count += 1
-                        link_info = {
+                        links_injected.append({
                             "keyword": keyword,
                             "target_url": url,
                             "anchor_text": anchor_text,
                             "occurrences_in_article": mention_count
-                        }
-                        article_log["links_injected"].append(link_info)
+                        })
                         logger.info(f"  ✓ Linked '{keyword}' ({mention_count} mentions) → {url}")
                     else:
-                        link_info = {
+                        links_skipped.append({
                             "keyword": keyword,
                             "reason": "Already linked or regex match failed"
-                        }
-                        article_log["links_skipped"].append(link_info)
+                        })
                         logger.debug(f"  ⊘ Skipped '{keyword}' (already linked)")
 
-                if injected_count > 0:
-                    total_links_injected += injected_count
-                    detailed_log.append(article_log)
+            # Check for collection links in the final HTML to inject "Shop the Look"
+            final_links = extract_existing_links(modified_html)
+            collection_handles = []
+            for link in final_links:
+                m = re.search(r'/collections/([a-zA-Z0-9_-]+)', link)
+                if m:
+                    handle = m.group(1)
+                    if handle in COLLECTION_HANDLE_TO_ID:
+                        collection_handles.append(handle)
 
-                    if apply:
-                        if update_article(blog_id, article_id, modified_html):
-                            logger.info(f"  ✓ Updated article with {injected_count} links")
-                        else:
-                            logger.error(f"  ✗ Failed to update article")
+            widget_added = False
+            # Find the first collection that has in-stock products and append the widget
+            for handle in collection_handles:
+                cid = COLLECTION_HANDLE_TO_ID[handle]
+                in_stock_prods = fetch_products_for_collection(cid)
+                if len(in_stock_prods) >= 2:
+                    # Clean previous widget if present
+                    clean_html = modified_html
+                    if "<!-- meeeshop-shop-the-look-start -->" in clean_html:
+                        clean_html = re.sub(r'<!-- meeeshop-shop-the-look-start -->[\s\S]*?<!-- meeeshop-shop-the-look-end -->', '', clean_html).strip()
+                    
+                    # Generate dynamic widget HTML
+                    widget_html = (
+                        "\n\n<!-- meeeshop-shop-the-look-start -->\n"
+                        "<hr style='border: 0; border-top: 1px solid #eee; margin: 40px 0;'>\n"
+                        "<h3 style='text-align: center; margin-bottom: 20px; font-family: sans-serif; letter-spacing: 1px;'>Shop the Look</h3>\n"
+                        "<div style='display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 20px;'>\n"
+                    )
+                    for p in in_stock_prods[:4]:
+                        title = p.get("title", "")
+                        p_handle = p.get("handle", "")
+                        price = p.get("variants", [{}])[0].get("price", "0.00")
+                        img_src = p.get("images", [{}])[0].get("src", "")
+                        
+                        widget_html += (
+                            f"  <div style='border: 1px solid #f0f0f0; padding: 10px; text-align: center; border-radius: 8px; background: #fff;'>\n"
+                            f"    <a href='{SITE}/products/{p_handle}' style='text-decoration: none; color: #333;'>\n"
+                        )
+                        if img_src:
+                            widget_html += f"      <img src='{img_src}' style='width: 100%; max-height: 200px; object-fit: cover; border-radius: 4px; margin-bottom: 8px;'>\n"
+                        widget_html += (
+                            f"      <div style='font-size: 13px; font-weight: bold; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;'>{title}</div>\n"
+                            f"      <div style='font-size: 12px; color: #888;'>${price}</div>\n"
+                            f"    </a>\n"
+                            f"  </div>\n"
+                        )
+                    widget_html += "</div>\n<!-- meeeshop-shop-the-look-end -->\n"
+                    
+                    modified_html = clean_html.strip() + "\n\n" + widget_html
+                    widget_added = True
+                    break # Append exactly one widget per article
+
+            # If HTML changed (either links injected or widget added), update Shopify
+            if modified_html != body_html:
+                total_links_injected += injected_count
+                
+                article_log = {
+                    "article_title": article_title,
+                    "article_url": article_url,
+                    "blog_name": blog_title,
+                    "links_injected": links_injected,
+                    "links_skipped": links_skipped,
+                    "widget_added": widget_added
+                }
+                detailed_log.append(article_log)
+
+                if apply:
+                    if update_article(blog_id, article_id, modified_html):
+                        logger.info(f"  ✓ Updated article (links={injected_count}, widget={widget_added})")
                     else:
-                        logger.info(f"  [DRY RUN] Would inject {injected_count} links")
+                        logger.error(f"  ✗ Failed to update article")
+                else:
+                    logger.info(f"  [DRY RUN] Would update article (links={injected_count}, widget={widget_added})")
 
     # Summary
     logger.info("\n" + "=" * 80)
