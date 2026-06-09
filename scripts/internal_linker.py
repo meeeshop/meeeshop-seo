@@ -490,7 +490,7 @@ def inject_link_into_html(html: str, keyword: str, url: str, anchor_text: str) -
     if not root:
         return html, False
 
-    # Find all text nodes that are NOT descendants of 'a', 'script', 'style'
+    # Find all text nodes that are NOT descendants of 'a', 'script', 'style', or product cards
     text_nodes = []
     for node in root.find_all(string=True):
         parent = node.parent
@@ -499,6 +499,12 @@ def inject_link_into_html(html: str, keyword: str, url: str, anchor_text: str) -
             if parent.name in ('a', 'script', 'style'):
                 in_forbidden_tag = True
                 break
+            # Skip linking inside product cards and related products sections
+            if parent.name == 'div' and parent.get('style'):
+                style_str = parent.get('style', '').replace(' ', '')
+                if 'background:#f8f6f3' in style_str or 'background:#fafafa' in style_str or 'background:#f0ede8' in style_str:
+                    in_forbidden_tag = True
+                    break
             parent = parent.parent
         if not in_forbidden_tag:
             text_nodes.append(node)
@@ -564,20 +570,11 @@ def build_link_map() -> LinkMap:
     logger.info("Building link map...")
     link_map = LinkMap()
 
-    # Add products
-    logger.info("  Fetching products...")
-    products = fetch_all_products()
-    for product in products:
-        title = product.get("title", "")
-        handle = product.get("handle", "")
-        if title and handle:
-            link_map.add_product(title, handle)
-            # Also add tags as keywords
-            for tag in product.get("tags", "").split(","):
-                tag = tag.strip()
-                if tag and len(tag) > 2:
-                    link_map.add_product(tag, handle)
-    logger.info(f"    Added {len(products)} products")
+    # NOTE: Product pages are excluded from inline text linking because products
+    # are already showcased at the bottom of articles in the "Shop the Look" widget
+    # and product cards. This also makes the linker run much faster by skipping
+    # paginated requests for the entire product catalog.
+    logger.info("  Skipping product text links registration (priority to collections)")
 
     # Add collections
     logger.info("  Fetching collections...")
