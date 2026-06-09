@@ -81,7 +81,57 @@ def _req(method: str, url: str, **kwargs) -> requests.Response:
     return r
 
 
+def clean_article_html(html_str: str) -> str:
+    from bs4 import BeautifulSoup, Comment
+    if not html_str:
+        return ""
+
+    soup = BeautifulSoup(f"<div>{html_str}</div>", "html.parser")
+    root = soup.div
+    if not root:
+        return html_str
+
+    # 1. Remove featured product cards and related products sections
+    for div in root.find_all("div"):
+        if div.attrs is None:
+            continue
+        style = div.get("style", "") or ""
+        style = style.replace(" ", "").lower()
+        if "background:#f8f6f3" in style or "background:#fafafa" in style or "background:#f0ede8" in style:
+            div.decompose()
+
+    # 2. Remove any comments and elements in shop-the-look widgets
+    comments = root.find_all(string=lambda text: isinstance(text, Comment))
+    for comment in comments:
+        if "meeeshop-shop-the-look-start" in comment:
+            # Find and remove siblings until the end comment
+            curr = comment.next_sibling
+            while curr:
+                next_sib = curr.next_sibling
+                if isinstance(curr, Comment) and "meeeshop-shop-the-look-end" in curr:
+                    curr.extract()
+                    break
+                curr.extract()
+                curr = next_sib
+            comment.extract()
+
+    # 3. Strip all internal links pointing to meeeshop
+    for a in root.find_all("a"):
+        href = a.get("href", "").lower()
+        if "meeeshop" in href or "/collections/" in href or "/products/" in href:
+            # Replace <a> tag with its inner text content
+            a.replace_with(a.get_text())
+
+    # Reconstruct the inner HTML
+    res = "".join(str(c) for c in root.contents)
+    return res.strip()
+
+
+
+
+
 def _has_injected_links(html: str) -> bool:
+    import re
     return bool(re.search(r'<a\s[^>]*href=["\'][^"\']*meeeshop', html, re.IGNORECASE))
 
 
@@ -309,14 +359,6 @@ def main():
 
     print()
 
-    # Pre-load products once — reused for all articles in this batch
-    print("Fetching products...")
-    products = bd.fetch_products(limit=100)
-    if not products:
-        sys.exit("ERROR: No products returned from Shopify.")
-    print(f"  {len(products)} products loaded\n")
-
-    all_blogs  = bd.get_all_blogs()
     total_ok   = 0
     total_fail = 0
 
@@ -326,56 +368,45 @@ def main():
         title      = item["title"]
         handle     = item["handle"]
         article_id = item["article_id"]
-        orig_tags  = item["tags"]
 
         print(f"\n[{blog_title}] '{title}'")
         print(f"  Handle: {handle}")
 
+        # Fetch current article content
+        r_art = _req("GET", f"{BASE}/blogs/{blog_id}/articles/{article_id}.json")
+        if not r_art.ok:
+            print(f"  [FAIL] Could not fetch article content from Shopify")
+            total_fail += 1
+            continue
+
+        body_html = r_art.json().get("article", {}).get("body_html", "")
+        if not body_html:
+            print(f"  [FAIL] Article has empty body_html")
+            total_fail += 1
+            continue
+
+        cleaned = clean_article_html(body_html)
+
         if args.dry_run:
-            kw  = _pick_keyword_for_title(title)
-            fmt = random.choice(bd.FORMATS)
-            print(f"  [DRY RUN] Would recreate — format: {fmt}, keyword: '{kw}'")
+            diff_len = len(body_html) - len(cleaned)
+            print(f"  [DRY RUN] Would clean article in-place (diff size: {diff_len} chars)")
             continue
 
-        # Generate full EEAT content
-        result = recreate_article(
-            blog_id, title, handle, orig_tags,
-            products, all_blogs, {}
-        )
-        if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], bool):
-            print(f"  [FAIL] {result[1]}")
-            total_fail += 1
-            continue
-
-        new_body, seo, img_url, new_tags = result
-
-        # Delete corrupted article
-        if not delete_article(blog_id, article_id):
-            print(f"  [FAIL] Could not delete article — skipping")
-            total_fail += 1
-            continue
-        print(f"  Deleted (ID {article_id})")
-
-        # Re-publish with same handle
-        new_art = publish_article_with_handle(
-            blog_id, title, new_body, handle,
-            new_tags, img_url, seo["img_alt"], seo["meta_desc"]
-        )
-
-        if new_art:
-            new_id = new_art.get("id")
-            print(f"  ✓ Recreated (new ID {new_id}) — URL preserved")
-            bd.set_article_seo_metafields(blog_id, new_id, seo["seo_title"], seo["meta_desc"])
-            print(f"  ✓ SEO metafields set")
-            total_ok += 1
+        if cleaned != body_html:
+            if update_article(blog_id, article_id, cleaned):
+                print(f"  ✓ Cleaned article in-place (ID {article_id})")
+                total_ok += 1
+            else:
+                print(f"  ✗ Failed to update article in-place")
+                total_fail += 1
         else:
-            print(f"  ✗ Re-publish failed — '{title}' deleted but NOT restored!")
-            total_fail += 1
+            print(f"  ✓ Article is already clean")
+            total_ok += 1
 
         time.sleep(1.0)
 
     print("\n" + "=" * 70)
-    print(f"SUMMARY: recreated={total_ok}  failed={total_fail}  batch={args.batch_index}")
+    print(f"SUMMARY: cleaned={total_ok}  failed={total_fail}  batch={args.batch_index}")
     print("=" * 70)
 
     if total_fail > 0:
