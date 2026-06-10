@@ -512,11 +512,64 @@ def remove_out_of_stock_product_cards(html: str, out_handles: set[str]) -> str:
     return html
 
 
+def clean_article_body_html(html_str: str) -> str:
+    from bs4 import BeautifulSoup
+    if not html_str:
+        return ""
+
+    # Remove previous shop-the-look widgets via robust regex
+    html_str = re.sub(r'<!--\s*meeeshop-shop-the-look-start\s*-->[\s\S]*?<!--\s*meeeshop-shop-the-look-end\s*-->', '', html_str)
+    html_str = html_str.replace("meeeshop-shop-the-look-start", "").replace("meeeshop-shop-the-look-end", "")
+
+    soup = BeautifulSoup(f"<div>{html_str}</div>", "html.parser")
+    root = soup.div
+    if not root:
+        return html_str
+
+    # 1. Remove featured product cards, related products sections, and shop-the-look widgets
+    for h3 in root.find_all("h3"):
+        if h3.get_text().strip().lower() in ("shop the look", "you might also love"):
+            h3.decompose()
+
+    for div in root.find_all("div"):
+        if div.attrs is None:
+            continue
+        style = div.get("style", "") or ""
+        style = style.replace(" ", "").lower()
+        if "background:#f8f6f3" in style or "background:#fafafa" in style or "background:#f0ede8" in style:
+            div.decompose()
+            continue
+        if "display:grid" in style and "grid-template-columns" in style:
+            div.decompose()
+            continue
+        if "border:1pxsolid#f0f0f0" in style or "background:#fff" in style:
+            div.decompose()
+            continue
+
+    # Remove leftover <hr> tags that might have divided the widget
+    for hr in root.find_all("hr"):
+        style = hr.get("style", "") or ""
+        style = style.replace(" ", "").lower()
+        if "border-top:1pxsolid#eee" in style:
+            hr.decompose()
+
+    # 2. Strip all internal links pointing to meeeshop
+    for a in root.find_all("a"):
+        href = a.get("href", "").lower()
+        if "meeeshop" in href or "/collections/" in href or "/products/" in href:
+            # Replace <a> tag with its inner text content
+            a.replace_with(a.get_text())
+
+    # Reconstruct the inner HTML
+    res = "".join(str(c) for c in root.contents)
+    return res.strip()
+
+
 # ── Main article refresh logic ────────────────────────────────────────────────
 def refresh_article(blog: dict, article: dict, all_products: list,
                     in_stock: list, out_of_stock_handles: set[str],
                     product_by_handle: dict[str, dict],
-                    dry_run: bool = False) -> dict | None:
+                    dry_run: bool = False, no_ai: bool = False) -> dict | None:
     """
     Refresh one article. Returns a result dict on success, None on skip/failure.
     Result keys: replacements (list of {old, new} dicts), featured_product (title).
@@ -579,37 +632,63 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     ptype   = (chosen_featured.get("product_type") or "women's fashion").lower()
     keyword = random.choice(SEED_KEYWORDS)
 
-    # ── 4. Build new body HTML via AI ─────────────────────────────────────────
+    # ── 4. Build new body HTML ─────────────────────────────────────────
     print(f"  Featured: '{chosen_featured['title'][:50]}' (${chosen_featured['variants'][0]['price'] if chosen_featured.get('variants') else '?'})")
     print(f"  Keyword : {keyword}")
-    print("  Generating refreshed content…")
 
-    prompt   = _build_refresh_prompt(art_title, chosen_featured, keyword, body)
-    new_body = ai_client.generate(prompt, max_tokens=1800, temperature=0.75)
+    if no_ai:
+        print("  [No-AI Mode] Performing programmatic refresh...")
+        new_body = clean_article_body_html(body)
 
-    if not new_body:
-        print("  [AI] all providers failed — skipping article")
-        return None
+        # ── 5. Inject product card + related products ──────────────────────────────
+        card = make_product_card(chosen_featured, keyword)
+        pos  = new_body.find("</p>")
+        if pos != -1:
+            new_body = new_body[:pos+4] + "\n" + card + new_body[pos+4:]
+        else:
+            new_body = card + new_body
 
-    new_body = _clean_html(new_body)
+        new_body += make_related_products_section(
+            all_products, chosen_featured.get("handle", ""), keyword
+        )
 
-    # ── 5. Inject product card + related products ──────────────────────────────
-    # Insert featured product card after first </p>
-    card = make_product_card(chosen_featured, keyword)
-    pos  = new_body.find("</p>")
-    if pos != -1:
-        new_body = new_body[:pos+4] + "\n" + card + new_body[pos+4:]
+        # ── 6. Generate SEO metadata programmatically ──────────────────────────────────
+        seo = {
+            "seo_title": f"{keyword.title()} — MeeeShop {YEAR}"[:60],
+            "meta_desc": (
+                f"Discover the best {ptype} for women in {YEAR}. "
+                f"Shop {chosen_featured['title']} at MeeeShop — free US shipping on orders $50+, "
+                f"easy 7-day returns, sizes XS–3X."
+            )[:155],
+            "img_alt": f"{chosen_featured['title']} — {ptype} for women, {YEAR} fashion guide at MeeeShop"
+        }
     else:
-        new_body = card + new_body
+        print("  Generating refreshed content via AI…")
+        prompt   = _build_refresh_prompt(art_title, chosen_featured, keyword, body)
+        new_body = ai_client.generate(prompt, max_tokens=1800, temperature=0.75)
 
-    # "You Might Also Love" section at the bottom
-    new_body += make_related_products_section(
-        all_products, chosen_featured.get("handle", ""), keyword
-    )
+        if not new_body:
+            print("  [AI] all providers failed — skipping article")
+            return None
 
-    # ── 6. Generate SEO metadata ───────────────────────────────────────────────
-    print("  Generating SEO metadata…")
-    seo = generate_seo_meta(art_title, keyword, chosen_featured["title"], ptype)
+        new_body = _clean_html(new_body)
+
+        # ── 5. Inject product card + related products ──────────────────────────────
+        card = make_product_card(chosen_featured, keyword)
+        pos  = new_body.find("</p>")
+        if pos != -1:
+            new_body = new_body[:pos+4] + "\n" + card + new_body[pos+4:]
+        else:
+            new_body = card + new_body
+
+        new_body += make_related_products_section(
+            all_products, chosen_featured.get("handle", ""), keyword
+        )
+
+        # ── 6. Generate SEO metadata ───────────────────────────────────────────────
+        print("  Generating SEO metadata…")
+        seo = generate_seo_meta(art_title, keyword, chosen_featured["title"], ptype)
+
     print(f"  SEO title : {seo['seo_title']}")
     print(f"  Meta desc : {seo['meta_desc'][:80]}…")
 
@@ -685,11 +764,11 @@ def refresh_article(blog: dict, article: dict, all_products: list,
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
-        force: bool = False, batch_size: int = 20, batch_index: int = 0):
+        force: bool = False, batch_size: int = 20, batch_index: int = 0, no_ai: bool = False):
     mode = "force" if force else ("single" if article_id else "batch")
     print(f"\n{'='*64}")
     print(f"  MeeeShop Blog Refresher — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"  Mode: {mode} | Limit: {limit} | Dry-run: {dry_run}")
+    print(f"  Mode: {mode} | Limit: {limit} | Dry-run: {dry_run} | No-AI: {no_ai}")
     if force:
         print(f"  Batch: {batch_index} (size {batch_size})")
     print(f"{'='*64}\n")
@@ -756,6 +835,7 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
                 blog, article, all_products,
                 in_stock, out_of_stock_handles, product_by_handle,
                 dry_run=dry_run,
+                no_ai=no_ai,
             )
             if result:
                 updated += 1
@@ -772,6 +852,8 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
             skipped += 1
             log.append({"id": article.get("id"), "title": article.get("title"),
                          "status": "error", "error": str(exc)})
+            import traceback
+            traceback.print_exc()
         time.sleep(1.5)  # polite rate-limiting
 
     # ── Summary ───────────────────────────────────────────────────────────────
@@ -801,6 +883,7 @@ if __name__ == "__main__":
     ap.add_argument("--force",       action="store_true", help="Update ALL articles (use with --batch-size/--batch-index)")
     ap.add_argument("--batch-size",  type=int, default=20, help="Articles per batch in force mode (default 20)")
     ap.add_argument("--batch-index", type=int, default=0,  help="Which batch to process (0-based)")
+    ap.add_argument("--no-ai",       action="store_true", help="Perform refresh programmatically without AI calls")
     args = ap.parse_args()
 
     run(
@@ -810,4 +893,5 @@ if __name__ == "__main__":
         force=args.force,
         batch_size=args.batch_size,
         batch_index=args.batch_index,
+        no_ai=args.no_ai,
     )
