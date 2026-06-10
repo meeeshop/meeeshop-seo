@@ -71,37 +71,48 @@ jobs:
         if: steps.detect.outputs.mode == 'force'
         run: pip install -r requirements.txt
 
-      - name: Count products and build batch array
+      - name: Build batch matrix
         id: build_matrix
-        if: steps.detect.outputs.mode == 'force'
         env:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          TOTAL=$(python scripts/count_products.py)
-          echo "Active products: $TOTAL"
-          BATCHES=$(( (TOTAL + ${{ env.BATCH_SIZE }} - 1) / ${{ env.BATCH_SIZE }} ))
-          echo "Batches needed: $BATCHES"
-          JSON="["
-          for (( i=0; i<BATCHES; i++ )); do
-            [ $i -gt 0 ] && JSON+=","
-            JSON+="$i"
-          done
-          JSON+="]"
-          echo "batches_json=$JSON" >> "$GITHUB_OUTPUT"
+          MODE="${{ steps.detect.outputs.mode }}"
+          if [ "$MODE" = "force" ]; then
+            TOTAL=$(python scripts/count_products.py)
+            if [ -z "$TOTAL" ]; then
+              echo "Error: Failed to retrieve product count"
+              exit 1
+            fi
+            echo "Active products: $TOTAL"
+            BATCHES=$(( (TOTAL + ${{ env.BATCH_SIZE }} - 1) / ${{ env.BATCH_SIZE }} ))
+            echo "Batches needed: $BATCHES"
+            
+            JSON="["
+            # Add collections, pages, blogs
+            JSON+="{\"resource\":\"collections\",\"batch_index\":0},"
+            JSON+="{\"resource\":\"pages\",\"batch_index\":0},"
+            JSON+="{\"resource\":\"blogs\",\"batch_index\":0}"
+            
+            # Add products
+            for (( i=0; i<BATCHES; i++ )); do
+              JSON+=",{\"resource\":\"products\",\"batch_index\":$i}"
+            done
+            JSON+="]"
+            echo "batches_json=$JSON" >> "$GITHUB_OUTPUT"
+          else
+            echo 'batches_json=[{"resource":"all","batch_index":0}]' >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Set dummy batches (non-force)
-        if: steps.detect.outputs.mode != 'force'
-        run: echo 'batches_json=[0]' >> "$GITHUB_OUTPUT"
-
-  # -------------------------------------------------------------------
-  # Job 2a: daily or weekly — single job
-  # -------------------------------------------------------------------
   seo_optimize:
     needs: setup
-    if: needs.setup.outputs.mode != 'force'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 1  # Sequential execution to avoid Shopify API rate limits
+      matrix:
+        include: ${{ fromJson(needs.setup.outputs.batches_json) }}
 
     steps:
       - uses: actions/checkout@v4
@@ -121,59 +132,18 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           MODE="${{ needs.setup.outputs.mode }}"
-          echo "Running SEO in $MODE mode..."
-          python scripts/seo_daily.py --${MODE}
+          echo "Running SEO automation in $MODE mode for ${{ matrix.resource }} (batch index ${{ matrix.batch_index }})..."
+          python scripts/seo_daily.py \
+            --${MODE} \
+            --batch-size ${{ env.BATCH_SIZE }} \
+            --batch-index ${{ matrix.batch_index }} \
+            --resource ${{ matrix.resource }}
 
       - name: Upload SEO report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: seo-report-${{ needs.setup.outputs.mode }}-run${{ github.run_number }}
-          path: seo_report_*.json
-          if-no-files-found: ignore
-          retention-days: 30
-
-  # -------------------------------------------------------------------
-  # Job 2b: force — matrix of batch jobs, sequential, max-parallel 1
-  # -------------------------------------------------------------------
-  seo_optimize_force:
-    needs: setup
-    if: needs.setup.outputs.mode == 'force'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        batch_index: ${{ fromJson(needs.setup.outputs.batches_json) }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-          cache-dependency-path: requirements.txt
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run SEO automation (batch ${{ matrix.batch_index }})
-        env:
-          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
-          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
-        run: |
-          python scripts/seo_daily.py \
-            --force \
-            --batch-size ${{ env.BATCH_SIZE }} \
-            --batch-index ${{ matrix.batch_index }}
-
-      - name: Upload batch report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: seo-report-force-b${{ matrix.batch_index }}-run${{ github.run_number }}
+          name: seo-report-${{ needs.setup.outputs.mode }}-${{ matrix.resource }}-b${{ matrix.batch_index }}-run${{ github.run_number }}
           path: seo_report_*.json
           if-no-files-found: ignore
           retention-days: 30

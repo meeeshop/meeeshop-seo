@@ -35,9 +35,18 @@ on:
         description: 'Refresh ONE specific article by Shopify article ID (weekly mode only)'
         default: ''
         required: false
+      no_ai:
+        description: 'Refresh programmatically without AI (true/false)'
+        default: 'false'
+        required: false
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 env:
   PYTHONUTF8: "1"
+  PYTHONUNBUFFERED: "1"
   PYTHON_VERSION: "3.12"
   BATCH_SIZE: "20"
 
@@ -128,6 +137,7 @@ jobs:
           LIMIT="${{ github.event.inputs.limit || '5' }}"
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
           ARTICLE_ID="${{ github.event.inputs.article_id || '' }}"
+          NO_AI="${{ github.event.inputs.no_ai || 'false' }}"
 
           ARGS="--limit $LIMIT"
           if [ "$DRY_RUN" = "true" ]; then
@@ -135,6 +145,9 @@ jobs:
           fi
           if [ -n "$ARTICLE_ID" ]; then
             ARGS="$ARGS --article-id $ARTICLE_ID"
+          fi
+          if [ "$NO_AI" = "true" ]; then
+            ARGS="$ARGS --no-ai"
           fi
 
           echo "Running: python scripts/modify_blog.py $ARGS"
@@ -180,10 +193,12 @@ jobs:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          python scripts/modify_blog.py \
-            --force \
-            --batch-size ${{ env.BATCH_SIZE }} \
-            --batch-index ${{ matrix.batch_index }}
+          NO_AI="${{ github.event.inputs.no_ai || 'false' }}"
+          ARGS="--force --batch-size ${{ env.BATCH_SIZE }} --batch-index ${{ matrix.batch_index }}"
+          if [ "$NO_AI" = "true" ]; then
+            ARGS="$ARGS --no-ai"
+          fi
+          python scripts/modify_blog.py $ARGS
 
       - name: Upload batch log
         if: always()

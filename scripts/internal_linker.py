@@ -20,7 +20,7 @@ Usage:
   python internal_linker.py --force --apply --batch-size 50 --batch-index 0
 """
 
-import os, sys, re, json, time, argparse, logging
+import os, sys, re, json, time, argparse, logging, html
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Tuple, Set
@@ -117,7 +117,7 @@ def text_within_tag(html: str, tag: str = "p") -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 STOP_WORDS = {
-    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from",
+    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from", "s",
     "had", "has", "have", "he", "her", "his", "how", "i", "if", "in", "is",
     "it", "its", "just", "of", "on", "or", "she", "that", "the", "to", "too",
     "was", "what", "when", "where", "which", "who", "will", "with", "you",
@@ -189,6 +189,9 @@ def extract_high_value_keywords(text: str) -> List[Tuple[str, float]]:
     # Priority 2: Any 2-word phrase with a high-value keyword (less selective)
     for i in range(len(words) - 1):
         phrase = f"{words[i]} {words[i+1]}"
+        word1, word2 = words[i], words[i+1]
+        if len(word1) <= 1 or len(word2) <= 1 or word1 in STOP_WORDS or word2 in STOP_WORDS:
+            continue
         if any(kw in phrase.split() for kw in HIGH_VALUE_KEYWORDS):
             if phrase not in STOP_WORDS and phrase not in scored_keywords:
                 scored_keywords[phrase] = 0.7
@@ -286,10 +289,65 @@ def fetch_all_products() -> List[Dict]:
 
 
 def fetch_all_collections() -> List[Dict]:
-    """Fetch all collections."""
-    r = _req("get", f"{BASE}/custom_collections.json", params={"limit": 250})
-    r.raise_for_status()
-    return r.json().get("custom_collections", [])
+    """Fetch all collections (both custom and smart)."""
+    collections = []
+    
+    # 1. Custom collections
+    try:
+        r = _req("get", f"{BASE}/custom_collections.json", params={"limit": 250})
+        r.raise_for_status()
+        collections.extend(r.json().get("custom_collections", []))
+    except Exception as e:
+        logger.error(f"Failed to fetch custom collections: {e}")
+
+    # 2. Smart collections
+    try:
+        r = _req("get", f"{BASE}/smart_collections.json", params={"limit": 250})
+        r.raise_for_status()
+        collections.extend(r.json().get("smart_collections", []))
+    except Exception as e:
+        logger.error(f"Failed to fetch smart collections: {e}")
+
+    return collections
+
+
+def fetch_products_for_collection(collection_id: int) -> List[Dict]:
+    """Fetch active, in-stock products belonging to a collection."""
+    if collection_id in COLLECTION_ID_TO_PRODUCTS:
+        return COLLECTION_ID_TO_PRODUCTS[collection_id]
+
+    url = f"{BASE}/products.json"
+    try:
+        # Fetch up to 25 products to filter for in-stock ones
+        r = _req("get", url, params={"collection_id": collection_id, "limit": 25, "status": "active"})
+        r.raise_for_status()
+        all_prods = r.json().get("products", [])
+
+        in_stock_prods = []
+        for p in all_prods:
+            # Check if active
+            if p.get("status") and p.get("status") != "active":
+                continue
+            # Check if in stock
+            variants = p.get("variants", [])
+            is_in_stock = False
+            for v in variants:
+                qty = v.get("inventory_quantity", 0)
+                policy = v.get("inventory_policy", "deny")
+                mgmt = v.get("inventory_management")
+                if mgmt is None or qty > 0 or policy == "continue":
+                    is_in_stock = True
+                    break
+            if is_in_stock:
+                in_stock_prods.append(p)
+                if len(in_stock_prods) >= 4:
+                    break
+
+        COLLECTION_ID_TO_PRODUCTS[collection_id] = in_stock_prods
+        return in_stock_prods
+    except Exception as e:
+        logger.error(f"Failed to fetch products for collection {collection_id}: {e}")
+        return []
 
 
 def update_article(blog_id: int, article_id: int, body_html: str) -> bool:
@@ -312,24 +370,24 @@ class LinkMap:
     """Maps keywords to linkable URLs."""
 
     def __init__(self):
-        self.keyword_to_urls: Dict[str, List[Tuple[str, str]]] = {}  # keyword -> [(url, anchor_text)]
+        self.keyword_to_urls: Dict[str, List[Tuple[str, str, bool]]] = {}  # keyword -> [(url, anchor_text, is_collection)]
 
     def add_product(self, title: str, handle: str):
         """Register product keywords."""
         url = f"{SITE}/products/{handle}"
-        self._register_keywords(title, url, title)
+        self._register_keywords(title, url, title, is_collection=False)
 
     def add_collection(self, title: str, handle: str):
         """Register collection keywords."""
         url = f"{SITE}/collections/{handle}"
-        self._register_keywords(title, url, title)
+        self._register_keywords(title, url, title, is_collection=True)
 
     def add_article(self, title: str, blog_handle: str, article_handle: str):
         """Register article keywords."""
         url = f"{SITE}/blogs/{blog_handle}/{article_handle}"
-        self._register_keywords(title, url, title)
+        self._register_keywords(title, url, title, is_collection=False)
 
-    def _register_keywords(self, text: str, url: str, anchor_text: str):
+    def _register_keywords(self, text: str, url: str, anchor_text: str, is_collection: bool):
         """Extract ONLY high-value keywords and map to URL."""
         keywords_scored = extract_high_value_keywords(text)
         for kw, score in keywords_scored:  # Now returns (keyword, score) tuples
@@ -338,14 +396,28 @@ class LinkMap:
                 if normalized not in self.keyword_to_urls:
                     self.keyword_to_urls[normalized] = []
                 # Avoid duplicates
-                if (url, anchor_text) not in self.keyword_to_urls[normalized]:
-                    self.keyword_to_urls[normalized].append((url, anchor_text))
+                if not any(item[0] == url for item in self.keyword_to_urls[normalized]):
+                    self.keyword_to_urls[normalized].append((url, anchor_text, is_collection))
 
-    def find_link_for_keyword(self, keyword: str) -> Tuple[str, str]:
+    def find_link_for_keyword(self, keyword: str, article_context: str = None) -> Tuple[str, str]:
         """Find best URL + anchor text for keyword. Returns (url, anchor_text) or (None, None)."""
         normalized = normalize_keyword(keyword)
         if normalized in self.keyword_to_urls and self.keyword_to_urls[normalized]:
-            url, anchor = self.keyword_to_urls[normalized][0]  # First match
+            # Prioritize collections over other matches
+            collections = [m for m in self.keyword_to_urls[normalized] if m[2]]
+            products_or_articles = [m for m in self.keyword_to_urls[normalized] if not m[2]]
+            
+            candidates = collections if collections else products_or_articles
+            if not candidates:
+                return None, None
+                
+            if article_context:
+                import hashlib
+                # Stable hash selection to distribute links evenly across articles
+                idx = int(hashlib.md5(article_context.encode("utf-8")).hexdigest(), 16) % len(candidates)
+                url, anchor, _ = candidates[idx]
+            else:
+                url, anchor, _ = candidates[0]
             return url, anchor
         return None, None
 
@@ -354,7 +426,7 @@ class LinkMap:
 # LINK INJECTION & SCANNING
 # ══════════════════════════════════════════════════════════════════════════════
 
-def find_unlinked_keywords(article_text: str, existing_links: Set[str], link_map: LinkMap) -> List[Dict]:
+def find_unlinked_keywords(article_text: str, existing_links: Set[str], link_map: LinkMap, article_context: str = None) -> List[Dict]:
     """
     Scan article for keywords that appear in link_map but are not yet linked.
     Returns list of {keyword, url, anchor_text, count, relevance_score} sorted by priority.
@@ -371,7 +443,7 @@ def find_unlinked_keywords(article_text: str, existing_links: Set[str], link_map
             continue
 
         # Find URL in link_map (try exact match first, then substring)
-        url, anchor_text = link_map.find_link_for_keyword(keyword)
+        url, anchor_text = link_map.find_link_for_keyword(keyword, article_context)
         if not url:
             continue
 
@@ -397,6 +469,46 @@ def find_unlinked_keywords(article_text: str, existing_links: Set[str], link_map
     return sorted(suggestions, key=lambda x: (-x["relevance_score"], x["first_position"]))
 
 
+def clean_previous_widgets(html_str: str) -> str:
+    import re
+    from bs4 import BeautifulSoup
+    if not html_str:
+        return ""
+
+    # 1. Regex remove comments
+    html_str = re.sub(r'<!--\s*meeeshop-shop-the-look-start\s*-->[\s\S]*?<!--\s*meeeshop-shop-the-look-end\s*-->', '', html_str)
+    html_str = html_str.replace("meeeshop-shop-the-look-start", "").replace("meeeshop-shop-the-look-end", "")
+
+    soup = BeautifulSoup(f"<div>{html_str}</div>", "html.parser")
+    root = soup.div
+    if not root:
+        return html_str
+
+    for h3 in root.find_all("h3"):
+        if h3.get_text().strip().lower() == "shop the look":
+            h3.decompose()
+
+    for div in root.find_all("div"):
+        if div.attrs is None:
+            continue
+        style = div.get("style", "") or ""
+        style = style.replace(" ", "").lower()
+        if "display:grid" in style and "grid-template-columns" in style:
+            div.decompose()
+            continue
+        if "border:1pxsolid#f0f0f0" in style or "background:#fff" in style:
+            div.decompose()
+            continue
+
+    for hr in root.find_all("hr"):
+        style = hr.get("style", "") or ""
+        style = style.replace(" ", "").lower()
+        if "border-top:1pxsolid#eee" in style:
+            hr.decompose()
+
+    return "".join(str(c) for c in root.contents).strip()
+
+
 def inject_link_into_html(html: str, keyword: str, url: str, anchor_text: str) -> Tuple[str, bool]:
     """
     Inject an <a> tag for the first unlinked occurrence of keyword in HTML.
@@ -418,7 +530,7 @@ def inject_link_into_html(html: str, keyword: str, url: str, anchor_text: str) -
     if not root:
         return html, False
 
-    # Find all text nodes that are NOT descendants of 'a', 'script', 'style'
+    # Find all text nodes that are NOT descendants of 'a', 'script', 'style', or product cards
     text_nodes = []
     for node in root.find_all(string=True):
         parent = node.parent
@@ -427,6 +539,12 @@ def inject_link_into_html(html: str, keyword: str, url: str, anchor_text: str) -
             if parent.name in ('a', 'script', 'style'):
                 in_forbidden_tag = True
                 break
+            # Skip linking inside product cards and related products sections
+            if parent.name == 'div' and parent.get('style'):
+                style_str = parent.get('style', '').replace(' ', '')
+                if 'background:#f8f6f3' in style_str or 'background:#fafafa' in style_str or 'background:#f0ede8' in style_str:
+                    in_forbidden_tag = True
+                    break
             parent = parent.parent
         if not in_forbidden_tag:
             text_nodes.append(node)
@@ -478,6 +596,11 @@ def inject_link_into_html(html: str, keyword: str, url: str, anchor_text: str) -
 
 
 
+# Global cache for collection lookups
+COLLECTION_HANDLE_TO_ID = {}
+COLLECTION_ID_TO_PRODUCTS = {}
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN LOGIC
 # ══════════════════════════════════════════════════════════════════════════════
@@ -487,20 +610,11 @@ def build_link_map() -> LinkMap:
     logger.info("Building link map...")
     link_map = LinkMap()
 
-    # Add products
-    logger.info("  Fetching products...")
-    products = fetch_all_products()
-    for product in products:
-        title = product.get("title", "")
-        handle = product.get("handle", "")
-        if title and handle:
-            link_map.add_product(title, handle)
-            # Also add tags as keywords
-            for tag in product.get("tags", "").split(","):
-                tag = tag.strip()
-                if tag and len(tag) > 2:
-                    link_map.add_product(tag, handle)
-    logger.info(f"    Added {len(products)} products")
+    # NOTE: Product pages are excluded from inline text linking because products
+    # are already showcased at the bottom of articles in the "Shop the Look" widget
+    # and product cards. This also makes the linker run much faster by skipping
+    # paginated requests for the entire product catalog.
+    logger.info("  Skipping product text links registration (priority to collections)")
 
     # Add collections
     logger.info("  Fetching collections...")
@@ -508,6 +622,9 @@ def build_link_map() -> LinkMap:
     for collection in collections:
         title = collection.get("title", "")
         handle = collection.get("handle", "")
+        cid = collection.get("id")
+        if handle and cid:
+            COLLECTION_HANDLE_TO_ID[handle] = cid
         if title and handle:
             link_map.add_collection(title, handle)
     logger.info(f"    Added {len(collections)} collections")
@@ -578,32 +695,25 @@ def process_articles(mode: str, apply: bool, batch_size: int = None, batch_index
             existing_links = extract_existing_links(body_html)
 
             # Find unlinked keywords
-            suggestions = find_unlinked_keywords(body_html, existing_links, link_map)
+            suggestions = find_unlinked_keywords(body_html, existing_links, link_map, article_context=article_title)
+
+            modified_html = body_html
+            injected_count = 0
+            links_injected = []
+            links_skipped = []
 
             if suggestions:
-                article_log = {
-                    "article_title": article_title,
-                    "article_url": article_url,
-                    "blog_name": blog_title,
-                    "links_injected": [],
-                    "links_skipped": []
-                }
-
                 logger.info(f"Article '{article_title}': {len(suggestions)} link suggestions (limiting to {max_links_per_article})")
                 total_links_suggested += len(suggestions)
 
                 # Inject links (with per-article limit)
-                modified_html = body_html
-                injected_count = 0
-
                 for suggestion in suggestions:
                     # HARD LIMIT: stop after max_links_per_article injected
                     if injected_count >= max_links_per_article:
-                        link_info = {
+                        links_skipped.append({
                             "keyword": suggestion["keyword"],
                             "reason": f"Limit reached ({max_links_per_article} max per article)"
-                        }
-                        article_log["links_skipped"].append(link_info)
+                        })
                         continue
 
                     keyword = suggestion["keyword"]
@@ -611,38 +721,112 @@ def process_articles(mode: str, apply: bool, batch_size: int = None, batch_index
                     anchor_text = suggestion["anchor_text"]
                     mention_count = suggestion["count"]
 
+                    # Check if collection is empty or low stock before linking to it
+                    if "/collections/" in url:
+                        handle_part = url.split("/collections/")[-1].split("?")[0].strip("/")
+                        cid = COLLECTION_HANDLE_TO_ID.get(handle_part)
+                        if cid:
+                            in_stock_prods = fetch_products_for_collection(cid)
+                            if len(in_stock_prods) < 2:
+                                logger.info(f"  ⊘ Skipping low-stock/empty collection '{handle_part}' ({len(in_stock_prods)} products in stock)")
+                                links_skipped.append({
+                                    "keyword": keyword,
+                                    "reason": f"Collection '{handle_part}' has only {len(in_stock_prods)} in-stock products"
+                                })
+                                continue
+
                     new_html, was_injected = inject_link_into_html(modified_html, keyword, url, anchor_text)
 
                     if was_injected:
                         modified_html = new_html
                         injected_count += 1
-                        link_info = {
+                        links_injected.append({
                             "keyword": keyword,
                             "target_url": url,
                             "anchor_text": anchor_text,
                             "occurrences_in_article": mention_count
-                        }
-                        article_log["links_injected"].append(link_info)
+                        })
                         logger.info(f"  ✓ Linked '{keyword}' ({mention_count} mentions) → {url}")
                     else:
-                        link_info = {
+                        links_skipped.append({
                             "keyword": keyword,
                             "reason": "Already linked or regex match failed"
-                        }
-                        article_log["links_skipped"].append(link_info)
+                        })
                         logger.debug(f"  ⊘ Skipped '{keyword}' (already linked)")
 
-                if injected_count > 0:
-                    total_links_injected += injected_count
-                    detailed_log.append(article_log)
+            # Check for collection links in the final HTML to inject "Shop the Look"
+            final_links = extract_existing_links(modified_html)
+            collection_handles = []
+            for link in final_links:
+                m = re.search(r'/collections/([a-zA-Z0-9_-]+)', link)
+                if m:
+                    handle = m.group(1)
+                    if handle in COLLECTION_HANDLE_TO_ID:
+                        collection_handles.append(handle)
 
-                    if apply:
-                        if update_article(blog_id, article_id, modified_html):
-                            logger.info(f"  ✓ Updated article with {injected_count} links")
-                        else:
-                            logger.error(f"  ✗ Failed to update article")
+            widget_added = False
+            # Find the first collection that has in-stock products and append the widget
+            for handle in collection_handles:
+                cid = COLLECTION_HANDLE_TO_ID[handle]
+                in_stock_prods = fetch_products_for_collection(cid)
+                if len(in_stock_prods) >= 2:
+                    # Clean previous widget if present
+                    clean_html = clean_previous_widgets(modified_html)
+                    
+                    # Generate dynamic widget HTML
+                    widget_html = (
+                        "\n\n<!-- meeeshop-shop-the-look-start -->\n"
+                        '<hr style="border: 0; border-top: 1px solid #eee; margin: 40px 0;">\n'
+                        '<h3 style="text-align: center; margin-bottom: 20px; font-family: sans-serif; letter-spacing: 1px;">Shop the Look</h3>\n'
+                        '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 20px;">\n'
+                    )
+                    for p in in_stock_prods[:4]:
+                        raw_title = p.get("title", "")
+                        escaped_title = html.escape(raw_title)
+                        alt_title = raw_title.replace('"', "'")
+                        p_handle = p.get("handle", "")
+                        price = p.get("variants", [{}])[0].get("price", "0.00")
+                        img_src = p.get("images", [{}])[0].get("src", "")
+                        
+                        widget_html += (
+                            f'  <div style="border: 1px solid #f0f0f0; padding: 10px; text-align: center; border-radius: 8px; background: #fff;">\n'
+                            f'    <a href="{SITE}/products/{p_handle}" style="text-decoration: none; color: #333;">\n'
+                        )
+                        if img_src:
+                            widget_html += f'      <img src="{img_src}" alt="{alt_title}" style="width: 100%; max-height: 200px; object-fit: cover; border-radius: 4px; margin-bottom: 8px;">\n'
+                        widget_html += (
+                            f'      <div style="font-size: 13px; font-weight: bold; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{escaped_title}</div>\n'
+                            f'      <div style="font-size: 12px; color: #888;">${price}</div>\n'
+                            f'    </a>\n'
+                            f'  </div>\n'
+                        )
+                    widget_html += "</div>\n<!-- meeeshop-shop-the-look-end -->\n"
+                    
+                    modified_html = clean_html.strip() + "\n\n" + widget_html
+                    widget_added = True
+                    break # Append exactly one widget per article
+
+            # If HTML changed (either links injected or widget added), update Shopify
+            if modified_html != body_html:
+                total_links_injected += injected_count
+                
+                article_log = {
+                    "article_title": article_title,
+                    "article_url": article_url,
+                    "blog_name": blog_title,
+                    "links_injected": links_injected,
+                    "links_skipped": links_skipped,
+                    "widget_added": widget_added
+                }
+                detailed_log.append(article_log)
+
+                if apply:
+                    if update_article(blog_id, article_id, modified_html):
+                        logger.info(f"  ✓ Updated article (links={injected_count}, widget={widget_added})")
                     else:
-                        logger.info(f"  [DRY RUN] Would inject {injected_count} links")
+                        logger.error(f"  ✗ Failed to update article")
+                else:
+                    logger.info(f"  [DRY RUN] Would update article (links={injected_count}, widget={widget_added})")
 
     # Summary
     logger.info("\n" + "=" * 80)

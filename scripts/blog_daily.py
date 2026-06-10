@@ -215,7 +215,9 @@ def product_img_url(product: dict) -> str | None:
 # ── Product cards ──────────────────────────────────────────────────────────────
 def make_product_card(product: dict, keyword: str = "",
                       label: str = "FEATURED PICK — IN STOCK NOW") -> str:
-    title  = product["title"]
+    import html
+    raw_title = product["title"]
+    escaped_title = html.escape(raw_title)
     price  = product["variants"][0]["price"] if product.get("variants") else "0"
     handle = product.get("handle", "")
     ptype  = (product.get("product_type") or "women's fashion").lower()
@@ -223,12 +225,14 @@ def make_product_card(product: dict, keyword: str = "",
     img    = product_img_url(product)
 
     # Keyword-rich ALT text for inline product image
-    alt = f"{title} — {ptype} for women at MeeeShop"
+    alt = f"{raw_title} — {ptype} for women at MeeeShop"
     if keyword:
-        alt = f"{title} — {keyword}, {ptype} at MeeeShop"
+        alt = f"{raw_title} — {keyword}, {ptype} at MeeeShop"
+
+    alt_clean = alt.replace('"', "'")
 
     img_html = (
-        f'<a href="{url}"><img src="{img}" alt="{alt}" '
+        f'<a href="{url}"><img src="{img}" alt="{alt_clean}" '
         f'style="width:220px;height:220px;object-fit:cover;border-radius:10px;flex-shrink:0;" loading="lazy" /></a>'
         if img else ""
     )
@@ -240,7 +244,7 @@ def make_product_card(product: dict, keyword: str = "",
   {img_html}
   <div style="flex:1;min-width:200px;">
     <p style="font-size:11px;color:#999;margin:0 0 6px;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;">{label}</p>
-    <h3 style="font-size:18px;font-weight:700;margin:0 0 8px;color:#1a1a1a;line-height:1.3;">{title}</h3>
+    <h3 style="font-size:18px;font-weight:700;margin:0 0 8px;color:#1a1a1a;line-height:1.3;">{escaped_title}</h3>
     <p style="font-size:26px;font-weight:800;color:#1a1a1a;margin:0 0 6px;">${price}</p>
     <p style="font-size:12px;color:#777;margin:0 0 18px;">
       Free US shipping on orders $50+ &nbsp;&bull;&nbsp; 7-day easy returns &nbsp;&bull;&nbsp; Sizes XS–3X
@@ -257,6 +261,7 @@ def make_product_card(product: dict, keyword: str = "",
 
 
 def make_related_products_section(products: list, exclude_handle: str, keyword: str = "") -> str:
+    import html
     related = [p for p in products if p.get("handle") != exclude_handle and p.get("images")]
     if not related:
         related = [p for p in products if p.get("handle") != exclude_handle]
@@ -264,25 +269,29 @@ def make_related_products_section(products: list, exclude_handle: str, keyword: 
 
     cards_html = ""
     for p in picks:
-        title  = p["title"]
+        raw_title  = p["title"]
+        escaped_title = html.escape(raw_title)
         price  = p["variants"][0]["price"] if p.get("variants") else "0"
         handle = p.get("handle", "")
         ptype  = (p.get("product_type") or "women's fashion").lower()
         url    = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=related_card&utm_campaign=meeeshop"
         img    = product_img_url(p)
         # Keyword-rich ALT for related product images
-        alt    = f"{title} — {ptype} for women at MeeeShop"
+        alt    = f"{raw_title} — {ptype} for women at MeeeShop"
         if keyword:
-            alt = f"{title} — shop {keyword} at MeeeShop"
+            alt = f"{raw_title} — shop {keyword} at MeeeShop"
+        
+        alt_clean = alt.replace('"', "'")
+
         img_tag = (
-            f'<a href="{url}"><img src="{img}" alt="{alt}" '
+            f'<a href="{url}"><img src="{img}" alt="{alt_clean}" '
             f'style="width:100%;height:200px;object-fit:cover;border-radius:10px;margin-bottom:12px;" loading="lazy" /></a>'
             if img else ""
         )
         cards_html += f"""
   <div style="flex:1;min-width:200px;max-width:260px;font-family:sans-serif;text-align:center;">
     {img_tag}
-    <p style="font-size:14px;font-weight:700;color:#1a1a1a;margin:0 0 4px;line-height:1.3;">{title}</p>
+    <p style="font-size:14px;font-weight:700;color:#1a1a1a;margin:0 0 4px;line-height:1.3;">{escaped_title}</p>
     <p style="font-size:16px;font-weight:800;color:#1a1a1a;margin:0 0 12px;">${price}</p>
     <a href="{url}"
        style="background:#f0ede8;color:#1a1a1a;padding:9px 20px;text-decoration:none;
@@ -427,14 +436,14 @@ def _build_prompt(fmt: str, product: dict, keyword: str) -> tuple[str, str]:
         f"You are a fashion editor at MeeeShop, a USA women's clothing boutique.\n"
         f"Write a {MONTH} blog post. Target keyword: '{keyword}'\n"
         f"Feature product: {title} — ${price}\n"
-        f"Product page URL: {url}\n"
         f"Category: {ptype}\n\n"
         f"{EEAT_RULES}"
         f"SEO rules (follow precisely):\n"
         f"- Primary keyword '{keyword}': use 3-4 times naturally — once in H1, once in first paragraph, 1-2 times in body/conclusion\n"
         f"- LSI / secondary keywords to weave in naturally (don't force all, pick what fits): {lsi_str}\n"
         f"- At least 2 of these LSI keywords must appear in H2 subheadings\n"
-        f"- Link to product URL at least twice with natural anchor text (e.g. the product name, or 'shop it here')\n"
+        f"- Do NOT write or include any HTML links (<a> tags) to the product page or MeeeShop anywhere in the body text. The product card and shop-the-look widgets will be programmatically injected by the system, so manual linking inside the article is redundant and violates SEO guidelines by looking spammy.\n"
+        f"- Limit mentions of the product title '{title}' to a maximum of 2 times in the entire body. When referring to the product subsequent times, use pronouns or generic terms (e.g., 'this dress', 'the top', 'it', 'this piece') instead of repeating the full product name.\n"
         f"- H1 title must include year {YEAR} or 'for Women'\n"
         f"- Keyword density: natural reading, never stuffed — if it sounds forced, rephrase\n"
         f"- Answer a real problem women face when shopping for this item\n"
@@ -449,11 +458,11 @@ def _build_prompt(fmt: str, product: dict, keyword: str) -> tuple[str, str]:
             f"1. <h1> 'The Best {ptype.title()} for Women in {YEAR}: Our Editor's Guide'\n"
             f"2. <p> Hook — personal story: why I tested multiple options and THIS is my pick (80 words)\n"
             f"3. <h2> What Makes a Great {ptype.title()}? (4 criteria as <ul><li> bullets with brief real explanations)\n"
-            f"4. <h2> Our #1 Pick: {title} — Honest Review (120 words, first-person, mention price + link product URL twice naturally)\n"
+            f"4. <h2> Our #1 Pick: [Shortened Product Name] — Honest Review (120 words, first-person, mention price, do NOT include HTML links)\n"
             f"5. <h2> How I Style It: 3 Real Outfits (H3 subheadings for each occasion, 70 words each with specific styling context)\n"
             f"6. <h2> Who Is This Perfect For? (50 words — specific: body type, lifestyle, occasion)\n"
             f"7. <h2> Sizing & Fit Notes (40 words — real specifics, not generic 'true to size')\n"
-            f"8. <p> Final verdict + urgency CTA (shop link, price, free shipping, limited sizes reminder)\n"
+            f"8. <p> Final verdict + CTA (mention price, free shipping, sizes XS-3X, do NOT include HTML links)\n"
             f"Target: 750-900 words. Output ONLY clean HTML, no markdown code fences."
         )
         h1_hint = f"The Best {ptype.title()} for Women in {YEAR}: Our Editor's Guide"
@@ -464,12 +473,12 @@ def _build_prompt(fmt: str, product: dict, keyword: str) -> tuple[str, str]:
             f"Write in HTML:\n"
             f"1. <h1> '{title} vs. [2 similar alternatives]: Which Is Right for You in {YEAR}?'\n"
             f"2. <p> Intro — 'I get asked this question every week from our customers' (70 words, empathetic)\n"
-            f"3. <h2> Option 1: {title} — What I Love + Who It's For (100 words, link product URL naturally)\n"
+            f"3. <h2> Option 1: [Shortened Product Name] — What I Love + Who It's For (100 words, do NOT include HTML links)\n"
             f"4. <h2> Option 2: [Invent a plausible similar style] — Pros, Cons, Best For (80 words)\n"
             f"5. <h2> Option 3: [Another plausible alternative] — Pros, Cons, Best For (80 words)\n"
             f"6. <h2> Quick Comparison Table (HTML table: Style | Best For | Price Range | Verdict)\n"
             f"7. <h2> My Honest Verdict — The Winner for Most Women (80 words, direct recommendation)\n"
-            f"8. <p> CTA to shop {title} + URL + price\n"
+            f"8. <p> CTA to shop [Shortened Product Name] + price, do NOT include HTML links\n"
             f"Target: 750-900 words. Output ONLY clean HTML."
         )
         h1_hint = f"{title} vs. Similar Styles: Which to Buy in {YEAR}"
@@ -499,10 +508,10 @@ def _build_prompt(fmt: str, product: dict, keyword: str) -> tuple[str, str]:
             f"1. <h1> Relatable title about the problem and how {title} solves it for women in {YEAR}\n"
             f"2. <p> Opening — 'I hear this from our customers constantly: {problem}' (80 words, empathetic, validating)\n"
             f"3. <h2> Why This Problem Is So Frustrating (and More Common Than You Think) (60 words)\n"
-            f"4. <h2> The Fix: {title} — Here's Exactly Why It Works (120 words, first-person, link product URL twice naturally)\n"
+            f"4. <h2> The Fix: [Shortened Product Name] — Here's Exactly Why It Works (120 words, first-person, do NOT include HTML links)\n"
             f"5. <h2> 3 Real Outfit Solutions (H3 for each occasion, 70 words each with specific styling instructions)\n"
             f"6. <h2> My Top 4 Styling Tips From Years in Fashion (bullet list, specific and actionable, not generic)\n"
-            f"7. <p> Warm personal CTA: recommendation + URL + price + free shipping + returns reminder\n"
+            f"7. <p> Warm personal CTA: recommendation + price + free shipping + returns reminder, do NOT include HTML links\n"
             f"Target: 700-850 words. Output ONLY clean HTML."
         )
         h1_hint = f"How to Finally Solve {problem.title()} in {YEAR}"
@@ -514,11 +523,11 @@ def _build_prompt(fmt: str, product: dict, keyword: str) -> tuple[str, str]:
             f"1. <h1> '{MONTH} Women's Fashion Trends: What I'm Seeing (and Wearing) Right Now'\n"
             f"2. <p> Intro — 'I've been tracking what real women are actually wearing, not just runways' (70 words, authentic)\n"
             f"3. Five trends, each as <h2> with trend name + 90-word description:\n"
-            f"   - Trend #1 MUST be {title} with product URL linked naturally\n"
+            f"   - Trend #1 MUST be [Shortened Product Name] (do NOT include HTML links)\n"
             f"   - Trends #2-5: invent 4 real, current women's fashion micro-trends for {MONTH}\n"
             f"   - Each trend: what it is, why it's trending, how to wear it, who it's for\n"
             f"4. <h2> How to Mix These Trends Without Looking Overdone (60 words, practical)\n"
-            f"5. <p> Shop the trends at MeeeShop + {url} + price\n"
+            f"5. <p> Shop the trends at MeeeShop + price, do NOT include HTML links\n"
             f"Target: 750-900 words. Output ONLY clean HTML."
         )
         h1_hint = f"{MONTH} Women's Fashion Trends: What I'm Wearing Right Now"
@@ -527,14 +536,14 @@ def _build_prompt(fmt: str, product: dict, keyword: str) -> tuple[str, str]:
         prompt = base + (
             f"Format: 5-Outfit Formula — shows versatility of one piece\n"
             f"Write in HTML:\n"
-            f"1. <h1> '5 Stunning Outfits You Can Build Around {title} (I Wore All 5 This Month)'\n"
+            f"1. <h1> '5 Stunning Outfits You Can Build Around [Shortened Product Name] (I Wore All 5 This Month)'\n"
             f"2. <p> Intro — 'The best fashion investment is a piece you can wear 5 different ways. "
-            f"I put {title} to the real-life test.' (70 words, first-person, engaging)\n"
+            f"I put [Shortened Product Name] to the real-life test.' (70 words, first-person, engaging, do NOT include HTML links)\n"
             f"3. Five outfits as <h2> sections with creative occasion names:\n"
             f"   e.g. 'Look 1: Sunday Farmers Market', 'Look 2: Office Polished', 'Look 3: Date Night'\n"
             f"   Each: specific items to pair it with, where to wear it, personal styling note (80-90 words)\n"
             f"4. <h2> Fit & Sizing Notes — The Honest Truth (40 words, specific body-type advice)\n"
-            f"5. <p> CTA: get yours, price, URL, 7-day returns, limited sizes urgency\n"
+            f"5. <p> CTA: get yours, price, 7-day returns, limited sizes urgency, do NOT include HTML links\n"
             f"Target: 750-900 words. Output ONLY clean HTML."
         )
         h1_hint = f"5 Outfits You Can Build Around {title} (I Wore All 5)"

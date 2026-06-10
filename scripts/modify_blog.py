@@ -202,16 +202,20 @@ def make_featured_image_url(product: dict) -> str:
 # ── Product card HTML (same style as blog_daily.py) ──────────────────────────
 def make_product_card(product: dict, keyword: str = "",
                       label: str = "IN STOCK NOW — FEATURED PICK") -> str:
-    title  = product["title"]
+    import html
+    raw_title = product["title"]
+    escaped_title = html.escape(raw_title)
     price  = product["variants"][0]["price"] if product.get("variants") else "0"
     handle = product.get("handle", "")
     ptype  = (product.get("product_type") or "women's fashion").lower()
     url    = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=featured_card&utm_campaign=meeeshop_refresh"
     img    = product_img_url(product)
-    alt    = f"{title} — {keyword or ptype} for women at MeeeShop"
+    alt    = f"{raw_title} — {keyword or ptype} for women at MeeeShop"
+
+    alt_clean = alt.replace('"', "'")
 
     img_html = (
-        f'<a href="{url}"><img src="{img}" alt="{alt}" '
+        f'<a href="{url}"><img src="{img}" alt="{alt_clean}" '
         f'style="width:220px;height:220px;object-fit:cover;border-radius:10px;flex-shrink:0;" loading="lazy" /></a>'
         if img else ""
     )
@@ -222,7 +226,7 @@ def make_product_card(product: dict, keyword: str = "",
   {img_html}
   <div style="flex:1;min-width:200px;">
     <p style="font-size:11px;color:#999;margin:0 0 6px;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;">{label}</p>
-    <h3 style="font-size:18px;font-weight:700;margin:0 0 8px;color:#1a1a1a;line-height:1.3;">{title}</h3>
+    <h3 style="font-size:18px;font-weight:700;margin:0 0 8px;color:#1a1a1a;line-height:1.3;">{escaped_title}</h3>
     <p style="font-size:26px;font-weight:800;color:#1a1a1a;margin:0 0 6px;">${price}</p>
     <p style="font-size:12px;color:#777;margin:0 0 18px;">
       Free US shipping on orders $50+ &nbsp;&bull;&nbsp; 7-day easy returns &nbsp;&bull;&nbsp; Sizes XS–3X
@@ -240,6 +244,7 @@ def make_product_card(product: dict, keyword: str = "",
 
 def make_related_products_section(products: list, exclude_handle: str,
                                   keyword: str = "") -> str:
+    import html
     pool = [p for p in products if p.get("handle") != exclude_handle and is_in_stock(p)]
     if not pool:
         pool = [p for p in products if p.get("handle") != exclude_handle]
@@ -247,22 +252,26 @@ def make_related_products_section(products: list, exclude_handle: str,
 
     cards_html = ""
     for p in picks:
-        title  = p["title"]
+        raw_title  = p["title"]
+        escaped_title = html.escape(raw_title)
         price  = p["variants"][0]["price"] if p.get("variants") else "0"
         handle = p.get("handle", "")
         ptype  = (p.get("product_type") or "women's fashion").lower()
         url    = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=related_card&utm_campaign=meeeshop_refresh"
         img    = product_img_url(p)
-        alt    = f"{title} — shop {keyword or ptype} at MeeeShop"
+        alt    = f"{raw_title} — shop {keyword or ptype} at MeeeShop"
+        
+        alt_clean = alt.replace('"', "'")
+
         img_tag = (
-            f'<a href="{url}"><img src="{img}" alt="{alt}" '
+            f'<a href="{url}"><img src="{img}" alt="{alt_clean}" '
             f'style="width:100%;height:200px;object-fit:cover;border-radius:10px;margin-bottom:12px;" loading="lazy" /></a>'
             if img else ""
         )
         cards_html += f"""
   <div style="flex:1;min-width:200px;max-width:260px;font-family:sans-serif;text-align:center;">
     {img_tag}
-    <p style="font-size:14px;font-weight:700;color:#1a1a1a;margin:0 0 4px;line-height:1.3;">{title}</p>
+    <p style="font-size:14px;font-weight:700;color:#1a1a1a;margin:0 0 4px;line-height:1.3;">{escaped_title}</p>
     <p style="font-size:16px;font-weight:800;color:#1a1a1a;margin:0 0 12px;">${price}</p>
     <a href="{url}"
        style="background:#f0ede8;color:#1a1a1a;padding:9px 20px;text-decoration:none;
@@ -339,8 +348,6 @@ def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
     title  = product["title"]
     ptype  = (product.get("product_type") or "women's fashion").lower()
     price  = product["variants"][0]["price"] if product.get("variants") else "49"
-    handle = product.get("handle", "")
-    url    = f"{STORE_URL}/products/{handle}" if handle else STORE_URL
     lsi    = _lsi_keywords(ptype)
     lsi_str = ", ".join(f'"{k}"' for k in lsi)
 
@@ -352,18 +359,18 @@ def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
         f"TASK: Completely rewrite the body of this existing blog post for {MONTH}.\n"
         f"Keep the title EXACTLY as-is: \"{article_title}\"\n"
         f"Featured product (in-stock): {title} — ${price}\n"
-        f"Product page: {url}\n"
         f"Product type: {ptype}\n\n"
         f"Existing content summary (do NOT copy, use as context only):\n{existing_text}\n\n"
         f"{EEAT_RULES}"
         f"SEO rules:\n"
         f"- Target keyword '{keyword}': use 3-4 times — in first paragraph, H2 subheadings, body, conclusion\n"
         f"- LSI keywords (weave in naturally, at least 2 in H2 subheadings): {lsi_str}\n"
-        f"- Link to {url} at least twice with natural anchor text\n"
+        f"- Do NOT write or include any HTML links (<a> tags) to the product page or MeeeShop anywhere in the body text. The product card and shop-the-look widgets will be programmatically injected by the developer, so manual linking inside the article is redundant and violates SEO guidelines by looking spammy.\n"
+        f"- Limit mentions of the product title '{title}' to a maximum of 2 times in the entire body. When referring to the product subsequent times, use pronouns or generic terms (e.g., 'this dress', 'the top', 'it', 'this piece') instead of repeating the full product name.\n"
         f"- Do NOT include the <h1> tag — that is the article title already, start with <p>\n"
         f"- Use <h2>, <h3>, <p>, <ul>, <li> for structure\n"
         f"- Include sizing notes, styling tips, outfit ideas specific to this product\n"
-        f"- End with a warm CTA linking to the product\n"
+        f"- End with a warm CTA recommendation and price (do NOT include HTML links)\n"
         f"- Answer a real problem women face when shopping for {ptype}\n"
         f"- To avoid programmatic footprints, vary your structure. Occasionally include a <blockquote style='border-left: 3px solid #ccc; padding-left: 10px; margin: 15px 0; font-style: italic;'> for a 'Stylist Tip', or distinct visual callouts. Make the flow feel like a hand-written editorial, not a template.\n\n"
         f"Store info: Free US shipping on orders $50+. 7-day returns. Sizes XS-3X.\n\n"
@@ -505,11 +512,64 @@ def remove_out_of_stock_product_cards(html: str, out_handles: set[str]) -> str:
     return html
 
 
+def clean_article_body_html(html_str: str) -> str:
+    from bs4 import BeautifulSoup
+    if not html_str:
+        return ""
+
+    # Remove previous shop-the-look widgets via robust regex
+    html_str = re.sub(r'<!--\s*meeeshop-shop-the-look-start\s*-->[\s\S]*?<!--\s*meeeshop-shop-the-look-end\s*-->', '', html_str)
+    html_str = html_str.replace("meeeshop-shop-the-look-start", "").replace("meeeshop-shop-the-look-end", "")
+
+    soup = BeautifulSoup(f"<div>{html_str}</div>", "html.parser")
+    root = soup.div
+    if not root:
+        return html_str
+
+    # 1. Remove featured product cards, related products sections, and shop-the-look widgets
+    for h3 in root.find_all("h3"):
+        if h3.get_text().strip().lower() in ("shop the look", "you might also love"):
+            h3.decompose()
+
+    for div in root.find_all("div"):
+        if div.attrs is None:
+            continue
+        style = div.get("style", "") or ""
+        style = style.replace(" ", "").lower()
+        if "background:#f8f6f3" in style or "background:#fafafa" in style or "background:#f0ede8" in style:
+            div.decompose()
+            continue
+        if "display:grid" in style and "grid-template-columns" in style:
+            div.decompose()
+            continue
+        if "border:1pxsolid#f0f0f0" in style or "background:#fff" in style:
+            div.decompose()
+            continue
+
+    # Remove leftover <hr> tags that might have divided the widget
+    for hr in root.find_all("hr"):
+        style = hr.get("style", "") or ""
+        style = style.replace(" ", "").lower()
+        if "border-top:1pxsolid#eee" in style:
+            hr.decompose()
+
+    # 2. Strip all internal links pointing to meeeshop
+    for a in root.find_all("a"):
+        href = a.get("href", "").lower()
+        if "meeeshop" in href or "/collections/" in href or "/products/" in href:
+            # Replace <a> tag with its inner text content
+            a.replace_with(a.get_text())
+
+    # Reconstruct the inner HTML
+    res = "".join(str(c) for c in root.contents)
+    return res.strip()
+
+
 # ── Main article refresh logic ────────────────────────────────────────────────
 def refresh_article(blog: dict, article: dict, all_products: list,
                     in_stock: list, out_of_stock_handles: set[str],
                     product_by_handle: dict[str, dict],
-                    dry_run: bool = False) -> dict | None:
+                    dry_run: bool = False, no_ai: bool = False) -> dict | None:
     """
     Refresh one article. Returns a result dict on success, None on skip/failure.
     Result keys: replacements (list of {old, new} dicts), featured_product (title).
@@ -572,37 +632,63 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     ptype   = (chosen_featured.get("product_type") or "women's fashion").lower()
     keyword = random.choice(SEED_KEYWORDS)
 
-    # ── 4. Build new body HTML via AI ─────────────────────────────────────────
+    # ── 4. Build new body HTML ─────────────────────────────────────────
     print(f"  Featured: '{chosen_featured['title'][:50]}' (${chosen_featured['variants'][0]['price'] if chosen_featured.get('variants') else '?'})")
     print(f"  Keyword : {keyword}")
-    print("  Generating refreshed content…")
 
-    prompt   = _build_refresh_prompt(art_title, chosen_featured, keyword, body)
-    new_body = ai_client.generate(prompt, max_tokens=1800, temperature=0.75)
+    if no_ai:
+        print("  [No-AI Mode] Performing programmatic refresh...")
+        new_body = clean_article_body_html(body)
 
-    if not new_body:
-        print("  [AI] all providers failed — skipping article")
-        return None
+        # ── 5. Inject product card + related products ──────────────────────────────
+        card = make_product_card(chosen_featured, keyword)
+        pos  = new_body.find("</p>")
+        if pos != -1:
+            new_body = new_body[:pos+4] + "\n" + card + new_body[pos+4:]
+        else:
+            new_body = card + new_body
 
-    new_body = _clean_html(new_body)
+        new_body += make_related_products_section(
+            all_products, chosen_featured.get("handle", ""), keyword
+        )
 
-    # ── 5. Inject product card + related products ──────────────────────────────
-    # Insert featured product card after first </p>
-    card = make_product_card(chosen_featured, keyword)
-    pos  = new_body.find("</p>")
-    if pos != -1:
-        new_body = new_body[:pos+4] + "\n" + card + new_body[pos+4:]
+        # ── 6. Generate SEO metadata programmatically ──────────────────────────────────
+        seo = {
+            "seo_title": f"{keyword.title()} — MeeeShop {YEAR}"[:60],
+            "meta_desc": (
+                f"Discover the best {ptype} for women in {YEAR}. "
+                f"Shop {chosen_featured['title']} at MeeeShop — free US shipping on orders $50+, "
+                f"easy 7-day returns, sizes XS–3X."
+            )[:155],
+            "img_alt": f"{chosen_featured['title']} — {ptype} for women, {YEAR} fashion guide at MeeeShop"
+        }
     else:
-        new_body = card + new_body
+        print("  Generating refreshed content via AI…")
+        prompt   = _build_refresh_prompt(art_title, chosen_featured, keyword, body)
+        new_body = ai_client.generate(prompt, max_tokens=1800, temperature=0.75)
 
-    # "You Might Also Love" section at the bottom
-    new_body += make_related_products_section(
-        all_products, chosen_featured.get("handle", ""), keyword
-    )
+        if not new_body:
+            print("  [AI] all providers failed — skipping article")
+            return None
 
-    # ── 6. Generate SEO metadata ───────────────────────────────────────────────
-    print("  Generating SEO metadata…")
-    seo = generate_seo_meta(art_title, keyword, chosen_featured["title"], ptype)
+        new_body = _clean_html(new_body)
+
+        # ── 5. Inject product card + related products ──────────────────────────────
+        card = make_product_card(chosen_featured, keyword)
+        pos  = new_body.find("</p>")
+        if pos != -1:
+            new_body = new_body[:pos+4] + "\n" + card + new_body[pos+4:]
+        else:
+            new_body = card + new_body
+
+        new_body += make_related_products_section(
+            all_products, chosen_featured.get("handle", ""), keyword
+        )
+
+        # ── 6. Generate SEO metadata ───────────────────────────────────────────────
+        print("  Generating SEO metadata…")
+        seo = generate_seo_meta(art_title, keyword, chosen_featured["title"], ptype)
+
     print(f"  SEO title : {seo['seo_title']}")
     print(f"  Meta desc : {seo['meta_desc'][:80]}…")
 
@@ -678,11 +764,11 @@ def refresh_article(blog: dict, article: dict, all_products: list,
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
-        force: bool = False, batch_size: int = 20, batch_index: int = 0):
+        force: bool = False, batch_size: int = 20, batch_index: int = 0, no_ai: bool = False):
     mode = "force" if force else ("single" if article_id else "batch")
     print(f"\n{'='*64}")
     print(f"  MeeeShop Blog Refresher — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"  Mode: {mode} | Limit: {limit} | Dry-run: {dry_run}")
+    print(f"  Mode: {mode} | Limit: {limit} | Dry-run: {dry_run} | No-AI: {no_ai}")
     if force:
         print(f"  Batch: {batch_index} (size {batch_size})")
     print(f"{'='*64}\n")
@@ -749,6 +835,7 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
                 blog, article, all_products,
                 in_stock, out_of_stock_handles, product_by_handle,
                 dry_run=dry_run,
+                no_ai=no_ai,
             )
             if result:
                 updated += 1
@@ -765,6 +852,8 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
             skipped += 1
             log.append({"id": article.get("id"), "title": article.get("title"),
                          "status": "error", "error": str(exc)})
+            import traceback
+            traceback.print_exc()
         time.sleep(1.5)  # polite rate-limiting
 
     # ── Summary ───────────────────────────────────────────────────────────────
@@ -794,6 +883,7 @@ if __name__ == "__main__":
     ap.add_argument("--force",       action="store_true", help="Update ALL articles (use with --batch-size/--batch-index)")
     ap.add_argument("--batch-size",  type=int, default=20, help="Articles per batch in force mode (default 20)")
     ap.add_argument("--batch-index", type=int, default=0,  help="Which batch to process (0-based)")
+    ap.add_argument("--no-ai",       action="store_true", help="Perform refresh programmatically without AI calls")
     args = ap.parse_args()
 
     run(
@@ -803,4 +893,5 @@ if __name__ == "__main__":
         force=args.force,
         batch_size=args.batch_size,
         batch_index=args.batch_index,
+        no_ai=args.no_ai,
     )

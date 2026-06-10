@@ -59,7 +59,7 @@ def _req(method: str, url: str, **kwargs) -> Optional[requests.Response]:
         try:
             resp = getattr(requests, method)(url, headers=HEADS, **kwargs)
             if resp.status_code == 429:
-                wait = int(resp.headers.get('Retry-After', backoff))
+                wait = float(resp.headers.get('Retry-After', backoff))
                 logger.warning(f"Rate limited — waiting {wait}s")
                 time.sleep(wait)
                 backoff = min(backoff * 2, MAX_BACKOFF)
@@ -318,7 +318,7 @@ def fix_resource(resource_type: str, resource: Dict, extra=None) -> int:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def run(mode: str):
+def run(mode: str, batch_size: int = 0, batch_index: int = 0, resource: str = "all"):
     hours = 48 if mode == "daily" else 0
     cutoff_params = {}
     if hours:
@@ -328,35 +328,47 @@ def run(mode: str):
     logger.info(f"Schema Fixer — mode={mode}")
 
     # Products
-    logger.info("Scanning products...")
-    products = get_all_pages(f"{BASE}/products.json", "products",
-                             {"status": "active", **cutoff_params})
-    for p in products:
-        fix_resource("product", p)
+    if resource in ("all", "products"):
+        logger.info("Scanning products...")
+        products = get_all_pages(f"{BASE}/products.json", "products",
+                                 {"status": "active", **cutoff_params})
+        if mode in ('force', 'weekly') and batch_size > 0:
+            start = batch_index * batch_size
+            end = start + batch_size
+            total_fetched = len(products)
+            products = products[start:end]
+            logger.info(f"Batch {batch_index}: fixing products {start} to {min(end, total_fetched)} of {total_fetched}")
+
+        for p in products:
+            fix_resource("product", p)
 
     # Collections
-    logger.info("Scanning collections...")
-    colls = get_all_pages(f"{BASE}/custom_collections.json", "custom_collections", cutoff_params.copy())
-    for c in colls:
-        fix_resource("collection", c)
+    if resource in ("all", "collections"):
+        logger.info("Scanning collections...")
+        colls = get_all_pages(f"{BASE}/custom_collections.json", "custom_collections", cutoff_params.copy())
+        colls.extend(get_all_pages(f"{BASE}/smart_collections.json", "smart_collections", cutoff_params.copy()))
+        for c in colls:
+            fix_resource("collection", c)
 
     # Pages
-    logger.info("Scanning pages...")
-    pages = get_all_pages(f"{BASE}/pages.json", "pages", cutoff_params.copy())
-    for p in pages:
-        fix_resource("page", p)
+    if resource in ("all", "pages"):
+        logger.info("Scanning pages...")
+        pages = get_all_pages(f"{BASE}/pages.json", "pages", cutoff_params.copy())
+        for p in pages:
+            fix_resource("page", p)
 
     # Blog articles
-    logger.info("Scanning blog articles...")
-    blogs_resp = _req("get", f"{BASE}/blogs.json", params={"limit": 50})
-    blogs = blogs_resp.json().get("blogs", []) if blogs_resp else []
-    for blog in blogs:
-        articles = get_all_pages(
-            f"{BASE}/blogs/{blog['id']}/articles.json", "articles",
-            {"limit": 250, **cutoff_params}
-        )
-        for a in articles:
-            fix_resource("article", a, extra=blog["handle"])
+    if resource in ("all", "blogs"):
+        logger.info("Scanning blog articles...")
+        blogs_resp = _req("get", f"{BASE}/blogs.json", params={"limit": 50})
+        blogs = blogs_resp.json().get("blogs", []) if blogs_resp else []
+        for blog in blogs:
+            articles = get_all_pages(
+                f"{BASE}/blogs/{blog['id']}/articles.json", "articles",
+                {"limit": 250, **cutoff_params}
+            )
+            for a in articles:
+                fix_resource("article", a, extra=blog["handle"])
 
     # Report
     print("\n" + "=" * 60)
@@ -388,11 +400,15 @@ if __name__ == "__main__":
     parser.add_argument("--daily",  action="store_true")
     parser.add_argument("--weekly", action="store_true")
     parser.add_argument("--force",  action="store_true")
+    parser.add_argument("--batch-size", type=int, default=0)
+    parser.add_argument("--batch-index", type=int, default=0)
+    parser.add_argument("--resource", type=str, default="all", choices=["all", "products", "collections", "pages", "blogs"])
     args = parser.parse_args()
 
     if args.daily:
-        run("daily")
+        run("daily", batch_size=args.batch_size, batch_index=args.batch_index, resource=args.resource)
     elif args.weekly or args.force:
-        run("weekly")
+        mode = "force" if args.force else "weekly"
+        run(mode, batch_size=args.batch_size, batch_index=args.batch_index, resource=args.resource)
     else:
-        run("daily")
+        run("daily", batch_size=args.batch_size, batch_index=args.batch_index, resource=args.resource)

@@ -45,6 +45,13 @@ def has_stale_return_policy(text):
     return bool(STALE_RETURN_RE.search(text))
 
 
+def clean_return_policy(text):
+    """Replace any stale return policies with the required 7-day policy."""
+    if not text:
+        return text
+    return STALE_RETURN_RE.sub(RETURN_POLICY, text)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # TEXT HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -230,9 +237,19 @@ def build_size_chart(word):
 # ── SEO description with keywords + size chart ───────────────────────────────
 def build_description(product, force=False):
     title    = product['title']
-    html_body = product.get('body_html', '')
+    html_body = product.get('body_html', '') or ''
     existing = strip_html(html_body)
     cat, word = detect_cat(title)
+
+    # Detect if product already has a custom/storytelling description
+    if len(existing) >= 200 and not ("Discover the" in html_body and "Why Choose" in html_body):
+        # Preserve the custom description, clean return policies, and append size table if missing
+        cleaned_body = clean_return_policy(html_body)
+        if not has_size_table(cleaned_body):
+            size_chart = build_size_chart(word)
+            return cleaned_body.strip() + "\n\n" + size_chart
+        return cleaned_body
+
     keywords = extract_keywords(title)
     keywords_str = ' '.join(keywords) if keywords else ''
 
@@ -271,7 +288,7 @@ def build_description(product, force=False):
         size_chart = build_size_chart(word)
 
     if not force and len(existing) >= 500:
-        return (product.get('body_html') or '')
+        return html_body
 
     return intro + features + why_choose + size_chart
 
@@ -287,21 +304,49 @@ def _check_rate(r):
         time.sleep(0.6)
 
 
+def api_request(method, path_or_url, max_retries=5, **kwargs):
+    """Make HTTP request to Shopify API with exponential backoff on 429 / rate limit."""
+    url = path_or_url if path_or_url.startswith("http") else f"{BASE}{path_or_url}"
+    
+    headers = kwargs.pop("headers", HEADS)
+    
+    backoff = 5
+    for attempt in range(max_retries):
+        try:
+            r = requests.request(method, url, headers=headers, **kwargs)
+            
+            # If 429 rate limit hit, backoff and retry
+            if r.status_code == 429:
+                retry_after = float(r.headers.get("Retry-After", backoff))
+                print(f"  [Rate Limit 429] Waiting {retry_after}s before retry {attempt + 1}/{max_retries}...")
+                time.sleep(retry_after)
+                backoff = min(backoff * 2, 60)
+                continue
+                
+            r.raise_for_status()
+            _check_rate(r)
+            return r
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                print(f"  [Request Error] {e}. Retrying in {backoff}s...")
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 60)
+            else:
+                raise e
+
+
 def api_get(path, params=None):
-    r = requests.get(f"{BASE}{path}", headers=HEADS, params=params)
-    r.raise_for_status(); _check_rate(r)
+    r = api_request("GET", path, params=params)
     return r.json()
 
 
 def api_put(path, body):
-    r = requests.put(f"{BASE}{path}", headers=HEADS, json=body)
-    r.raise_for_status(); _check_rate(r)
+    r = api_request("PUT", path, json=body)
     return r.json()
 
 
 def api_post(path, body):
-    r = requests.post(f"{BASE}{path}", headers=HEADS, json=body)
-    r.raise_for_status(); _check_rate(r)
+    r = api_request("POST", path, json=body)
     return r.json()
 
 
@@ -311,7 +356,7 @@ def fetch_products(created_since=None):
     if created_since:
         url += f"&created_at_min={created_since}"
     while url:
-        r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
+        r = api_request("GET", url)
         products.extend(r.json().get('products', []))
         nxt = [p.split(';')[0].strip().strip('<>') for p in r.headers.get('Link','').split(',') if 'rel="next"' in p]
         url = nxt[0] if nxt else None
@@ -324,7 +369,7 @@ def fetch_pages(published_since=None):
     if published_since:
         url += f"&published_at_min={published_since}"
     while url:
-        r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
+        r = api_request("GET", url)
         pages.extend(r.json().get('pages', []))
         nxt = [p.split(';')[0].strip().strip('<>') for p in r.headers.get('Link','').split(',') if 'rel="next"' in p]
         url = nxt[0] if nxt else None
@@ -332,15 +377,33 @@ def fetch_pages(published_since=None):
 
 
 def fetch_collections(created_since=None):
-    """Fetch custom collections created since cutoff."""
-    collections, url = [], f"{BASE}/custom_collections.json?limit=250"
+    """Fetch both custom and smart collections created since cutoff."""
+    collections = []
+    
+    # 1. Fetch custom collections
+    url = f"{BASE}/custom_collections.json?limit=250"
     if created_since:
         url += f"&created_at_min={created_since}"
     while url:
-        r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
-        collections.extend(r.json().get('custom_collections', []))
+        r = api_request("GET", url)
+        for c in r.json().get('custom_collections', []):
+            c['_type'] = 'custom_collections'
+            collections.append(c)
         nxt = [p.split(';')[0].strip().strip('<>') for p in r.headers.get('Link','').split(',') if 'rel="next"' in p]
         url = nxt[0] if nxt else None
+
+    # 2. Fetch smart collections
+    url = f"{BASE}/smart_collections.json?limit=250"
+    if created_since:
+        url += f"&created_at_min={created_since}"
+    while url:
+        r = api_request("GET", url)
+        for c in r.json().get('smart_collections', []):
+            c['_type'] = 'smart_collections'
+            collections.append(c)
+        nxt = [p.split(';')[0].strip().strip('<>') for p in r.headers.get('Link','').split(',') if 'rel="next"' in p]
+        url = nxt[0] if nxt else None
+
     return collections
 
 
@@ -350,7 +413,7 @@ def fetch_articles(published_since=None):
 
     blogs = []
     while url:
-        r = requests.get(url, headers=HEADS); r.raise_for_status(); _check_rate(r)
+        r = api_request("GET", url)
         blogs.extend(r.json().get('blogs', []))
         nxt = [p.split(';')[0].strip().strip('<>') for p in r.headers.get('Link','').split(',') if 'rel="next"' in p]
         url = nxt[0] if nxt else None
@@ -362,7 +425,7 @@ def fetch_articles(published_since=None):
         if published_since:
             article_url += f"&published_at_min={published_since}"
         while article_url:
-            r = requests.get(article_url, headers=HEADS); r.raise_for_status(); _check_rate(r)
+            r = api_request("GET", article_url)
             fetched_articles = r.json().get('articles', [])
             for article in fetched_articles:
                 article['blog_handle'] = blog_handle
@@ -401,21 +464,24 @@ def set_seo_metafields(resource_path, rid, meta_title, meta_desc, existing_mfs):
 
 # ── Image alt text ────────────────────────────────────────────────────────────
 def update_image_alt(pid, iid, alt):
-    r = requests.put(f"{BASE}/products/{pid}/images/{iid}.json",
-                     headers=HEADS, json={"image": {"id": iid, "alt": alt}})
-    _check_rate(r)
-    return r.status_code == 200
+    try:
+        r = api_request("PUT", f"/products/{pid}/images/{iid}.json", json={"image": {"id": iid, "alt": alt}})
+        return r.status_code == 200
+    except Exception:
+        return False
 
 
 # ── Redirects ─────────────────────────────────────────────────────────────────
 def create_redirect(old, new):
-    r = requests.get(f"{BASE}/redirects.json", headers=HEADS,
-                     params={"path": f"/products/{old}"})
-    if r.json().get('redirects'):
+    try:
+        r = api_request("GET", f"/redirects.json", params={"path": f"/products/{old}"})
+        if r.json().get('redirects'):
+            return False
+        api_post("/redirects.json",
+                 {"redirect": {"path": f"/products/{old}", "target": f"/products/{new}"}})
+        return True
+    except Exception:
         return False
-    api_post("/redirects.json",
-             {"redirect": {"path": f"/products/{old}", "target": f"/products/{new}"}})
-    return True
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -484,7 +550,7 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not 
           "seller": {"@type": "Organization", "name": "MeeeShop"},
           "shippingDetails": {
             "@type": "OfferShippingDetails",
-            "shippingAddress": {
+            "shippingDestination": {
               "@type": "DefinedRegion",
               "addressCountry": "US"
             },
@@ -492,12 +558,27 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not 
               "@type": "MonetaryAmount",
               "value": "0.00",
               "currency": "USD"
+            },
+            "deliveryTime": {
+              "@type": "ShippingDeliveryTime",
+              "handlingTime": {
+                "@type": "QuantitativeValue",
+                "minValue": 0,
+                "maxValue": 1,
+                "unitCode": "DAY"
+              },
+              "transitTime": {
+                "@type": "QuantitativeValue",
+                "minValue": 2,
+                "maxValue": 5,
+                "unitCode": "DAY"
+              }
             }
           },
           "hasMerchantReturnPolicy": {
             "@type": "MerchantReturnPolicy",
             "applicableCountry": "US",
-            "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnPeriod",
+            "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
             "merchantReturnDays": 7,
             "returnMethod": "https://schema.org/ReturnByMail",
             "returnFees": "https://schema.org/FreeReturn"
@@ -614,18 +695,21 @@ def get_live_theme_id():
 
 
 def get_asset(theme_id, key):
-    r = requests.get(f"{BASE}/themes/{theme_id}/assets.json",
-                     headers=HEADS, params={"asset[key]": key})
-    if r.status_code == 200:
-        return r.json().get('asset', {}).get('value', '')
+    try:
+        r = api_request("GET", f"/themes/{theme_id}/assets.json", params={"asset[key]": key})
+        if r.status_code == 200:
+            return r.json().get('asset', {}).get('value', '')
+    except Exception:
+        return None
     return None
 
 
 def put_asset(theme_id, key, value):
-    r = requests.put(f"{BASE}/themes/{theme_id}/assets.json",
-                     headers=HEADS, json={"asset": {"key": key, "value": value}})
-    _check_rate(r)
-    return r.status_code in (200, 201)
+    try:
+        r = api_request("PUT", f"/themes/{theme_id}/assets.json", json={"asset": {"key": key, "value": value}})
+        return r.status_code in (200, 201)
+    except Exception:
+        return False
 
 
 def inject_jsonld(theme_id):
@@ -716,7 +800,14 @@ def validate_seo(item, item_type, existing_mfs):
         ]
         has_all_markers = all(m in body_html for m in required_markers)
         has_stale_body  = has_stale_return_policy(body_html)
-        body_ok = has_all_markers and not has_stale_body and plain_len >= 500 and has_table
+
+        # Allow custom descriptions (length >= 200, without SEO template markers) if they have a table and no stale return policy
+        is_custom = len(strip_html(body_html)) >= 200 and not ("Discover the" in body_html and "Why Choose" in body_html)
+        if is_custom:
+            body_ok = has_table and not has_stale_body
+        else:
+            body_ok = has_all_markers and not has_stale_body and plain_len >= 500 and has_table
+
         if not body_ok:
             new_desc = build_description(item, force=True)
             mismatches.append({
@@ -774,9 +865,16 @@ def process(product, stats, log, existing_mfs=None, force=False):
                         'Why Choose', RETURN_POLICY]
     has_all_markers = all(m in body_html for m in required_markers)
     has_stale_body  = has_stale_return_policy(body_html)
-    needs_body_rewrite = force or plain_len < 500 or not has_table or has_stale_body or not has_all_markers
+
+    # Allow custom descriptions to bypass complete overwrite, only rewriting if force or missing table/stale return
+    is_custom = len(strip_html(body_html)) >= 200 and not ("Discover the" in body_html and "Why Choose" in body_html)
+    if is_custom:
+        needs_body_rewrite = force or not has_table or has_stale_body
+    else:
+        needs_body_rewrite = force or plain_len < 500 or not has_table or has_stale_body or not has_all_markers
+
     if needs_body_rewrite:
-        missing.append(f"body_html ({plain_len} chars, table={has_table}, stale={has_stale_body}, markers={has_all_markers})")
+        missing.append(f"body_html ({plain_len} chars, table={has_table}, stale={has_stale_body}, markers={has_all_markers}, custom={is_custom})")
         new_body = build_description(product, force=True)
         prod_updates['body_html'] = new_body
         stats['descriptions'] += 1
@@ -907,6 +1005,7 @@ def main():
     ap.add_argument('--limit',       type=int, default=0,  help='Max products (0=all, non-force only)')
     ap.add_argument('--batch-size',  type=int, default=0,  help='For force mode: products per batch job (0=no batching)')
     ap.add_argument('--batch-index', type=int, default=0,  help='For force mode: which batch to process (0-based)')
+    ap.add_argument('--resource',    type=str, default='all', choices=['all', 'products', 'collections', 'pages', 'blogs'], help='Resource type to validate/optimize')
     ap.add_argument('--skip-jsonld', action='store_true', help='Skip JSON-LD injection')
     args = ap.parse_args()
 
@@ -918,8 +1017,8 @@ def main():
         since = None
         print("Mode: FORCE (entire catalog, normalize all SEO fields)")
         if args.batch_size > 0:
-            print(f"Batch: index={args.batch_index}, size={args.batch_size} (products only; pages/collections/articles always fully processed)")
-        print("Processing: Products, Pages, Collections, Blog Posts\n")
+            print(f"Batch: index={args.batch_index}, size={args.batch_size} (resource={args.resource})")
+        print(f"Processing: {args.resource.capitalize()}\n")
     elif args.weekly:
         mode = 'weekly'
         since = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -952,29 +1051,37 @@ def main():
     # Products: created_at_min — catches new dropship imports (Trendsi, Cemi Cari, etc.)
     # Pages/Collections: created_at_min — new pages/collections published since cutoff
     # Articles: published_at_min — new blog posts published since cutoff
-    print("Fetching products...")
-    products = fetch_products(since)
-    total_fetched = len(products)
-    if mode == 'force' and args.batch_size > 0:
-        start = args.batch_index * args.batch_size
-        end   = start + args.batch_size
-        products = products[start:end]
-        print(f"  Fetched {total_fetched} products total; processing batch {args.batch_index} [{start}:{end}] = {len(products)} products")
-    elif args.limit:
-        products = products[:args.limit]
-    print(f"  Found {len(products)} products\n")
+    products = []
+    if args.resource in ('all', 'products'):
+        print("Fetching products...")
+        products = fetch_products(since)
+        total_fetched = len(products)
+        if mode == 'force' and args.batch_size > 0:
+            start = args.batch_index * args.batch_size
+            end   = start + args.batch_size
+            products = products[start:end]
+            print(f"  Fetched {total_fetched} products total; processing batch {args.batch_index} [{start}:{end}] = {len(products)} products")
+        elif args.limit:
+            products = products[:args.limit]
+        print(f"  Found {len(products)} products\n")
 
-    print("Fetching pages...")
-    pages = fetch_pages(since)
-    print(f"  Found {len(pages)} pages\n")
+    pages = []
+    if args.resource in ('all', 'pages'):
+        print("Fetching pages...")
+        pages = fetch_pages(since)
+        print(f"  Found {len(pages)} pages\n")
 
-    print("Fetching collections...")
-    collections = fetch_collections(since)
-    print(f"  Found {len(collections)} collections\n")
+    collections = []
+    if args.resource in ('all', 'collections'):
+        print("Fetching collections...")
+        collections = fetch_collections(since)
+        print(f"  Found {len(collections)} collections\n")
 
-    print("Fetching articles...")
-    articles = fetch_articles(since)
-    print(f"  Found {len(articles)} articles\n")
+    articles = []
+    if args.resource in ('all', 'blogs'):
+        print("Fetching articles...")
+        articles = fetch_articles(since)
+        print(f"  Found {len(articles)} articles\n")
 
     total_items = len(products) + len(pages) + len(collections) + len(articles)
     print(f"Total items to process: {total_items}\n")
@@ -1052,7 +1159,8 @@ def main():
         print("\nProcessing collections...")
         for i, coll in enumerate(collections, 1):
             title = coll['title']
-            mfs = get_metafields("custom_collections", coll['id'])
+            coll_type = coll.get('_type', 'custom_collections')
+            mfs = get_metafields(coll_type, coll['id'])
 
             # Strict validation
             cur_mtitle = mfs.get('global.title_tag', {}).get('value', '')
@@ -1078,7 +1186,7 @@ def main():
                 155
             )
             try:
-                set_seo_metafields("custom_collections", coll['id'], new_meta_title, new_meta_desc, mfs)
+                set_seo_metafields(coll_type, coll['id'], new_meta_title, new_meta_desc, mfs)
                 stats['meta_titles'] += 1
                 stats['meta_descs'] += 1
                 stats['collections'] += 1
@@ -1154,9 +1262,9 @@ def main():
                 print(f"    ! Error processing article: {e}")
 
     # ── Report ────────────────────────────────────────────────────────────────
-    print("\n" + "─"*60)
+    print("\n" + "-"*60)
     print("SEO Automation Report")
-    print("─"*60)
+    print("-"*60)
     labels = {
         'products':     'Products updated',
         'pages':        'Pages updated',
@@ -1173,7 +1281,7 @@ def main():
     for k, label in labels.items():
         if k in stats:
             print(f"  {label:<22}: {stats[k]}")
-    print("─"*60)
+    print("-"*60)
 
     # ── Detailed change log ───────────────────────────────────────────────────
     if log:
@@ -1201,7 +1309,8 @@ def main():
         "products_fixed": log,
     }
     batch_suffix = f"_b{args.batch_index}" if (mode == 'force' and args.batch_size > 0) else ""
-    fname = f"seo_report_{datetime.now().strftime('%Y%m%d_%H%M')}{batch_suffix}.json"
+    resource_suffix = f"_{args.resource}" if args.resource != "all" else ""
+    fname = f"seo_report_{datetime.now().strftime('%Y%m%d_%H%M')}{resource_suffix}{batch_suffix}.json"
     with open(fname, 'w') as f:
         json.dump(report, f, indent=2)
     print(f"\nFull report saved: {fname}")

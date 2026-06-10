@@ -81,7 +81,7 @@ def _shopify_request(method: str, endpoint: str, data: Optional[Dict] = None,
                 raise ValueError(f"Unsupported method: {method}")
 
             if r.status_code == 429:
-                retry_after = int(r.headers.get("Retry-After", 4))
+                retry_after = int(float(r.headers.get("Retry-After", 4)))
                 _log.warning("[RateLimit] 429 received, sleeping %ds", retry_after)
                 time.sleep(retry_after)
                 continue
@@ -111,7 +111,7 @@ def _shopify_graphql(query: str, variables: Optional[Dict] = None) -> Dict:
         try:
             r = requests.post(url, headers=headers, json=payload, timeout=30)
             if r.status_code == 429:
-                retry_after = int(r.headers.get("Retry-After", 4))
+                retry_after = int(float(r.headers.get("Retry-After", 4)))
                 _log.warning("[RateLimit] 429 on GraphQL, sleeping %ds", retry_after)
                 time.sleep(retry_after)
                 continue

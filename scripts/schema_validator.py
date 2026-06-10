@@ -85,7 +85,7 @@ def make_request_with_retry(method: str, url: str, max_retries: int = MAX_RETRIE
 
             # Handle rate limiting (429)
             if resp.status_code == 429:
-                retry_after = int(resp.headers.get('Retry-After', backoff))
+                retry_after = float(resp.headers.get('Retry-After', backoff))
                 logger.warning(f"Rate limited (429). Waiting {retry_after}s before retry {attempt + 1}/{max_retries}")
                 validation_health["total_errors"] += 1
                 time.sleep(retry_after)
@@ -369,30 +369,35 @@ def get_products(hours: int = 0) -> List[Dict]:
 
 
 def get_collections(hours: int = 0) -> List[Dict]:
-    """Fetch collections created since cutoff. 0 = all collections."""
-    url = f"{BASE}/custom_collections.json"
+    """Fetch both custom and smart collections created since cutoff. 0 = all collections."""
     params = {"limit": 250}
-
-    # Add time filter if hours specified
     if hours > 0:
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
         params["created_at_min"] = cutoff
-        logger.debug(f"Filtering collections created since {cutoff}")
 
+    all_collections = []
+
+    # 1. Custom Collections
+    url = f"{BASE}/custom_collections.json"
     resp = make_request_with_retry("get", url, params=params)
-    if resp is None:
-        logger.error("Failed to fetch collections")
-        validation_health["critical_errors"] += 1
-        return []
-    try:
-        collections = resp.json().get("custom_collections", [])
-        cutoff_desc = f"(created in last {hours}h)" if hours > 0 else "(all collections)"
-        logger.info(f"Fetched {len(collections)} collections {cutoff_desc}")
-        return collections
-    except Exception as e:
-        logger.error(f"Error parsing collections: {e}")
-        validation_health["critical_errors"] += 1
-        return []
+    if resp is not None:
+        try:
+            all_collections.extend(resp.json().get("custom_collections", []))
+        except Exception as e:
+            logger.error(f"Error parsing custom collections: {e}")
+
+    # 2. Smart Collections
+    url = f"{BASE}/smart_collections.json"
+    resp = make_request_with_retry("get", url, params=params)
+    if resp is not None:
+        try:
+            all_collections.extend(resp.json().get("smart_collections", []))
+        except Exception as e:
+            logger.error(f"Error parsing smart collections: {e}")
+
+    cutoff_desc = f"(created in last {hours}h)" if hours > 0 else "(all collections)"
+    logger.info(f"Fetched {len(all_collections)} collections (custom + smart) {cutoff_desc}")
+    return all_collections
 
 
 def get_pages(hours: int = 0) -> List[Dict]:
@@ -487,7 +492,7 @@ def set_metafield(resource_type: str, resource_id: str, schema: Dict) -> bool:
 # MAIN VALIDATION & ADDITION
 # ══════════════════════════════════════════════════════════════════════════════
 
-def validate_and_add_schemas(mode: str = "daily"):
+def validate_and_add_schemas(mode: str = "daily", batch_size: int = 0, batch_index: int = 0, resource: str = "all"):
     """Main validation and schema addition loop"""
 
     report = {
@@ -511,192 +516,203 @@ def validate_and_add_schemas(mode: str = "daily"):
     logger.info(f"Starting schema validation in {mode} mode (hours={hours if hours > 0 else 'all'})")
 
     # ─── Products ───────────────────────────────────────────────────────────
-    logger.info("=" * 60)
-    logger.info("VALIDATING PRODUCTS")
-    logger.info("=" * 60)
+    if resource in ("all", "products"):
+        logger.info("=" * 60)
+        logger.info("VALIDATING PRODUCTS")
+        logger.info("=" * 60)
 
-    try:
-        products = get_products(hours)
-        for product in products:
-            report["products"]["checked"] += 1
-            product_id = product.get("id")
-            title = product.get("title", "Unknown")
+        try:
+            products = get_products(hours)
+            if mode in ('force', 'weekly') and batch_size > 0:
+                start = batch_index * batch_size
+                end = start + batch_size
+                total_fetched = len(products)
+                products = products[start:end]
+                logger.info(f"Batch {batch_index}: validating products {start} to {min(end, total_fetched)} of {total_fetched}")
 
-            # Check if schema exists
-            metafields = product.get("metafields", [])
-            has_schema = schema_exists(metafields, "json_ld_schema", "product")
+            for product in products:
+                report["products"]["checked"] += 1
+                product_id = product.get("id")
+                title = product.get("title", "Unknown")
 
-            if not has_schema:
-                report["products"]["missing_schemas"] += 1
-                schema = product_schema(product)
-                is_valid, errors = validate_schema(schema, "Product")
-
-                if is_valid:
-                    if set_metafield("product", product_id, schema):
-                        report["products"]["added"] += 1
-                        logger.info(f"[OK] Added Product schema: {title}")
-                        report["details"].append({
-                            "type": "product",
-                            "id": product_id,
-                            "title": title,
-                            "action": "added"
-                        })
-                    else:
-                        report["products"]["errors"] += 1
-                        logger.error(f"✗ Failed to add schema: {title}")
-                else:
-                    report["products"]["errors"] += 1
-                    logger.warning(f"Schema validation failed for {title}: {errors}")
-            else:
-                logger.debug(f"Schema already exists: {title}")
-
-    except Exception as e:
-        logger.error(f"Products validation error: {e}")
-        report["products"]["errors"] += 1
-
-    # ─── Collections ────────────────────────────────────────────────────────
-    logger.info("=" * 60)
-    logger.info("VALIDATING COLLECTIONS")
-    logger.info("=" * 60)
-
-    try:
-        collections = get_collections(hours)
-        for collection in collections:
-            report["collections"]["checked"] += 1
-            coll_id = collection.get("id")
-            title = collection.get("title", "Unknown")
-
-            metafields = collection.get("metafields", [])
-            has_schema = schema_exists(metafields, "json_ld_schema", "collectionpage")
-
-            if not has_schema:
-                report["collections"]["missing_schemas"] += 1
-                schema = collection_schema(collection)
-                is_valid, errors = validate_schema(schema, "CollectionPage")
-
-                if is_valid:
-                    if set_metafield("collection", coll_id, schema):
-                        report["collections"]["added"] += 1
-                        logger.info(f"[OK] Added CollectionPage schema: {title}")
-                        report["details"].append({
-                            "type": "collection",
-                            "id": coll_id,
-                            "title": title,
-                            "action": "added"
-                        })
-                    else:
-                        report["collections"]["errors"] += 1
-                else:
-                    report["collections"]["errors"] += 1
-                    logger.warning(f"Schema validation failed for {title}: {errors}")
-            else:
-                logger.debug(f"Schema already exists: {title}")
-
-    except Exception as e:
-        logger.error(f"Collections validation error: {e}")
-        report["collections"]["errors"] += 1
-
-    # ─── Pages ──────────────────────────────────────────────────────────────
-    logger.info("=" * 60)
-    logger.info("VALIDATING PAGES")
-    logger.info("=" * 60)
-
-    try:
-        pages = get_pages(hours)
-        for page in pages:
-            report["pages"]["checked"] += 1
-            page_id = page.get("id")
-            title = page.get("title", "Unknown")
-
-            metafields = page.get("metafields", [])
-            has_schema = schema_exists(metafields, "json_ld_schema", "webpage")
-
-            if not has_schema:
-                report["pages"]["missing_schemas"] += 1
-                schema = page_schema(page)
-                is_valid, errors = validate_schema(schema, "WebPage")
-
-                if is_valid:
-                    if set_metafield("page", page_id, schema):
-                        report["pages"]["added"] += 1
-                        logger.info(f"[OK] Added WebPage schema: {title}")
-                        report["details"].append({
-                            "type": "page",
-                            "id": page_id,
-                            "title": title,
-                            "action": "added"
-                        })
-                    else:
-                        report["pages"]["errors"] += 1
-                else:
-                    report["pages"]["errors"] += 1
-                    logger.warning(f"Schema validation failed for {title}: {errors}")
-            else:
-                logger.debug(f"Schema already exists: {title}")
-
-    except Exception as e:
-        logger.error(f"Pages validation error: {e}")
-        report["pages"]["errors"] += 1
-
-    # ─── Blog Articles ──────────────────────────────────────────────────────
-    logger.info("=" * 60)
-    logger.info("VALIDATING BLOG ARTICLES")
-    logger.info("=" * 60)
-
-    try:
-        # Get all blogs first
-        blogs_url = f"{BASE}/blogs.json"
-        blogs_resp = make_request_with_retry("get", blogs_url, params={"limit": 50})
-        if blogs_resp is None:
-            logger.error("Failed to fetch blogs")
-            blogs = []
-        else:
-            try:
-                blogs = blogs_resp.json().get("blogs", [])
-            except Exception as e:
-                logger.error(f"Error parsing blogs: {e}")
-                validation_health["critical_errors"] += 1
-                blogs = []
-
-        for blog in blogs:
-            blog_id = blog.get("id")
-            blog_handle = blog.get("handle")
-            articles = get_blog_articles(str(blog_id), hours)
-
-            for article in articles:
-                report["blog_articles"]["checked"] += 1
-                article_id = article.get("id")
-                title = article.get("title", "Unknown")
-
-                metafields = article.get("metafields", [])
-                has_schema = schema_exists(metafields, "json_ld_schema", "blogposting")
+                # Check if schema exists
+                metafields = product.get("metafields", [])
+                has_schema = schema_exists(metafields, "json_ld_schema", "product")
 
                 if not has_schema:
-                    report["blog_articles"]["missing_schemas"] += 1
-                    schema = blog_schema(article, blog_handle)
-                    is_valid, errors = validate_schema(schema, "BlogPosting")
+                    report["products"]["missing_schemas"] += 1
+                    schema = product_schema(product)
+                    is_valid, errors = validate_schema(schema, "Product")
 
                     if is_valid:
-                        if set_metafield("article", article_id, schema):
-                            report["blog_articles"]["added"] += 1
-                            logger.info(f"[OK] Added BlogPosting schema: {title}")
+                        if set_metafield("product", product_id, schema):
+                            report["products"]["added"] += 1
+                            logger.info(f"[OK] Added Product schema: {title}")
                             report["details"].append({
-                                "type": "blog_article",
-                                "id": article_id,
+                                "type": "product",
+                                "id": product_id,
                                 "title": title,
                                 "action": "added"
                             })
                         else:
-                            report["blog_articles"]["errors"] += 1
+                            report["products"]["errors"] += 1
+                            logger.error(f"✗ Failed to add schema: {title}")
                     else:
-                        report["blog_articles"]["errors"] += 1
+                        report["products"]["errors"] += 1
                         logger.warning(f"Schema validation failed for {title}: {errors}")
                 else:
                     logger.debug(f"Schema already exists: {title}")
 
-    except Exception as e:
-        logger.error(f"Blog articles validation error: {e}")
-        report["blog_articles"]["errors"] += 1
+        except Exception as e:
+            logger.error(f"Products validation error: {e}")
+            report["products"]["errors"] += 1
+
+    # ─── Collections ────────────────────────────────────────────────────────
+    if resource in ("all", "collections"):
+        logger.info("=" * 60)
+        logger.info("VALIDATING COLLECTIONS")
+        logger.info("=" * 60)
+
+        try:
+            collections = get_collections(hours)
+            for collection in collections:
+                report["collections"]["checked"] += 1
+                coll_id = collection.get("id")
+                title = collection.get("title", "Unknown")
+
+                metafields = collection.get("metafields", [])
+                has_schema = schema_exists(metafields, "json_ld_schema", "collectionpage")
+
+                if not has_schema:
+                    report["collections"]["missing_schemas"] += 1
+                    schema = collection_schema(collection)
+                    is_valid, errors = validate_schema(schema, "CollectionPage")
+
+                    if is_valid:
+                        if set_metafield("collection", coll_id, schema):
+                            report["collections"]["added"] += 1
+                            logger.info(f"[OK] Added CollectionPage schema: {title}")
+                            report["details"].append({
+                                "type": "collection",
+                                "id": coll_id,
+                                "title": title,
+                                "action": "added"
+                            })
+                        else:
+                            report["collections"]["errors"] += 1
+                    else:
+                        report["collections"]["errors"] += 1
+                        logger.warning(f"Schema validation failed for {title}: {errors}")
+                else:
+                    logger.debug(f"Schema already exists: {title}")
+
+        except Exception as e:
+            logger.error(f"Collections validation error: {e}")
+            report["collections"]["errors"] += 1
+
+    # ─── Pages ──────────────────────────────────────────────────────────────
+    if resource in ("all", "pages"):
+        logger.info("=" * 60)
+        logger.info("VALIDATING PAGES")
+        logger.info("=" * 60)
+
+        try:
+            pages = get_pages(hours)
+            for page in pages:
+                report["pages"]["checked"] += 1
+                page_id = page.get("id")
+                title = page.get("title", "Unknown")
+
+                metafields = page.get("metafields", [])
+                has_schema = schema_exists(metafields, "json_ld_schema", "webpage")
+
+                if not has_schema:
+                    report["pages"]["missing_schemas"] += 1
+                    schema = page_schema(page)
+                    is_valid, errors = validate_schema(schema, "WebPage")
+
+                    if is_valid:
+                        if set_metafield("page", page_id, schema):
+                            report["pages"]["added"] += 1
+                            logger.info(f"[OK] Added WebPage schema: {title}")
+                            report["details"].append({
+                                "type": "page",
+                                "id": page_id,
+                                "title": title,
+                                "action": "added"
+                            })
+                        else:
+                            report["pages"]["errors"] += 1
+                    else:
+                        report["pages"]["errors"] += 1
+                        logger.warning(f"Schema validation failed for {title}: {errors}")
+                else:
+                    logger.debug(f"Schema already exists: {title}")
+
+        except Exception as e:
+            logger.error(f"Pages validation error: {e}")
+            report["pages"]["errors"] += 1
+
+    # ─── Blog Articles ──────────────────────────────────────────────────────
+    if resource in ("all", "blogs"):
+        logger.info("=" * 60)
+        logger.info("VALIDATING BLOG ARTICLES")
+        logger.info("=" * 60)
+
+        try:
+            # Get all blogs first
+            blogs_url = f"{BASE}/blogs.json"
+            blogs_resp = make_request_with_retry("get", blogs_url, params={"limit": 50})
+            if blogs_resp is None:
+                logger.error("Failed to fetch blogs")
+                blogs = []
+            else:
+                try:
+                    blogs = blogs_resp.json().get("blogs", [])
+                except Exception as e:
+                    logger.error(f"Error parsing blogs: {e}")
+                    validation_health["critical_errors"] += 1
+                    blogs = []
+
+            for blog in blogs:
+                blog_id = blog.get("id")
+                blog_handle = blog.get("handle")
+                articles = get_blog_articles(str(blog_id), hours)
+
+                for article in articles:
+                    report["blog_articles"]["checked"] += 1
+                    article_id = article.get("id")
+                    title = article.get("title", "Unknown")
+
+                    metafields = article.get("metafields", [])
+                    has_schema = schema_exists(metafields, "json_ld_schema", "blogposting")
+
+                    if not has_schema:
+                        report["blog_articles"]["missing_schemas"] += 1
+                        schema = blog_schema(article, blog_handle)
+                        is_valid, errors = validate_schema(schema, "BlogPosting")
+
+                        if is_valid:
+                            if set_metafield("article", article_id, schema):
+                                report["blog_articles"]["added"] += 1
+                                logger.info(f"[OK] Added BlogPosting schema: {title}")
+                                report["details"].append({
+                                    "type": "blog_article",
+                                    "id": article_id,
+                                    "title": title,
+                                    "action": "added"
+                                })
+                            else:
+                                report["blog_articles"]["errors"] += 1
+                        else:
+                            report["blog_articles"]["errors"] += 1
+                            logger.warning(f"Schema validation failed for {title}: {errors}")
+                    else:
+                        logger.debug(f"Schema already exists: {title}")
+
+        except Exception as e:
+            logger.error(f"Blog articles validation error: {e}")
+            report["blog_articles"]["errors"] += 1
 
     # ─── Summary ────────────────────────────────────────────────────────────
     logger.info("=" * 60)
@@ -764,6 +780,9 @@ if __name__ == "__main__":
     parser.add_argument("--daily", action="store_true", help="Daily mode (48h)")
     parser.add_argument("--weekly", action="store_true", help="Weekly mode (7d)")
     parser.add_argument("--force", action="store_true", help="Force all resources")
+    parser.add_argument("--batch-size", type=int, default=0, help="Batch size for force mode")
+    parser.add_argument("--batch-index", type=int, default=0, help="Batch index for force mode")
+    parser.add_argument("--resource", type=str, default="all", choices=["all", "products", "collections", "pages", "blogs"], help="Resource type to validate")
 
     args = parser.parse_args()
 
@@ -773,4 +792,4 @@ if __name__ == "__main__":
     elif args.force:
         mode = "force"
 
-    validate_and_add_schemas(mode)
+    validate_and_add_schemas(mode, batch_size=args.batch_size, batch_index=args.batch_index, resource=args.resource)
