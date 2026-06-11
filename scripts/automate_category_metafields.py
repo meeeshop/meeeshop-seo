@@ -406,8 +406,8 @@ def get_product_by_handle(handle):
     res = run_graphql(query, {"handle": handle})
     return res.get("data", {}).get("productByHandle")
 
-def get_recent_products(since_iso):
-    """Retrieve products updated since a specific timestamp."""
+def get_recent_products(since_iso, query_field="created_at"):
+    """Retrieve products since a specific timestamp using a specific date field."""
     query = """
     query GetRecentProducts($queryStr: String, $cursor: String) {
       products(first: 50, query: $queryStr, after: $cursor) {
@@ -465,7 +465,7 @@ def get_recent_products(since_iso):
     products = []
     has_next = True
     cursor = None
-    query_str = f"updated_at:>='{since_iso}'"
+    query_str = f"{query_field}:>='{since_iso}'"
     
     while has_next:
         res = run_graphql(query, {"queryStr": query_str, "cursor": cursor})
@@ -1128,7 +1128,11 @@ def main():
     group.add_argument("--revert", action="store_true", help="Revert changes from a backup file")
     
     parser.add_argument("--handle", help="Restrict run to a single product handle (for local validation)")
-    parser.add_argument("--full", action="store_true", help="Trigger a full catalog scan (weekly/forced)")
+    parser.add_argument("--full", action="store_true", help="Trigger a full catalog scan (forced)")
+    parser.add_argument("--weekly", action="store_true", help="Scan products created in the last 7 days")
+    parser.add_argument("--daily", action="store_true", help="Scan products created in the last 24 hours")
+    parser.add_argument("--batch-size", type=int, default=0, help="Batch size for slicing products (0 = no batching)")
+    parser.add_argument("--batch-index", type=int, default=0, help="Batch index for slicing products (0-based)")
     parser.add_argument("--backup-file", default="shopify_metafields_backup.json", help="Path to backup log file")
     
     args = parser.parse_args()
@@ -1154,17 +1158,35 @@ def main():
         print("Loading full store catalog...")
         products = get_all_products()
         print(f"Fetched {len(products)} products.")
+    elif args.weekly:
+        # Weekly Mode (last 7 days created)
+        seven_days_ago = (time.time() - (7 * 24 * 3600))
+        seven_days_ago_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seven_days_ago))
+        print(f"Loading products created since: {seven_days_ago_iso}")
+        products = get_recent_products(seven_days_ago_iso, query_field="created_at")
+        print(f"Fetched {len(products)} recently created products.")
     else:
-        # Daily Mode (last 24 hours)
+        # Daily Mode (last 24 hours created, default/fallback)
         yesterday = (time.time() - (24 * 3600))
         yesterday_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(yesterday))
-        print(f"Loading products updated since: {yesterday_iso}")
-        products = get_recent_products(yesterday_iso)
-        print(f"Fetched {len(products)} recently updated products.")
+        print(f"Loading products created since: {yesterday_iso}")
+        products = get_recent_products(yesterday_iso, query_field="created_at")
+        print(f"Fetched {len(products)} recently created products.")
         
     if not products:
         print("No products found to process.")
         return
+
+    # Slice products if batching is enabled
+    if args.batch_size > 0:
+        start = args.batch_index * args.batch_size
+        end = start + args.batch_size
+        sliced_products = products[start:end]
+        print(f"[Batch] Slicing products: index={args.batch_index}, size={args.batch_size} (processing {len(sliced_products)} of {len(products)})")
+        products = sliced_products
+        if not products:
+            print("No products in this batch slice.")
+            return
         
     # Analyze and generate suggestions
     all_suggestions = []
