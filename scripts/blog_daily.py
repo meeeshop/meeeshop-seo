@@ -347,6 +347,7 @@ def publish_article(blog: dict, title: str, body_html: str, tags: list,
             "summary_html": f"<p>{meta_desc}</p>",  # Shopify excerpt → meta description
             "tags":         ", ".join(tags),
             "published":    True,
+            "author":       "Meeeshop",
         }
     }
     if image_url:

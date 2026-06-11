@@ -141,7 +141,7 @@ def fetch_articles_for_blog(blog_id: int, limit: int = 50) -> list:
     while len(articles) < limit:
         params = {
             "limit": min(50, limit - len(articles)),
-            "fields": "id,title,handle,body_html,image,tags,summary_html,published_at",
+            "fields": "id,title,handle,body_html,image,tags,summary_html,published_at,author",
         }
         if page_info:
             params["page_info"] = page_info
@@ -741,6 +741,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
             "summary_html": summary_html,
             "tags":         tags_str,
             "published":    True,
+            "author":       "Meeeshop",
         }
     }
     # Update featured image
@@ -824,6 +825,25 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
             work_items = all_articles[:limit]
 
     print(f"Articles to refresh: {len(work_items)}\n")
+
+    # ── Check and update authors for all articles in the store ──────────────────
+    print("Checking article authors...")
+    articles_to_check = work_items if article_id else all_articles
+    for blog, art in articles_to_check:
+        cur_author = art.get("author", "")
+        if cur_author != "Meeeshop":
+            print(f"  Article '{art.get('title')}' (ID {art.get('id')}) has author '{cur_author}'. Updating to 'Meeeshop'...")
+            if not dry_run:
+                payload = {"article": {"id": art["id"], "author": "Meeeshop"}}
+                r = _req("put", f"{BASE}/blogs/{blog['id']}/articles/{art['id']}.json", json=payload)
+                if r.status_code in (200, 201):
+                    print("    ✓ Updated successfully.")
+                    art["author"] = "Meeeshop"
+                else:
+                    print(f"    ✗ Update failed: {r.status_code} {r.text[:200]}")
+                time.sleep(1.0)
+            else:
+                print("    [DRY-RUN] Would update author to 'Meeeshop'.")
 
     # ── Process each article ──────────────────────────────────────────────────
     updated = skipped = 0

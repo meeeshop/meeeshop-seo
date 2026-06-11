@@ -197,6 +197,7 @@ def publish_article_with_handle(blog_id: int, title: str, body_html: str,
             "tags":         ", ".join(tags),
             "published":    True,
             "handle":       handle,  # preserve original URL
+            "author":       "Meeeshop",
         }
     }
     if img_url:
