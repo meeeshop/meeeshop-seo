@@ -1,0 +1,164 @@
+name: MeeeShop Category Metafields Automation
+
+on:
+  schedule:
+    - cron: '0 4 * * *'     # daily  — every day 4:00 AM UTC
+    - cron: '0 5 * * 0'     # weekly — Sunday 5:00 AM UTC
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Execution action'
+        required: true
+        default: 'apply'
+        type: choice
+        options:
+          - apply
+          - diagnose
+      mode:
+        description: 'Run mode'
+        required: true
+        default: 'daily'
+        type: choice
+        options:
+          - daily
+          - weekly
+          - force
+      handle:
+        description: 'Product handle (optional, overrides mode)'
+        required: false
+        default: ''
+        type: string
+
+env:
+  PYTHONUTF8: "1"
+  PYTHON_VERSION: "3.12"
+  BATCH_SIZE: "20"
+
+jobs:
+
+  # -------------------------------------------------------------------
+  # Job 1: detect mode + build batch-index array for force mode
+  # -------------------------------------------------------------------
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.detect.outputs.mode }}
+      batches_json: ${{ steps.build_matrix.outputs.batches_json }}
+    steps:
+      - name: Detect mode
+        id: detect
+        run: |
+          INPUT_MODE="${{ github.event.inputs.mode }}"
+          if [ -n "$INPUT_MODE" ]; then
+            echo "mode=$INPUT_MODE" >> "$GITHUB_OUTPUT"
+          elif [ "$(date -u +%u)" = "7" ]; then
+            echo "mode=weekly" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=daily" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Build batch matrix
+        id: build_matrix
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          MODE="${{ steps.detect.outputs.mode }}"
+          if [ "$MODE" = "force" ]; then
+            TOTAL=$(python scripts/count_products.py)
+            echo "Active products: $TOTAL"
+            BATCHES=$(( (TOTAL + ${{ env.BATCH_SIZE }} - 1) / ${{ env.BATCH_SIZE }} ))
+            echo "Batches needed: $BATCHES"
+            JSON="["
+            for (( i=0; i<BATCHES; i++ )); do
+              [ $i -gt 0 ] && JSON+=","
+              JSON+="$i"
+            done
+            JSON+="]"
+            echo "batches_json=$JSON" >> "$GITHUB_OUTPUT"
+          else
+            echo 'batches_json=[0]' >> "$GITHUB_OUTPUT"
+          fi
+
+  # -------------------------------------------------------------------
+  # Job 2: Process Category Metafields (Matrix execution if force)
+  # -------------------------------------------------------------------
+  category_metafields:
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        batch_index: ${{ fromJson(needs.setup.outputs.batches_json) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Category Metafields Automation
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          # Determine execution action
+          ACTION="--apply"
+          if [ "${{ github.event.inputs.action }}" = "diagnose" ]; then
+            ACTION="--diagnose"
+          fi
+          
+          MODE="${{ needs.setup.outputs.mode }}"
+          SCOPE=""
+          BATCH_ARGS=""
+          
+          if [ "$MODE" = "force" ]; then
+            SCOPE="--full"
+            BATCH_ARGS="--batch-size ${{ env.BATCH_SIZE }} --batch-index ${{ matrix.batch_index }}"
+          elif [ "$MODE" = "weekly" ]; then
+            SCOPE="--weekly"
+          else
+            SCOPE="--daily"
+          fi
+          
+          HANDLE=""
+          if [ -n "${{ github.event.inputs.handle }}" ]; then
+            HANDLE="--handle ${{ github.event.inputs.handle }}"
+            SCOPE=""
+            BATCH_ARGS=""
+          fi
+          
+          echo "Running automate_category_metafields.py $ACTION $SCOPE $HANDLE $BATCH_ARGS..."
+          python scripts/automate_category_metafields.py $ACTION $SCOPE $HANDLE $BATCH_ARGS
+
+      - name: Upload backup or preview artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: category-metafields-${{ needs.setup.outputs.mode }}-b${{ matrix.batch_index }}-run${{ github.run_number }}
+          path: |
+            shopify_metafields_backup.json
+            category_metafields_preview.json
+          if-no-files-found: ignore
+          retention-days: 30
