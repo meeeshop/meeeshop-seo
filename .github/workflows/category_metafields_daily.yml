@@ -1,0 +1,86 @@
+name: MeeeShop Category Metafields Automation
+
+on:
+  schedule:
+    - cron: '0 4 * * *'     # Daily at 4:00 AM UTC (Off-peak hours)
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Execution action'
+        required: true
+        default: 'apply'
+        type: choice
+        options:
+          - apply
+          - diagnose
+      scope:
+        description: 'Scan scope'
+        required: true
+        default: 'daily'
+        type: choice
+        options:
+          - daily
+          - full
+      handle:
+        description: 'Product handle (optional, overrides scope)'
+        required: false
+        default: ''
+        type: string
+
+env:
+  PYTHONUTF8: "1"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  category_metafields:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Category Metafields Automation
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          # Determine execution arguments
+          ACTION="--apply"
+          if [ "${{ github.event.inputs.action }}" = "diagnose" ]; then
+            ACTION="--diagnose"
+          fi
+          
+          SCOPE=""
+          if [ "${{ github.event.inputs.scope }}" = "full" ]; then
+            SCOPE="--full"
+          fi
+          
+          HANDLE=""
+          if [ -n "${{ github.event.inputs.handle }}" ]; then
+            HANDLE="--handle ${{ github.event.inputs.handle }}"
+          fi
+          
+          echo "Running automate_category_metafields.py $ACTION $SCOPE $HANDLE..."
+          python scripts/automate_category_metafields.py $ACTION $SCOPE $HANDLE
+
+      - name: Upload backup or preview artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: category-metafields-run${{ github.run_number }}
+          path: |
+            shopify_metafields_backup.json
+            category_metafields_preview.json
+          if-no-files-found: ignore
+          retention-days: 30
