@@ -151,8 +151,13 @@ def publish_to_medium(user_id: str, title: str, content: str, canonical_url: str
         
     r = requests.post(f"{MEDIUM_API}/users/{user_id}/posts", headers=MEDIUM_HEADERS, json=payload)
     if r.status_code in (200, 201):
-        medium_url = r.json()["data"]["url"]
-        print(f"  [SUCCESS] Published to Medium: {medium_url}")
+        resp_data = r.json().get("data", {})
+        medium_url = resp_data.get("url")
+        pub_status = resp_data.get("publishStatus")
+        print(f"  [SUCCESS] Created on Medium: {medium_url} (Status: {pub_status})")
+        if pub_status == "draft":
+            print("  [NOTE] The post was saved as a DRAFT. This can happen if your Medium account email is unverified,")
+            print("         if your account has restrictions, or if Medium's automated filters flagged the post.")
         return True
     elif r.status_code == 429:
         print(f"  [FAILED] Medium API Rate Limit (429). Response: {r.text}")
@@ -195,9 +200,10 @@ def run(days: int, limit: int, force: bool, dry_run: bool):
         article_id = art.get("id")
         raw_tags = art.get("tags") or ""
         
-        # Grab tags from Shopify and add targeted audience tags
+        # Prioritize required audience tags, then add unique Shopify tags
+        required_tags = ["Womens Fashion", "Style", "Fashion", "Boutique"]
         existing_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
-        medium_tags = list(dict.fromkeys(existing_tags + ["Womens Fashion", "Style", "Fashion", "Boutique"]))
+        medium_tags = list(dict.fromkeys(required_tags + existing_tags))
         
         print(f"[{i}/{len(articles)}] Syndicating: '{title}'")
         success = publish_to_medium(user_id, title, body, canonical_url, medium_tags, collection_links, dry_run)
