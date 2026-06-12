@@ -272,7 +272,7 @@ def is_already_correct(price: float) -> bool:
 def bulk_update_variants(product_id: str, variant_updates: List[Dict]) -> bool:
     """Update multiple variant prices for a product in bulk via GraphQL."""
     query = """
-    mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantBulkInput!]!) {
+    mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
       productVariantsBulkUpdate(productId: $productId, variants: $variants) {
         product { id }
         productVariants { id price }
