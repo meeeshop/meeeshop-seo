@@ -505,32 +505,34 @@ def update_image_alt(pid, iid, alt):
     """Update product image alt text via GraphQL."""
     from shopify_graphql import make_gid, run_graphql
     product_gid = make_gid("product", pid)
-    image_gid = f"gid://shopify/ProductImage/{iid}"
+    media_gid = f"gid://shopify/MediaImage/{iid}"
     
     query = """
-    mutation productImageUpdate($productId: ID!, $image: ImageInput!) {
-      productImageUpdate(productId: $productId, image: $image) {
-        image { id altText }
+    mutation productUpdateMedia($productId: ID!, $media: [UpdateMediaInput!]!) {
+      productUpdateMedia(productId: $productId, media: $media) {
+        media { id alt }
         userErrors { field message }
       }
     }
     """
     variables = {
         "productId": product_gid,
-        "image": {
-            "id": image_gid,
-            "altText": alt
-        }
+        "media": [
+            {
+                "id": media_gid,
+                "alt": alt
+            }
+        ]
     }
     try:
         res = run_graphql(query, variables)
-        errors = res.get("data", {}).get("productImageUpdate", {}).get("userErrors", [])
+        errors = res.get("data", {}).get("productUpdateMedia", {}).get("userErrors", [])
         if errors:
-            print(f"[GraphQL] Errors updating image alt for {image_gid}: {errors}", file=sys.stderr)
+            print(f"[GraphQL] Errors updating image alt for {media_gid}: {errors}", file=sys.stderr)
             return False
         return True
     except Exception as e:
-        print(f"[GraphQL] Exception updating image alt for {image_gid}: {e}", file=sys.stderr)
+        print(f"[GraphQL] Exception updating image alt for {media_gid}: {e}", file=sys.stderr)
         return False
 
 
