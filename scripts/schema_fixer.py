@@ -247,7 +247,9 @@ def fix_resource(resource_type: str, resource: Dict, extra=None) -> int:
     """
     rid   = resource["id"]
     title = resource.get("title", str(rid))
-    mfs   = get_metafields(resource_type, rid)
+    mfs   = resource.get("metafields")
+    if mfs is None:
+        mfs = get_metafields(resource_type, rid)
     fixes = 0
 
     for mf in mfs:
@@ -320,18 +322,13 @@ def fix_resource(resource_type: str, resource: Dict, extra=None) -> int:
 
 def run(mode: str, batch_size: int = 0, batch_index: int = 0, resource: str = "all"):
     hours = 48 if mode == "daily" else 0
-    cutoff_params = {}
-    if hours:
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        cutoff_params = {"updated_at_min": cutoff}
-
     logger.info(f"Schema Fixer — mode={mode}")
 
     # Products
     if resource in ("all", "products"):
         logger.info("Scanning products...")
-        products = get_all_pages(f"{BASE}/products.json", "products",
-                                 {"status": "active", **cutoff_params})
+        from shopify_graphql import fetch_products_graphql
+        products = fetch_products_graphql(hours)
         if mode in ('force', 'weekly') and batch_size > 0:
             start = batch_index * batch_size
             end = start + batch_size
@@ -345,30 +342,26 @@ def run(mode: str, batch_size: int = 0, batch_index: int = 0, resource: str = "a
     # Collections
     if resource in ("all", "collections"):
         logger.info("Scanning collections...")
-        colls = get_all_pages(f"{BASE}/custom_collections.json", "custom_collections", cutoff_params.copy())
-        colls.extend(get_all_pages(f"{BASE}/smart_collections.json", "smart_collections", cutoff_params.copy()))
+        from shopify_graphql import fetch_collections_graphql
+        colls = fetch_collections_graphql(hours)
         for c in colls:
             fix_resource("collection", c)
 
     # Pages
     if resource in ("all", "pages"):
         logger.info("Scanning pages...")
-        pages = get_all_pages(f"{BASE}/pages.json", "pages", cutoff_params.copy())
+        from shopify_graphql import fetch_pages_graphql
+        pages = fetch_pages_graphql(hours)
         for p in pages:
             fix_resource("page", p)
 
     # Blog articles
     if resource in ("all", "blogs"):
         logger.info("Scanning blog articles...")
-        blogs_resp = _req("get", f"{BASE}/blogs.json", params={"limit": 50})
-        blogs = blogs_resp.json().get("blogs", []) if blogs_resp else []
-        for blog in blogs:
-            articles = get_all_pages(
-                f"{BASE}/blogs/{blog['id']}/articles.json", "articles",
-                {"limit": 250, **cutoff_params}
-            )
-            for a in articles:
-                fix_resource("article", a, extra=blog["handle"])
+        from shopify_graphql import fetch_articles_graphql
+        articles = fetch_articles_graphql(hours)
+        for a in articles:
+            fix_resource("article", a, extra=a["blog_handle"])
 
     # Report
     print("\n" + "=" * 60)
