@@ -553,7 +553,7 @@ def update_image_alt(pid, iid, alt, src=None):
                 query_file = """
                 mutation fileUpdate($files: [FileUpdateInput!]!) {
                   fileUpdate(files: $files) {
-                    files { id filename }
+                    files { id }
                     userErrors { field message }
                   }
                 }
