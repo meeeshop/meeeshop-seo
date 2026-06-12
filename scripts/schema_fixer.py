@@ -285,22 +285,14 @@ def get_metafields(resource_type: str, rid: int) -> List[Dict]:
 
 
 def delete_metafield(mf_id: int) -> bool:
-    resp = _req("delete", f"{BASE}/metafields/{mf_id}.json")
-    return resp is not None
+    from shopify_graphql import delete_metafield_graphql
+    return delete_metafield_graphql(mf_id)
 
 
 def upsert_schema_metafield(resource_type: str, rid: int, key: str, schema: Dict,
                              existing_mf: Optional[Dict] = None) -> bool:
-    value = json.dumps(schema, ensure_ascii=False)
-    if existing_mf:
-        url  = f"{BASE}/metafields/{existing_mf['id']}.json"
-        body = {"metafield": {"id": existing_mf["id"], "value": value, "type": "json"}}
-        resp = _req("put", url, json=body)
-    else:
-        url  = f"{BASE}/{resource_type}s/{rid}/metafields.json"
-        body = {"metafield": {"namespace": "json_ld_schema", "key": key, "type": "json", "value": value}}
-        resp = _req("post", url, json=body)
-    return resp is not None
+    from shopify_graphql import set_metafield_graphql
+    return set_metafield_graphql(resource_type, rid, key, schema)
 
 
 # ── Core fix logic ────────────────────────────────────────────────────────────

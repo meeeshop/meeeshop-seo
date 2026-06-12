@@ -422,37 +422,14 @@ def get_blog_articles(blog_id: str, hours: int = 0) -> List[Dict]:
 
 
 def set_metafield(resource_type: str, resource_id: str, schema: Dict) -> bool:
-    """Add/update schema as metafield with retry logic"""
-    url = f"{BASE}/{resource_type.lower()}s/{resource_id}/metafields.json"
-
-    metafield = {
-        "metafield": {
-            "namespace": "json_ld_schema",
-            "key": f"{schema.get('@type', 'unknown').lower()}",
-            "type": "json",
-            "value": json.dumps(schema)
-        }
-    }
-
-    resp = make_request_with_retry("post", url, json=metafield)
-
-    if resp is None:
-        logger.error(f"Failed to set metafield for {resource_type} {resource_id} after retries")
+    """Add/update schema as metafield using GraphQL"""
+    from shopify_graphql import set_metafield_graphql
+    key = f"{schema.get('@type', 'unknown').lower()}"
+    success = set_metafield_graphql(resource_type, int(resource_id), key, schema)
+    if not success:
+        logger.error(f"Failed to set metafield for {resource_type} {resource_id}")
         validation_health["critical_errors"] += 1
-        return False
-
-    if resp.status_code >= 400:
-        logger.error(f"Failed to set metafield for {resource_type} {resource_id}: {resp.status_code} {resp.reason}")
-        validation_health["critical_errors"] += 1
-        return False
-
-    try:
-        resp.raise_for_status()
-        return True
-    except Exception as e:
-        logger.error(f"Failed to set metafield for {resource_type} {resource_id}: {e}")
-        validation_health["critical_errors"] += 1
-        return False
+    return success
 
 
 # ══════════════════════════════════════════════════════════════════════════════

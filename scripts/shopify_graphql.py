@@ -397,3 +397,90 @@ def fetch_articles_graphql(hours: int = 0) -> List[Dict]:
             cursor = page_info.get("endCursor")
             
     return all_articles
+
+def make_gid(resource_type: str, numeric_id: int) -> str:
+    """Map REST resource type to GraphQL GID string."""
+    type_map = {
+        "product": "Product",
+        "collection": "Collection",
+        "page": "Page",
+        "article": "Article"
+    }
+    gql_type = type_map.get(resource_type.lower(), resource_type.capitalize())
+    return f"gid://shopify/{gql_type}/{numeric_id}"
+
+def set_metafield_graphql(resource_type: str, resource_id: int, key: str, value_dict: dict) -> bool:
+    """Set metafield for a resource using GraphQL Admin API."""
+    import json
+    owner_id = make_gid(resource_type, resource_id)
+    value_str = json.dumps(value_dict, ensure_ascii=False)
+    
+    query = """
+    mutation metafieldsSet($metafields: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $metafields) {
+        metafields {
+          id
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+    """
+    
+    variables = {
+      "metafields": [
+        {
+          "ownerId": owner_id,
+          "namespace": "json_ld_schema",
+          "key": key,
+          "type": "json",
+          "value": value_str
+        }
+      ]
+    }
+    
+    try:
+        res = run_graphql(query, variables)
+        errors = res.get("data", {}).get("metafieldsSet", {}).get("userErrors", [])
+        if errors:
+            print(f"[GraphQL] Errors setting metafield for {owner_id}: {errors}", file=sys.stderr)
+            return False
+        return True
+    except Exception as e:
+        print(f"[GraphQL] Exception setting metafield for {owner_id}: {e}", file=sys.stderr)
+        return False
+
+def delete_metafield_graphql(metafield_id: int) -> bool:
+    """Delete a metafield using GraphQL Admin API."""
+    gid = f"gid://shopify/Metafield/{metafield_id}"
+    query = """
+    mutation metafieldDelete($input: MetafieldDeleteInput!) {
+      metafieldDelete(input: $input) {
+        deletedId
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+    """
+    
+    variables = {
+      "input": {
+        "id": gid
+      }
+    }
+    
+    try:
+        res = run_graphql(query, variables)
+        errors = res.get("data", {}).get("metafieldDelete", {}).get("userErrors", [])
+        if errors:
+            print(f"[GraphQL] Errors deleting metafield {gid}: {errors}", file=sys.stderr)
+            return False
+        return True
+    except Exception as e:
+        print(f"[GraphQL] Exception deleting metafield {gid}: {e}", file=sys.stderr)
+        return False
+
