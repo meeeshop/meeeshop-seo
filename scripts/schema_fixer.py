@@ -118,12 +118,29 @@ def _issues(schema: Any) -> List[str]:
     for field in REQUIRED.get(stype, []):
         if field not in schema or schema[field] in (None, "", [], {}):
             issues.append(f"missing '{field}'")
-    if stype == "Product" and "offers" in schema:
-        offer = schema["offers"]
-        if isinstance(offer, dict):
-            for req in ("priceCurrency", "price", "availability"):
-                if req not in offer or not offer[req]:
-                    issues.append(f"offers missing '{req}'")
+    if stype == "Product":
+        offers = schema.get("offers")
+        if not offers:
+            issues.append("missing 'offers'")
+        else:
+            offers_list = offers if isinstance(offers, list) else [offers]
+            for idx, offer in enumerate(offers_list):
+                if not isinstance(offer, dict):
+                    issues.append(f"offer[{idx}] is not a dict")
+                    continue
+                for req in ("priceCurrency", "price", "availability"):
+                    if req not in offer or not offer[req]:
+                        issues.append(f"offer[{idx}] missing '{req}'")
+                if "shippingDetails" not in offer:
+                    issues.append(f"offer[{idx}] missing 'shippingDetails'")
+                else:
+                    sd = offer["shippingDetails"]
+                    if not isinstance(sd, dict):
+                        issues.append(f"offer[{idx}].shippingDetails is not a dict")
+                    elif "deliveryTime" not in sd:
+                        issues.append(f"offer[{idx}].shippingDetails missing 'deliveryTime'")
+                if "hasMerchantReturnPolicy" not in offer:
+                    issues.append(f"offer[{idx}] missing 'hasMerchantReturnPolicy'")
     return issues
 
 
@@ -133,9 +150,67 @@ def _product_schema(p: Dict) -> Dict:
     vendor = p.get("vendor", BRAND)
     desc   = re.sub(r'<[^>]+>', '', p.get("body_html") or "").strip()[:500]
     variants = p.get("variants") or [{}]
-    prices = [float(v.get("price", 0)) for v in variants if v.get("price")]
-    low    = f"{min(prices):.2f}" if prices else "0.00"
-    high   = f"{max(prices):.2f}" if prices else "0.00"
+    price_valid_until = f"{datetime.now().year + 1}-12-31"
+    
+    offers_list = []
+    for v in variants:
+        barcode = v.get("barcode", "") or ""
+        sku = v.get("sku", "") or ""
+        gtin = barcode if (barcode.isdigit() and len(barcode) in (8, 12, 13, 14)) else ''
+        
+        offer = {
+            "@type": "Offer",
+            "price": str(v.get("price", "0")),
+            "priceCurrency": "USD",
+            "priceValidUntil": price_valid_until,
+            "availability": f"https://schema.org/{'InStock' if v.get('inventory_quantity', 1) > 0 else 'OutOfStock'}",
+            "url": f"{SITE}/products/{p.get('handle', '')}?variant={v.get('id', '')}",
+            "seller": {"@type": "Organization", "name": BRAND},
+            # ── Merchant Listings required fields ──────────────────────────────
+            "shippingDetails": {
+                "@type": "OfferShippingDetails",
+                "shippingDestination": {
+                    "@type": "DefinedRegion",
+                    "addressCountry": "US"
+                },
+                "shippingRate": {
+                    "@type": "MonetaryAmount",
+                    "value": "0.00",
+                    "currency": "USD"
+                },
+                "deliveryTime": {
+                    "@type": "ShippingDeliveryTime",
+                    "handlingTime": {
+                        "@type": "QuantitativeValue",
+                        "minValue": 0,
+                        "maxValue": 1,
+                        "unitCode": "DAY"
+                    },
+                    "transitTime": {
+                        "@type": "QuantitativeValue",
+                        "minValue": 2,
+                        "maxValue": 5,
+                        "unitCode": "DAY"
+                    }
+                }
+            },
+            "hasMerchantReturnPolicy": {
+                "@type": "MerchantReturnPolicy",
+                "applicableCountry": "US",
+                "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+                "merchantReturnDays": 7,
+                "returnMethod": "https://schema.org/ReturnByMail",
+                "returnFees": "https://schema.org/FreeReturn"
+            }
+        }
+        if gtin:
+            offer["gtin"] = gtin
+        if sku:
+            offer["mpn"] = sku
+            offer["sku"] = sku
+        
+        offers_list.append(offer)
+
     return {
         "@context": "https://schema.org/",
         "@type": "Product",
@@ -144,19 +219,10 @@ def _product_schema(p: Dict) -> Dict:
         "url": f"{SITE}/products/{p.get('handle', '')}",
         "image": [img["src"] for img in (p.get("images") or [])[:3] if img.get("src")],
         "brand": {"@type": "Brand", "name": vendor},
-        "offers": [
-            {
-                "@type": "Offer",
-                "sku": str(v.get("sku") or ""),
-                "price": str(v.get("price", "0")),
-                "priceCurrency": "USD",
-                "availability": f"https://schema.org/{'InStock' if v.get('inventory_quantity', 1) > 0 else 'OutOfStock'}",
-                "url": f"{SITE}/products/{p.get('handle', '')}?variant={v.get('id', '')}",
-                "seller": {"@type": "Organization", "name": BRAND}
-            }
-            for v in variants
-        ]
+        "sku": str(p.get("id", "")),
+        "offers": offers_list
     }
+
 
 
 def _collection_schema(c: Dict) -> Dict:

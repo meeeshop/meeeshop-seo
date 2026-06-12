@@ -350,9 +350,24 @@ def validate_schema(schema: Dict, resource_type: str) -> Tuple[bool, List[str]]:
     if schema_type == "Product":
         if "offers" in schema:
             offer = schema["offers"]
-            for req in ["priceCurrency", "price", "availability"]:
-                if req not in offer:
-                    errors.append(f"Offer missing: {req}")
+            offers_list = offer if isinstance(offer, list) else [offer]
+            for idx, off in enumerate(offers_list):
+                if not isinstance(off, dict):
+                    errors.append(f"Offer[{idx}] is not a dict")
+                    continue
+                for req in ["priceCurrency", "price", "availability"]:
+                    if req not in off or not off[req]:
+                        errors.append(f"Offer[{idx}] missing: {req}")
+                if "shippingDetails" not in off:
+                    errors.append(f"Offer[{idx}] missing: shippingDetails")
+                else:
+                    sd = off["shippingDetails"]
+                    if not isinstance(sd, dict):
+                        errors.append(f"Offer[{idx}].shippingDetails is not a dict")
+                    elif "deliveryTime" not in sd:
+                        errors.append(f"Offer[{idx}].shippingDetails missing: deliveryTime")
+                if "hasMerchantReturnPolicy" not in off:
+                    errors.append(f"Offer[{idx}] missing: hasMerchantReturnPolicy")
 
     return len(errors) == 0, errors
 
