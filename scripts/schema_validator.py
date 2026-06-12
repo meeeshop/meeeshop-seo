@@ -117,9 +117,28 @@ def make_request_with_retry(method: str, url: str, max_retries: int = MAX_RETRIE
 # ══════════════════════════════════════════════════════════════════════════════
 
 def product_schema(product: Dict) -> Dict:
-    """Generate complete Product schema with all required fields"""
+    """Generate complete Product schema with all Merchant Listings required fields.
+
+    Required for GSC Merchant Listings (distinct from Product Snippets):
+      - shippingDetails  (OfferShippingDetails)
+      - hasMerchantReturnPolicy (MerchantReturnPolicy)
+      - priceValidUntil
+      - gtin / mpn  (per-variant identifiers)
+    """
     vendor = product.get('vendor', 'Unknown')
     description = product.get('body_html', '').replace('<p>', '').replace('</p>', '').strip()[:160]
+
+    # Extract variant-level identifiers from the first variant
+    first_variant = product.get('variants', [{}])[0]
+    barcode = first_variant.get('barcode', '') or ''
+    sku     = first_variant.get('sku', '') or ''
+    price   = str(first_variant.get('price', '0'))
+
+    # Validate GTIN — must be 8, 12, 13, or 14 numeric digits
+    gtin = barcode if (barcode.isdigit() and len(barcode) in (8, 12, 13, 14)) else ''
+
+    # priceValidUntil: set to Dec 31 of next calendar year
+    price_valid_until = f"{datetime.now().year + 1}-12-31"
 
     schema = {
         "@context": "https://schema.org/",
@@ -139,16 +158,59 @@ def product_schema(product: Dict) -> Dict:
             "@type": "Offer",
             "url": f"{SITE}/products/{product.get('handle', '')}",
             "priceCurrency": "USD",
-            "price": str(product.get('variants', [{}])[0].get('price', '0')),
+            "price": price,
+            "priceValidUntil": price_valid_until,
             "availability": f"https://schema.org/{'InStock' if product.get('available') else 'OutOfStock'}",
             "seller": {
                 "@type": "Organization",
                 "name": BRAND
+            },
+            # ── Merchant Listings required fields ──────────────────────────────
+            "shippingDetails": {
+                "@type": "OfferShippingDetails",
+                "shippingDestination": {
+                    "@type": "DefinedRegion",
+                    "addressCountry": "US"
+                },
+                "shippingRate": {
+                    "@type": "MonetaryAmount",
+                    "value": "0.00",
+                    "currency": "USD"
+                },
+                "deliveryTime": {
+                    "@type": "ShippingDeliveryTime",
+                    "handlingTime": {
+                        "@type": "QuantitativeValue",
+                        "minValue": 0,
+                        "maxValue": 1,
+                        "unitCode": "DAY"
+                    },
+                    "transitTime": {
+                        "@type": "QuantitativeValue",
+                        "minValue": 2,
+                        "maxValue": 5,
+                        "unitCode": "DAY"
+                    }
+                }
+            },
+            "hasMerchantReturnPolicy": {
+                "@type": "MerchantReturnPolicy",
+                "applicableCountry": "US",
+                "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+                "merchantReturnDays": 7,
+                "returnMethod": "https://schema.org/ReturnByMail",
+                "returnFees": "https://schema.org/FreeReturn"
             }
         },
         "sku": str(product.get('id', '')),
         "url": f"{SITE}/products/{product.get('handle', '')}"
     }
+
+    # Add variant-level identifiers if available
+    if gtin:
+        schema["offers"]["gtin"] = gtin
+    if sku:
+        schema["offers"]["mpn"] = sku
 
     # Add rating if reviews exist
     if product.get('rating_count', 0) > 0:

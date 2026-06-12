@@ -2,9 +2,8 @@ name: Blog Daily Generator
 
 on:
   schedule:
-    - cron: '0 13 * * 2'  # Tuesday  8 AM EST (13:00 UTC) — peak weekday morning browse
-    - cron: '0 13 * * 4'  # Thursday 8 AM EST (13:00 UTC) — pre-weekend shopping intent
-    - cron: '0 14 * * 6'  # Saturday 9 AM EST (14:00 UTC) — highest weekend leisure scroll
+    - cron: '0 13 * * 2'  # Tuesday  8 AM EST (13:00 UTC)
+    - cron: '0 14 * * 6'  # Saturday 9 AM EST (14:00 UTC)
   workflow_dispatch:
     inputs:
       count:
@@ -13,6 +12,10 @@ on:
         required: false
       dry_run:
         description: 'Dry run (no publishing)'
+        default: 'false'
+        required: false
+      publish:
+        description: 'Publish immediately (false = save as draft for review)'
         default: 'false'
         required: false
 
@@ -41,11 +44,17 @@ jobs:
         run: |
           COUNT="${{ github.event.inputs.count || '1' }}"
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          PUBLISH="${{ github.event.inputs.publish || 'false' }}"
+          ARGS="--count $COUNT"
           if [ "$DRY_RUN" = "true" ]; then
-            python scripts/blog_daily.py --count "$COUNT" --dry-run
-          else
-            python scripts/blog_daily.py --count "$COUNT"
+            ARGS="$ARGS --dry-run"
           fi
+          # On scheduled runs, always publish immediately.
+          # On manual dispatch, respect the publish input (default: draft for human review).
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "$PUBLISH" = "true" ]; then
+            ARGS="$ARGS --publish"
+          fi
+          python scripts/blog_daily.py $ARGS
 
       - name: Upload blog generation log
         if: always()

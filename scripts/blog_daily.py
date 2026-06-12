@@ -330,7 +330,7 @@ def inject_product_card(html_body: str, product: dict, keyword: str = "") -> str
 # ── Publish ────────────────────────────────────────────────────────────────────
 def publish_article(blog: dict, title: str, body_html: str, tags: list,
                     image_url: str, img_alt: str, meta_desc: str,
-                    dry_run: bool = False) -> dict | None:
+                    dry_run: bool = False, publish: bool = False) -> dict | None:
     if dry_run:
         print(f"  [DRY-RUN] '{title}'")
         print(f"  Blog   : {blog.get('title')}")
@@ -344,16 +344,16 @@ def publish_article(blog: dict, title: str, body_html: str, tags: list,
         "article": {
             "title":        title,
             "body_html":    body_html,
-            "summary_html": f"<p>{meta_desc}</p>",  # Shopify excerpt → meta description
+            "summary_html": f"<p>{meta_desc}</p>",
             "tags":         ", ".join(tags),
-            "published":    True,
-            "author":       "Meeeshop",
+            "published":    publish,
+            "author":       "MeeeShop Editorial Team",
         }
     }
     if image_url:
         payload["article"]["image"] = {
             "src": image_url,
-            "alt": img_alt,     # ALT text on featured image
+            "alt": img_alt,
         }
 
     r = _req("post", f"{BASE}/blogs/{blog['id']}/articles.json", json=payload)
@@ -423,7 +423,7 @@ def _lsi_keywords(ptype: str, keyword: str) -> list[str]:
     return combined
 
 
-def _build_prompt(fmt: str, product: dict, keyword: str) -> tuple[str, str]:
+def _build_prompt(fmt: str, product: dict, keyword: str, similar_products: list | None = None) -> tuple[str, str]:
     title  = product["title"]
     ptype  = (product.get("product_type") or "women's fashion").lower()
     price  = product["variants"][0]["price"] if product.get("variants") else "49"
@@ -432,6 +432,10 @@ def _build_prompt(fmt: str, product: dict, keyword: str) -> tuple[str, str]:
 
     lsi    = _lsi_keywords(ptype, keyword)
     lsi_str = ", ".join(f'"{k}"' for k in lsi)
+
+    # similar_products used by the comparison format to reference real catalog items
+    if similar_products is None:
+        similar_products = []
 
     base = (
         f"You are a fashion editor at MeeeShop, a USA women's clothing boutique.\n"
@@ -469,14 +473,30 @@ def _build_prompt(fmt: str, product: dict, keyword: str) -> tuple[str, str]:
         h1_hint = f"The Best {ptype.title()} for Women in {YEAR}: Our Editor's Guide"
 
     elif fmt == "comparison":
+        # Build comparison using 2 REAL products from the catalog (not invented)
+        # This prevents Google's spam detection from flagging fabricated comparisons
+        real_alts = [
+            p for p in similar_products
+            if p.get('handle') != product.get('handle') and p.get('images')
+        ][:2]
+        if len(real_alts) < 2:
+            # Fallback: any 2 other products
+            real_alts = [
+                p for p in similar_products
+                if p.get('handle') != product.get('handle')
+            ][:2]
+        alt1_title = real_alts[0]['title'][:60] if real_alts else "a similar style"
+        alt1_price = real_alts[0]['variants'][0]['price'] if (real_alts and real_alts[0].get('variants')) else "49"
+        alt2_title = real_alts[1]['title'][:60] if len(real_alts) > 1 else "another option"
+        alt2_price = real_alts[1]['variants'][0]['price'] if (len(real_alts) > 1 and real_alts[1].get('variants')) else "49"
         prompt = base + (
             f"Format: Comparison Article — helps women choose the right style\n"
             f"Write in HTML:\n"
-            f"1. <h1> '{title} vs. [2 similar alternatives]: Which Is Right for You in {YEAR}?'\n"
+            f"1. <h1> '{title} vs. {alt1_title} vs. {alt2_title}: Which Is Right for You in {YEAR}?'\n"
             f"2. <p> Intro — 'I get asked this question every week from our customers' (70 words, empathetic)\n"
-            f"3. <h2> Option 1: [Shortened Product Name] — What I Love + Who It's For (100 words, do NOT include HTML links)\n"
-            f"4. <h2> Option 2: [Invent a plausible similar style] — Pros, Cons, Best For (80 words)\n"
-            f"5. <h2> Option 3: [Another plausible alternative] — Pros, Cons, Best For (80 words)\n"
+            f"3. <h2> Option 1: [Shortened name of '{title}'] — What I Love + Who It's For (100 words, do NOT include HTML links)\n"
+            f"4. <h2> Option 2: [Shortened name of '{alt1_title}'] — Pros, Cons, Best For (80 words). Price: ${alt1_price}\n"
+            f"5. <h2> Option 3: [Shortened name of '{alt2_title}'] — Pros, Cons, Best For (80 words). Price: ${alt2_price}\n"
             f"6. <h2> Quick Comparison Table (HTML table: Style | Best For | Price Range | Verdict)\n"
             f"7. <h2> My Honest Verdict — The Winner for Most Women (80 words, direct recommendation)\n"
             f"8. <p> CTA to shop [Shortened Product Name] + price, do NOT include HTML links\n"
@@ -586,10 +606,10 @@ def _make_tags(product: dict, fmt: str, keyword: str) -> list[str]:
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
-def run(count: int = 1, dry_run: bool = False):
+def run(count: int = 1, dry_run: bool = False, publish: bool = False):
     print(f"\n{'='*62}")
     print(f"  MeeeShop Blog Automation — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"  Posts: {count} | Dry-run: {dry_run}")
+    print(f"  Posts: {count} | Dry-run: {dry_run} | Publish: {publish}")
     print(f"{'='*62}\n")
 
     print("Fetching products…")
@@ -626,8 +646,8 @@ def run(count: int = 1, dry_run: bool = False):
         blog = get_or_create_blog(product.get("product_type", ""), all_blogs) if not dry_run else {"id": 0, "title": "DRY-RUN"}
         print(f"  Blog   : {blog['title']}")
 
-        # Generate content
-        prompt, h1_hint = _build_prompt(fmt, product, keyword)
+        # Generate content — pass full pool as similar_products for comparison format
+        prompt, h1_hint = _build_prompt(fmt, product, keyword, similar_products=pool)
         print("  Generating content…")
         html_body = ai_client.generate(prompt, max_tokens=1600, temperature=0.75)
 
@@ -658,11 +678,13 @@ def run(count: int = 1, dry_run: bool = False):
         tags = _make_tags(product, fmt, keyword)
         print(f"  Title     : {post_title[:80]}")
 
-        # Publish
+        # Publish (or save as draft)
+        status_label = "live" if publish else "DRAFT (review in Shopify Admin before publishing)"
+        print(f"  Status    : {status_label}")
         article = publish_article(
             blog, post_title, html_body, tags,
             img_url, seo["img_alt"], seo["meta_desc"],
-            dry_run,
+            dry_run, publish=publish,
         )
 
         # Set SEO metafields (title_tag + description_tag) after creation
@@ -675,9 +697,14 @@ def run(count: int = 1, dry_run: bool = False):
         print()
         time.sleep(1.0)
 
-    print(f"Done — {created}/{count} blog posts published live.")
+    result_label = "published live" if publish else "saved as DRAFT"
+    print(f"Done — {created}/{count} blog posts {result_label}.")
     if not dry_run:
-        print(f"View at: https://{SHOP}/blogs\n")
+        if publish:
+            print(f"View at: https://{SHOP}/blogs\n")
+        else:
+            print(f"Review drafts at: https://{SHOP}/admin/articles\n")
+            print("Tip: add --publish flag to go live immediately (use after reviewing content)\n")
 
 
 if __name__ == "__main__":
@@ -687,7 +714,9 @@ if __name__ == "__main__":
         pass
 
     ap = argparse.ArgumentParser(description="MeeeShop Google Discover blog generator")
-    ap.add_argument("--dry-run", action="store_true", help="Print only, no publishing")
-    ap.add_argument("--count",   type=int, default=1,  help="Number of posts to create (default 1)")
+    ap.add_argument("--dry-run",  action="store_true", help="Print only, no publishing")
+    ap.add_argument("--count",    type=int, default=1,  help="Number of posts to create (default 1)")
+    ap.add_argument("--publish",  action="store_true",
+                    help="Publish immediately (default: save as DRAFT for human review)")
     args = ap.parse_args()
-    run(count=args.count, dry_run=args.dry_run)
+    run(count=args.count, dry_run=args.dry_run, publish=args.publish)
