@@ -28,6 +28,11 @@ on:
           - daily    # Last 48 hours
           - weekly   # Last 7 days
           - force    # Full store normalization (all items, batched)
+      only_images:
+        description: 'Only update image filenames/ALTs (skips titles, descriptions, handles, metafields)'
+        required: false
+        default: false
+        type: boolean
 
 env:
   PYTHONUTF8: "1"
@@ -130,14 +135,17 @@ jobs:
         env:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+          ONLY_IMAGES: ${{ github.event.inputs.only_images }}
         run: |
           MODE="${{ needs.setup.outputs.mode }}"
           echo "Running SEO automation in $MODE mode for ${{ matrix.resource }} (batch index ${{ matrix.batch_index }})..."
-          python scripts/seo_daily.py \
-            --${MODE} \
-            --batch-size ${{ env.BATCH_SIZE }} \
-            --batch-index ${{ matrix.batch_index }} \
-            --resource ${{ matrix.resource }}
+          
+          CMD="python scripts/seo_daily.py --${MODE} --batch-size ${{ env.BATCH_SIZE }} --batch-index ${{ matrix.batch_index }} --resource ${{ matrix.resource }}"
+          if [ "$ONLY_IMAGES" = "true" ]; then
+            CMD="$CMD --only-images"
+          fi
+          
+          eval $CMD
 
       - name: Upload SEO report
         if: always()
