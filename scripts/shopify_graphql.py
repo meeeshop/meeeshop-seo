@@ -60,11 +60,16 @@ def fetch_products_graphql(hours: int = 0) -> List[Dict]:
             updatedAt
             bodyHtml
             status
-            images(first: 3) {
+            media(first: 3) {
               edges {
                 node {
                   id
-                  src
+                  mediaContentType
+                  ... on MediaImage {
+                    image {
+                      url
+                    }
+                  }
                 }
               }
             }
@@ -155,7 +160,14 @@ def fetch_products_graphql(hours: int = 0) -> List[Dict]:
                 "updated_at": node["updatedAt"],
                 "body_html": node["bodyHtml"] or "",
                 "available": has_stock,
-                "images": [{"id": parse_gid(img["node"]["id"]), "src": img["node"]["src"]} for img in node["images"]["edges"]],
+                "images": [
+                     {
+                         "id": parse_gid(img["node"]["id"]),
+                         "src": img["node"]["image"]["url"] if img["node"].get("image") else ""
+                     }
+                     for img in node["media"]["edges"]
+                     if img["node"].get("mediaContentType") == "IMAGE"
+                 ],
                 "variants": [
                     {
                         "id": parse_gid(v["node"]["id"]),
