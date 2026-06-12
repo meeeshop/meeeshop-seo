@@ -83,6 +83,7 @@ jobs:
           echo "batches_json=$JSON" >> "$GITHUB_OUTPUT"
 
       - name: Set dummy batches (non-force)
+        id: build_matrix
         if: steps.detect.outputs.mode != 'force'
         run: echo 'batches_json=[{"resource":"all","batch_index":0}]' >> "$GITHUB_OUTPUT"
 
@@ -97,7 +98,7 @@ jobs:
       fail-fast: false
       max-parallel: 1  # Sequential execution to avoid Shopify API rate limits
       matrix:
-        include: ${{ fromJson(needs.setup.outputs.batches_json) }}
+        include: ${{ fromJson(needs.setup.outputs.batches_json || '[{"resource":"all","batch_index":0}]') }}
 
     steps:
       - uses: actions/checkout@v4
