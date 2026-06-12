@@ -21,6 +21,12 @@ import os, re, json, time, argparse, sys
 import requests
 from datetime import datetime, timedelta, timezone
 
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
+if sys.stderr.encoding != 'utf-8':
+    sys.stderr.reconfigure(encoding='utf-8')
+
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from secrets_manager import inject_to_env, get_secret
 inject_to_env()
@@ -501,7 +507,7 @@ def set_seo_metafields(resource_path, rid, meta_title, meta_desc, existing_mfs=N
 
 
 # ── Image alt text ────────────────────────────────────────────────────────────
-def update_image_alt(pid, iid, alt, src=None):
+def update_image_alt(pid, iid, alt, src=None, idx=0):
     """Update product image alt text and filename via GraphQL."""
     from shopify_graphql import make_gid, run_graphql
     product_gid = make_gid("product", pid)
@@ -545,7 +551,13 @@ def update_image_alt(pid, iid, alt, src=None):
             ext = base.rsplit('.', 1)[1].lower()
             # Generate optimized filename slug from the new alt text
             slug = slugify(alt)
-            new_filename = f"{slug[:80]}.{ext}"
+            # Ensure unique filename by appending a portion of the media image ID
+            media_suffix = str(iid)[-6:] if iid else str(int(time.time() * 1000))[-6:]
+            if idx > 0:
+                slug = f"{slug[:50].strip('-')}-view-{idx+1}-{media_suffix}"
+            else:
+                slug = f"{slug[:50].strip('-')}-{media_suffix}"
+            new_filename = f"{slug}.{ext}"
             
             # Skip if the current filename already contains the first 30 chars of the new slug
             current_name = base.rsplit('.', 1)[0].lower()
@@ -1049,7 +1061,7 @@ def process(product, stats, log, existing_mfs=None, force=False):
             if not m['before']:
                 missing.append(f"img[{i}] alt (missing)")
             img_src = next((img['src'] for img in product.get('images', []) if img.get('id') == iid), None)
-            if update_image_alt(pid, iid, m['after'], img_src):
+            if update_image_alt(pid, iid, m['after'], img_src, idx=i):
                 stats['alts'] += 1
                 changes.append({"field": f"img_alt[{i}]", "before": m['before'][:50], "after": m['after'][:50]})
 
