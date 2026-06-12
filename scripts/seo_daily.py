@@ -501,12 +501,13 @@ def set_seo_metafields(resource_path, rid, meta_title, meta_desc, existing_mfs=N
 
 
 # ── Image alt text ────────────────────────────────────────────────────────────
-def update_image_alt(pid, iid, alt):
-    """Update product image alt text via GraphQL."""
+def update_image_alt(pid, iid, alt, src=None):
+    """Update product image alt text and filename via GraphQL."""
     from shopify_graphql import make_gid, run_graphql
     product_gid = make_gid("product", pid)
     media_gid = f"gid://shopify/MediaImage/{iid}"
     
+    # 1. Update Alt Text via productUpdateMedia
     query = """
     mutation productUpdateMedia($productId: ID!, $media: [UpdateMediaInput!]!) {
       productUpdateMedia(productId: $productId, media: $media) {
@@ -524,16 +525,58 @@ def update_image_alt(pid, iid, alt):
             }
         ]
     }
+    success = True
     try:
         res = run_graphql(query, variables)
         errors = res.get("data", {}).get("productUpdateMedia", {}).get("userErrors", [])
         if errors:
             print(f"[GraphQL] Errors updating image alt for {media_gid}: {errors}", file=sys.stderr)
-            return False
-        return True
+            success = False
     except Exception as e:
         print(f"[GraphQL] Exception updating image alt for {media_gid}: {e}", file=sys.stderr)
-        return False
+        success = False
+
+    # 2. Update Filename via fileUpdate if src (CDN URL) is provided
+    if src and success:
+        # Extract original filename and extension
+        clean_url = src.split('?')[0]
+        base = clean_url.split('/')[-1]
+        if '.' in base:
+            ext = base.rsplit('.', 1)[1].lower()
+            # Generate optimized filename slug from the new alt text
+            slug = slugify(alt)
+            new_filename = f"{slug[:80]}.{ext}"
+            
+            # Skip if the current filename already contains the first 30 chars of the new slug
+            current_name = base.rsplit('.', 1)[0].lower()
+            if slug[:30] not in current_name:
+                query_file = """
+                mutation fileUpdate($files: [FileUpdateInput!]!) {
+                  fileUpdate(files: $files) {
+                    files { id filename }
+                    userErrors { field message }
+                  }
+                }
+                """
+                variables_file = {
+                    "files": [
+                        {
+                            "id": media_gid,
+                            "filename": new_filename
+                        }
+                    ]
+                }
+                try:
+                    res_file = run_graphql(query_file, variables_file)
+                    errors_file = res_file.get("data", {}).get("fileUpdate", {}).get("userErrors", [])
+                    if errors_file:
+                        print(f"[GraphQL] Errors updating filename for {media_gid}: {errors_file}", file=sys.stderr)
+                    else:
+                        print(f"  + Filename updated: '{base}' -> '{new_filename}'")
+                except Exception as e:
+                    print(f"[GraphQL] Exception updating filename for {media_gid}: {e}", file=sys.stderr)
+
+    return success
 
 
 # ── Redirects ─────────────────────────────────────────────────────────────────
@@ -1005,7 +1048,8 @@ def process(product, stats, log, existing_mfs=None, force=False):
             iid = m['_img_id']
             if not m['before']:
                 missing.append(f"img[{i}] alt (missing)")
-            if update_image_alt(pid, iid, m['after']):
+            img_src = next((img['src'] for img in product.get('images', []) if img.get('id') == iid), None)
+            if update_image_alt(pid, iid, m['after'], img_src):
                 stats['alts'] += 1
                 changes.append({"field": f"img_alt[{i}]", "before": m['before'][:50], "after": m['after'][:50]})
 
