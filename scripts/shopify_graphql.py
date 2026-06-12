@@ -60,7 +60,7 @@ def fetch_products_graphql(hours: int = 0, query_by_updated: bool = True) -> Lis
             updatedAt
             bodyHtml
             status
-            media(first: 50) {
+            media(first: 100) {
               edges {
                 node {
                   id
@@ -132,7 +132,7 @@ def fetch_products_graphql(hours: int = 0, query_by_updated: bool = True) -> Lis
     cursor = None
     
     while has_next:
-        variables = {"first": 250, "after": cursor, "queryStr": query_str}
+        variables = {"first": 100, "after": cursor, "queryStr": query_str}
         res = run_graphql(query, variables)
         data = res.get("data", {}).get("products", {})
         
