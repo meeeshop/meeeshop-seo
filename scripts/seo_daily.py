@@ -1120,7 +1120,7 @@ def main():
     if args.resource in ('all', 'products'):
         print("Fetching products...")
         from shopify_graphql import fetch_products_graphql
-        products = fetch_products_graphql(hours)
+        products = fetch_products_graphql(hours, query_by_updated=False)
         total_fetched = len(products)
         if mode == 'force' and args.batch_size > 0:
             start = args.batch_index * args.batch_size
