@@ -117,9 +117,28 @@ def make_request_with_retry(method: str, url: str, max_retries: int = MAX_RETRIE
 # ══════════════════════════════════════════════════════════════════════════════
 
 def product_schema(product: Dict) -> Dict:
-    """Generate complete Product schema with all required fields"""
+    """Generate complete Product schema with all Merchant Listings required fields.
+
+    Required for GSC Merchant Listings (distinct from Product Snippets):
+      - shippingDetails  (OfferShippingDetails)
+      - hasMerchantReturnPolicy (MerchantReturnPolicy)
+      - priceValidUntil
+      - gtin / mpn  (per-variant identifiers)
+    """
     vendor = product.get('vendor', 'Unknown')
     description = product.get('body_html', '').replace('<p>', '').replace('</p>', '').strip()[:160]
+
+    # Extract variant-level identifiers from the first variant
+    first_variant = product.get('variants', [{}])[0]
+    barcode = first_variant.get('barcode', '') or ''
+    sku     = first_variant.get('sku', '') or ''
+    price   = str(first_variant.get('price', '0'))
+
+    # Validate GTIN — must be 8, 12, 13, or 14 numeric digits
+    gtin = barcode if (barcode.isdigit() and len(barcode) in (8, 12, 13, 14)) else ''
+
+    # priceValidUntil: set to Dec 31 of next calendar year
+    price_valid_until = f"{datetime.now().year + 1}-12-31"
 
     schema = {
         "@context": "https://schema.org/",
@@ -139,16 +158,59 @@ def product_schema(product: Dict) -> Dict:
             "@type": "Offer",
             "url": f"{SITE}/products/{product.get('handle', '')}",
             "priceCurrency": "USD",
-            "price": str(product.get('variants', [{}])[0].get('price', '0')),
+            "price": price,
+            "priceValidUntil": price_valid_until,
             "availability": f"https://schema.org/{'InStock' if product.get('available') else 'OutOfStock'}",
             "seller": {
                 "@type": "Organization",
                 "name": BRAND
+            },
+            # ── Merchant Listings required fields ──────────────────────────────
+            "shippingDetails": {
+                "@type": "OfferShippingDetails",
+                "shippingDestination": {
+                    "@type": "DefinedRegion",
+                    "addressCountry": "US"
+                },
+                "shippingRate": {
+                    "@type": "MonetaryAmount",
+                    "value": "0.00",
+                    "currency": "USD"
+                },
+                "deliveryTime": {
+                    "@type": "ShippingDeliveryTime",
+                    "handlingTime": {
+                        "@type": "QuantitativeValue",
+                        "minValue": 0,
+                        "maxValue": 1,
+                        "unitCode": "DAY"
+                    },
+                    "transitTime": {
+                        "@type": "QuantitativeValue",
+                        "minValue": 2,
+                        "maxValue": 5,
+                        "unitCode": "DAY"
+                    }
+                }
+            },
+            "hasMerchantReturnPolicy": {
+                "@type": "MerchantReturnPolicy",
+                "applicableCountry": "US",
+                "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+                "merchantReturnDays": 7,
+                "returnMethod": "https://schema.org/ReturnByMail",
+                "returnFees": "https://schema.org/FreeReturn"
             }
         },
         "sku": str(product.get('id', '')),
         "url": f"{SITE}/products/{product.get('handle', '')}"
     }
+
+    # Add variant-level identifiers if available
+    if gtin:
+        schema["offers"]["gtin"] = gtin
+    if sku:
+        schema["offers"]["mpn"] = sku
 
     # Add rating if reviews exist
     if product.get('rating_count', 0) > 0:
@@ -288,9 +350,24 @@ def validate_schema(schema: Dict, resource_type: str) -> Tuple[bool, List[str]]:
     if schema_type == "Product":
         if "offers" in schema:
             offer = schema["offers"]
-            for req in ["priceCurrency", "price", "availability"]:
-                if req not in offer:
-                    errors.append(f"Offer missing: {req}")
+            offers_list = offer if isinstance(offer, list) else [offer]
+            for idx, off in enumerate(offers_list):
+                if not isinstance(off, dict):
+                    errors.append(f"Offer[{idx}] is not a dict")
+                    continue
+                for req in ["priceCurrency", "price", "availability"]:
+                    if req not in off or not off[req]:
+                        errors.append(f"Offer[{idx}] missing: {req}")
+                if "shippingDetails" not in off:
+                    errors.append(f"Offer[{idx}] missing: shippingDetails")
+                else:
+                    sd = off["shippingDetails"]
+                    if not isinstance(sd, dict):
+                        errors.append(f"Offer[{idx}].shippingDetails is not a dict")
+                    elif "deliveryTime" not in sd:
+                        errors.append(f"Offer[{idx}].shippingDetails missing: deliveryTime")
+                if "hasMerchantReturnPolicy" not in off:
+                    errors.append(f"Offer[{idx}] missing: hasMerchantReturnPolicy")
 
     return len(errors) == 0, errors
 
@@ -309,183 +386,50 @@ def schema_exists(metafields: List[Dict], namespace: str, key: str) -> bool:
 
 def get_products(hours: int = 0) -> List[Dict]:
     """Fetch products created since cutoff (last N hours). 0 = all products."""
-    url = f"{BASE}/products.json"
-    params = {"limit": 250, "status": "active"}
-
-    # Add time filter if hours specified
-    if hours > 0:
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        params["created_at_min"] = cutoff
-        logger.debug(f"Filtering products created since {cutoff}")
-
-    all_products = []
-    page_count = 0
-
-    while True:
-        page_count += 1
-        resp = make_request_with_retry("get", url, params=params)
-
-        if resp is None:
-            logger.error(f"Failed to fetch products page {page_count}")
-            if page_count == 1:
-                validation_health["fatal_error"] = True
-            break
-
-        try:
-            data = resp.json()
-            products = data.get("products", [])
-
-            if not products:
-                break
-
-            all_products.extend(products)
-            logger.debug(f"Fetched {len(products)} products on page {page_count}")
-
-            # Parse Link header for next page
-            link_header = resp.headers.get("Link", "")
-            if not link_header:
-                break
-
-            next_url = None
-            for link in link_header.split(","):
-                if 'rel="next"' in link:
-                    next_url = link.split(";")[0].strip().strip("<>")
-                    break
-
-            if next_url:
-                url = next_url
-                params = {}  # URL already contains all params
-            else:
-                break
-
-        except Exception as e:
-            logger.error(f"Error parsing products page {page_count}: {e}")
-            validation_health["critical_errors"] += 1
-            break
-
-    cutoff_desc = f"(created in last {hours}h)" if hours > 0 else "(all products)"
-    logger.info(f"Fetched {len(all_products)} products across {page_count} pages {cutoff_desc}")
-    return all_products
+    from shopify_graphql import fetch_products_graphql
+    products = fetch_products_graphql(hours)
+    logger.info(f"Fetched {len(products)} products (GraphQL)")
+    return products
 
 
 def get_collections(hours: int = 0) -> List[Dict]:
     """Fetch both custom and smart collections created since cutoff. 0 = all collections."""
-    params = {"limit": 250}
-    if hours > 0:
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        params["created_at_min"] = cutoff
-
-    all_collections = []
-
-    # 1. Custom Collections
-    url = f"{BASE}/custom_collections.json"
-    resp = make_request_with_retry("get", url, params=params)
-    if resp is not None:
-        try:
-            all_collections.extend(resp.json().get("custom_collections", []))
-        except Exception as e:
-            logger.error(f"Error parsing custom collections: {e}")
-
-    # 2. Smart Collections
-    url = f"{BASE}/smart_collections.json"
-    resp = make_request_with_retry("get", url, params=params)
-    if resp is not None:
-        try:
-            all_collections.extend(resp.json().get("smart_collections", []))
-        except Exception as e:
-            logger.error(f"Error parsing smart collections: {e}")
-
-    cutoff_desc = f"(created in last {hours}h)" if hours > 0 else "(all collections)"
-    logger.info(f"Fetched {len(all_collections)} collections (custom + smart) {cutoff_desc}")
-    return all_collections
+    from shopify_graphql import fetch_collections_graphql
+    collections = fetch_collections_graphql(hours)
+    logger.info(f"Fetched {len(collections)} collections (GraphQL)")
+    return collections
 
 
 def get_pages(hours: int = 0) -> List[Dict]:
     """Fetch pages created since cutoff. 0 = all pages."""
-    url = f"{BASE}/pages.json"
-    params = {"limit": 250}
+    from shopify_graphql import fetch_pages_graphql
+    pages = fetch_pages_graphql(hours)
+    logger.info(f"Fetched {len(pages)} pages (GraphQL)")
+    return pages
 
-    # Add time filter if hours specified
-    if hours > 0:
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        params["created_at_min"] = cutoff
-        logger.debug(f"Filtering pages created since {cutoff}")
 
-    resp = make_request_with_retry("get", url, params=params)
-    if resp is None:
-        logger.error("Failed to fetch pages")
-        validation_health["critical_errors"] += 1
-        return []
-    try:
-        pages = resp.json().get("pages", [])
-        cutoff_desc = f"(created in last {hours}h)" if hours > 0 else "(all pages)"
-        logger.info(f"Fetched {len(pages)} pages {cutoff_desc}")
-        return pages
-    except Exception as e:
-        logger.error(f"Error parsing pages: {e}")
-        validation_health["critical_errors"] += 1
-        return []
-
+_cached_articles = {}
 
 def get_blog_articles(blog_id: str, hours: int = 0) -> List[Dict]:
     """Fetch articles from a blog created since cutoff. 0 = all articles."""
-    url = f"{BASE}/blogs/{blog_id}/articles.json"
-    params = {"limit": 250}
-
-    # Add time filter if hours specified
-    if hours > 0:
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        params["created_at_min"] = cutoff
-        logger.debug(f"Filtering articles created since {cutoff}")
-
-    resp = make_request_with_retry("get", url, params=params)
-    if resp is None:
-        logger.error(f"Failed to fetch articles from blog {blog_id}")
-        validation_health["critical_errors"] += 1
-        return []
-    try:
-        articles = resp.json().get("articles", [])
-        cutoff_desc = f"(created in last {hours}h)" if hours > 0 else "(all articles)"
-        logger.info(f"Fetched {len(articles)} articles {cutoff_desc}")
-        return articles
-    except Exception as e:
-        logger.error(f"Error parsing articles from blog {blog_id}: {e}")
-        validation_health["critical_errors"] += 1
-        return []
+    from shopify_graphql import fetch_articles_graphql
+    cache_key = (hours,)
+    if cache_key not in _cached_articles:
+        _cached_articles[cache_key] = fetch_articles_graphql(hours)
+    filtered = [a for a in _cached_articles[cache_key] if a.get("blog_id") == int(blog_id)]
+    logger.info(f"Fetched {len(filtered)} articles for blog {blog_id} (GraphQL)")
+    return filtered
 
 
 def set_metafield(resource_type: str, resource_id: str, schema: Dict) -> bool:
-    """Add/update schema as metafield with retry logic"""
-    url = f"{BASE}/{resource_type.lower()}s/{resource_id}/metafields.json"
-
-    metafield = {
-        "metafield": {
-            "namespace": "json_ld_schema",
-            "key": f"{schema.get('@type', 'unknown').lower()}",
-            "type": "json",
-            "value": json.dumps(schema)
-        }
-    }
-
-    resp = make_request_with_retry("post", url, json=metafield)
-
-    if resp is None:
-        logger.error(f"Failed to set metafield for {resource_type} {resource_id} after retries")
+    """Add/update schema as metafield using GraphQL"""
+    from shopify_graphql import set_metafield_graphql
+    key = f"{schema.get('@type', 'unknown').lower()}"
+    success = set_metafield_graphql(resource_type, int(resource_id), key, schema)
+    if not success:
+        logger.error(f"Failed to set metafield for {resource_type} {resource_id}")
         validation_health["critical_errors"] += 1
-        return False
-
-    if resp.status_code >= 400:
-        logger.error(f"Failed to set metafield for {resource_type} {resource_id}: {resp.status_code} {resp.reason}")
-        validation_health["critical_errors"] += 1
-        return False
-
-    try:
-        resp.raise_for_status()
-        return True
-    except Exception as e:
-        logger.error(f"Failed to set metafield for {resource_type} {resource_id}: {e}")
-        validation_health["critical_errors"] += 1
-        return False
+    return success
 
 
 # ══════════════════════════════════════════════════════════════════════════════

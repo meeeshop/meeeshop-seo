@@ -118,12 +118,29 @@ def _issues(schema: Any) -> List[str]:
     for field in REQUIRED.get(stype, []):
         if field not in schema or schema[field] in (None, "", [], {}):
             issues.append(f"missing '{field}'")
-    if stype == "Product" and "offers" in schema:
-        offer = schema["offers"]
-        if isinstance(offer, dict):
-            for req in ("priceCurrency", "price", "availability"):
-                if req not in offer or not offer[req]:
-                    issues.append(f"offers missing '{req}'")
+    if stype == "Product":
+        offers = schema.get("offers")
+        if not offers:
+            issues.append("missing 'offers'")
+        else:
+            offers_list = offers if isinstance(offers, list) else [offers]
+            for idx, offer in enumerate(offers_list):
+                if not isinstance(offer, dict):
+                    issues.append(f"offer[{idx}] is not a dict")
+                    continue
+                for req in ("priceCurrency", "price", "availability"):
+                    if req not in offer or not offer[req]:
+                        issues.append(f"offer[{idx}] missing '{req}'")
+                if "shippingDetails" not in offer:
+                    issues.append(f"offer[{idx}] missing 'shippingDetails'")
+                else:
+                    sd = offer["shippingDetails"]
+                    if not isinstance(sd, dict):
+                        issues.append(f"offer[{idx}].shippingDetails is not a dict")
+                    elif "deliveryTime" not in sd:
+                        issues.append(f"offer[{idx}].shippingDetails missing 'deliveryTime'")
+                if "hasMerchantReturnPolicy" not in offer:
+                    issues.append(f"offer[{idx}] missing 'hasMerchantReturnPolicy'")
     return issues
 
 
@@ -133,9 +150,67 @@ def _product_schema(p: Dict) -> Dict:
     vendor = p.get("vendor", BRAND)
     desc   = re.sub(r'<[^>]+>', '', p.get("body_html") or "").strip()[:500]
     variants = p.get("variants") or [{}]
-    prices = [float(v.get("price", 0)) for v in variants if v.get("price")]
-    low    = f"{min(prices):.2f}" if prices else "0.00"
-    high   = f"{max(prices):.2f}" if prices else "0.00"
+    price_valid_until = f"{datetime.now().year + 1}-12-31"
+    
+    offers_list = []
+    for v in variants:
+        barcode = v.get("barcode", "") or ""
+        sku = v.get("sku", "") or ""
+        gtin = barcode if (barcode.isdigit() and len(barcode) in (8, 12, 13, 14)) else ''
+        
+        offer = {
+            "@type": "Offer",
+            "price": str(v.get("price", "0")),
+            "priceCurrency": "USD",
+            "priceValidUntil": price_valid_until,
+            "availability": f"https://schema.org/{'InStock' if v.get('inventory_quantity', 1) > 0 else 'OutOfStock'}",
+            "url": f"{SITE}/products/{p.get('handle', '')}?variant={v.get('id', '')}",
+            "seller": {"@type": "Organization", "name": BRAND},
+            # ── Merchant Listings required fields ──────────────────────────────
+            "shippingDetails": {
+                "@type": "OfferShippingDetails",
+                "shippingDestination": {
+                    "@type": "DefinedRegion",
+                    "addressCountry": "US"
+                },
+                "shippingRate": {
+                    "@type": "MonetaryAmount",
+                    "value": "0.00",
+                    "currency": "USD"
+                },
+                "deliveryTime": {
+                    "@type": "ShippingDeliveryTime",
+                    "handlingTime": {
+                        "@type": "QuantitativeValue",
+                        "minValue": 0,
+                        "maxValue": 1,
+                        "unitCode": "DAY"
+                    },
+                    "transitTime": {
+                        "@type": "QuantitativeValue",
+                        "minValue": 2,
+                        "maxValue": 5,
+                        "unitCode": "DAY"
+                    }
+                }
+            },
+            "hasMerchantReturnPolicy": {
+                "@type": "MerchantReturnPolicy",
+                "applicableCountry": "US",
+                "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+                "merchantReturnDays": 7,
+                "returnMethod": "https://schema.org/ReturnByMail",
+                "returnFees": "https://schema.org/FreeReturn"
+            }
+        }
+        if gtin:
+            offer["gtin"] = gtin
+        if sku:
+            offer["mpn"] = sku
+            offer["sku"] = sku
+        
+        offers_list.append(offer)
+
     return {
         "@context": "https://schema.org/",
         "@type": "Product",
@@ -144,19 +219,10 @@ def _product_schema(p: Dict) -> Dict:
         "url": f"{SITE}/products/{p.get('handle', '')}",
         "image": [img["src"] for img in (p.get("images") or [])[:3] if img.get("src")],
         "brand": {"@type": "Brand", "name": vendor},
-        "offers": [
-            {
-                "@type": "Offer",
-                "sku": str(v.get("sku") or ""),
-                "price": str(v.get("price", "0")),
-                "priceCurrency": "USD",
-                "availability": f"https://schema.org/{'InStock' if v.get('inventory_quantity', 1) > 0 else 'OutOfStock'}",
-                "url": f"{SITE}/products/{p.get('handle', '')}?variant={v.get('id', '')}",
-                "seller": {"@type": "Organization", "name": BRAND}
-            }
-            for v in variants
-        ]
+        "sku": str(p.get("id", "")),
+        "offers": offers_list
     }
+
 
 
 def _collection_schema(c: Dict) -> Dict:
@@ -219,22 +285,14 @@ def get_metafields(resource_type: str, rid: int) -> List[Dict]:
 
 
 def delete_metafield(mf_id: int) -> bool:
-    resp = _req("delete", f"{BASE}/metafields/{mf_id}.json")
-    return resp is not None
+    from shopify_graphql import delete_metafield_graphql
+    return delete_metafield_graphql(mf_id)
 
 
 def upsert_schema_metafield(resource_type: str, rid: int, key: str, schema: Dict,
                              existing_mf: Optional[Dict] = None) -> bool:
-    value = json.dumps(schema, ensure_ascii=False)
-    if existing_mf:
-        url  = f"{BASE}/metafields/{existing_mf['id']}.json"
-        body = {"metafield": {"id": existing_mf["id"], "value": value, "type": "json"}}
-        resp = _req("put", url, json=body)
-    else:
-        url  = f"{BASE}/{resource_type}s/{rid}/metafields.json"
-        body = {"metafield": {"namespace": "json_ld_schema", "key": key, "type": "json", "value": value}}
-        resp = _req("post", url, json=body)
-    return resp is not None
+    from shopify_graphql import set_metafield_graphql
+    return set_metafield_graphql(resource_type, rid, key, schema)
 
 
 # ── Core fix logic ────────────────────────────────────────────────────────────
@@ -247,7 +305,9 @@ def fix_resource(resource_type: str, resource: Dict, extra=None) -> int:
     """
     rid   = resource["id"]
     title = resource.get("title", str(rid))
-    mfs   = get_metafields(resource_type, rid)
+    mfs   = resource.get("metafields")
+    if mfs is None:
+        mfs = get_metafields(resource_type, rid)
     fixes = 0
 
     for mf in mfs:
@@ -320,18 +380,13 @@ def fix_resource(resource_type: str, resource: Dict, extra=None) -> int:
 
 def run(mode: str, batch_size: int = 0, batch_index: int = 0, resource: str = "all"):
     hours = 48 if mode == "daily" else 0
-    cutoff_params = {}
-    if hours:
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        cutoff_params = {"updated_at_min": cutoff}
-
     logger.info(f"Schema Fixer — mode={mode}")
 
     # Products
     if resource in ("all", "products"):
         logger.info("Scanning products...")
-        products = get_all_pages(f"{BASE}/products.json", "products",
-                                 {"status": "active", **cutoff_params})
+        from shopify_graphql import fetch_products_graphql
+        products = fetch_products_graphql(hours)
         if mode in ('force', 'weekly') and batch_size > 0:
             start = batch_index * batch_size
             end = start + batch_size
@@ -345,30 +400,26 @@ def run(mode: str, batch_size: int = 0, batch_index: int = 0, resource: str = "a
     # Collections
     if resource in ("all", "collections"):
         logger.info("Scanning collections...")
-        colls = get_all_pages(f"{BASE}/custom_collections.json", "custom_collections", cutoff_params.copy())
-        colls.extend(get_all_pages(f"{BASE}/smart_collections.json", "smart_collections", cutoff_params.copy()))
+        from shopify_graphql import fetch_collections_graphql
+        colls = fetch_collections_graphql(hours)
         for c in colls:
             fix_resource("collection", c)
 
     # Pages
     if resource in ("all", "pages"):
         logger.info("Scanning pages...")
-        pages = get_all_pages(f"{BASE}/pages.json", "pages", cutoff_params.copy())
+        from shopify_graphql import fetch_pages_graphql
+        pages = fetch_pages_graphql(hours)
         for p in pages:
             fix_resource("page", p)
 
     # Blog articles
     if resource in ("all", "blogs"):
         logger.info("Scanning blog articles...")
-        blogs_resp = _req("get", f"{BASE}/blogs.json", params={"limit": 50})
-        blogs = blogs_resp.json().get("blogs", []) if blogs_resp else []
-        for blog in blogs:
-            articles = get_all_pages(
-                f"{BASE}/blogs/{blog['id']}/articles.json", "articles",
-                {"limit": 250, **cutoff_params}
-            )
-            for a in articles:
-                fix_resource("article", a, extra=blog["handle"])
+        from shopify_graphql import fetch_articles_graphql
+        articles = fetch_articles_graphql(hours)
+        for a in articles:
+            fix_resource("article", a, extra=a["blog_handle"])
 
     # Report
     print("\n" + "=" * 60)

@@ -157,19 +157,19 @@ def get_products(mode: str, window_hours: Optional[int] = None) -> List[Dict]:
     """
     Fetch active products filtered by creation date.
 
-    daily              -> last 48 hours (or --window override)
-    weekly             -> last 7 days
+    daily              -> last 24 hours (or --window override)
+    weekly             -> last 24 hours (or --window override)
     force              -> all active products (no date filter)
     --window <hours>   -> override fetch window for daily/weekly
     """
     now = datetime.now(timezone.utc)
     if mode == "daily":
-        hours = window_hours if window_hours is not None else 48
+        hours = window_hours if window_hours is not None else 24
         since = now - timedelta(hours=hours)
         date_filter = f" AND created_at:>={since.strftime('%Y-%m-%dT%H:%M:%SZ')}"
         window_label = f"last {hours} hours"
     elif mode == "weekly":
-        hours = window_hours * 24 if window_hours is not None else 7 * 24
+        hours = window_hours if window_hours is not None else 24
         since = now - timedelta(hours=hours)
         date_filter = f" AND created_at:>={since.strftime('%Y-%m-%dT%H:%M:%SZ')}"
         window_label = f"last {hours} hours"
@@ -269,18 +269,33 @@ def is_already_correct(price: float) -> bool:
 # Price update
 # ---------------------------------------------------------------------------
 
-def update_variant_price(variant_id: str, new_price: float) -> bool:
-    numeric_id = variant_id.split("/")[-1]
+def bulk_update_variants(product_id: str, variant_updates: List[Dict]) -> bool:
+    """Update multiple variant prices for a product in bulk via GraphQL."""
+    query = """
+    mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+        product { id }
+        productVariants { id price }
+        userErrors { field message }
+      }
+    }
+    """
+    variables = {
+        "productId": product_id,
+        "variants": [
+            {"id": vu["id"], "price": f"{vu['price']:.2f}"}
+            for vu in variant_updates
+        ]
+    }
     try:
-        _shopify_request(
-            "PUT",
-            f"variants/{numeric_id}",
-            {"variant": {"id": numeric_id, "price": f"{new_price:.2f}"}},
-        )
-        time.sleep(API_DELAY_SECONDS)
+        res = _shopify_graphql(query, variables)
+        errors = res.get("data", {}).get("productVariantsBulkUpdate", {}).get("userErrors", [])
+        if errors:
+            _log.error("[GraphQL] Errors bulk updating variants for %s: %s", product_id, errors)
+            return False
         return True
     except Exception as e:
-        print(f"    ERROR updating variant {numeric_id}: {e}")
+        _log.error("[GraphQL] Exception bulk updating variants for %s: %s", product_id, e)
         return False
 
 
@@ -321,7 +336,9 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
 
     for i, product in enumerate(slice_, 1):
         title = product.get("title", "Unknown")[:33]
+        product_id = product.get("id")
 
+        to_update = []
         for variant in product.get("variants", []):
             variant_id = variant.get("id", "")
             sku = variant.get("sku", "N/A")
@@ -356,20 +373,29 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
                 })
                 continue
 
-            success = update_variant_price(variant_id, new_price)
-            label = "UPDATED" if success else "ERROR"
-            print(f"{i:<5} | {title:<36} | ${current_price:>9.2f} | ${new_price:>9.2f} | {label}")
+            to_update.append({
+                "id": variant_id,
+                "price": new_price,
+                "sku": sku,
+                "old_price": current_price
+            })
 
-            entry = {
-                "sku": sku, "title": title, "variant_gid": variant_id,
-                "old_price": current_price, "new_price": new_price,
-                "status": "updated" if success else "error",
-            }
-            if success:
-                stats["updated"] += 1
-            else:
-                stats["errors"] += 1
-            stats["products"].append(entry)
+        if to_update:
+            success = bulk_update_variants(product_id, to_update)
+            label = "UPDATED" if success else "ERROR"
+
+            for item in to_update:
+                print(f"{i:<5} | {title:<36} | ${item['old_price']:>9.2f} | ${item['price']:>9.2f} | {label}")
+                entry = {
+                    "sku": item["sku"], "title": title, "variant_gid": item["id"],
+                    "old_price": item["old_price"], "new_price": item["price"],
+                    "status": "updated" if success else "error",
+                }
+                if success:
+                    stats["updated"] += 1
+                else:
+                    stats["errors"] += 1
+                stats["products"].append(entry)
 
     print("-" * len(col))
     print(f"\n[Done] {stats['updated']} updated, {stats['skipped']} skipped, {stats['errors']} errors")
@@ -381,11 +407,11 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
 # ---------------------------------------------------------------------------
 
 def load_recently_updated_ids(filepath: str = "price_update_log.json",
-                               within_hours: int = 23) -> set:
+                              within_hours: Optional[int] = None) -> set:
     """
-    Return a set of variant IDs (GID strings) that were successfully updated
-    within the last `within_hours` hours.  Used to skip re-updating on the
-    next daily run that overlaps the same 48-hour product window.
+    Return a set of variant IDs (GID strings) that were successfully updated.
+    If within_hours is provided, only retrieves those updated within the last
+    `within_hours` hours. Otherwise, retrieves ALL previously updated variant IDs.
     """
     log_path = Path(filepath)
     if not log_path.exists():
@@ -395,18 +421,22 @@ def load_recently_updated_ids(filepath: str = "price_update_log.json",
     except (json.JSONDecodeError, IOError):
         return set()
 
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=within_hours)
+    cutoff = None
+    if within_hours is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=within_hours)
+
     updated_ids: set = set()
     for entry in logs:
         ts_str = entry.get("timestamp", "")
-        try:
-            ts = datetime.fromisoformat(ts_str)
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
-        if ts < cutoff:
-            continue
+        if cutoff is not None:
+            try:
+                ts = datetime.fromisoformat(ts_str)
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            if ts < cutoff:
+                continue
         for p in entry.get("products", []):
             if p.get("status") == "updated" and p.get("variant_gid"):
                 updated_ids.add(p["variant_gid"])
@@ -495,13 +525,10 @@ if __name__ == "__main__":
             print("[Done] No products to process.")
             sys.exit(0)
 
-        # For daily runs, skip variants already updated in the last 23h so we
-        # don't re-update products that fall in the overlapping 48h window.
-        skip_ids: set = set()
-        if args.mode == "daily":
-            skip_ids = load_recently_updated_ids(within_hours=23)
-            if skip_ids:
-                print(f"[Skip] {len(skip_ids)} variant(s) already updated in last 23h — will skip\n")
+        # Skip variants already updated in any previous run
+        skip_ids = load_recently_updated_ids()
+        if skip_ids:
+            print(f"[Skip] {len(skip_ids)} variant(s) already updated in previous runs — will skip\n")
 
         stats = update_product_prices(
             products,

@@ -423,7 +423,7 @@ def generate_feed():
         "availability", "price", "condition", "brand", "gtin", "mpn",
         "identifier_exists", "google_product_category", "item_group_id", "gender", "age_group",
         "color", "size", "custom_label_0", "custom_label_1", "included_destination",
-        "shipping"
+        "shipping", "return_policy"
     ]
     
     rows = []
@@ -513,7 +513,7 @@ def generate_feed():
                 "price": price,
                 "condition": DEFAULT_CONDITION,
                 "brand": brand,
-                "gtin": gtin_value, # Using validated GTIN
+                "gtin": gtin_value,
                 "mpn": sku,
                 "identifier_exists": "yes" if gtin_value else "no",
                 "google_product_category": DEFAULT_GOOGLE_CATEGORY,
@@ -525,7 +525,11 @@ def generate_feed():
                 "custom_label_0": product_type,
                 "custom_label_1": first_tag,
                 "included_destination": "Shopping_ads,Free_listings",
-                "shipping": "US:::0.00 USD" # Default shipping for US, 0.00 price
+                "shipping": "US:::0.00 USD",
+                # Mandatory for Merchant Listings (organic Shopping surface in GSC).
+                # Format: [country]:[type]:[window_days]:[currency]:[cost]
+                # money_back = full refund, 7 = 7-day window, 0.00 USD = free return shipping
+                "return_policy": "US:money_back:7:USD:0.00"
             })
             
     # Write to TSV file

@@ -23,7 +23,7 @@ on:
         description: 'Dry run (Print plan, do NOT post)'
         type: boolean
         required: false
-        default: true
+        default: false
 
 jobs:
   sync_to_medium:
