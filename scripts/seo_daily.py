@@ -943,7 +943,11 @@ def validate_seo(item, item_type, existing_mfs):
             if opt and opt.lower() not in ('default title', 'default', ''):
                 colors.append(opt)
         for i, img in enumerate(item.get('images', [])):
-            hint = colors[i] if i < len(colors) else ''
+            matching_var = next((v for v in item.get('variants', []) if v.get('image_id') == img.get('id')), None)
+            if matching_var and matching_var.get('option1') and matching_var.get('option1').lower() not in ('default title', 'default', ''):
+                hint = matching_var.get('option1')
+            else:
+                hint = colors[i] if i < len(colors) else ''
             expected_alt = build_alt(title, hint, i)
             cur_alt = img.get('alt', '') or ''
             if cur_alt != expected_alt:

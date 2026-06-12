@@ -60,7 +60,7 @@ def fetch_products_graphql(hours: int = 0, query_by_updated: bool = True) -> Lis
             updatedAt
             bodyHtml
             status
-            media(first: 3) {
+            media(first: 50) {
               edges {
                 node {
                   id
@@ -81,6 +81,13 @@ def fetch_products_graphql(hours: int = 0, query_by_updated: bool = True) -> Lis
                   price
                   barcode
                   inventoryQuantity
+                  selectedOptions {
+                    name
+                    value
+                  }
+                  image {
+                    id
+                  }
                 }
               }
             }
@@ -178,7 +185,11 @@ def fetch_products_graphql(hours: int = 0, query_by_updated: bool = True) -> Lis
                         "sku": v["node"]["sku"] or "",
                         "price": v["node"]["price"],
                         "barcode": v["node"]["barcode"] or "",
-                        "inventory_quantity": v["node"].get("inventoryQuantity", 0)
+                        "inventory_quantity": v["node"].get("inventoryQuantity", 0),
+                        "option1": v["node"]["selectedOptions"][0]["value"] if v["node"].get("selectedOptions") and len(v["node"]["selectedOptions"]) > 0 else None,
+                        "option2": v["node"]["selectedOptions"][1]["value"] if v["node"].get("selectedOptions") and len(v["node"]["selectedOptions"]) > 1 else None,
+                        "option3": v["node"]["selectedOptions"][2]["value"] if v["node"].get("selectedOptions") and len(v["node"]["selectedOptions"]) > 2 else None,
+                        "image_id": parse_gid(v["node"]["image"]["id"]) if v["node"].get("image") else None
                     }
                     for v in node["variants"]["edges"]
                 ],
