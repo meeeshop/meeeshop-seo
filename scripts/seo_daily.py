@@ -966,58 +966,59 @@ def validate_seo(item, item_type, existing_mfs):
 # CORE PRODUCT PROCESSOR
 # ══════════════════════════════════════════════════════════════════════════════
 
-def process(product, stats, log, existing_mfs=None, force=False):
+def process(product, stats, log, existing_mfs=None, force=False, only_images=False):
     pid        = product['id']
     old_title  = product['title']
     old_handle = product['handle']
     changes    = []
     missing    = []
 
-    # ── 1. Title Case ─────────────────────────────────────────────────────────
-    new_title    = title_case(old_title)
     prod_updates = {}
-    if new_title != old_title:
-        prod_updates['title'] = new_title
-        stats['titles'] += 1
-        changes.append({"field": "title", "before": old_title, "after": new_title})
+    if not only_images:
+        # ── 1. Title Case ─────────────────────────────────────────────────────────
+        new_title    = title_case(old_title)
+        if new_title != old_title:
+            prod_updates['title'] = new_title
+            stats['titles'] += 1
+            changes.append({"field": "title", "before": old_title, "after": new_title})
 
-    # ── 2. Body description: rewrite in force/weekly mode OR if stale/missing template ─────
-    body_html = product.get('body_html', '') or ''
-    plain_len = len(strip_html(body_html))
-    has_table = has_size_table(body_html)
-    required_markers = ['Discover the', 'Product Features', 'Premium quality materials',
-                        'Why Choose', RETURN_POLICY]
-    has_all_markers = all(m in body_html for m in required_markers)
-    has_stale_body  = has_stale_return_policy(body_html)
+        # ── 2. Body description: rewrite in force/weekly mode OR if stale/missing template ─────
+        body_html = product.get('body_html', '') or ''
+        plain_len = len(strip_html(body_html))
+        has_table = has_size_table(body_html)
+        required_markers = ['Discover the', 'Product Features', 'Premium quality materials',
+                            'Why Choose', RETURN_POLICY]
+        has_all_markers = all(m in body_html for m in required_markers)
+        has_stale_body  = has_stale_return_policy(body_html)
 
-    # Allow custom descriptions to bypass complete overwrite, only rewriting if force or missing table/stale return
-    is_custom = len(strip_html(body_html)) >= 200 and not ("Discover the" in body_html and "Why Choose" in body_html)
-    if is_custom:
-        needs_body_rewrite = force or not has_table or has_stale_body
-    else:
-        needs_body_rewrite = force or plain_len < 500 or not has_table or has_stale_body or not has_all_markers
+        # Allow custom descriptions to bypass complete overwrite, only rewriting if force or missing table/stale return
+        is_custom = len(strip_html(body_html)) >= 200 and not ("Discover the" in body_html and "Why Choose" in body_html)
+        if is_custom:
+            needs_body_rewrite = force or not has_table or has_stale_body
+        else:
+            needs_body_rewrite = force or plain_len < 500 or not has_table or has_stale_body or not has_all_markers
 
-    if needs_body_rewrite:
-        missing.append(f"body_html ({plain_len} chars, table={has_table}, stale={has_stale_body}, markers={has_all_markers}, custom={is_custom})")
-        new_body = build_description(product, force=True)
-        prod_updates['body_html'] = new_body
-        stats['descriptions'] += 1
-        changes.append({
-            "field": "body_html",
-            "before": f"{plain_len} chars",
-            "after": f"{len(strip_html(new_body))} chars + table"
-        })
+        if needs_body_rewrite:
+            missing.append(f"body_html ({plain_len} chars, table={has_table}, stale={has_stale_body}, markers={has_all_markers}, custom={is_custom})")
+            new_body = build_description(product, force=True)
+            prod_updates['body_html'] = new_body
+            stats['descriptions'] += 1
+            changes.append({
+                "field": "body_html",
+                "before": f"{plain_len} chars",
+                "after": f"{len(strip_html(new_body))} chars + table"
+            })
 
-    # ── 3. URL handle + redirect ──────────────────────────────────────────────
-    final_title  = prod_updates.get('title', old_title)
-    ideal_handle = slugify(final_title)
-    if ideal_handle and ideal_handle != old_handle and len(ideal_handle) > 4:
-        missing.append(f"handle (was '{old_handle}')")
-        prod_updates['handle'] = ideal_handle
-        if create_redirect(old_handle, ideal_handle):
-            stats['redirects'] += 1
-        stats['handles'] += 1
-        changes.append({"field": "handle", "before": old_handle, "after": ideal_handle})
+        # ── 3. URL handle + redirect ──────────────────────────────────────────────
+        final_title  = prod_updates.get('title', old_title)
+        ideal_handle = slugify(final_title)
+        if ideal_handle and ideal_handle != old_handle and len(ideal_handle) > 4:
+            missing.append(f"handle (was '{old_handle}')")
+            prod_updates['handle'] = ideal_handle
+            if create_redirect(old_handle, ideal_handle):
+                stats['redirects'] += 1
+            stats['handles'] += 1
+            changes.append({"field": "handle", "before": old_handle, "after": ideal_handle})
 
     # Apply product updates
     if prod_updates:
@@ -1043,19 +1044,21 @@ def process(product, stats, log, existing_mfs=None, force=False):
 
     for m in mismatches:
         if m['field'] == 'meta_title':
-            missing.append("meta_title mismatch")
-            meta_fix_needed = True
-            stats['meta_titles'] += 1
-            changes.append({"field": "meta_title", "before": m['before'], "after": m['after']})
+            if not only_images:
+                missing.append("meta_title mismatch")
+                meta_fix_needed = True
+                stats['meta_titles'] += 1
+                changes.append({"field": "meta_title", "before": m['before'], "after": m['after']})
         elif m['field'] == 'meta_desc':
-            missing.append("meta_desc mismatch")
-            if not meta_fix_needed:
-                stats['meta_descs'] += 1
-            changes.append({
-                "field": "meta_desc",
-                "before": m['before'][:80] + "..." if len(m['before']) > 80 else m['before'],
-                "after": m['after'][:80] + "..."
-            })
+            if not only_images:
+                missing.append("meta_desc mismatch")
+                if not meta_fix_needed:
+                    stats['meta_descs'] += 1
+                changes.append({
+                    "field": "meta_desc",
+                    "before": m['before'][:80] + "..." if len(m['before']) > 80 else m['before'],
+                    "after": m['after'][:80] + "..."
+                })
         elif m['field'] == 'body_html':
             # Already handled above
             pass
@@ -1070,7 +1073,7 @@ def process(product, stats, log, existing_mfs=None, force=False):
                 changes.append({"field": f"img_alt[{i}]", "before": m['before'][:50], "after": m['after'][:50]})
 
     # In force mode, always rewrite both meta fields even if they already pass validation
-    if force and not meta_fix_needed:
+    if force and not only_images and not meta_fix_needed:
         cur_mt = existing_mfs.get('global.title_tag', {}).get('value', '')
         cur_md = existing_mfs.get('global.description_tag', {}).get('value', '')
         if cur_mt != new_meta_title or cur_md != new_meta_desc:
@@ -1081,16 +1084,17 @@ def process(product, stats, log, existing_mfs=None, force=False):
             changes.append({"field": "meta_desc", "before": cur_md[:80], "after": new_meta_desc[:80]})
 
     # Fix meta fields if needed
-    if meta_fix_needed:
-        try:
-            set_seo_metafields("products", pid, new_meta_title, new_meta_desc, existing_mfs)
-        except Exception as e:
-            print(f"    ! Meta update error: {e}")
-    elif any(m['field'] == 'meta_desc' for m in mismatches):
-        try:
-            set_seo_metafields("products", pid, new_meta_title, new_meta_desc)
-        except Exception as e:
-            print(f"    ! Meta desc update error: {e}")
+    if not only_images:
+        if meta_fix_needed:
+            try:
+                set_seo_metafields("products", pid, new_meta_title, new_meta_desc, existing_mfs)
+            except Exception as e:
+                print(f"    ! Meta update error: {e}")
+        elif any(m['field'] == 'meta_desc' for m in mismatches):
+            try:
+                set_seo_metafields("products", pid, new_meta_title, new_meta_desc)
+            except Exception as e:
+                print(f"    ! Meta desc update error: {e}")
 
     # ── Log entry ─────────────────────────────────────────────────────────────
     entry = {
@@ -1127,6 +1131,7 @@ def main():
     ap.add_argument('--batch-index', type=int, default=0,  help='For force mode: which batch to process (0-based)')
     ap.add_argument('--resource',    type=str, default='all', choices=['all', 'products', 'collections', 'pages', 'blogs'], help='Resource type to validate/optimize')
     ap.add_argument('--skip-jsonld', action='store_true', help='Skip JSON-LD injection')
+    ap.add_argument('--only-images', action='store_true', help='Only update image ALTs and filenames, skip descriptions/meta/handles')
     args = ap.parse_args()
 
     print("=== MeeeShop SEO Automation v2.0 ===\n")
@@ -1192,21 +1197,21 @@ def main():
         print(f"  Found {len(products)} products\n")
 
     pages = []
-    if args.resource in ('all', 'pages'):
+    if args.resource in ('all', 'pages') and not args.only_images:
         print("Fetching pages...")
         from shopify_graphql import fetch_pages_graphql
         pages = fetch_pages_graphql(hours)
         print(f"  Found {len(pages)} pages\n")
 
     collections = []
-    if args.resource in ('all', 'collections'):
+    if args.resource in ('all', 'collections') and not args.only_images:
         print("Fetching collections...")
         from shopify_graphql import fetch_collections_graphql
         collections = fetch_collections_graphql(hours)
         print(f"  Found {len(collections)} collections\n")
 
     articles = []
-    if args.resource in ('all', 'blogs'):
+    if args.resource in ('all', 'blogs') and not args.only_images:
         print("Fetching articles...")
         from shopify_graphql import fetch_articles_graphql
         articles = fetch_articles_graphql(hours)
@@ -1229,12 +1234,15 @@ def main():
         mfs        = {f"{m['namespace']}.{m['key']}": m for m in p.get('metafields', [])}
         mismatches = validate_seo(p, "product", mfs)
         title_wrong = title_case(p['title']) != p['title']
-        needs_seo   = bool(mismatches) or title_wrong
+        if args.only_images:
+            needs_seo = any(m['field'].startswith('img_alt') for m in mismatches)
+        else:
+            needs_seo = bool(mismatches) or title_wrong
         if not needs_seo and mode not in ('force', 'weekly'):
             print(f"  [{i}/{len(products)}] OK  {p['title'][:55]}")
             continue
         print(f"  [{i}/{len(products)}] FIX {p['title'][:55]}")
-        process(p, stats, log, existing_mfs=mfs, force=(mode in ('force', 'weekly')))
+        process(p, stats, log, existing_mfs=mfs, force=(mode in ('force', 'weekly')), only_images=args.only_images)
 
     # ── Process pages ─────────────────────────────────────────────────────────
     if pages:
