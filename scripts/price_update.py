@@ -269,18 +269,33 @@ def is_already_correct(price: float) -> bool:
 # Price update
 # ---------------------------------------------------------------------------
 
-def update_variant_price(variant_id: str, new_price: float) -> bool:
-    numeric_id = variant_id.split("/")[-1]
+def bulk_update_variants(product_id: str, variant_updates: List[Dict]) -> bool:
+    """Update multiple variant prices for a product in bulk via GraphQL."""
+    query = """
+    mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantBulkInput!]!) {
+      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+        product { id }
+        productVariants { id price }
+        userErrors { field message }
+      }
+    }
+    """
+    variables = {
+        "productId": product_id,
+        "variants": [
+            {"id": vu["id"], "price": f"{vu['price']:.2f}"}
+            for vu in variant_updates
+        ]
+    }
     try:
-        _shopify_request(
-            "PUT",
-            f"variants/{numeric_id}",
-            {"variant": {"id": numeric_id, "price": f"{new_price:.2f}"}},
-        )
-        time.sleep(API_DELAY_SECONDS)
+        res = _shopify_graphql(query, variables)
+        errors = res.get("data", {}).get("productVariantsBulkUpdate", {}).get("userErrors", [])
+        if errors:
+            _log.error("[GraphQL] Errors bulk updating variants for %s: %s", product_id, errors)
+            return False
         return True
     except Exception as e:
-        print(f"    ERROR updating variant {numeric_id}: {e}")
+        _log.error("[GraphQL] Exception bulk updating variants for %s: %s", product_id, e)
         return False
 
 
@@ -321,7 +336,9 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
 
     for i, product in enumerate(slice_, 1):
         title = product.get("title", "Unknown")[:33]
+        product_id = product.get("id")
 
+        to_update = []
         for variant in product.get("variants", []):
             variant_id = variant.get("id", "")
             sku = variant.get("sku", "N/A")
@@ -356,20 +373,29 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
                 })
                 continue
 
-            success = update_variant_price(variant_id, new_price)
-            label = "UPDATED" if success else "ERROR"
-            print(f"{i:<5} | {title:<36} | ${current_price:>9.2f} | ${new_price:>9.2f} | {label}")
+            to_update.append({
+                "id": variant_id,
+                "price": new_price,
+                "sku": sku,
+                "old_price": current_price
+            })
 
-            entry = {
-                "sku": sku, "title": title, "variant_gid": variant_id,
-                "old_price": current_price, "new_price": new_price,
-                "status": "updated" if success else "error",
-            }
-            if success:
-                stats["updated"] += 1
-            else:
-                stats["errors"] += 1
-            stats["products"].append(entry)
+        if to_update:
+            success = bulk_update_variants(product_id, to_update)
+            label = "UPDATED" if success else "ERROR"
+
+            for item in to_update:
+                print(f"{i:<5} | {title:<36} | ${item['old_price']:>9.2f} | ${item['price']:>9.2f} | {label}")
+                entry = {
+                    "sku": item["sku"], "title": title, "variant_gid": item["id"],
+                    "old_price": item["old_price"], "new_price": item["price"],
+                    "status": "updated" if success else "error",
+                }
+                if success:
+                    stats["updated"] += 1
+                else:
+                    stats["errors"] += 1
+                stats["products"].append(entry)
 
     print("-" * len(col))
     print(f"\n[Done] {stats['updated']} updated, {stats['skipped']} skipped, {stats['errors']} errors")

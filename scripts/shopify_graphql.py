@@ -84,6 +84,18 @@ def fetch_products_graphql(hours: int = 0) -> List[Dict]:
               key
               value
             }
+            title_tag: metafield(namespace: "global", key: "title_tag") {
+              id
+              namespace
+              key
+              value
+            }
+            description_tag: metafield(namespace: "global", key: "description_tag") {
+              id
+              namespace
+              key
+              value
+            }
           }
         }
       }
@@ -120,6 +132,15 @@ def fetch_products_graphql(hours: int = 0) -> List[Dict]:
                     "key": metafield["key"],
                     "value": metafield["value"]
                 })
+            for k in ["title_tag", "description_tag"]:
+                m = node.get(k)
+                if m:
+                    metafields_list.append({
+                        "id": parse_gid(m["id"]),
+                        "namespace": m["namespace"],
+                        "key": m["key"],
+                        "value": m["value"]
+                    })
                 
             # Determine overall availability from variants
             has_stock = any(v.get("node", {}).get("inventoryQuantity", 0) > 0 for v in node["variants"]["edges"])
@@ -172,6 +193,18 @@ def fetch_collections_graphql(hours: int = 0) -> List[Dict]:
               key
               value
             }
+            title_tag: metafield(namespace: "global", key: "title_tag") {
+              id
+              namespace
+              key
+              value
+            }
+            description_tag: metafield(namespace: "global", key: "description_tag") {
+              id
+              namespace
+              key
+              value
+            }
           }
         }
       }
@@ -204,6 +237,15 @@ def fetch_collections_graphql(hours: int = 0) -> List[Dict]:
                     "key": metafield["key"],
                     "value": metafield["value"]
                 })
+            for k in ["title_tag", "description_tag"]:
+                m = node.get(k)
+                if m:
+                    metafields_list.append({
+                        "id": parse_gid(m["id"]),
+                        "namespace": m["namespace"],
+                        "key": m["key"],
+                        "value": m["value"]
+                    })
                 
             collections.append({
                 "id": parse_gid(node["id"]),
@@ -234,6 +276,18 @@ def fetch_pages_graphql(hours: int = 0) -> List[Dict]:
             updatedAt
             body
             metafield(namespace: "json_ld_schema", key: "webpage") {
+              id
+              namespace
+              key
+              value
+            }
+            title_tag: metafield(namespace: "global", key: "title_tag") {
+              id
+              namespace
+              key
+              value
+            }
+            description_tag: metafield(namespace: "global", key: "description_tag") {
               id
               namespace
               key
@@ -271,6 +325,15 @@ def fetch_pages_graphql(hours: int = 0) -> List[Dict]:
                     "key": metafield["key"],
                     "value": metafield["value"]
                 })
+            for k in ["title_tag", "description_tag"]:
+                m = node.get(k)
+                if m:
+                    metafields_list.append({
+                        "id": parse_gid(m["id"]),
+                        "namespace": m["namespace"],
+                        "key": m["key"],
+                        "value": m["value"]
+                    })
                 
             pages.append({
                 "id": parse_gid(node["id"]),
@@ -328,6 +391,18 @@ def fetch_articles_graphql(hours: int = 0) -> List[Dict]:
                   key
                   value
                 }
+                title_tag: metafield(namespace: "global", key: "title_tag") {
+                  id
+                  namespace
+                  key
+                  value
+                }
+                description_tag: metafield(namespace: "global", key: "description_tag") {
+                  id
+                  namespace
+                  key
+                  value
+                }
               }
             }
           }
@@ -373,6 +448,15 @@ def fetch_articles_graphql(hours: int = 0) -> List[Dict]:
                         "key": metafield["key"],
                         "value": metafield["value"]
                     })
+                for k in ["title_tag", "description_tag"]:
+                    m = node.get(k)
+                    if m:
+                        metafields_list.append({
+                            "id": parse_gid(m["id"]),
+                            "namespace": m["namespace"],
+                            "key": m["key"],
+                            "value": m["value"]
+                        })
                 
                 author_name = node.get("author", {}).get("name", "MeeeShop") if node.get("author") else "MeeeShop"
                 image_src = node.get("image", {}).get("url", "") if node.get("image") else ""

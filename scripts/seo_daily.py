@@ -437,37 +437,100 @@ def fetch_articles(published_since=None):
 
 
 # ── Metafields (meta title + meta description) ────────────────────────────────
-def get_metafields(resource_path, rid):
-    """Get metafields for any resource (products, pages, custom_collections, blogs/{id}/articles)."""
-    data = api_get(f"/{resource_path}/{rid}/metafields.json")
-    return {f"{m['namespace']}.{m['key']}": m for m in data.get('metafields', [])}
-
-
-def upsert_metafield(resource_path, rid, namespace, key, value, mf_type, existing_mfs):
-    """Upsert metafield for any resource."""
-    full_key = f"{namespace}.{key}"
-    if full_key in existing_mfs:
-        mid = existing_mfs[full_key]['id']
-        api_put(f"/metafields/{mid}.json",
-                {"metafield": {"id": mid, "value": value, "type": mf_type}})
+def set_seo_metafields_graphql(resource_type: str, resource_id: int, meta_title: str, meta_desc: str) -> bool:
+    """Set SEO metafields (title + desc) in a single GraphQL mutation."""
+    from shopify_graphql import make_gid, run_graphql
+    
+    # Normalize resource type for GraphQL make_gid
+    if "collection" in resource_type.lower():
+        gql_type = "collection"
+    elif "blog" in resource_type.lower() or "article" in resource_type.lower():
+        gql_type = "article"
+    elif "page" in resource_type.lower():
+        gql_type = "page"
+    elif "product" in resource_type.lower():
+        gql_type = "product"
     else:
-        api_post(f"/{resource_path}/{rid}/metafields.json",
-                 {"metafield": {"namespace": namespace, "key": key,
-                                "value": value, "type": mf_type}})
+        gql_type = resource_type
+
+    owner_id = make_gid(gql_type, resource_id)
+    
+    query = """
+    mutation metafieldsSet($metafields: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $metafields) {
+        metafields { id }
+        userErrors { field message }
+      }
+    }
+    """
+    variables = {
+      "metafields": [
+        {
+          "ownerId": owner_id,
+          "namespace": "global",
+          "key": "title_tag",
+          "type": "single_line_text_field",
+          "value": meta_title
+        },
+        {
+          "ownerId": owner_id,
+          "namespace": "global",
+          "key": "description_tag",
+          "type": "multi_line_text_field",
+          "value": meta_desc
+        }
+      ]
+    }
+    try:
+        res = run_graphql(query, variables)
+        errors = res.get("data", {}).get("metafieldsSet", {}).get("userErrors", [])
+        if errors:
+            print(f"[GraphQL] Errors setting SEO metafields for {owner_id}: {errors}", file=sys.stderr)
+            return False
+        return True
+    except Exception as e:
+        print(f"[GraphQL] Exception setting SEO metafields for {owner_id}: {e}", file=sys.stderr)
+        return False
 
 
-def set_seo_metafields(resource_path, rid, meta_title, meta_desc, existing_mfs):
-    """Set SEO metafields (title + desc) for any resource."""
-    upsert_metafield(resource_path, rid, "global", "title_tag",       meta_title, "single_line_text_field", existing_mfs)
-    upsert_metafield(resource_path, rid, "global", "description_tag", meta_desc,  "multi_line_text_field",  existing_mfs)
+def set_seo_metafields(resource_path, rid, meta_title, meta_desc, existing_mfs=None):
+    """Bridge function to set SEO metafields (title + desc) for any resource via GraphQL."""
+    success = set_seo_metafields_graphql(resource_path, rid, meta_title, meta_desc)
+    if not success:
+        raise RuntimeError(f"Failed to set SEO metafields for {resource_path} {rid}")
 
 
 # ── Image alt text ────────────────────────────────────────────────────────────
 def update_image_alt(pid, iid, alt):
+    """Update product image alt text via GraphQL."""
+    from shopify_graphql import make_gid, run_graphql
+    product_gid = make_gid("product", pid)
+    image_gid = f"gid://shopify/ProductImage/{iid}"
+    
+    query = """
+    mutation productImageUpdate($productId: ID!, $image: ImageInput!) {
+      productImageUpdate(productId: $productId, image: $image) {
+        image { id altText }
+        userErrors { field message }
+      }
+    }
+    """
+    variables = {
+        "productId": product_gid,
+        "image": {
+            "id": image_gid,
+            "altText": alt
+        }
+    }
     try:
-        r = api_request("PUT", f"/products/{pid}/images/{iid}.json", json={"image": {"id": iid, "alt": alt}})
-        return r.status_code == 200
-    except Exception:
+        res = run_graphql(query, variables)
+        errors = res.get("data", {}).get("productImageUpdate", {}).get("userErrors", [])
+        if errors:
+            print(f"[GraphQL] Errors updating image alt for {image_gid}: {errors}", file=sys.stderr)
+            return False
+        return True
+    except Exception as e:
+        print(f"[GraphQL] Exception updating image alt for {image_gid}: {e}", file=sys.stderr)
         return False
 
 
@@ -906,11 +969,7 @@ def process(product, stats, log, existing_mfs=None, force=False):
 
     # ── 4. Fetch metafields if not provided ───────────────────────────────────
     if existing_mfs is None:
-        try:
-            existing_mfs = get_metafields("products", pid)
-        except Exception as e:
-            print(f"    ! Metafields fetch error: {e}")
-            existing_mfs = {}
+        existing_mfs = {}
 
     # ── 5. Strict validation + fix ────────────────────────────────────────────
     display_title = prod_updates.get('title', old_title)
@@ -967,8 +1026,7 @@ def process(product, stats, log, existing_mfs=None, force=False):
             print(f"    ! Meta update error: {e}")
     elif any(m['field'] == 'meta_desc' for m in mismatches):
         try:
-            upsert_metafield("products", pid, "global", "description_tag", new_meta_desc,
-                             "multi_line_text_field", existing_mfs)
+            set_seo_metafields("products", pid, new_meta_title, new_meta_desc)
         except Exception as e:
             print(f"    ! Meta desc update error: {e}")
 
@@ -1047,14 +1105,20 @@ def main():
             print("  ! Could not find live theme")
         print()
 
-    # ── Fetch all resources (products, pages, collections, articles) ──────────
-    # Products: created_at_min — catches new dropship imports (Trendsi, Cemi Cari, etc.)
-    # Pages/Collections: created_at_min — new pages/collections published since cutoff
-    # Articles: published_at_min — new blog posts published since cutoff
+    # Calculate lookback hours for GraphQL
+    hours = 0
+    if args.hours:
+        hours = args.hours
+    elif mode == 'daily':
+        hours = 48
+    elif mode == 'weekly':
+        hours = 168
+
     products = []
     if args.resource in ('all', 'products'):
         print("Fetching products...")
-        products = fetch_products(since)
+        from shopify_graphql import fetch_products_graphql
+        products = fetch_products_graphql(hours)
         total_fetched = len(products)
         if mode == 'force' and args.batch_size > 0:
             start = args.batch_index * args.batch_size
@@ -1068,19 +1132,22 @@ def main():
     pages = []
     if args.resource in ('all', 'pages'):
         print("Fetching pages...")
-        pages = fetch_pages(since)
+        from shopify_graphql import fetch_pages_graphql
+        pages = fetch_pages_graphql(hours)
         print(f"  Found {len(pages)} pages\n")
 
     collections = []
     if args.resource in ('all', 'collections'):
         print("Fetching collections...")
-        collections = fetch_collections(since)
+        from shopify_graphql import fetch_collections_graphql
+        collections = fetch_collections_graphql(hours)
         print(f"  Found {len(collections)} collections\n")
 
     articles = []
     if args.resource in ('all', 'blogs'):
         print("Fetching articles...")
-        articles = fetch_articles(since)
+        from shopify_graphql import fetch_articles_graphql
+        articles = fetch_articles_graphql(hours)
         print(f"  Found {len(articles)} articles\n")
 
     total_items = len(products) + len(pages) + len(collections) + len(articles)
@@ -1097,7 +1164,7 @@ def main():
     # ── Process products ──────────────────────────────────────────────────────
     print("Processing products...")
     for i, p in enumerate(products, 1):
-        mfs        = get_metafields("products", p['id'])
+        mfs        = {f"{m['namespace']}.{m['key']}": m for m in p.get('metafields', [])}
         mismatches = validate_seo(p, "product", mfs)
         title_wrong = title_case(p['title']) != p['title']
         needs_seo   = bool(mismatches) or title_wrong
@@ -1112,7 +1179,7 @@ def main():
         print("\nProcessing pages...")
         for i, page in enumerate(pages, 1):
             title = page['title']
-            mfs = get_metafields("pages", page['id'])
+            mfs        = {f"{m['namespace']}.{m['key']}": m for m in page.get('metafields', [])}
 
             # Strict validation
             cur_mtitle = mfs.get('global.title_tag', {}).get('value', '')
@@ -1160,7 +1227,7 @@ def main():
         for i, coll in enumerate(collections, 1):
             title = coll['title']
             coll_type = coll.get('_type', 'custom_collections')
-            mfs = get_metafields(coll_type, coll['id'])
+            mfs        = {f"{m['namespace']}.{m['key']}": m for m in coll.get('metafields', [])}
 
             # Strict validation
             cur_mtitle = mfs.get('global.title_tag', {}).get('value', '')
@@ -1215,11 +1282,7 @@ def main():
                 print(f"  [{i}/{len(articles)}] SKIP {title[:55]} (no blog_id or blog_handle)")
                 continue
 
-            try:
-                mfs = get_metafields(f"blogs/{blog_id}/articles", art_id)
-            except Exception as e:
-                print(f"  ! Could not fetch metafields for article {title}: {e}")
-                continue
+            mfs        = {f"{m['namespace']}.{m['key']}": m for m in article.get('metafields', [])}
 
             # Strict validation
             cur_mtitle = mfs.get('global.title_tag', {}).get('value', '')
