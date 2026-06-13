@@ -24,6 +24,12 @@ on:
         required: false
         type: choice
         options: ['false', 'true']
+      include_collections:
+        description: 'Submit recently updated collection pages'
+        default: 'false'
+        required: false
+        type: choice
+        options: ['false', 'true']
       force:
         description: 'Force resubmit ALL URLs ignoring history'
         default: 'false'
@@ -85,7 +91,9 @@ jobs:
           fi
           echo "  Days lookback   : ${{ github.event.inputs.days || '1' }}"
           echo "  Products        : ${{ github.event.inputs.include_products || 'false' }}"
+          echo "  Collections     : ${{ github.event.inputs.include_collections || 'false' }}"
           echo "  Dry run         : ${{ github.event.inputs.dry_run || 'false' }}"
+          echo "  Force           : ${{ github.event.inputs.force || 'false' }}"
           echo "  Run number      : ${{ github.run_number }}"
           echo "=========================================="
 
@@ -96,24 +104,28 @@ jobs:
         run: |
           DAYS="${{ github.event.inputs.days || '1' }}"
           PRODUCTS="${{ github.event.inputs.include_products || 'false' }}"
+          COLLECTIONS="${{ github.event.inputs.include_collections || 'false' }}"
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
           FORCE="${{ github.event.inputs.force || 'false' }}"
 
-          # On Sunday, index products as well
+          # On Sunday, index products and collections as well
           if [ "${{ github.event_name }}" = "schedule" ] && [ "$(date +%w)" = "0" ]; then
             PRODUCTS="true"
+            COLLECTIONS="true"
             DAYS="7"
           fi
 
           # On chain trigger, index articles only
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
             PRODUCTS="false"
+            COLLECTIONS="false"
           fi
 
           ARGS="--days $DAYS"
-          [ "$PRODUCTS" = "true" ]  && ARGS="$ARGS --products"
-          [ "$DRY_RUN" = "true" ]   && ARGS="$ARGS --dry-run"
-          [ "$FORCE" = "true" ]     && ARGS="$ARGS --force"
+          [ "$PRODUCTS" = "true" ]     && ARGS="$ARGS --products"
+          [ "$COLLECTIONS" = "true" ]   && ARGS="$ARGS --collections"
+          [ "$DRY_RUN" = "true" ]      && ARGS="$ARGS --dry-run"
+          [ "$FORCE" = "true" ]        && ARGS="$ARGS --force"
 
           echo "Command: python scripts/indexnow.py $ARGS"
           python scripts/indexnow.py $ARGS
