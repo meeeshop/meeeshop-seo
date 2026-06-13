@@ -158,6 +158,14 @@ CONTEXTUAL_MODIFIERS = {
 }
 
 
+# ZSV Brand and High-Intent Collection Keywords
+BRAND_KEYWORDS = {
+    "zenana", "pol", "emory park", "judy blue", "risen", "risen jeans",
+    "umgee usa", "umgee", "hyfve", "bibi", "artemis vintage",
+    "made in usa", "curvy", "plus size", "fall clothing"
+}
+
+
 def normalize_keyword(kw: str) -> str:
     """Normalize keyword for matching: lowercase, strip punctuation."""
     return re.sub(r"[^a-z0-9\s-]", "", kw.lower()).strip()
@@ -172,6 +180,12 @@ def extract_high_value_keywords(text: str) -> List[Tuple[str, float]]:
     text_lower = strip_html(text).lower()
     words = re.findall(r"\b[a-z]+(?:-[a-z]+)?\b", text_lower)
     scored_keywords = {}  # keyword -> max_score
+
+    # Priority 0: Exact ZSV Brand / High-Intent Collection keywords (highest priority)
+    for brand in BRAND_KEYWORDS:
+        pattern = r"\b" + re.escape(brand) + r"\b"
+        if re.search(pattern, text_lower):
+            scored_keywords[brand] = 1.0
 
     # Priority 1: 2-word contextual pairs (garment + modifier)
     for i in range(len(words) - 1):
