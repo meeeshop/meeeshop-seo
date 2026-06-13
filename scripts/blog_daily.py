@@ -379,7 +379,13 @@ SEED_KEYWORDS = [
     "work outfits for women", "women's weekend casual looks",
     "women's spring outfit ideas 2026", "best tops to wear with jeans",
     "how to build a capsule wardrobe women", "women's date night outfit ideas",
+    "Zenana women's clothing basics guide", "how to style POL clothing bohemian pieces",
+    "Emory Park boutique clothing outfits", "best Judy Blue jeans styles for women",
+    "Risen stretch denim jeans review", "Umgee USA clothing styling ideas",
+    "Hyfve clothing fashion trends", "Bibi clothing cute outfits",
+    "Artemis Vintage denim styles"
 ]
+
 
 EEAT_RULES = (
     "E-E-A-T requirements (Google trust signals):\n"
@@ -605,6 +611,47 @@ def _make_tags(product: dict, fmt: str, keyword: str) -> list[str]:
     return list(dict.fromkeys(tags))[:20]
 
 
+def generate_dynamic_zsv_keyword(vendor: str, product_type: str) -> str:
+    vendor_clean = (vendor or "MeeeShop").strip()
+    ptype_clean = (product_type or "clothing").lower().strip()
+    
+    # Standardize common ptypes
+    if "jean" in ptype_clean or "denim" in ptype_clean:
+        ptype_display = "jeans"
+    elif "dress" in ptype_clean:
+        ptype_display = "dresses"
+    elif "top" in ptype_clean or "blouse" in ptype_clean or "shirt" in ptype_clean:
+        ptype_display = "tops"
+    elif "sweater" in ptype_clean or "cardigan" in ptype_clean or "knit" in ptype_clean:
+        ptype_display = "knits"
+    elif "bag" in ptype_clean or "handbag" in ptype_clean or "purse" in ptype_clean:
+        ptype_display = "handbags"
+    else:
+        ptype_display = ptype_clean
+        
+    templates = [
+        f"Is {vendor_clean} {ptype_display} true to size? Sizing & fit guide",
+        f"How to style {vendor_clean} {ptype_display} for casual chic outfits",
+        f"Honest review of {vendor_clean} women's {ptype_display}",
+        f"Best {vendor_clean} {ptype_display} boutique styles for women",
+        f"How to wash and care for {vendor_clean} {ptype_display}",
+        f"Affordable {vendor_clean} {ptype_display} styling ideas"
+    ]
+    
+    # Specific overrides or additions for key brands/categories
+    if "jean" in ptype_clean or "denim" in ptype_clean:
+        if "Judy Blue" in vendor_clean:
+            templates.append("Judy Blue tummy control jeans: An honest styling review")
+            templates.append("Best Judy Blue jeans styles for women")
+        elif "Risen" in vendor_clean:
+            templates.append("Risen stretch denim jeans review")
+    elif "sweater" in ptype_clean or "cardigan" in ptype_clean or "knit" in ptype_clean:
+        if "POL" in vendor_clean:
+            templates.append("5 cozy weekend outfits featuring POL bohemian knits")
+            
+    return random.choice(templates)
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 def run(count: int = 1, dry_run: bool = False, publish: bool = False):
     print(f"\n{'='*62}")
@@ -632,12 +679,12 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False):
 
     chosen   = random.sample(pool, min(count, len(pool)))
     fmts     = random.sample(FORMATS, min(count, len(FORMATS)))
-    keywords = random.sample(SEED_KEYWORDS, min(count, len(SEED_KEYWORDS)))
 
     created = 0
     for i, product in enumerate(chosen):
         fmt     = fmts[i % len(fmts)]
-        keyword = keywords[i % len(keywords)]
+        keyword = generate_dynamic_zsv_keyword(product.get("vendor"), product.get("product_type"))
+
 
         print(f"[{i+1}/{count}] Format: {fmt} | Keyword: '{keyword}'")
         print(f"  Product: {product['title'][:70]}")
