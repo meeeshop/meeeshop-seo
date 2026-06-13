@@ -56,6 +56,7 @@ def fetch_products_graphql(hours: int = 0, query_by_updated: bool = True) -> Lis
             title
             handle
             vendor
+            productType
             createdAt
             updatedAt
             bodyHtml
@@ -167,6 +168,7 @@ def fetch_products_graphql(hours: int = 0, query_by_updated: bool = True) -> Lis
                 "title": node["title"],
                 "handle": node["handle"],
                 "vendor": node["vendor"] or "Trendsi",
+                "product_type": node.get("productType") or "",
                 "created_at": node["createdAt"],
                 "updated_at": node["updatedAt"],
                 "body_html": node["bodyHtml"] or "",

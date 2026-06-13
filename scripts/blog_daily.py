@@ -366,7 +366,7 @@ def publish_article(blog: dict, title: str, body_html: str, tags: list,
 
 
 # ── High-intent blog formats ───────────────────────────────────────────────────
-FORMATS = ["buying_guide", "comparison", "problem_solver", "trend_report", "outfit_formula"]
+FORMATS = ["buying_guide", "comparison", "problem_solver", "trend_report", "outfit_formula", "care_guide", "sizing_guide"]
 
 SEED_KEYWORDS = [
     "women's fashion 2026", "affordable women's clothing USA",
@@ -559,6 +559,36 @@ def _build_prompt(fmt: str, product: dict, keyword: str, similar_products: list 
         )
         h1_hint = f"{MONTH} Women's Fashion Trends: What I'm Wearing Right Now"
 
+    elif fmt == "care_guide":
+        prompt = base + (
+            f"Format: Fabric Care & Washing Guide\n"
+            f"Write in HTML:\n"
+            f"1. <h1> 'How to Wash & Care for [Shortened Product Name] in {YEAR} Fashion Guide'\n"
+            f"2. <p> Intro — Why taking care of your clothing properly is essential to preserve fits, fabric drapes, and colors (70 words)\n"
+            f"3. <h2> Fabric Care Label Analysis (provide a detailed explanation of caring for {ptype} fabric blends like polyester/spandex or rayon/linen blends)\n"
+            f"4. <h2> Step-by-Step Washing Instructions (H3 Machine Wash vs. H3 Hand Washing instructions, including safe temperatures and detergents)\n"
+            f"5. <h2> How to Dry and Iron Without Damage (discuss air drying vs. tumble drying to prevent shrinking, and safe steam/iron settings)\n"
+            f"6. <h2> Stylist Care & Storage Tips (how to hang or fold to maintain shape and avoid stretching the fabric)\n"
+            f"7. <p> Warm editor CTA to shop new arrivals with free US shipping & 7-day easy returns, do NOT include HTML links\n"
+            f"Target: 700-850 words. Output ONLY clean HTML."
+        )
+        h1_hint = f"How to Wash & Care for {title} in {YEAR}"
+
+    elif fmt == "sizing_guide":
+        prompt = base + (
+            f"Format: Sizing & Fit Guide\n"
+            f"Write in HTML:\n"
+            f"1. <h1> 'Is [Shortened Product Name] True to Size? Sizing & Fit Guide for {YEAR}'\n"
+            f"2. <p> Intro — The common struggle of online clothing sizing and how to get the perfect fit (70 words)\n"
+            f"3. <h2> Understanding Sizing for this style (explain standard measurements, size ranges XS-3X, and comparison to general US sizes)\n"
+            f"4. <h2> Fit Review by Body Shapes (H3 Petite Fit, H3 Hourglass, H3 Plus Size / Curvy, with real fit notes for bust/chest and length)\n"
+            f"5. <h2> Fabric Stretch & Draping Factor (describe the fabric blend stretchiness and comfort levels when worn)\n"
+            f"6. <h2> Stylist Sizing Recommendation (honest verdict on whether to buy your usual size or size up/down)\n"
+            f"7. <p> CTA to shop the collection with free shipping on orders $50+ & easy 7-day returns, do NOT include HTML links\n"
+            f"Target: 700-850 words. Output ONLY clean HTML."
+        )
+        h1_hint = f"Is {title} True to Size? {YEAR} Sizing Guide"
+
     else:  # outfit_formula
         prompt = base + (
             f"Format: 5-Outfit Formula — shows versatility of one piece\n"
@@ -611,7 +641,7 @@ def _make_tags(product: dict, fmt: str, keyword: str) -> list[str]:
     return list(dict.fromkeys(tags))[:20]
 
 
-def generate_dynamic_zsv_keyword(vendor: str, product_type: str) -> str:
+def generate_keyword_and_format(vendor: str, product_type: str) -> tuple[str, str]:
     vendor_clean = (vendor or "MeeeShop").strip()
     ptype_clean = (product_type or "clothing").lower().strip()
     
@@ -629,27 +659,27 @@ def generate_dynamic_zsv_keyword(vendor: str, product_type: str) -> str:
     else:
         ptype_display = ptype_clean
         
-    templates = [
-        f"Is {vendor_clean} {ptype_display} true to size? Sizing & fit guide",
-        f"How to style {vendor_clean} {ptype_display} for casual chic outfits",
-        f"Honest review of {vendor_clean} women's {ptype_display}",
-        f"Best {vendor_clean} {ptype_display} boutique styles for women",
-        f"How to wash and care for {vendor_clean} {ptype_display}",
-        f"Affordable {vendor_clean} {ptype_display} styling ideas"
+    options = [
+        (f"Is {vendor_clean} {ptype_display} true to size? Sizing & fit guide", "sizing_guide"),
+        (f"How to style {vendor_clean} {ptype_display} for casual chic outfits", "outfit_formula"),
+        (f"Honest review of {vendor_clean} women's {ptype_display}", "buying_guide"),
+        (f"Best {vendor_clean} {ptype_display} boutique styles for women", "trend_report"),
+        (f"How to wash and care for {vendor_clean} {ptype_display}", "care_guide"),
+        (f"Affordable {vendor_clean} {ptype_display} styling ideas", "problem_solver")
     ]
     
     # Specific overrides or additions for key brands/categories
     if "jean" in ptype_clean or "denim" in ptype_clean:
         if "Judy Blue" in vendor_clean:
-            templates.append("Judy Blue tummy control jeans: An honest styling review")
-            templates.append("Best Judy Blue jeans styles for women")
+            options.append(("Judy Blue tummy control jeans: An honest styling review", "buying_guide"))
+            options.append(("Best Judy Blue jeans styles for women", "trend_report"))
         elif "Risen" in vendor_clean:
-            templates.append("Risen stretch denim jeans review")
+            options.append(("Risen stretch denim jeans review", "buying_guide"))
     elif "sweater" in ptype_clean or "cardigan" in ptype_clean or "knit" in ptype_clean:
         if "POL" in vendor_clean:
-            templates.append("5 cozy weekend outfits featuring POL bohemian knits")
+            options.append(("5 cozy weekend outfits featuring POL bohemian knits", "outfit_formula"))
             
-    return random.choice(templates)
+    return random.choice(options)
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -678,12 +708,10 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False):
         print(f"  Available blogs: {[b['title'] for b in all_blogs]}\n")
 
     chosen   = random.sample(pool, min(count, len(pool)))
-    fmts     = random.sample(FORMATS, min(count, len(FORMATS)))
 
     created = 0
     for i, product in enumerate(chosen):
-        fmt     = fmts[i % len(fmts)]
-        keyword = generate_dynamic_zsv_keyword(product.get("vendor"), product.get("product_type"))
+        keyword, fmt = generate_keyword_and_format(product.get("vendor"), product.get("product_type"))
 
 
         print(f"[{i+1}/{count}] Format: {fmt} | Keyword: '{keyword}'")
