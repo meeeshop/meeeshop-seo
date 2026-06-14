@@ -43,6 +43,14 @@ on:
         options:
           - 'false'
           - 'true'
+      fix_images_only:
+        description: 'Only fix broken product images without other modifications (true/false)'
+        default: 'false'
+        required: false
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 env:
   PYTHONUTF8: "1"
@@ -138,6 +146,7 @@ jobs:
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
           ARTICLE_ID="${{ github.event.inputs.article_id || '' }}"
           NO_AI="${{ github.event.inputs.no_ai || 'false' }}"
+          FIX_IMAGES_ONLY="${{ github.event.inputs.fix_images_only || 'false' }}"
 
           ARGS="--limit $LIMIT"
           if [ "$DRY_RUN" = "true" ]; then
@@ -148,6 +157,9 @@ jobs:
           fi
           if [ "$NO_AI" = "true" ]; then
             ARGS="$ARGS --no-ai"
+          fi
+          if [ "$FIX_IMAGES_ONLY" = "true" ]; then
+            ARGS="$ARGS --fix-images-only"
           fi
 
           echo "Running: python scripts/modify_blog.py $ARGS"
@@ -194,9 +206,13 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           NO_AI="${{ github.event.inputs.no_ai || 'false' }}"
+          FIX_IMAGES_ONLY="${{ github.event.inputs.fix_images_only || 'false' }}"
           ARGS="--force --batch-size ${{ env.BATCH_SIZE }} --batch-index ${{ matrix.batch_index }}"
           if [ "$NO_AI" = "true" ]; then
             ARGS="$ARGS --no-ai"
+          fi
+          if [ "$FIX_IMAGES_ONLY" = "true" ]; then
+            ARGS="$ARGS --fix-images-only"
           fi
           python scripts/modify_blog.py $ARGS
 
