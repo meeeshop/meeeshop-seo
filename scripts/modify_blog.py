@@ -31,6 +31,7 @@ import os, sys, re, time, random, json, argparse
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
+from bs4 import BeautifulSoup
 
 import requests
 
@@ -188,6 +189,47 @@ def has_product_card(html: str) -> bool:
 def product_img_url(product: dict) -> str | None:
     imgs = product.get("images", [])
     return imgs[0]["src"] if imgs else None
+
+def fix_article_images(html_str: str, product_by_handle: dict[str, dict]) -> tuple[str, int]:
+    """
+    Parse article body, find any links to products, and if they contain an image,
+    ensure the image src matches the latest live product image.
+    Returns (updated_html, swap_count).
+    """
+    if not html_str:
+        return html_str, 0
+
+    soup = BeautifulSoup(f"<div>{html_str}</div>", "html.parser")
+    root = soup.div
+    if not root:
+        return html_str, 0
+        
+    swaps = 0
+    # Find all <a> tags that link to products
+    for a in root.find_all("a"):
+        href = a.get("href", "")
+        m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
+        if m:
+            handle = m.group(1)
+            product = product_by_handle.get(handle)
+            if product:
+                # Find img inside
+                img = a.find("img")
+                if img:
+                    current_src = img.get("src", "")
+                    new_src = product_img_url(product)
+                    # We compare the base URL without query parameters for a cleaner check
+                    if new_src:
+                        new_src_base = new_src.split('?')[0]
+                        current_src_base = current_src.split('?')[0] if current_src else ""
+                        if current_src_base != new_src_base:
+                            img["src"] = new_src
+                            swaps += 1
+
+    # Reconstruct the inner HTML
+    res = "".join(str(c) for c in root.contents)
+    return res.strip(), swaps
+
 
 
 def make_featured_image_url(product: dict) -> str:
@@ -569,7 +611,8 @@ def clean_article_body_html(html_str: str) -> str:
 def refresh_article(blog: dict, article: dict, all_products: list,
                     in_stock: list, out_of_stock_handles: set[str],
                     product_by_handle: dict[str, dict],
-                    dry_run: bool = False, no_ai: bool = False) -> dict | None:
+                    dry_run: bool = False, no_ai: bool = False,
+                    **kwargs) -> dict | None:
     """
     Refresh one article. Returns a result dict on success, None on skip/failure.
     Result keys: replacements (list of {old, new} dicts), featured_product (title).
@@ -582,6 +625,32 @@ def refresh_article(blog: dict, article: dict, all_products: list,
 
     print(f"\n  Article : '{art_title[:70]}'")
     print(f"  Handle  : {art_handle}")
+
+    # ── 0. Fix images only mode ───────────────────────────────────────────────
+    if kwargs.get("fix_images_only"):
+        new_body, swaps = fix_article_images(body, product_by_handle)
+        if swaps > 0:
+            print(f"  [Fix Images] Fixed {swaps} broken product images.")
+            if dry_run:
+                print(f"  [DRY-RUN] would PATCH article {article_id} with fixed images.")
+                return {"status": "images_fixed", "swaps": swaps}
+            
+            payload = {
+                "article": {
+                    "id": article_id,
+                    "body_html": new_body
+                }
+            }
+            r = _req("put", f"{BASE}/blogs/{blog_id}/articles/{article_id}.json", json=payload)
+            if r.status_code in (200, 201):
+                print(f"  PATCHED  : article {article_id} images fixed successfully")
+                return {"status": "images_fixed", "swaps": swaps}
+            else:
+                print(f"  PATCH FAILED {r.status_code}: {r.text[:200]}")
+                return None
+        else:
+            print("  [Fix Images] No broken images found to fix.")
+            return {"status": "no_changes_needed", "swaps": 0}
 
     # ── 1. Find out-of-stock product handles referenced in this article ───────
     referenced = extract_product_handles(body)
@@ -765,11 +834,12 @@ def refresh_article(blog: dict, article: dict, all_products: list,
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
-        force: bool = False, batch_size: int = 20, batch_index: int = 0, no_ai: bool = False):
+        force: bool = False, batch_size: int = 20, batch_index: int = 0, no_ai: bool = False,
+        fix_images_only: bool = False):
     mode = "force" if force else ("single" if article_id else "batch")
     print(f"\n{'='*64}")
     print(f"  MeeeShop Blog Refresher — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"  Mode: {mode} | Limit: {limit} | Dry-run: {dry_run} | No-AI: {no_ai}")
+    print(f"  Mode: {mode} | Limit: {limit} | Dry-run: {dry_run} | No-AI: {no_ai} | Fix Images Only: {fix_images_only}")
     if force:
         print(f"  Batch: {batch_index} (size {batch_size})")
     print(f"{'='*64}\n")
@@ -856,6 +926,7 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
                 in_stock, out_of_stock_handles, product_by_handle,
                 dry_run=dry_run,
                 no_ai=no_ai,
+                fix_images_only=fix_images_only,
             )
             if result:
                 updated += 1
@@ -904,6 +975,7 @@ if __name__ == "__main__":
     ap.add_argument("--batch-size",  type=int, default=20, help="Articles per batch in force mode (default 20)")
     ap.add_argument("--batch-index", type=int, default=0,  help="Which batch to process (0-based)")
     ap.add_argument("--no-ai",       action="store_true", help="Perform refresh programmatically without AI calls")
+    ap.add_argument("--fix-images-only", action="store_true", help="Only fix broken product images in articles without other modifications")
     args = ap.parse_args()
 
     run(
@@ -914,4 +986,5 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         batch_index=args.batch_index,
         no_ai=args.no_ai,
+        fix_images_only=args.fix_images_only,
     )
