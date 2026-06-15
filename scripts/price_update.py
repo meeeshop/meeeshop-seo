@@ -157,19 +157,19 @@ def get_products(mode: str, window_hours: Optional[int] = None) -> List[Dict]:
     """
     Fetch active products filtered by creation date.
 
-    daily              -> last 24 hours (or --window override)
-    weekly             -> last 24 hours (or --window override)
+    daily              -> last 48 hours (or --window override)
+    weekly             -> last 168 hours / 7 days (or --window override)
     force              -> all active products (no date filter)
     --window <hours>   -> override fetch window for daily/weekly
     """
     now = datetime.now(timezone.utc)
     if mode == "daily":
-        hours = window_hours if window_hours is not None else 24
+        hours = window_hours if window_hours is not None else 48
         since = now - timedelta(hours=hours)
         date_filter = f" AND created_at:>={since.strftime('%Y-%m-%dT%H:%M:%SZ')}"
         window_label = f"last {hours} hours"
     elif mode == "weekly":
-        hours = window_hours if window_hours is not None else 24
+        hours = window_hours if window_hours is not None else 168
         since = now - timedelta(hours=hours)
         date_filter = f" AND created_at:>={since.strftime('%Y-%m-%dT%H:%M:%SZ')}"
         window_label = f"last {hours} hours"
@@ -412,34 +412,50 @@ def load_recently_updated_ids(filepath: str = "price_update_log.json",
     Return a set of variant IDs (GID strings) that were successfully updated.
     If within_hours is provided, only retrieves those updated within the last
     `within_hours` hours. Otherwise, retrieves ALL previously updated variant IDs.
+    
+    This function searches recursively for all `price_update_log.json` files in the
+    workspace to merge logs from previous runs and matrix batch runs.
     """
-    log_path = Path(filepath)
-    if not log_path.exists():
-        return set()
-    try:
-        logs = json.loads(log_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, IOError):
-        return set()
+    log_files = []
+    # If the root/specified filepath exists, add it
+    if os.path.exists(filepath):
+        log_files.append(Path(filepath))
+
+    # Search current directory and all subdirectories for other price_update_log.json files
+    # to support downloaded logs from previous matrix jobs
+    for p in Path(".").glob("**/price_update_log.json"):
+        if p.resolve() not in [lf.resolve() for lf in log_files]:
+            log_files.append(p)
 
     cutoff = None
     if within_hours is not None:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=within_hours)
 
     updated_ids: set = set()
-    for entry in logs:
-        ts_str = entry.get("timestamp", "")
-        if cutoff is not None:
-            try:
-                ts = datetime.fromisoformat(ts_str)
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
-            except ValueError:
+    for lf in log_files:
+        try:
+            logs = json.loads(lf.read_text(encoding="utf-8"))
+            if not isinstance(logs, list):
                 continue
-            if ts < cutoff:
-                continue
-        for p in entry.get("products", []):
-            if p.get("status") == "updated" and p.get("variant_gid"):
-                updated_ids.add(p["variant_gid"])
+            for entry in logs:
+                if not isinstance(entry, dict):
+                    continue
+                ts_str = entry.get("timestamp", "")
+                if cutoff is not None:
+                    try:
+                        ts = datetime.fromisoformat(ts_str)
+                        if ts.tzinfo is None:
+                            ts = ts.replace(tzinfo=timezone.utc)
+                    except ValueError:
+                        continue
+                    if ts < cutoff:
+                        continue
+                for p in entry.get("products", []):
+                    if p.get("status") == "updated" and p.get("variant_gid"):
+                        updated_ids.add(p["variant_gid"])
+        except Exception as e:
+            _log.warning("Failed to parse log file %s: %s", lf, e)
+            
     return updated_ids
 
 
@@ -451,6 +467,29 @@ def save_update_log(stats: Dict, filepath: str = "price_update_log.json"):
             logs = json.loads(log_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, IOError):
             logs = []
+
+    existing_timestamps = {entry.get("timestamp") for entry in logs if isinstance(entry, dict)}
+
+    # Search and merge entries from other price_update_log.json files
+    for p in Path(".").glob("**/price_update_log.json"):
+        if p.resolve() == log_path.resolve():
+            continue
+        try:
+            sub_logs = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(sub_logs, list):
+                for entry in sub_logs:
+                    if isinstance(entry, dict):
+                        ts = entry.get("timestamp")
+                        if ts not in existing_timestamps:
+                            logs.append(entry)
+                            existing_timestamps.add(ts)
+        except Exception as e:
+            _log.warning("Failed to parse sub-log file %s: %s", p, e)
+
+    # Sort logs chronologically by timestamp
+    def get_ts(entry):
+        return entry.get("timestamp", "")
+    logs.sort(key=get_ts)
 
     logs.append({
         "timestamp": stats["timestamp"],
@@ -467,7 +506,7 @@ def save_update_log(stats: Dict, filepath: str = "price_update_log.json"):
     })
 
     log_path.write_text(json.dumps(logs, indent=2), encoding="utf-8")
-    print(f"[Log] Saved to {filepath}")
+    print(f"[Log] Saved consolidated log to {filepath}")
 
 
 # ---------------------------------------------------------------------------
@@ -525,10 +564,12 @@ if __name__ == "__main__":
             print("[Done] No products to process.")
             sys.exit(0)
 
-        # Skip variants already updated in any previous run
-        skip_ids = load_recently_updated_ids()
-        if skip_ids:
-            print(f"[Skip] {len(skip_ids)} variant(s) already updated in previous runs — will skip\n")
+        # Skip variants already updated in any previous run (unless force mode is used)
+        skip_ids = set()
+        if args.mode != "force":
+            skip_ids = load_recently_updated_ids()
+            if skip_ids:
+                print(f"[Skip] {len(skip_ids)} variant(s) already updated in previous runs — will skip\n")
 
         stats = update_product_prices(
             products,
