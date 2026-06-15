@@ -67,6 +67,7 @@ def fetch_products_graphql(hours: int = 0, query_by_updated: bool = True) -> Lis
                   id
                   mediaContentType
                   ... on MediaImage {
+                    alt
                     image {
                       url
                     }
@@ -176,7 +177,8 @@ def fetch_products_graphql(hours: int = 0, query_by_updated: bool = True) -> Lis
                 "images": [
                      {
                          "id": parse_gid(img["node"]["id"]),
-                         "src": img["node"]["image"]["url"] if img["node"].get("image") else ""
+                         "src": img["node"]["image"]["url"] if img["node"].get("image") else "",
+                         "alt": img["node"].get("alt") or ""
                      }
                      for img in node["media"]["edges"]
                      if img["node"].get("mediaContentType") == "IMAGE"
