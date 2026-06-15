@@ -131,9 +131,9 @@ jobs:
             ARTIFACT_NAME=$(gh api repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts --jq '.artifacts[] | select(.name | startswith("price-log-")) | .name' | head -n 1)
             if [ -n "$ARTIFACT_NAME" ]; then
               echo "Downloading artifact: $ARTIFACT_NAME"
-              gh run download "$RUN_ID" -n "$ARTIFACT_NAME"
-              if [ -f "$ARTIFACT_NAME/price_update_log.json" ]; then
-                cp "$ARTIFACT_NAME/price_update_log.json" ./price_update_log.json
+              gh run download "$RUN_ID" -n "$ARTIFACT_NAME" --dir tmp_download
+              if [ -f "tmp_download/price_update_log.json" ]; then
+                cp tmp_download/price_update_log.json ./price_update_log.json
                 echo "Successfully restored price_update_log.json"
               else
                 echo "price_update_log.json not found in downloaded folder"
