@@ -13,7 +13,7 @@ on:
       limit:
         description: 'Max articles to push (Medium daily API limit is 10)'
         required: false
-        default: '10'
+        default: '2'
       force:
         description: 'Force push ALL available articles'
         type: boolean
@@ -47,7 +47,7 @@ jobs:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          FLAGS="--days ${{ github.event.inputs.days || '7' }} --limit ${{ github.event.inputs.limit || '10' }}"
+          FLAGS="--days ${{ github.event.inputs.days || '7' }} --limit ${{ github.event.inputs.limit || '2' }}"
           if [ "${{ github.event.inputs.force }}" == "true" ]; then FLAGS="$FLAGS --force"; fi
           if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then FLAGS="$FLAGS --dry-run"; fi
           
