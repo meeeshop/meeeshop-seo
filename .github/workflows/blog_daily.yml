@@ -18,6 +18,19 @@ on:
         description: 'Publish immediately (false = save as draft for review)'
         default: 'false'
         required: false
+      format:
+        description: 'Force a specific blog format (default: weighted selection)'
+        default: 'default'
+        required: false
+        type: choice
+        options:
+          - default
+          - sizing_guide
+          - outfit_formula
+          - buying_guide
+          - trend_report
+          - care_guide
+          - problem_solver
 
 jobs:
   generate-blog:
@@ -45,6 +58,7 @@ jobs:
           COUNT="${{ github.event.inputs.count || '1' }}"
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
           PUBLISH="${{ github.event.inputs.publish || 'false' }}"
+          FORMAT="${{ github.event.inputs.format || 'default' }}"
           ARGS="--count $COUNT"
           if [ "$DRY_RUN" = "true" ]; then
             ARGS="$ARGS --dry-run"
@@ -53,6 +67,9 @@ jobs:
           # On manual dispatch, respect the publish input (default: draft for human review).
           if [ "${{ github.event_name }}" = "schedule" ] || [ "$PUBLISH" = "true" ]; then
             ARGS="$ARGS --publish"
+          fi
+          if [ "$FORMAT" != "default" ]; then
+            ARGS="$ARGS --format $FORMAT"
           fi
           python scripts/blog_daily.py $ARGS
 

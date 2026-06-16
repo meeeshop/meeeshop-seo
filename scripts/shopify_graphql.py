@@ -11,6 +11,8 @@ TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
 HEADS = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 BASE_URL = f"https://{STORE}/admin/api/2024-01/graphql.json"
 
+_session = requests.Session()
+
 def run_graphql(query: str, variables: Optional[Dict] = None) -> Dict:
     """Run GraphQL Admin API query with rate-limiting retry."""
     payload = {"query": query}
@@ -19,7 +21,7 @@ def run_graphql(query: str, variables: Optional[Dict] = None) -> Dict:
     
     for attempt in range(5):
         try:
-            resp = requests.post(BASE_URL, headers=HEADS, json=payload, timeout=30)
+            resp = _session.post(BASE_URL, headers=HEADS, json=payload, timeout=30)
             if resp.status_code == 429:
                 retry_after = float(resp.headers.get("Retry-After", 2.0))
                 time.sleep(retry_after)
@@ -27,7 +29,7 @@ def run_graphql(query: str, variables: Optional[Dict] = None) -> Dict:
             resp.raise_for_status()
             result = resp.json()
             if "errors" in result:
-                # Log errors but return result socaller can handle
+                # Log errors but return result so caller can handle
                 print(f"[GraphQL] Errors in response: {result['errors']}", file=sys.stderr)
             return result
         except requests.exceptions.RequestException as e:

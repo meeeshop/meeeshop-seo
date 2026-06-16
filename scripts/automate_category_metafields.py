@@ -24,6 +24,9 @@ headers = {
     "Content-Type": "application/json"
 }
 
+_session = requests.Session()
+_session.headers.update(headers)
+
 # Cache for standard taxonomy metaobjects: key is (type, display_name.lower()) -> GID
 taxonomy_cache = {}
 
@@ -44,6 +47,30 @@ TAXONOMY_MAP = {
     "fabric": {
         "key": "fabric",
         "type": "shopify--fabric"
+    },
+    "bag_case_material": {
+        "key": "bag-case-material",
+        "type": "shopify--bag-case-material"
+    },
+    "carry_options": {
+        "key": "carry-options",
+        "type": "shopify--carry-options"
+    },
+    "accessory_size": {
+        "key": "accessory-size",
+        "type": "shopify--accessory-size"
+    },
+    "bag_case_closure": {
+        "key": "bag-case-closure",
+        "type": "shopify--bag-case-closure"
+    },
+    "bag_case_features": {
+        "key": "bag-case-features",
+        "type": "shopify--bag-case-features"
+    },
+    "bag_case_storage_features": {
+        "key": "bag-case-storage-features",
+        "type": "shopify--bag-case-storage-features"
     },
     "target_gender": {
         "key": "target-gender",
@@ -118,6 +145,12 @@ def init_taxonomy_cache():
     TAXONOMY_TYPES = [
         "shopify--color-pattern",
         "shopify--fabric",
+        "shopify--bag-case-material",
+        "shopify--carry-options",
+        "shopify--accessory-size",
+        "shopify--bag-case-closure",
+        "shopify--bag-case-features",
+        "shopify--bag-case-storage-features",
         "shopify--target-gender",
         "shopify--age-group",
         "shopify--sleeve-length-type",
@@ -322,7 +355,7 @@ def make_request(method, url, json_data=None):
     """Dynamically rate-limited HTTP requests wrapper."""
     while True:
         try:
-            resp = requests.request(method, url, headers=headers, json=json_data, timeout=30)
+            resp = _session.request(method, url, json=json_data, timeout=30)
             if resp.status_code == 429:
                 retry_after = float(resp.headers.get("Retry-After", 2.0))
                 print(f"Rate limited (429). Sleeping for {retry_after}s...")
@@ -368,6 +401,22 @@ def get_product_by_handle(handle):
         category {
           id
           name
+        }
+        metafields(first: 20, keys: [
+          "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
+          "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
+          "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
+          "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
+          "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features"
+        ]) {
+          edges {
+            node {
+              id
+              namespace
+              key
+              value
+            }
+          }
         }
         media(first: 50) {
           edges {
@@ -421,6 +470,22 @@ def get_recent_products(since_iso, query_field="created_at"):
             category {
               id
               name
+            }
+            metafields(first: 20, keys: [
+              "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
+              "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
+              "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
+              "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
+              "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features"
+            ]) {
+              edges {
+                node {
+                  id
+                  namespace
+                  key
+                  value
+                }
+              }
             }
             media(first: 50) {
               edges {
@@ -497,6 +562,22 @@ def get_all_products():
               id
               name
             }
+            metafields(first: 20, keys: [
+              "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
+              "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
+              "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
+              "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
+              "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features"
+            ]) {
+              edges {
+                node {
+                  id
+                  namespace
+                  key
+                  value
+                }
+              }
+            }
             media(first: 50) {
               edges {
                 node {
@@ -543,6 +624,96 @@ def get_all_products():
     
     while has_next:
         res = run_graphql(query, {"cursor": cursor})
+        data = res.get("data", {}).get("products", {})
+        edges = data.get("edges", [])
+        
+        for edge in edges:
+            products.append(edge["node"])
+            
+        page_info = data.get("pageInfo", {})
+        has_next = page_info.get("hasNextPage", False)
+        cursor = page_info.get("endCursor")
+        
+    return products
+
+def get_products_by_query(query_str):
+    """Retrieve products matching a specific query string."""
+    query = """
+    query GetProductsByQuery($queryStr: String, $cursor: String) {
+      products(first: 50, query: $queryStr, after: $cursor) {
+        edges {
+          node {
+            id
+            title
+            handle
+            descriptionHtml
+            productType
+            category {
+              id
+              name
+            }
+            metafields(first: 20, keys: [
+              "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
+              "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
+              "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
+              "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
+              "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features"
+            ]) {
+              edges {
+                node {
+                  id
+                  namespace
+                  key
+                  value
+                }
+              }
+            }
+            media(first: 50) {
+              edges {
+                node {
+                  id
+                  alt
+                  mediaContentType
+                  ... on MediaImage {
+                    image {
+                      url
+                    }
+                  }
+                }
+              }
+            }
+            variants(first: 100) {
+              edges {
+                node {
+                  id
+                  title
+                  media(first: 1) {
+                    nodes {
+                      id
+                    }
+                  }
+                  selectedOptions {
+                    name
+                    value
+                  }
+                }
+              }
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+    """
+    products = []
+    has_next = True
+    cursor = None
+    
+    while has_next:
+        res = run_graphql(query, {"queryStr": query_str, "cursor": cursor})
         data = res.get("data", {}).get("products", {})
         edges = data.get("edges", [])
         
@@ -660,10 +831,91 @@ def parse_with_heuristics(title, desc, category_name):
     if "everyday" in text or "daily" in text:
         matched_occasion.append("Everyday")
     dress_occasion = matched_occasion if matched_occasion else None
+
+    # 10. Handbag-specific heuristics (material & carry options)
+    bag_case_material = None
+    if "leather" in text:
+        bag_case_material = ["Leather"]
+        if "faux leather" in text or "vegan leather" in text or "pu leather" in text:
+            bag_case_material = ["Faux leather"]
+    elif "nylon" in text:
+        bag_case_material = ["Nylon"]
+    elif "canvas" in text:
+        bag_case_material = ["Canvas"]
+    elif "polyester" in text:
+        bag_case_material = ["Polyester"]
+    elif "straw" in text:
+        bag_case_material = ["Straw"]
+    elif "velvet" in text:
+        bag_case_material = ["Velvet"]
+        
+    carry_options = []
+    if "shoulder strap" in text or "shoulder bag" in text or "shoulder" in text:
+        carry_options.append("Shoulder strap")
+    if "top handle" in text or "tote" in text or "handle" in text:
+        carry_options.append("Top handle")
+    if "crossbody" in text or "cross-body" in text:
+        carry_options.append("Crossbody strap")
+    if "wristlet" in text:
+        carry_options.append("Wristlet")
+    if "backpack" in text:
+        carry_options.append("Backpack strap")
+    if "clutch" in text:
+        carry_options.append("Clutch")
+    carry_options = carry_options if carry_options else None
+
+    # 11. Handbag closure heuristic
+    bag_case_closure = None
+    closures = ["zipper", "zip", "magnetic", "flap", "drawstring", "snap", "buckle", "open top", "kiss lock"]
+    for cl in closures:
+        if cl in text:
+            bag_case_closure = "Zipper" if cl in ["zipper", "zip"] else cl.capitalize()
+            break
+
+    # 12. Handbag features heuristic
+    bag_features = []
+    if "water resistant" in text or "water-resistant" in text or "waterproof" in text:
+        bag_features.append("Water resistant")
+    if "lightweight" in text:
+        bag_features.append("Lightweight")
+    if "adjustable strap" in text or "adjustable-strap" in text:
+        bag_features.append("Adjustable strap")
+    if "detachable strap" in text or "detachable-strap" in text or "removable strap" in text:
+        bag_features.append("Detachable strap")
+    if "convertible" in text:
+        bag_features.append("Convertible")
+    bag_features = bag_features if bag_features else None
+
+    # 13. Handbag storage features heuristic
+    bag_storage = []
+    if "laptop compartment" in text or "laptop pocket" in text:
+        bag_storage.append("Laptop compartment")
+    if "inner pocket" in text or "interior pocket" in text:
+        bag_storage.append("Inner pockets")
+    if "card slot" in text:
+        bag_storage.append("Card slots")
+    bag_storage = bag_storage if bag_storage else None
+
+    # 14. Handbag size heuristic
+    accessory_size = None
+    if "mini" in text:
+        accessory_size = "Mini"
+    elif "small" in text:
+        accessory_size = "Small"
+    elif "medium" in text:
+        accessory_size = "Medium"
+    elif "large" in text:
+        accessory_size = "Large"
         
     return {
         "color": color,
         "fabric": fabric,
+        "bag_case_material": bag_case_material,
+        "carry_options": carry_options,
+        "accessory_size": accessory_size,
+        "bag_case_closure": bag_case_closure,
+        "bag_case_features": bag_features,
+        "bag_case_storage_features": bag_storage,
         "target_gender": "Female",  # Meeeshop defaults
         "age_group": "Adults",
         "dress_style": style,
@@ -683,20 +935,26 @@ Title: {title}
 Description: {desc}
 Category: {category_label}
 
-Suggest values for the following standard attributes if you can identify them from the text. Note that you can return a list of strings for attributes that support multiple values (like fabric, care_instructions, clothing_features, sleeve_length_type) or a single string:
+Suggest values for the following standard attributes if you can identify them from the text. Note that you can return a list of strings for attributes that support multiple values (like fabric, care_instructions, clothing_features, sleeve_length_type, carry_options, bag_case_material, bag_case_features, bag_case_storage_features) or a single string:
 1. target_gender (values: Female, Male, Unisex)
 2. age_group (values: Adults, Kids, Teens, Babies, Toddlers, Universal)
 3. color (e.g. Navy, Sage, Floral, Denim)
-4. fabric (e.g. Denim, Linen, Cotton, Viscose, Polyester) - list or string
-5. dress_style (values: A-line, Babydoll, Blouson, Caftan, Drop waist, Empire waist, Flared, Gown, Jacket, Mermaid, Pencil, Peplum, Sheath, Shift, Shirt, Skater, Slip, Sweater, Tank, Trumpet, Wrap)
-6. neckline (values: V-neck, Split, Asymmetric, Bardot, Boat, Cowl, Halter, Hooded, Mandarin, Crew, Mock, Plunging, Sweetheart, Turtle, Wrap, Round, Square)
-7. skirt_length_type (values: Mini, Midi, Maxi, Knee, Short)
-8. sleeve_length_type (values: Short, Sleeveless, Spaghetti strap, Strapless, 3/4, Cap, Long) - list or string
-9. care_instructions (e.g. Machine washable, Tumble dry, Hand wash, Dry clean only, Dryer safe) - list or string
-10. clothing_features (e.g. Stretchable, Insulated, Moisture wicking, Quick drying, Reversible, UV protection) - list or string
-11. dress_occasion (values: Birthday, Casual, Dance, Everyday, Formal, Holiday, Pageant, Party, Portrait, Religious ceremony, School, Wedding) - list or string
+4. fabric (e.g. Denim, Linen, Cotton, Viscose, Polyester) - list or string (for clothing only)
+5. bag_case_material (values: Leather, Faux leather, Canvas, Nylon, Polyester, Polyurethane, Straw, Velvet) - list or string (for bags/handbags only)
+6. carry_options (values: Shoulder strap, Top handle, Crossbody strap, Wristlet, Backpack strap, Clutch) - list or string (for bags/handbags only)
+7. accessory_size (values: One Size, Mini, Small, Medium, Large, Extra Large) - for bags/handbags only
+8. bag_case_closure (values: Zipper, Magnetic, Flap, Drawstring, Snap, Buckle, Open top, Kiss lock) - for bags/handbags only
+9. bag_case_features (values: Water resistant, Lightweight, Adjustable strap, Detachable strap, Convertible, Anti-theft) - list or string (for bags/handbags only)
+10. bag_case_storage_features (values: Laptop compartment, Tablet pocket, Inner pockets, Card slots, Key leash) - list or string (for bags/handbags only)
+11. dress_style (values: A-line, Babydoll, Blouson, Caftan, Drop waist, Empire waist, Flared, Gown, Jacket, Mermaid, Pencil, Peplum, Sheath, Shift, Shirt, Skater, Slip, Sweater, Tank, Trumpet, Wrap)
+12. neckline (values: V-neck, Split, Asymmetric, Bardot, Boat, Cowl, Halter, Hooded, Mandarin, Crew, Mock, Plunging, Sweetheart, Turtle, Wrap, Round, Square)
+13. skirt_length_type (values: Mini, Midi, Maxi, Knee, Short)
+14. sleeve_length_type (values: Short, Sleeveless, Spaghetti strap, Strapless, 3/4, Cap, Long) - list or string
+15. care_instructions (e.g. Machine washable, Tumble dry, Hand wash, Dry clean only, Dryer safe) - list or string
+16. clothing_features (e.g. Stretchable, Insulated, Moisture wicking, Quick drying, Reversible, UV protection) - list or string
+17. dress_occasion (values: Birthday, Casual, Dance, Everyday, Formal, Holiday, Pageant, Party, Portrait, Religious ceremony, School, Wedding) - list or string
 
-Return ONLY a valid JSON object with keys: color, fabric, target_gender, age_group, dress_style, neckline, skirt_length_type, sleeve_length_type, care_instructions, clothing_features, dress_occasion. If you can't identify any value for a key, use null.
+Return ONLY a valid JSON object with keys: color, fabric, bag_case_material, carry_options, accessory_size, bag_case_closure, bag_case_features, bag_case_storage_features, target_gender, age_group, dress_style, neckline, skirt_length_type, sleeve_length_type, care_instructions, clothing_features, dress_occasion. If you can't identify any value for a key, use null.
 """
     try:
         # Single try for AI
@@ -754,9 +1012,105 @@ def find_matching_image(variant_title, options, product_media, unique_colors=Non
             
     return None
 
+def get_batch_extracted_attributes(products_info):
+    """
+    Query AI with a batch of products to extract their category metafields.
+    products_info is a list of dicts:
+      {
+        "id": product GID (string),
+        "title": title (string),
+        "description": cleaned description (string, first 300 chars),
+        "category": category label (string)
+      }
+    Returns a dict mapping product GID -> attributes dict.
+    If the batch call fails or returns invalid JSON, returns an empty dict (allowing fallback).
+    """
+    if not products_info:
+        return {}
+
+    # Format the product info for the prompt
+    formatted_products = []
+    for p in products_info:
+        desc_snippet = p["description"][:300] if p["description"] else ""
+        formatted_products.append(
+            f"Product ID: {p['id']}\n"
+            f"Title: {p['title']}\n"
+            f"Category: {p['category']}\n"
+            f"Description: {desc_snippet}\n"
+            f"---"
+        )
+    products_text = "\n".join(formatted_products)
+
+    prompt = f"""You are an expert product data taxonomist. Analyze the following list of products:
+
+{products_text}
+
+For each product, identify values for these standard attributes if they are present in the title or description. Attributes and their allowed/example values:
+1. target_gender (values: Female, Male, Unisex)
+2. age_group (values: Adults, Kids, Teens, Babies, Toddlers, Universal)
+3. color (e.g. Navy, Sage, Floral, Denim)
+4. fabric (e.g. Denim, Linen, Cotton, Viscose, Polyester) - list or string
+5. bag_case_material (values: Leather, Faux leather, Canvas, Nylon, Polyester, Polyurethane, Straw, Velvet) - list or string (for bags/handbags only)
+6. carry_options (values: Shoulder strap, Top handle, Crossbody strap, Wristlet, Backpack strap, Clutch) - list or string (for bags/handbags only)
+7. accessory_size (values: One Size, Mini, Small, Medium, Large, Extra Large) - for bags/handbags only
+8. bag_case_closure (values: Zipper, Magnetic, Flap, Drawstring, Snap, Buckle, Open top, Kiss lock) - for bags/handbags only
+9. bag_case_features (values: Water resistant, Lightweight, Adjustable strap, Detachable strap, Convertible, Anti-theft) - list or string (for bags/handbags only)
+10. bag_case_storage_features (values: Laptop compartment, Tablet pocket, Inner pockets, Card slots, Key leash) - list or string (for bags/handbags only)
+11. dress_style (values: A-line, Babydoll, Blouson, Caftan, Drop waist, Empire waist, Flared, Gown, Jacket, Mermaid, Pencil, Peplum, Sheath, Shift, Shirt, Skater, Slip, Sweater, Tank, Trumpet, Wrap)
+12. neckline (values: V-neck, Split, Asymmetric, Bardot, Boat, Cowl, Halter, Hooded, Mandarin, Crew, Mock, Plunging, Sweetheart, Turtle, Wrap, Round, Square)
+13. skirt_length_type (values: Mini, Midi, Maxi, Knee, Short)
+14. sleeve_length_type (values: Short, Sleeveless, Spaghetti strap, Strapless, 3/4, Cap, Long) - list or string
+15. care_instructions (e.g. Machine washable, Tumble dry, Hand wash, Dry clean only, Dryer safe) - list or string
+16. clothing_features (e.g. Stretchable, Insulated, Moisture wicking, Quick drying, Reversible, UV protection) - list or string
+17. dress_occasion (values: Birthday, Casual, Dance, Everyday, Formal, Holiday, Pageant, Party, Portrait, Religious ceremony, School, Wedding) - list or string
+
+Return ONLY a valid JSON object mapping each Product ID to its identified attributes. If you cannot identify a value for an attribute, use null.
+The output format must be a single JSON object where keys are the exact Product IDs and values are objects with keys: color, fabric, bag_case_material, carry_options, accessory_size, bag_case_closure, bag_case_features, bag_case_storage_features, target_gender, age_group, dress_style, neckline, skirt_length_type, sleeve_length_type, care_instructions, clothing_features, dress_occasion.
+
+Example Output Format:
+{{
+  "gid://shopify/Product/12345": {{
+    "color": "Navy",
+    "fabric": null,
+    "bag_case_material": ["Faux leather"],
+    "carry_options": ["Shoulder strap", "Top handle"],
+    "accessory_size": "Medium",
+    "bag_case_closure": "Zipper",
+    "bag_case_features": ["Detachable strap"],
+    "bag_case_storage_features": ["Inner pockets"],
+    "target_gender": "Female",
+    "age_group": "Adults",
+    "dress_style": null,
+    "neckline": null,
+    "skirt_length_type": null,
+    "sleeve_length_type": null,
+    "care_instructions": null,
+    "clothing_features": null,
+    "dress_occasion": null
+  }}
+}}
+Do not include any explanation or markdown formatting outside of the raw JSON code block.
+"""
+    try:
+        print(f"Calling AI for batch attribute extraction of {len(products_info)} product(s)...")
+        # Increase max_tokens for batch response: 300 per product
+        max_tokens = max(400, len(products_info) * 300)
+        ai_resp = generate(prompt, max_tokens=max_tokens, temperature=0.2)
+        if ai_resp:
+            # Parse JSON
+            match = re.search(r'\{[\s\S]*\}', ai_resp)
+            if match:
+                parsed = json.loads(match.group(0))
+                print("✓ Batch AI Extraction successful.")
+                return parsed
+    except Exception as e:
+        print(f"[Warning] Batch AI extraction failed or rate-limited: {e}")
+
+    return {}
+
 # --- Main Automation Logic ---
 
-def process_product(product, dry_run=True):
+def process_product(product, dry_run=True, skip_ai=False, pre_extracted_attrs=None):
     """Process a single product: extract GPC metafields and variant images."""
     p_id = product["id"]
     p_title = product["title"]
@@ -783,7 +1137,14 @@ def process_product(product, dry_run=True):
     }
     
     # 1. Fetch AI/Local Category Metafields
-    attrs = get_extracted_attributes(p_title, desc, category_name)
+    if skip_ai:
+        print(f"  - Category metafields already set for '{p_title}'. Skipping AI/heuristics attribute extraction.")
+        attrs = {}
+    elif pre_extracted_attrs is not None:
+        print(f"  - Using pre-extracted attributes from batch AI call.")
+        attrs = pre_extracted_attrs
+    else:
+        attrs = get_extracted_attributes(p_title, desc, category_name)
     print(f"  Extracted Attributes: {attrs}")
     
     # Map to metafield list
@@ -952,7 +1313,8 @@ def fetch_current_metafields_and_variants(product_ids):
             "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
             "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
             "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
-            "shopify.dress-occasion"
+            "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
+            "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features"
           ]) {
             edges {
               node {
@@ -1119,6 +1481,81 @@ def revert_metafields_and_variants(backup_file):
             })
             print(f"  ✓ Restored original images for {len(variants_payload)} variants.")
 
+# ══════════════════════════════════════════════════════════════════════════════
+# LOG HELPERS FOR SKIP HISTORY
+# ══════════════════════════════════════════════════════════════════════════════
+
+def load_recently_updated_ids(filepath: str = "category_metafields_log.json") -> set:
+    """
+    Return a set of product IDs (GID strings) that were successfully processed/updated.
+    Searches recursively for all category_metafields_log.json files in the workspace.
+    """
+    from pathlib import Path
+    log_files = []
+    if os.path.exists(filepath):
+        log_files.append(Path(filepath))
+
+    for p in Path(".").glob("**/category_metafields_log.json"):
+        if p.resolve() not in [lf.resolve() for lf in log_files]:
+            log_files.append(p)
+
+    processed_ids = set()
+    for lf in log_files:
+        try:
+            logs = json.loads(lf.read_text(encoding="utf-8"))
+            if not isinstance(logs, list):
+                continue
+            for entry in logs:
+                if not isinstance(entry, dict):
+                    continue
+                ids = entry.get("processed_ids", [])
+                for item_id in ids:
+                    processed_ids.add(str(item_id))
+        except Exception:
+            pass
+    return processed_ids
+
+
+def save_update_log(processed_ids: set, stats: dict, filepath: str = "category_metafields_log.json"):
+    from pathlib import Path
+    log_path = Path(filepath)
+    logs = []
+    if log_path.exists():
+        try:
+            logs = json.loads(log_path.read_text(encoding="utf-8"))
+        except Exception:
+            logs = []
+
+    existing_timestamps = {entry.get("timestamp") for entry in logs if isinstance(entry, dict)}
+
+    # Merge logs from other files
+    for p in Path(".").glob("**/category_metafields_log.json"):
+        if p.resolve() == log_path.resolve():
+            continue
+        try:
+            sub_logs = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(sub_logs, list):
+                for entry in sub_logs:
+                    if isinstance(entry, dict):
+                        ts = entry.get("timestamp")
+                        if ts not in existing_timestamps:
+                            logs.append(entry)
+                            existing_timestamps.add(ts)
+        except Exception:
+            pass
+
+    logs.sort(key=lambda entry: entry.get("timestamp", ""))
+
+    logs.append({
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "summary": stats,
+        "processed_ids": sorted(list(processed_ids))
+    })
+
+    log_path.write_text(json.dumps(logs, indent=2), encoding="utf-8")
+    print(f"[Log] Saved consolidated log to {filepath}")
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Shopify Category Metafields & Variant Image Automation Utility")
@@ -1128,6 +1565,7 @@ def main():
     group.add_argument("--revert", action="store_true", help="Revert changes from a backup file")
     
     parser.add_argument("--handle", help="Restrict run to a single product handle (for local validation)")
+    parser.add_argument("--query", help="Scan products matching a custom Shopify query (e.g. 'product_type:Handbags')")
     parser.add_argument("--full", action="store_true", help="Trigger a full catalog scan (forced)")
     parser.add_argument("--weekly", action="store_true", help="Scan products created in the last 7 days")
     parser.add_argument("--daily", action="store_true", help="Scan products created in the last 24 hours")
@@ -1154,6 +1592,12 @@ def main():
         else:
             print(f"Error: Product handle '{args.handle}' not found.")
             sys.exit(1)
+    elif args.query:
+        # Strip outer quotes if passed literally by shell escaping
+        clean_query = args.query.strip().strip('"').strip("'")
+        print(f"Loading products matching query: {clean_query}")
+        products = get_products_by_query(clean_query)
+        print(f"Fetched {len(products)} products.")
     elif args.full:
         print("Loading full store catalog...")
         products = get_all_products()
@@ -1187,16 +1631,101 @@ def main():
         if not products:
             print("No products in this batch slice.")
             return
+
+    # ── Load recently processed GIDs to skip ──────────────────────────────────
+    skip_ids = set()
+    if not args.full and not args.handle and not args.query:
+        try:
+            skip_ids = load_recently_updated_ids()
+            if skip_ids:
+                print(f"[Skip] {len(skip_ids)} product(s) already processed in previous runs — will skip\n")
+        except Exception as e:
+            print(f"Warning: Failed to load skip history: {e}")
+
+    processed_ids = set()
         
     # Analyze and generate suggestions
-    all_suggestions = []
+    products_to_process = []
+    products_needing_ai = []
+    
     for p in products:
-        s = process_product(p)
+        p_id = p["id"]
+        if not args.full and not args.handle and not args.query and p_id in skip_ids:
+            print(f"Skipping product (recently processed): {p['title']}")
+            continue
+
+        # Check if product already has standard category metafields populated
+        metafield_edges = p.get("metafields", {}).get("edges", []) if p.get("metafields") else []
+        has_metafields = False
+        for edge in metafield_edges:
+            m = edge.get("node", {})
+            if m.get("value"):
+                has_metafields = True
+                break
+
+        skip_ai = has_metafields and not args.full and not args.handle and not args.query
+        products_to_process.append((p, skip_ai))
+        
+        if not skip_ai:
+            desc_html = p.get("descriptionHtml") or ""
+            desc_clean = re.sub(r'<[^>]*>', '', desc_html).strip()
+            desc_clean = re.sub(r'\s+', ' ', desc_clean)
+            products_needing_ai.append({
+                "id": p_id,
+                "title": p["title"],
+                "description": desc_clean[:300],
+                "category": p.get("category", {}).get("name") if p.get("category") else "Clothing"
+            })
+
+    # Run batch AI call in chunks of 10 to avoid token limitations or output truncations
+    batch_results = {}
+    if products_needing_ai:
+        chunk_size = 10
+        total_chunks = (len(products_needing_ai) - 1) // chunk_size + 1
+        for i in range(0, len(products_needing_ai), chunk_size):
+            chunk = products_needing_ai[i:i + chunk_size]
+            chunk_num = i // chunk_size + 1
+            print(f"\n--- Batch Chunk {chunk_num} of {total_chunks} ({len(chunk)} products) ---")
+            chunk_results = get_batch_extracted_attributes(chunk)
+            if chunk_results:
+                batch_results.update(chunk_results)
+
+    all_suggestions = []
+    for p, skip_ai in products_to_process:
+        p_id = p["id"]
+        p_pre_extracted = None
+        if not skip_ai:
+            if batch_results and p_id in batch_results:
+                p_pre_extracted = batch_results.get(p_id)
+                if not isinstance(p_pre_extracted, dict) or not p_pre_extracted:
+                    p_pre_extracted = None
+            
+            # If batch results didn't have it, or batch failed, use non-AI heuristics fallback immediately
+            if p_pre_extracted is None:
+                print(f"  ⚠ AI failed or not available for '{p['title']}'. Falling back to local heuristics immediately.")
+                title = p["title"]
+                desc_html = p.get("descriptionHtml") or ""
+                category_name = p.get("category", {}).get("name") if p.get("category") else "Clothing"
+                p_pre_extracted = parse_with_heuristics(title, desc_html, category_name)
+                
+        s = process_product(p, skip_ai=skip_ai, pre_extracted_attrs=p_pre_extracted)
+        processed_ids.add(p_id)
         if s["metafields"] or s["variants"]:
             all_suggestions.append(s)
             
     if not all_suggestions:
         print("\nNo metadata or variant image updates are needed.")
+        # Save processed GIDs log if no updates are needed
+        if not args.full and not args.handle:
+            try:
+                stats = {
+                    "total_fetched": len(products),
+                    "total_processed": len(processed_ids),
+                    "total_updates_found": 0
+                }
+                save_update_log(processed_ids, stats)
+            except Exception as e:
+                print(f"Warning: Failed to save skip history: {e}")
         return
         
     print(f"\nFound updates for {len(all_suggestions)} products.")
@@ -1224,6 +1753,18 @@ def main():
         for s in all_suggestions:
             apply_product_updates(s)
         print("\nAll updates applied successfully.")
+
+        # Save processed GIDs log after successfully applying updates
+        if not args.full and not args.handle:
+            try:
+                stats = {
+                    "total_fetched": len(products),
+                    "total_processed": len(processed_ids),
+                    "total_updates_found": len(all_suggestions)
+                }
+                save_update_log(processed_ids, stats)
+            except Exception as e:
+                print(f"Warning: Failed to save skip history: {e}")
 
 if __name__ == "__main__":
     main()

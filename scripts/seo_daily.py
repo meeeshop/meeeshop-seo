@@ -205,6 +205,32 @@ def extract_size_table(html):
         return ''
     return block
 
+
+def remove_clothing_size_table(html):
+    """Remove any clothing size table (containing bust, waist, hip, etc.) and its heading."""
+    if not html:
+        return ""
+    
+    # 1. Match clothing-specific terms inside tables
+    clothing_terms = re.compile(r'\b(bust|waist|hip|sleeve|inseam|rise|underwire|chest)\b', re.IGNORECASE)
+    
+    def replacement(match):
+        table_html = match.group(0)
+        if clothing_terms.search(table_html):
+            return ""
+        return table_html
+        
+    cleaned = re.sub(r'<table[\s\S]*?</table>', replacement, html)
+    
+    # 2. Clean up orphaned headings like <h3>Size Chart</h3> immediately followed by another heading/tag or end of string
+    cleaned = re.sub(
+        r'(<h[1-6][^>]*>[^<]*size[^<]*</h[1-6]>\s*|<p[^>]*>\s*<strong>\s*size[^<]*chart[^<]*</strong>\s*</p>\s*)'
+        r'(?=<h|<p|<ul>|<li>|<div>|<!--|$)',
+        '', cleaned, flags=re.IGNORECASE
+    )
+    return cleaned.strip()
+
+
 # ── Build size chart based on product type ────────────────────────────────────
 def build_size_chart(word):
     """Create appropriate size chart based on product category."""
@@ -240,17 +266,25 @@ def build_size_chart(word):
     )
     return size_chart
 
+
 # ── SEO description with keywords + size chart ───────────────────────────────
 def build_description(product, force=False):
     title    = product['title']
     html_body = product.get('body_html', '') or ''
-    existing = strip_html(html_body)
     cat, word = detect_cat(title)
+    
+    if cat == 'Bags':
+        html_body = remove_clothing_size_table(html_body)
+        
+    existing = strip_html(html_body)
 
     # Detect if product already has a custom/storytelling description
     if len(existing) >= 200 and not ("Discover the" in html_body and "Why Choose" in html_body):
-        # Preserve the custom description, clean return policies, and append size table if missing
+        # Preserve the custom description, clean return policies
         cleaned_body = clean_return_policy(html_body)
+        if cat == 'Bags':
+            return cleaned_body.strip()
+            
         if not has_size_table(cleaned_body):
             size_chart = build_size_chart(word)
             return cleaned_body.strip() + "\n\n" + size_chart
@@ -288,10 +322,13 @@ def build_description(product, force=False):
 
     # Preserve existing size table verbatim; otherwise build the standard one
     existing_table = extract_size_table(html_body)
-    if existing_table:
-        size_chart = existing_table
+    if cat == 'Bags':
+        size_chart = existing_table if existing_table else ''
     else:
-        size_chart = build_size_chart(word)
+        if existing_table:
+            size_chart = existing_table
+        else:
+            size_chart = build_size_chart(word)
 
     if not force and len(existing) >= 500:
         return html_body
@@ -1115,6 +1152,83 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
         if len(changes) > 3:
             print(f"  + ...and {len(changes)-3} more")
 
+# ══════════════════════════════════════════════════════════════════════════════
+# LOG HELPERS FOR SKIP HISTORY
+# ══════════════════════════════════════════════════════════════════════════════
+
+def load_recently_updated_ids(filepath: str = "seo_update_log.json") -> set:
+    """
+    Return a set of resource IDs (integers) that were successfully processed/updated.
+    Searches recursively for all seo_update_log.json files in the workspace.
+    """
+    from pathlib import Path
+    log_files = []
+    if os.path.exists(filepath):
+        log_files.append(Path(filepath))
+
+    for p in Path(".").glob("**/seo_update_log.json"):
+        if p.resolve() not in [lf.resolve() for lf in log_files]:
+            log_files.append(p)
+
+    processed_ids = set()
+    for lf in log_files:
+        try:
+            logs = json.loads(lf.read_text(encoding="utf-8"))
+            if not isinstance(logs, list):
+                continue
+            for entry in logs:
+                if not isinstance(entry, dict):
+                    continue
+                ids = entry.get("processed_ids", [])
+                for item_id in ids:
+                    processed_ids.add(int(item_id))
+        except Exception:
+            pass
+    return processed_ids
+
+
+def save_update_log(processed_ids: set, stats: dict, mode: str, args, filepath: str = "seo_update_log.json"):
+    from pathlib import Path
+    log_path = Path(filepath)
+    logs = []
+    if log_path.exists():
+        try:
+            logs = json.loads(log_path.read_text(encoding="utf-8"))
+        except Exception:
+            logs = []
+
+    existing_timestamps = {entry.get("timestamp") for entry in logs if isinstance(entry, dict)}
+
+    # Merge logs from other files
+    for p in Path(".").glob("**/seo_update_log.json"):
+        if p.resolve() == log_path.resolve():
+            continue
+        try:
+            sub_logs = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(sub_logs, list):
+                for entry in sub_logs:
+                    if isinstance(entry, dict):
+                        ts = entry.get("timestamp")
+                        if ts not in existing_timestamps:
+                            logs.append(entry)
+                            existing_timestamps.add(ts)
+        except Exception:
+            pass
+
+    logs.sort(key=lambda entry: entry.get("timestamp", ""))
+
+    logs.append({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "mode": mode,
+        "batch_index": args.batch_index if mode == 'force' else None,
+        "batch_size": args.batch_size if mode == 'force' else None,
+        "summary": stats,
+        "processed_ids": sorted(list(processed_ids))
+    })
+
+    log_path.write_text(json.dumps(logs, indent=2), encoding="utf-8")
+    print(f"[Log] Saved consolidated log to {filepath}")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN
@@ -1161,6 +1275,19 @@ def main():
         print("Processing: Products, Pages, Collections, Blog Posts\n")
 
     print(f"Cutoff: {since or 'none (all resources)'}\n")
+
+    # ── Load recently processed/updated GIDs to skip ──────────────────────────
+    skip_ids = set()
+    if not args.force:
+        try:
+            skip_ids = load_recently_updated_ids()
+            if skip_ids:
+                print(f"[Skip] {len(skip_ids)} item(s) already processed in previous runs — will skip\n")
+        except Exception as e:
+            print(f"Warning: Failed to load skip history: {e}")
+
+    # Track successfully processed/validated IDs in this run
+    processed_ids = set()
 
     # ── JSON-LD theme injection (idempotent) ──────────────────────────────────
     if not args.skip_jsonld:
@@ -1231,6 +1358,10 @@ def main():
     # ── Process products ──────────────────────────────────────────────────────
     print("Processing products...")
     for i, p in enumerate(products, 1):
+        if p['id'] in skip_ids:
+            print(f"  [{i}/{len(products)}] SKIP (recent) {p['title'][:55]}")
+            continue
+
         mfs        = {f"{m['namespace']}.{m['key']}": m for m in p.get('metafields', [])}
         mismatches = validate_seo(p, "product", mfs)
         title_wrong = title_case(p['title']) != p['title']
@@ -1240,14 +1371,20 @@ def main():
             needs_seo = bool(mismatches) or title_wrong
         if not needs_seo and mode not in ('force', 'weekly'):
             print(f"  [{i}/{len(products)}] OK  {p['title'][:55]}")
+            processed_ids.add(p['id'])
             continue
         print(f"  [{i}/{len(products)}] FIX {p['title'][:55]}")
         process(p, stats, log, existing_mfs=mfs, force=(mode in ('force', 'weekly')), only_images=args.only_images)
+        processed_ids.add(p['id'])
 
     # ── Process pages ─────────────────────────────────────────────────────────
     if pages:
         print("\nProcessing pages...")
         for i, page in enumerate(pages, 1):
+            if page['id'] in skip_ids:
+                print(f"  [{i}/{len(pages)}] SKIP (recent) {page['title'][:55]}")
+                continue
+
             title = page['title']
             mfs        = {f"{m['namespace']}.{m['key']}": m for m in page.get('metafields', [])}
 
@@ -1266,6 +1403,7 @@ def main():
             needs_seo = not mt_ok or not desc_ok
             if not needs_seo and mode not in ('force', 'weekly'):
                 print(f"  [{i}/{len(pages)}] OK  {title[:55]}")
+                processed_ids.add(page['id'])
                 continue
 
             print(f"  [{i}/{len(pages)}] FIX {title[:55]}")
@@ -1288,6 +1426,7 @@ def main():
                         {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]},
                     ]
                 })
+                processed_ids.add(page['id'])
             except Exception as e:
                 print(f"    ! Error processing page: {e}")
 
@@ -1295,6 +1434,10 @@ def main():
     if collections:
         print("\nProcessing collections...")
         for i, coll in enumerate(collections, 1):
+            if coll['id'] in skip_ids:
+                print(f"  [{i}/{len(collections)}] SKIP (recent) {coll['title'][:55]}")
+                continue
+
             title = coll['title']
             coll_type = coll.get('_type', 'custom_collections')
             mfs        = {f"{m['namespace']}.{m['key']}": m for m in coll.get('metafields', [])}
@@ -1314,6 +1457,7 @@ def main():
             needs_seo = not mt_ok or not desc_ok
             if not needs_seo and mode not in ('force', 'weekly'):
                 print(f"  [{i}/{len(collections)}] OK  {title[:55]}")
+                processed_ids.add(coll['id'])
                 continue
 
             print(f"  [{i}/{len(collections)}] FIX {title[:55]}")
@@ -1336,6 +1480,7 @@ def main():
                         {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]},
                     ]
                 })
+                processed_ids.add(coll['id'])
             except Exception as e:
                 print(f"    ! Error processing collection: {e}")
 
@@ -1343,6 +1488,10 @@ def main():
     if articles:
         print("\nProcessing articles...")
         for i, article in enumerate(articles, 1):
+            if article['id'] in skip_ids:
+                print(f"  [{i}/{len(articles)}] SKIP (recent) {article['title'][:55]}")
+                continue
+
             title = article['title']
             blog_id = article.get('blog_id')
             blog_handle = article.get('blog_handle')
@@ -1369,6 +1518,7 @@ def main():
             needs_seo = not mt_ok or not desc_ok
             if not needs_seo and mode not in ('force', 'weekly'):
                 print(f"  [{i}/{len(articles)}] OK  {title[:55]}")
+                processed_ids.add(article['id'])
                 continue
 
             print(f"  [{i}/{len(articles)}] FIX {title[:55]}")
@@ -1391,6 +1541,7 @@ def main():
                         {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]},
                     ]
                 })
+                processed_ids.add(article['id'])
             except Exception as e:
                 print(f"    ! Error processing article: {e}")
 
@@ -1447,6 +1598,14 @@ def main():
     with open(fname, 'w') as f:
         json.dump(report, f, indent=2)
     print(f"\nFull report saved: {fname}")
+
+    # Save processed GIDs log
+    if not args.force:
+        try:
+            save_update_log(processed_ids, stats, mode, args)
+        except Exception as e:
+            print(f"Warning: Failed to save skip history: {e}")
+
 
 
 if __name__ == "__main__":
