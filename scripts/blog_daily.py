@@ -90,21 +90,59 @@ def get_all_blogs() -> list:
     return r.json().get("blogs", [])
 
 
-def get_or_create_blog(product_type: str, all_blogs: list) -> dict:
+def get_or_create_blog(product_type: str, all_blogs: list, dry_run: bool = False) -> dict:
     ptype_lower = (product_type or "").lower()
-    hints = []
-    for key, keywords in CATEGORY_BLOG_MAP.items():
-        if key in ptype_lower:
-            hints = keywords
-            break
-    for hint in hints:
+    
+    # 1. Direct target blog names mapping
+    target_blog_title = None
+    if "dress" in ptype_lower:
+        target_blog_title = "dresses"
+    elif any(x in ptype_lower for x in ["jean", "denim", "jort"]):
+        target_blog_title = "jeans"
+    elif any(x in ptype_lower for x in ["skirt", "skort"]):
+        target_blog_title = "skirts"
+    elif any(x in ptype_lower for x in ["pant", "legging", "short"]):
+        target_blog_title = "pants"
+    elif any(x in ptype_lower for x in ["top", "blouse", "shirt", "tee", "t-shirt", "tank"]):
+        target_blog_title = "shirts & tops"
+    elif any(x in ptype_lower for x in ["jacket", "coat", "outerwear", "blazer"]):
+        target_blog_title = "coats & jackets"
+    elif any(x in ptype_lower for x in ["sweater", "cardigan", "knit", "pullover"]):
+        target_blog_title = "cardigans & sweaters"
+        
+    # 2. Try matching the targeted title
+    if target_blog_title:
         for blog in all_blogs:
-            if hint in blog.get("title", "").lower():
+            title_lower = blog.get("title", "").lower()
+            # Avoid matching Announcements or system blogs
+            if "announcements" in title_lower or "tips" in title_lower:
+                continue
+            if target_blog_title in title_lower:
                 return blog
+                
+    # 3. Fallback to "Women's Clothing" if available
+    for blog in all_blogs:
+        title_lower = blog.get("title", "").lower()
+        if "women's clothing" in title_lower:
+            return blog
+            
+    # 4. Fallback to any blog that is not a system blog
+    non_system_blogs = [
+        b for b in all_blogs 
+        if "announcements" not in b.get("title", "").lower() and "tips" not in b.get("title", "").lower()
+    ]
+    if non_system_blogs:
+        return non_system_blogs[0]
+        
     if all_blogs:
         return all_blogs[0]
+        
+    if dry_run:
+        return {"id": 0, "title": "MOCK Fallback Blog (Dry Run)"}
+        
+    # Create blog if none exist
     r = _req("post", f"{BASE}/blogs.json",
-             json={"blog": {"title": "MeeeShop Fashion Journal"}})
+             json={"blog": {"title": "Women's Clothing"}})
     r.raise_for_status()
     new_blog = r.json()["blog"]
     all_blogs.append(new_blog)
@@ -1046,9 +1084,8 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
         count = len(pool)
     print(f"  {len(products)} products ({len(products_with_imgs)} with images used as pool)\n")
 
-    all_blogs = [] if dry_run else get_all_blogs()
-    if not dry_run:
-        print(f"  Available blogs: {[b['title'] for b in all_blogs]}\n")
+    all_blogs = get_all_blogs()
+    print(f"  Available blogs: {[b['title'] for b in all_blogs]}\n")
 
     chosen   = random.sample(pool, min(count, len(pool)))
 
@@ -1060,7 +1097,7 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
         print(f"  Product: {product['title'][:70]}")
         print(f"  Type   : {product.get('product_type', 'unknown')}")
 
-        blog = get_or_create_blog(product.get("product_type", ""), all_blogs) if not dry_run else {"id": 0, "title": "DRY-RUN"}
+        blog = get_or_create_blog(product.get("product_type", ""), all_blogs, dry_run)
         print(f"  Blog   : {blog['title']}")
 
         # Select styling matches first so we can feed them into the prompt, ONLY for styling formats
