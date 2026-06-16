@@ -34,11 +34,10 @@ from urllib.parse import quote
 from bs4 import BeautifulSoup
 
 import requests
-
-# ── resolve project root and import local modules ─────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
-# Assuming local utility scripts (ai_client, secrets_manager) are in the same directory
+
 import ai_client
+from blog_daily import generate_fallback_blog_post, get_product_display_name, PEN_NAMES
 
 # ── env / credentials ─────────────────────────────────────────────────────────
 from secrets_manager import inject_to_env, get_secret
@@ -417,27 +416,25 @@ def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
         f"- To avoid programmatic footprints, vary your structure. Occasionally include a <blockquote style='border-left: 3px solid #ccc; padding-left: 10px; margin: 15px 0; font-style: italic;'> for a 'Stylist Tip', or distinct visual callouts. Make the flow feel like a hand-written editorial, not a template.\n\n"
         f"Store info: Free US shipping on orders $50+. 7-day returns. Sizes XS-3X.\n\n"
         f"Target: 750-900 words. Output ONLY clean HTML — no markdown, no code fences.\n"
-    )
-
-
-def generate_seo_meta(article_title: str, keyword: str,
-                      product_title: str, ptype: str) -> dict:
-    prompt = (
-        f"Generate SEO metadata for a women's fashion blog post.\n"
-        f"Post title: \"{article_title}\"\n"
-        f"Target keyword: \"{keyword}\"\n"
-        f"Featured product: {product_title} ({ptype})\n"
-        f"Store: MeeeShop — USA women's boutique at us.meeeshop.com\n\n"
-        f"Return ONLY these 3 lines:\n"
-        f"SEO_TITLE: [50-60 chars, keyword near start, compelling]\n"
+        f"\n\nAt the very end of your response, after the HTML content, you MUST append a `<seometa>` section containing the SEO metadata. The format MUST be exactly like this (use these exact keys):\n"
+        f"<seometa>\n"
+        f"SEO_TITLE: [50-60 chars, keyword near start, year or 'for Women', compelling]\n"
         f"META_DESC: [140-155 chars, action-oriented, includes keyword, free shipping mention, ends with CTA]\n"
-        f"IMG_ALT: [10-15 words, includes keyword + 'women' + product type, no quotes]\n"
+        f"IMG_ALT: [descriptive ALT text for featured image, 10-15 words, includes keyword + 'women' + product type, no quotes]\n"
+        f"</seometa>\n"
+        f"Make sure there are no other text or markdown code fences enclosing the <seometa> block."
     )
-    raw = ai_client.generate(prompt, max_tokens=200, temperature=0.4)
 
+
+def parse_and_clean_seo_meta(raw_seo_text: str, keyword: str, product_title: str, ptype: str) -> dict:
+    """
+    Parse SEO title, meta description, and image ALT text from the extracted text block.
+    Falls back to deterministic values if parsing fails or fields are missing.
+    """
     seo_title = meta_desc = img_alt = ""
-    if raw:
-        for line in raw.splitlines():
+
+    if raw_seo_text:
+        for line in raw_seo_text.splitlines():
             line = line.strip()
             if line.upper().startswith("SEO_TITLE:"):
                 seo_title = line.split(":", 1)[1].strip().strip('"')
@@ -446,6 +443,7 @@ def generate_seo_meta(article_title: str, keyword: str,
             elif line.upper().startswith("IMG_ALT:"):
                 img_alt = line.split(":", 1)[1].strip().strip('"')
 
+    # Deterministic fallbacks — always valid even if AI fails
     if not seo_title or len(seo_title) > 70:
         seo_title = f"{keyword.title()} — MeeeShop {YEAR}"[:60]
     if not meta_desc or len(meta_desc) > 165:
@@ -736,9 +734,38 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         prompt   = _build_refresh_prompt(art_title, chosen_featured, keyword, body)
         new_body = ai_client.generate(prompt, max_tokens=1800, temperature=0.75)
 
+        is_fallback_mode = False
+        seo_text = ""
+
         if not new_body:
-            print("  [AI] all providers failed — skipping article")
-            return None
+            print("  [AI] All providers failed — executing local template-based fallback generator...")
+            is_fallback_mode = True
+            from blog_daily import select_styling_matches
+            matching_products = select_styling_matches(chosen_featured, in_stock, num_matches=2)
+            new_body, seo = generate_fallback_blog_post(
+                "problem_solver", chosen_featured, keyword, art_title, in_stock, matching_products
+            )
+        else:
+            # Extract <seometa> block if present
+            seo_match = re.search(r"<seometa>(.*?)</seometa>", new_body, re.DOTALL | re.IGNORECASE)
+            if seo_match:
+                seo_text = seo_match.group(1).strip()
+                # Remove the <seometa> block from body
+                new_body = new_body[:seo_match.start()] + new_body[seo_match.end():]
+            else:
+                # Inline detection fallback if tags were omitted
+                lines = new_body.splitlines()
+                cleaned_lines = []
+                seo_lines = []
+                for line in lines:
+                    l_upper = line.strip().upper()
+                    if l_upper.startswith("SEO_TITLE:") or l_upper.startswith("META_DESC:") or l_upper.startswith("IMG_ALT:"):
+                        seo_lines.append(line)
+                    elif "seometa" not in line.lower():
+                        cleaned_lines.append(line)
+                if seo_lines:
+                    seo_text = "\n".join(seo_lines)
+                    new_body = "\n".join(cleaned_lines)
 
         new_body = _clean_html(new_body)
 
@@ -755,8 +782,9 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         )
 
         # ── 6. Generate SEO metadata ───────────────────────────────────────────────
-        print("  Generating SEO metadata…")
-        seo = generate_seo_meta(art_title, keyword, chosen_featured["title"], ptype)
+        if not is_fallback_mode:
+            print("  Extracting SEO metadata…")
+            seo = parse_and_clean_seo_meta(seo_text, keyword, chosen_featured["title"], ptype)
 
     print(f"  SEO title : {seo['seo_title']}")
     print(f"  Meta desc : {seo['meta_desc'][:80]}…")
@@ -803,6 +831,10 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     print(f"    [Backup] Saved original article content to backup_articles/{backup_file.name}")
 
     # ── 11. PATCH the article (keeps same URL handle and title) ───────────────
+    author_name = article.get("author", "").strip()
+    if not author_name or any(g in author_name.lower() for g in ["meeeshop", "author", "staff", "writer", "admin"]):
+        author_name = random.choice(PEN_NAMES)
+
     payload = {
         "article": {
             "id":           article_id,
@@ -810,7 +842,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
             "summary_html": summary_html,
             "tags":         tags_str,
             "published":    True,
-            "author":       "Meeeshop",
+            "author":       author_name,
         }
     }
     # Update featured image
@@ -900,20 +932,22 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
     print("Checking article authors...")
     articles_to_check = work_items if article_id else all_articles
     for blog, art in articles_to_check:
-        cur_author = art.get("author", "")
-        if cur_author != "Meeeshop":
-            print(f"  Article '{art.get('title')}' (ID {art.get('id')}) has author '{cur_author}'. Updating to 'Meeeshop'...")
+        cur_author = (art.get("author") or "").strip()
+        # If author is empty or generic, update to a valid E-E-A-T named pen name
+        if not cur_author or any(g in cur_author.lower() for g in ["meeeshop", "author", "staff", "writer", "admin"]):
+            new_author = random.choice(PEN_NAMES)
+            print(f"  Article '{art.get('title')}' (ID {art.get('id')}) has generic/empty author '{cur_author}'. Updating to E-E-A-T author '{new_author}'...")
             if not dry_run:
-                payload = {"article": {"id": art["id"], "author": "Meeeshop"}}
+                payload = {"article": {"id": art["id"], "author": new_author}}
                 r = _req("put", f"{BASE}/blogs/{blog['id']}/articles/{art['id']}.json", json=payload)
                 if r.status_code in (200, 201):
                     print("    ✓ Updated successfully.")
-                    art["author"] = "Meeeshop"
+                    art["author"] = new_author
                 else:
                     print(f"    ✗ Update failed: {r.status_code} {r.text[:200]}")
                 time.sleep(1.0)
             else:
-                print("    [DRY-RUN] Would update author to 'Meeeshop'.")
+                print(f"    [DRY-RUN] Would update author to '{new_author}'.")
 
     # ── Process each article ──────────────────────────────────────────────────
     updated = skipped = 0

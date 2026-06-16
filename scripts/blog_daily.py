@@ -51,6 +51,15 @@ STORE_URL = get_secret("STORE_BASE_URL")
 YEAR  = datetime.now().year
 MONTH = datetime.now().strftime("%B %Y")
 
+PEN_NAMES = [
+    "Elena Vance, MeeeShop Lead Stylist",
+    "Seraphina Croft, MeeeShop Fashion Editor",
+    "Audrey Sterling, MeeeShop Style Director",
+    "Maya Devereaux, MeeeShop Fashion Consultant",
+    "Vivienne Vance, MeeeShop Senior Stylist",
+    "Genevieve Thorne, MeeeShop Trend Forecaster"
+]
+
 # ── Shopify helpers ────────────────────────────────────────────────────────────
 def _req(method, url, **kw):
     for attempt in range(5):
@@ -1390,14 +1399,6 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
         print(f"  Title     : {post_title[:80]}")
 
         # Select fictional author pseudonym for E-E-A-T
-        PEN_NAMES = [
-            "Elena Vance, MeeeShop Lead Stylist",
-            "Seraphina Croft, MeeeShop Fashion Editor",
-            "Audrey Sterling, MeeeShop Style Director",
-            "Maya Devereaux, MeeeShop Fashion Consultant",
-            "Vivienne Vance, MeeeShop Senior Stylist",
-            "Genevieve Thorne, MeeeShop Trend Forecaster"
-        ]
         author_name = random.choice(PEN_NAMES)
         print(f"  Author    : {author_name}")
 
