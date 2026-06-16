@@ -381,8 +381,8 @@ def fix_article(blog_id: int, blog_title: str, article: dict, catalog_pool: list
         body_changed = True
         print(f"  [HTML] Reduced inline product link count from {len(product_links)} to 3 to avoid spam triggers.")
 
-    # Detect product handle for Q&A and collage
-    main_product_handle = None
+    # Detect product handles for Q&A and collage
+    linked_handles = []
     all_links = soup.find_all("a")
     for l in all_links:
         href = l.get("href", "")
@@ -390,8 +390,11 @@ def fix_article(blog_id: int, blog_title: str, article: dict, catalog_pool: list
             path = urlparse(href).path
             m = re.search(r"/products/([^/]+)", path)
             if m:
-                main_product_handle = m.group(1).split("?")[0]
-                break
+                h = m.group(1).split("?")[0]
+                if h not in linked_handles:
+                    linked_handles.append(h)
+                    
+    main_product_handle = linked_handles[0] if linked_handles else None
 
     # Shoppers' Q&A Injection
     text_lower = soup.get_text().lower()
@@ -455,8 +458,15 @@ def fix_article(blog_id: int, blog_title: str, article: dict, catalog_pool: list
                     break
                     
         if main_prod and main_prod.get("images"):
-            # Select matching items and build outfit collage
-            matches = select_styling_matches(main_prod, catalog_pool)
+            # Only use products that are actually linked in the article body (excluding the main product)
+            matches = []
+            other_handles = [h for h in linked_handles if h != main_prod["handle"]]
+            for h in other_handles[:2]:  # limit to 2 matches for collage
+                p_data = fetch_product_by_handle(h)
+                if p_data and p_data.get("images"):
+                    matches.append(p_data)
+            
+            # Generate the collage. If matches is empty, it will generate a 1200x630 single product crop!
             collage_local = generate_outfit_collage(main_prod, matches)
             
             if collage_local and collage_local.exists():
@@ -475,13 +485,13 @@ def fix_article(blog_id: int, blog_title: str, article: dict, catalog_pool: list
                         "alt": f"{main_prod['title']} style formula collage for Google Discover lookbook"
                     }
                     has_changes = True
-                    print(f"  [IMAGE] Successfully generated and uploaded 1200x630 outfit collage: {cdn_url}")
+                    print(f"  [IMAGE] Successfully generated and uploaded 1200x630 outfit collage/featured image: {cdn_url}")
                 else:
-                    print("  [IMAGE] [!] Staged upload failed during collage update.")
+                    print("  [IMAGE] [!] Staged upload failed during collage/featured image update.")
             else:
-                print("  [IMAGE] [!] Collage creation failed.")
+                print("  [IMAGE] [!] Collage/featured image creation failed.")
         else:
-            print("  [IMAGE] [!] No associated product or images found for this article — skipping collage build.")
+            print("  [IMAGE] [!] No associated product or images found for this article — skipping collage/featured image build.")
 
     # 4. Push Shopify updates
     if has_changes:

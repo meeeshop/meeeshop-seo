@@ -262,26 +262,34 @@ def make_product_card(product: dict, keyword: str = "",
 """
 
 
-def make_related_products_section(products: list, exclude_handle: str, keyword: str = "") -> str:
+def make_related_products_section(products: list, exclude_handle: str, keyword: str = "", matching_products: list = None) -> str:
     import html
-    related = [p for p in products if p.get("handle") != exclude_handle and p.get("images")]
-    if not related:
-        related = [p for p in products if p.get("handle") != exclude_handle]
-    picks = random.sample(related, min(3, len(related)))
+    
+    if matching_products:
+        picks = matching_products
+        section_title = "Shop Styled Pairings from This Article"
+        cta_text = "Shop the Look"
+    else:
+        related = [p for p in products if p.get("handle") != exclude_handle and p.get("images")]
+        if not related:
+            related = [p for p in products if p.get("handle") != exclude_handle]
+        picks = random.sample(related, min(3, len(related)))
+        section_title = "You Might Also Love"
+        cta_text = "Shop Similar"
 
     cards_html = ""
     for p in picks:
         raw_title  = p["title"]
-        escaped_title = html.escape(raw_title)
+        clean_title = clean_product_title(raw_title)
+        escaped_title = html.escape(clean_title)
         price  = p["variants"][0]["price"] if p.get("variants") else "0"
         handle = p.get("handle", "")
         ptype  = (p.get("product_type") or "women's fashion").lower()
         url    = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=related_card&utm_campaign=meeeshop"
         img    = product_img_url(p)
-        # Keyword-rich ALT for related product images
-        alt    = f"{raw_title} — {ptype} for women at MeeeShop"
+        alt    = f"{clean_title} — {ptype} for women at MeeeShop"
         if keyword:
-            alt = f"{raw_title} — shop {keyword} at MeeeShop"
+            alt = f"{clean_title} — shop {keyword} at MeeeShop"
         
         alt_clean = alt.replace('"', "'")
 
@@ -298,7 +306,7 @@ def make_related_products_section(products: list, exclude_handle: str, keyword: 
     <a href="{url}"
        style="background:#f0ede8;color:#1a1a1a;padding:9px 20px;text-decoration:none;
               border-radius:6px;font-size:13px;font-weight:600;display:inline-block;">
-      Shop Similar
+      {cta_text}
     </a>
   </div>"""
 
@@ -308,7 +316,7 @@ def make_related_products_section(products: list, exclude_handle: str, keyword: 
     return f"""
 <div style="margin:48px 0;padding:32px;background:#fafafa;border-radius:14px;border:1px solid #eee;">
   <h2 style="font-size:20px;font-weight:700;color:#1a1a1a;margin:0 0 24px;text-align:center;">
-    You Might Also Love
+    {section_title}
   </h2>
   <div style="display:flex;flex-wrap:wrap;gap:24px;justify-content:center;">
     {cards_html}
@@ -694,43 +702,55 @@ def _lsi_keywords(ptype: str, keyword: str) -> list[str]:
     return combined
 
 
-def _build_prompt(fmt: str, product: dict, keyword: str, similar_products: list | None = None) -> tuple[str, str]:
-    title  = product["title"]
-    ptype  = (product.get("product_type") or "women's fashion").lower()
+def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, similar_products: list | None = None, matching_products: list | None = None) -> tuple[str, str]:
+    display_name = get_product_display_name(product)
+    clean_ptype = get_clean_product_type(product)
     price  = product["variants"][0]["price"] if product.get("variants") else "49"
     handle = product.get("handle", "")
     url    = f"{STORE_URL}/products/{handle}" if handle else STORE_URL
 
-    lsi    = _lsi_keywords(ptype, keyword)
+    lsi    = _lsi_keywords(clean_ptype, keyword)
     lsi_str = ", ".join(f'"{k}"' for k in lsi)
 
-    # similar_products used by the comparison format to reference real catalog items
     if similar_products is None:
         similar_products = []
+    if matching_products is None:
+        matching_products = []
+
+    # Build styling instructions for the collage items to tie image & text together
+    match_instr = ""
+    if matching_products:
+        clean_matches = [get_product_display_name(m) for m in matching_products]
+        matches_str = " and ".join([f"'{m_title}' (${m['variants'][0]['price'] if m.get('variants') else '49'})" for m_title, m in zip(clean_matches, matching_products)])
+        match_instr = (
+            f"- We are featuring a styling lookbook collage showing this product paired with: {matches_str}.\n"
+            f"- In the styling or outfit sections of your article, you MUST explicitly mention these matching pieces by name, explaining how to style them together with the main featured product to create a complete, cohesive outfit (e.g., 'pair it with the {clean_matches[0]}' or 'complete this look using the {clean_matches[1]}').\n"
+        )
 
     base = (
         f"You are a fashion editor at MeeeShop, a USA women's clothing boutique.\n"
         f"Write a {MONTH} blog post. Target keyword: '{keyword}'\n"
-        f"Feature product: {title} — ${price}\n"
-        f"Category: {ptype}\n\n"
+        f"Feature product: {display_name} — ${price}\n"
+        f"Category: {clean_ptype}\n\n"
         f"{EEAT_RULES}"
         f"SEO rules (follow precisely):\n"
         f"- Primary keyword '{keyword}': use 3-4 times naturally — once in H1, once in first paragraph, 1-2 times in body/conclusion\n"
         f"- LSI / secondary keywords to weave in naturally (don't force all, pick what fits): {lsi_str}\n"
         f"- At least 2 of these LSI keywords must appear in H2 subheadings\n"
         f"- Do NOT write or include any HTML links (<a> tags) to the product page or MeeeShop anywhere in the body text. The product card and shop-the-look widgets will be programmatically injected by the system, so manual linking inside the article is redundant and violates SEO guidelines by looking spammy.\n"
-        f"- Limit mentions of the product title '{title}' to a maximum of 2 times in the entire body. When referring to the product subsequent times, use pronouns or generic terms (e.g., 'this dress', 'the top', 'it', 'this piece') instead of repeating the full product name.\n"
+        f"- Limit mentions of the product title '{display_name}' to a maximum of 2 times in the entire body. When referring to the product subsequent times, use pronouns or the specific generic term '{clean_ptype}' (e.g., 'this {clean_ptype}', 'the {clean_ptype}', 'it', 'this piece') instead of repeating the full product name.\n"
         f"- H1 title must include year {YEAR} or 'for Women'\n"
         f"- Keyword density: natural reading, never stuffed — if it sounds forced, rephrase\n"
         f"- Answer a real problem women face when shopping for this item\n"
+        f"{match_instr}"
         f"- To avoid programmatic footprints, vary your structure. Occasionally include a <blockquote style='border-left: 3px solid #ccc; padding-left: 10px; margin: 15px 0; font-style: italic;'> for a 'Stylist Tip', or distinct visual callouts. Make the flow feel like a hand-written editorial, not a template.\n"
         f"- You MUST include a Shoppers' Q&A section immediately before the final CTA/verdict section. This must consist of:\n"
         f"  <h2>Shoppers' Q&A: Common Questions Answered</h2>\n"
-        f"  <h3>Why should this style be in my closet?</h3>\n"
+        f"  <h3>Why should the {display_name} be in my closet?</h3>\n"
         f"  <p>[Detailed first-person answer from a stylist explaining why it's a wardrobe staple, 40-50 words]</p>\n"
-        f"  <h3>What is the fabric composition and how do I wash it?</h3>\n"
+        f"  <h3>What is the fabric composition and how do I wash this style?</h3>\n"
         f"  <p>[Detailed answer detailing how to wash and maintain the fabric quality, 40-50 words]</p>\n"
-        f"  <h3>How do I choose the correct size?</h3>\n"
+        f"  <h3>How do I choose the correct size for the {display_name}?</h3>\n"
         f"  <p>[Actionable advice on sizing fit, body shape guidelines, sizes XS-3X, 40-50 words]</p>\n\n"
         f"Store info: Free US shipping on orders $50+. Easy 7-day returns. Sizes XS-3X.\n\n"
     )
@@ -739,21 +759,18 @@ def _build_prompt(fmt: str, product: dict, keyword: str, similar_products: list 
         prompt = base + (
             f"Format: Definitive Buying Guide\n"
             f"Write in HTML (<h1>,<h2>,<h3>,<p>,<ul>,<li>):\n"
-            f"1. <h1> 'The Best {ptype.title()} for Women in {YEAR}: Our Editor's Guide'\n"
-            f"2. <p> Hook — personal story: why I tested multiple options and THIS is my pick (80 words)\n"
-            f"3. <h2> What Makes a Great {ptype.title()}? (4 criteria as <ul><li> bullets with brief real explanations)\n"
-            f"4. <h2> Our #1 Pick: [Shortened Product Name] — Honest Review (120 words, first-person, mention price, do NOT include HTML links)\n"
-            f"5. <h2> How I Style It: 3 Real Outfits (H3 subheadings for each occasion, 70 words each with specific styling context)\n"
-            f"6. <h2> Who Is This Perfect For? (50 words — specific: body type, lifestyle, occasion)\n"
-            f"7. <h2> Sizing & Fit Notes (40 words — real specifics, not generic 'true to size')\n"
-            f"8. <p> Final verdict + CTA (mention price, free shipping, sizes XS-3X, do NOT include HTML links)\n"
+            f"1. <h1> '{title_hint}'\n"
+            f"2. <p> Hook — personal stylist perspective: why I tested the {display_name} and my honest verdict (80 words)\n"
+            f"3. <h2> What Makes a Great {clean_ptype.title()}? (4 criteria as <ul><li> bullets with brief real explanations)\n"
+            f"4. <h2> Our Featured Recommendation: {display_name} — Honest Review (120 words, first-person stylist review of its cut, drape, fabric, and sizing, do NOT include HTML links)\n"
+            f"5. <h2> Curated Style Pairings: 3 Outfit Formulas (H3 subheadings for each outfit, 70 words each with specific styling instructions)\n"
+            f"6. <h2> Who Is This {clean_ptype.title()} Perfect For? (50 words — specific body shape, lifestyle, and occasion advice)\n"
+            f"7. <h2> Sizing & Fit Verdict (40 words — real fit details, bust/length notes, size availability XS-3X)\n"
+            f"8. <p> Warm stylist verdict + CTA to shop (mention price, free US shipping on orders $50+, 7-day easy returns, do NOT include HTML links)\n"
             f"Target: 750-900 words. Output ONLY clean HTML, no markdown code fences."
         )
-        h1_hint = f"The Best {ptype.title()} for Women in {YEAR}: Our Editor's Guide"
 
     elif fmt == "comparison":
-        # Build comparison using 2 REAL products from the catalog (not invented)
-        # This prevents Google's spam detection from flagging fabricated comparisons
         real_alts = [
             p for p in similar_products
             if p.get('handle') != product.get('handle') and p.get('images')
@@ -764,24 +781,24 @@ def _build_prompt(fmt: str, product: dict, keyword: str, similar_products: list 
                 p for p in similar_products
                 if p.get('handle') != product.get('handle')
             ][:2]
-        alt1_title = real_alts[0]['title'][:60] if real_alts else "a similar style"
+        alt1_display = get_product_display_name(real_alts[0]) if real_alts else "a similar style"
         alt1_price = real_alts[0]['variants'][0]['price'] if (real_alts and real_alts[0].get('variants')) else "49"
-        alt2_title = real_alts[1]['title'][:60] if len(real_alts) > 1 else "another option"
+        alt2_display = get_product_display_name(real_alts[1]) if len(real_alts) > 1 else "another option"
         alt2_price = real_alts[1]['variants'][0]['price'] if (len(real_alts) > 1 and real_alts[1].get('variants')) else "49"
+        
         prompt = base + (
             f"Format: Comparison Article — helps women choose the right style\n"
             f"Write in HTML:\n"
-            f"1. <h1> '{title} vs. {alt1_title} vs. {alt2_title}: Which Is Right for You in {YEAR}?'\n"
-            f"2. <p> Intro — 'I get asked this question every week from our customers' (70 words, empathetic)\n"
-            f"3. <h2> Option 1: [Shortened name of '{title}'] — What I Love + Who It's For (100 words, do NOT include HTML links)\n"
-            f"4. <h2> Option 2: [Shortened name of '{alt1_title}'] — Pros, Cons, Best For (80 words). Price: ${alt1_price}\n"
-            f"5. <h2> Option 3: [Shortened name of '{alt2_title}'] — Pros, Cons, Best For (80 words). Price: ${alt2_price}\n"
-            f"6. <h2> Quick Comparison Table (HTML table: Style | Best For | Price Range | Verdict)\n"
-            f"7. <h2> My Honest Verdict — The Winner for Most Women (80 words, direct recommendation)\n"
-            f"8. <p> CTA to shop [Shortened Product Name] + price, do NOT include HTML links\n"
+            f"1. <h1> '{title_hint}'\n"
+            f"2. <p> Intro — 'I get asked this question every week from our customers: how does {display_name} compare to other styles?' (70 words, empathetic stylist perspective)\n"
+            f"3. <h2> Option 1: {display_name} — What I Love + Who It's For (100 words, detailed stylist analysis of the drape and cut, do NOT include HTML links)\n"
+            f"4. <h2> Option 2: {alt1_display} — Pros, Cons, and Styling Fit (80 words). Price: ${alt1_price}\n"
+            f"5. <h2> Option 3: {alt2_display} — Pros, Cons, and Styling Fit (80 words). Price: ${alt2_price}\n"
+            f"6. <h2> Quick Styling Comparison (HTML table: Style | Best For | Price Range | Fabric Draping Winner)\n"
+            f"7. <h2> My Honest Verdict — The Winner for Most Women (80 words, stylist recommendation)\n"
+            f"8. <p> CTA to shop {display_name} at MeeeShop + price, free shipping on orders $50+, easy returns, do NOT include HTML links\n"
             f"Target: 750-900 words. Output ONLY clean HTML."
         )
-        h1_hint = f"{title} vs. Similar Styles: Which to Buy in {YEAR}"
 
     elif fmt == "problem_solver":
         problems = {
@@ -799,76 +816,71 @@ def _build_prompt(fmt: str, product: dict, keyword: str, similar_products: list 
             "activewear": "finding workout clothes that look great enough to wear all day",
         }
         problem = next(
-            (v for k, v in problems.items() if k in ptype.lower() or k in title.lower()),
+            (v for k, v in problems.items() if k in clean_ptype or k in display_name.lower()),
             "dressing well on a budget without sacrificing style or looking like everyone else",
         )
         prompt = base + (
             f"Format: Problem-Solver — solving '{problem}' for women\n"
             f"Write in HTML:\n"
-            f"1. <h1> Relatable title about the problem and how {title} solves it for women in {YEAR}\n"
-            f"2. <p> Opening — 'I hear this from our customers constantly: {problem}' (80 words, empathetic, validating)\n"
-            f"3. <h2> Why This Problem Is So Frustrating (and More Common Than You Think) (60 words)\n"
-            f"4. <h2> The Fix: [Shortened Product Name] — Here's Exactly Why It Works (120 words, first-person, do NOT include HTML links)\n"
-            f"5. <h2> 3 Real Outfit Solutions (H3 for each occasion, 70 words each with specific styling instructions)\n"
+            f"1. <h1> '{title_hint}'\n"
+            f"2. <p> Opening — 'I hear this from our customers constantly: {problem}' (80 words, empathetic, validating, from a professional stylist's view)\n"
+            f"3. <h2> Why This Styling Struggle Is So Frustrating (and More Common Than You Think) (60 words)\n"
+            f"4. <h2> The Solution: {display_name} — Here's Exactly Why It Works (120 words, first-person stylist perspective on how the fabric/cut solves the problem, do NOT include HTML links)\n"
+            f"5. <h2> 3 Curated Outfit Solutions (H3 for each occasion, 70 words each with specific styling instructions)\n"
             f"6. <h2> My Top 4 Styling Tips From Years in Fashion (bullet list, specific and actionable, not generic)\n"
-            f"7. <p> Warm personal CTA: recommendation + price + free shipping + returns reminder, do NOT include HTML links\n"
+            f"7. <p> Warm stylist recommendation to shop the {display_name} + price + free US shipping + returns reminder, do NOT include HTML links\n"
             f"Target: 700-850 words. Output ONLY clean HTML."
         )
-        h1_hint = f"How to Finally Solve {problem.title()} in {YEAR}"
 
     elif fmt == "trend_report":
         prompt = base + (
             f"Format: {MONTH} Trend Report — what real women are actually wearing\n"
             f"Write in HTML:\n"
-            f"1. <h1> '{MONTH} Women's Fashion Trends: What I'm Seeing (and Wearing) Right Now'\n"
-            f"2. <p> Intro — 'I've been tracking what real women are actually wearing, not just runways' (70 words, authentic)\n"
+            f"1. <h1> '{title_hint}'\n"
+            f"2. <p> Intro — 'I've been tracking what real women are actually wearing, not just runways' (70 words, authentic stylist voice)\n"
             f"3. Five trends, each as <h2> with trend name + 90-word description:\n"
-            f"   - Trend #1 MUST be [Shortened Product Name] (do NOT include HTML links)\n"
+            f"   - Trend #1 MUST be {display_name} (do NOT include HTML links)\n"
             f"   - Trends #2-5: invent 4 real, current women's fashion micro-trends for {MONTH}\n"
             f"   - Each trend: what it is, why it's trending, how to wear it, who it's for\n"
             f"4. <h2> How to Mix These Trends Without Looking Overdone (60 words, practical)\n"
-            f"5. <p> Shop the trends at MeeeShop + price, do NOT include HTML links\n"
+            f"5. <p> Shop the trends at MeeeShop, featured piece {display_name} + price, free shipping, do NOT include HTML links\n"
             f"Target: 750-900 words. Output ONLY clean HTML."
         )
-        h1_hint = f"{MONTH} Women's Fashion Trends: What I'm Wearing Right Now"
 
     elif fmt == "care_guide":
         prompt = base + (
             f"Format: Fabric Care & Washing Guide\n"
             f"Write in HTML:\n"
-            f"1. <h1> 'How to Wash & Care for [Shortened Product Name] in {YEAR} Fashion Guide'\n"
-            f"2. <p> Intro — Why taking care of your clothing properly is essential to preserve fits, fabric drapes, and colors (70 words)\n"
-            f"3. <h2> Fabric Care Label Analysis (provide a detailed explanation of caring for {ptype} fabric blends like polyester/spandex or rayon/linen blends)\n"
+            f"1. <h1> '{title_hint}'\n"
+            f"2. <p> Intro — Why taking care of your {clean_ptype} properly is essential to preserve fits, fabric drapes, and colors (70 words)\n"
+            f"3. <h2> Fabric Care Label Analysis (provide a detailed explanation of caring for {clean_ptype} fabric blends like polyester/spandex or rayon/linen blends)\n"
             f"4. <h2> Step-by-Step Washing Instructions (H3 Machine Wash vs. H3 Hand Washing instructions, including safe temperatures and detergents)\n"
             f"5. <h2> How to Dry and Iron Without Damage (discuss air drying vs. tumble drying to prevent shrinking, and safe steam/iron settings)\n"
             f"6. <h2> Stylist Care & Storage Tips (how to hang or fold to maintain shape and avoid stretching the fabric)\n"
-            f"7. <p> Warm editor CTA to shop new arrivals with free US shipping & 7-day easy returns, do NOT include HTML links\n"
+            f"7. <p> Warm editor CTA to shop new arrivals including the {display_name} with free US shipping & 7-day easy returns, do NOT include HTML links\n"
             f"Target: 700-850 words. Output ONLY clean HTML."
         )
-        h1_hint = f"How to Wash & Care for {title} in {YEAR}"
 
     elif fmt == "sizing_guide":
         prompt = base + (
             f"Format: Sizing & Fit Guide\n"
             f"Write in HTML:\n"
-            f"1. <h1> 'Is [Shortened Product Name] True to Size? Sizing & Fit Guide for {YEAR}'\n"
+            f"1. <h1> '{title_hint}'\n"
             f"2. <p> Intro — The common struggle of online clothing sizing and how to get the perfect fit (70 words)\n"
             f"3. <h2> Understanding Sizing for this style (explain standard measurements, size ranges XS-3X, and comparison to general US sizes)\n"
             f"4. <h2> Fit Review by Body Shapes (H3 Petite Fit, H3 Hourglass, H3 Plus Size / Curvy, with real fit notes for bust/chest and length)\n"
             f"5. <h2> Fabric Stretch & Draping Factor (describe the fabric blend stretchiness and comfort levels when worn)\n"
-            f"6. <h2> Stylist Sizing Recommendation (honest verdict on whether to buy your usual size or size up/down)\n"
+            f"6. <h2> Stylist Sizing Recommendation (honest verdict on whether to buy your usual size or size up/down in the {display_name})\n"
             f"7. <p> CTA to shop the collection with free shipping on orders $50+ & easy 7-day returns, do NOT include HTML links\n"
             f"Target: 700-850 words. Output ONLY clean HTML."
         )
-        h1_hint = f"Is {title} True to Size? {YEAR} Sizing Guide"
 
     else:  # outfit_formula
         prompt = base + (
             f"Format: 5-Outfit Formula — shows versatility of one piece\n"
             f"Write in HTML:\n"
-            f"1. <h1> '5 Stunning Outfits You Can Build Around [Shortened Product Name] (I Wore All 5 This Month)'\n"
-            f"2. <p> Intro — 'The best fashion investment is a piece you can wear 5 different ways. "
-            f"I put [Shortened Product Name] to the real-life test.' (70 words, first-person, engaging, do NOT include HTML links)\n"
+            f"1. <h1> '{title_hint}'\n"
+            f"2. <p> Intro — 'The best fashion investment is a piece you can wear 5 different ways. I put the {display_name} to the real-life test.' (70 words, first-person, engaging, do NOT include HTML links)\n"
             f"3. Five outfits as <h2> sections with creative occasion names:\n"
             f"   e.g. 'Look 1: Sunday Farmers Market', 'Look 2: Office Polished', 'Look 3: Date Night'\n"
             f"   Each: specific items to pair it with, where to wear it, personal styling note (80-90 words)\n"
@@ -876,9 +888,8 @@ def _build_prompt(fmt: str, product: dict, keyword: str, similar_products: list 
             f"5. <p> CTA: get yours, price, 7-day returns, limited sizes urgency, do NOT include HTML links\n"
             f"Target: 750-900 words. Output ONLY clean HTML."
         )
-        h1_hint = f"5 Outfits You Can Build Around {title} (I Wore All 5)"
 
-    return prompt, h1_hint
+    return prompt, title_hint
 
 
 def _extract_h1(html: str, fallback: str) -> str:
@@ -914,44 +925,95 @@ def _make_tags(product: dict, fmt: str, keyword: str) -> list[str]:
     return list(dict.fromkeys(tags))[:20]
 
 
-def generate_keyword_and_format(vendor: str, product_type: str) -> tuple[str, str]:
-    vendor_clean = (vendor or "MeeeShop").strip()
-    ptype_clean = (product_type or "clothing").lower().strip()
+def clean_product_title(title: str) -> str:
+    """Removes formatting chars like *, quotes, and trailing details."""
+    t = re.sub(r'[*"\']', '', title)
+    t = re.sub(r'\s*\([^)]+\)\s*$', '', t)
+    t = re.sub(r'\s*-\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s*$', '', t)
+    return t.strip()
+
+
+def get_product_display_name(product: dict) -> str:
+    """Returns a clean display name with vendor (if not already in title)."""
+    vendor = (product.get("vendor") or "").strip()
+    title = product.get("title", "").strip()
+    clean_title = clean_product_title(title)
+    if vendor and vendor.lower() not in clean_title.lower():
+        return f"{vendor} {clean_title}"
+    return clean_title
+
+
+def get_clean_product_type(product: dict) -> str:
+    """Infers a clean singular product type name from title or type."""
+    title = product.get("title", "").lower()
+    ptype = (product.get("product_type") or "").lower()
     
-    # Standardize common ptypes
-    if "jean" in ptype_clean or "denim" in ptype_clean:
-        ptype_display = "jeans"
-    elif "dress" in ptype_clean:
-        ptype_display = "dresses"
-    elif "top" in ptype_clean or "blouse" in ptype_clean or "shirt" in ptype_clean:
-        ptype_display = "tops"
-    elif "sweater" in ptype_clean or "cardigan" in ptype_clean or "knit" in ptype_clean:
-        ptype_display = "knits"
-    elif "bag" in ptype_clean or "handbag" in ptype_clean or "purse" in ptype_clean:
-        ptype_display = "handbags"
-    else:
-        ptype_display = ptype_clean
+    # Specific overrides
+    if "skort" in title:
+        return "skort"
+    if "jort" in title:
+        return "jort"
+    if "short" in title:
+        return "shorts"
+    if "jean" in title:
+        return "jeans"
+    if "denim" in title:
+        return "denim"
+    if "jacket" in title:
+        return "jacket"
+    if "coat" in title:
+        return "coat"
+    if "cardigan" in title:
+        return "cardigan"
+    if "sweater" in title:
+        return "sweater"
+    if "dress" in title:
+        return "dress"
+    if "blouse" in title:
+        return "blouse"
+    if "shirt" in title:
+        return "shirt"
+    if "tee" in title or "t-shirt" in title:
+        return "t-shirt"
+    if "top" in title:
+        return "top"
+    if "pant" in title:
+        return "pants"
+    if "skirt" in title:
+        return "skirt"
+    if "bag" in title or "handbag" in title:
+        return "handbag"
         
-    options = [
-        (f"Is {vendor_clean} {ptype_display} true to size? Sizing & fit guide", "sizing_guide"),
-        (f"How to style {vendor_clean} {ptype_display} for casual chic outfits", "outfit_formula"),
-        (f"Honest review of {vendor_clean} women's {ptype_display}", "buying_guide"),
-        (f"Best {vendor_clean} {ptype_display} boutique styles for women", "trend_report"),
-        (f"How to wash and care for {vendor_clean} {ptype_display}", "care_guide"),
-        (f"Affordable {vendor_clean} {ptype_display} styling ideas", "problem_solver")
-    ]
+    # Standardizations
+    if "jean" in ptype or "denim" in ptype:
+        return "jeans"
+    if "dress" in ptype:
+        return "dress"
+    if "top" in ptype or "blouse" in ptype or "shirt" in ptype:
+        return "top"
+    if "sweater" in ptype or "cardigan" in ptype or "knit" in ptype:
+        return "knitwear"
+    if "skirt" in ptype:
+        return "skirt"
+    if "pant" in ptype:
+        return "pants"
+    if "bag" in ptype or "handbag" in ptype:
+        return "handbag"
+        
+    return ptype if ptype else "apparel"
+
+
+def generate_keyword_title_and_format(product: dict) -> tuple[str, str, str]:
+    display_name = get_product_display_name(product)
     
-    # Specific overrides or additions for key brands/categories
-    if "jean" in ptype_clean or "denim" in ptype_clean:
-        if "Judy Blue" in vendor_clean:
-            options.append(("Judy Blue tummy control jeans: An honest styling review", "buying_guide"))
-            options.append(("Best Judy Blue jeans styles for women", "trend_report"))
-        elif "Risen" in vendor_clean:
-            options.append(("Risen stretch denim jeans review", "buying_guide"))
-    elif "sweater" in ptype_clean or "cardigan" in ptype_clean or "knit" in ptype_clean:
-        if "POL" in vendor_clean:
-            options.append(("5 cozy weekend outfits featuring POL bohemian knits", "outfit_formula"))
-            
+    options = [
+        (f"{display_name} sizing", f"Is {display_name} True to Size? Sizing & Fit Guide for {YEAR}", "sizing_guide"),
+        (f"how to style {display_name}", f"5 Stunning Outfits You Can Build Around {display_name}", "outfit_formula"),
+        (f"{display_name} review", f"The Best {display_name} for Women in {YEAR}: Our Editor's Guide", "buying_guide"),
+        (f"styling {display_name}", f"{MONTH} Women's Fashion Trends: How to Style the {display_name}", "trend_report"),
+        (f"how to wash {display_name}", f"How to Wash and Care for Your {display_name} ({YEAR} Style Guide)", "care_guide"),
+        (f"{display_name} styling", f"How to Style the {display_name} for Casual Chic Outfits", "problem_solver")
+    ]
     return random.choice(options)
 
 
@@ -984,8 +1046,7 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False):
 
     created = 0
     for i, product in enumerate(chosen):
-        keyword, fmt = generate_keyword_and_format(product.get("vendor"), product.get("product_type"))
-
+        keyword, title_hint, fmt = generate_keyword_title_and_format(product)
 
         print(f"[{i+1}/{count}] Format: {fmt} | Keyword: '{keyword}'")
         print(f"  Product: {product['title'][:70]}")
@@ -994,8 +1055,15 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False):
         blog = get_or_create_blog(product.get("product_type", ""), all_blogs) if not dry_run else {"id": 0, "title": "DRY-RUN"}
         print(f"  Blog   : {blog['title']}")
 
-        # Generate content — pass full pool as similar_products for comparison format
-        prompt, h1_hint = _build_prompt(fmt, product, keyword, similar_products=pool)
+        # Select styling matches first so we can feed them into the prompt, ONLY for styling formats
+        is_styling_format = fmt in ["outfit_formula", "buying_guide", "trend_report", "problem_solver"]
+        if is_styling_format:
+            matching_products = select_styling_matches(product, pool, num_matches=2)
+        else:
+            matching_products = []
+
+        # Generate content — pass full pool and matching products for cohesion
+        prompt, h1_hint = _build_prompt(fmt, product, keyword, title_hint, similar_products=pool, matching_products=matching_products)
         print("  Generating content…")
         html_body = ai_client.generate(prompt, max_tokens=1600, temperature=0.75)
 
@@ -1013,13 +1081,10 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False):
         print(f"  SEO title : {seo['seo_title']}")
         print(f"  Meta desc : {seo['meta_desc'][:80]}…")
         print(f"  IMG ALT   : {seo['img_alt']}")
-
-        # Select styling matches and generate Discover-ready featured collage
-        matching_products = select_styling_matches(product, pool, num_matches=2)
         collage_path = None
         img_url = None
         
-        if not dry_run:
+        if not dry_run and is_styling_format and matching_products:
             collage_path = generate_outfit_collage(product, matching_products)
             if collage_path and collage_path.exists():
                 ts = int(time.time())
@@ -1042,7 +1107,7 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False):
 
         # Inject featured product card + related products
         html_body = inject_product_card(html_body, product, keyword)
-        html_body += make_related_products_section(products, product.get("handle", ""), keyword)
+        html_body += make_related_products_section(products, product.get("handle", ""), keyword, matching_products if is_styling_format else None)
 
         tags = _make_tags(product, fmt, keyword)
         print(f"  Title     : {post_title[:80]}")
