@@ -29,6 +29,8 @@ from urllib.parse import quote
 
 import requests
 import ai_client
+from PIL import Image
+from io import BytesIO
 
 # ── credentials ───────────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -327,10 +329,273 @@ def inject_product_card(html_body: str, product: dict, keyword: str = "") -> str
     return card + html_body
 
 
+# ── Dynamic Collage & Pairing Helpers ──────────────────────────────────────────
+
+def select_styling_matches(main_product: dict, pool: list, num_matches: int = 2) -> list[dict]:
+    main_type = (main_product.get("product_type") or "").lower()
+    main_id = main_product.get("id")
+    
+    # Categorize broad clothing types
+    is_top = any(x in main_type for x in ["top", "blouse", "shirt", "tee"])
+    is_bottom = any(x in main_type for x in ["jean", "pant", "skirt", "legging", "short"])
+    is_one_piece = any(x in main_type for x in ["dress", "jumpsuit", "romper"])
+    
+    matches = []
+    
+    # Try to find items of complementary types first
+    complementary_pool = []
+    for p in pool:
+        if p.get("id") == main_id or not p.get("images"):
+            continue
+        ptype = (p.get("product_type") or "").lower()
+        
+        if is_top:
+            if any(x in ptype for x in ["jean", "pant", "skirt", "jacket", "coat", "cardigan", "accessory"]):
+                complementary_pool.append(p)
+        elif is_bottom:
+            if any(x in ptype for x in ["top", "blouse", "shirt", "tee", "sweater", "jacket", "coat", "cardigan"]):
+                complementary_pool.append(p)
+        elif is_one_piece:
+            if any(x in ptype for x in ["jacket", "coat", "cardigan", "accessory", "shoe", "bag"]):
+                complementary_pool.append(p)
+        else:
+            complementary_pool.append(p)
+            
+    if len(complementary_pool) >= num_matches:
+        matches = random.sample(complementary_pool, num_matches)
+    else:
+        fallback_pool = [p for p in pool if p.get("id") != main_id and p.get("images")]
+        if len(fallback_pool) >= num_matches:
+            matches = random.sample(fallback_pool, num_matches)
+        else:
+            matches = fallback_pool
+            
+    return matches
+
+
+def crop_to_fit(img, target_w, target_h):
+    """Helper to crop and resize an image to fit target bounds cleanly (center crop)."""
+    img_ratio = img.width / img.height
+    target_ratio = target_w / target_h
+    
+    if img_ratio > target_ratio:
+        # Image is wider
+        new_h = target_h
+        new_w = int(img.width * (target_h / img.height))
+        img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        crop_x = (new_w - target_w) // 2
+        return img_resized.crop((crop_x, 0, crop_x + target_w, target_h))
+    else:
+        # Image is taller
+        new_w = target_w
+        new_h = int(img.height * (target_w / img.width))
+        img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        crop_y = (new_h - target_h) // 2
+        return img_resized.crop((0, crop_y, target_w, crop_y + target_h))
+
+
+def generate_outfit_collage(main_product: dict, matching_products: list) -> Path | None:
+    """
+    Downloads the featured images of the main product and matches,
+    creates a beautiful side-by-side outfit collage (1200x630),
+    and saves it locally.
+    """
+    images_to_load = []
+    
+    main_imgs = main_product.get("images", [])
+    if main_imgs:
+        images_to_load.append(main_imgs[0]["src"])
+        
+    for p in matching_products:
+        imgs = p.get("images", [])
+        if imgs:
+            images_to_load.append(imgs[0]["src"])
+            
+    if not images_to_load:
+        return None
+        
+    print(f"  Downloading {len(images_to_load)} images to create styling collage...")
+    downloaded_imgs = []
+    for url in images_to_load:
+        try:
+            r = requests.get(url, timeout=15)
+            if r.status_code == 200:
+                img = Image.open(BytesIO(r.content))
+                downloaded_imgs.append(img)
+            else:
+                print(f"    [!] Failed to download {url[:60]}... (HTTP {r.status_code})")
+        except Exception as e:
+            print(f"    [!] Error downloading {url[:60]}...: {e}")
+            
+    if not downloaded_imgs:
+        return None
+        
+    canvas_w, canvas_h = 1200, 630
+    collage = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
+    
+    num_imgs = len(downloaded_imgs)
+    
+    try:
+        if num_imgs == 1:
+            img = downloaded_imgs[0]
+            img_ratio = img.width / img.height
+            target_ratio = canvas_w / canvas_h
+            
+            if img_ratio > target_ratio:
+                new_h = canvas_h
+                new_w = int(img.width * (canvas_h / img.height))
+                img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                crop_x = (new_w - canvas_w) // 2
+                img_cropped = img_resized.crop((crop_x, 0, crop_x + canvas_w, canvas_h))
+            else:
+                new_w = canvas_w
+                new_h = int(img.height * (canvas_w / img.width))
+                img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                crop_y = (new_h - canvas_h) // 2
+                img_cropped = img_resized.crop((0, crop_y, canvas_w, crop_y + canvas_h))
+                
+            collage.paste(img_cropped, (0, 0))
+            
+        elif num_imgs == 2:
+            spacing = 25
+            col_w = (canvas_w - (3 * spacing)) // 2
+            col_h = canvas_h - (2 * spacing)
+            
+            for i, img in enumerate(downloaded_imgs):
+                img_resized = crop_to_fit(img, col_w, col_h)
+                left = spacing + i * (col_w + spacing)
+                top = spacing
+                collage.paste(img_resized, (left, top))
+                
+        else:
+            spacing = 20
+            col_w = (canvas_w - (4 * spacing)) // 3
+            col_h = canvas_h - (2 * spacing)
+            
+            for i, img in enumerate(downloaded_imgs[:3]):
+                img_resized = crop_to_fit(img, col_w, col_h)
+                left = spacing + i * (col_w + spacing)
+                top = spacing
+                collage.paste(img_resized, (left, top))
+                
+        temp_path = Path("collage_temp.jpg")
+        collage.save(temp_path, "JPEG", quality=92)
+        print(f"  ✓ Collage generated locally: {temp_path.absolute()}")
+        return temp_path
+    except Exception as e:
+        print(f"  [!] Failed to generate image collage: {e}")
+        return None
+
+
+def upload_image_to_shopify(filepath: Path, filename: str) -> str | None:
+    """Uploads the generated collage to Shopify Files and fetches its CDN URL."""
+    print(f"  Uploading {filename} to Shopify Files...")
+    graphql_url = f"{BASE}/graphql.json"
+    
+    staged_mut = f"""
+    mutation {{
+      stagedUploadsCreate(input: [{{
+        resource: FILE,
+        filename: "{filename}",
+        mimeType: "image/jpeg",
+        httpMethod: POST
+      }}]) {{
+        stagedTargets {{
+          url
+          resourceUrl
+          parameters {{
+            name
+            value
+          }}
+        }}
+      }}
+    }}
+    """
+    try:
+        r = _req("post", graphql_url, json={"query": staged_mut})
+        r.raise_for_status()
+        data = r.json()
+        target = data["data"]["stagedUploadsCreate"]["stagedTargets"][0]
+        
+        # Upload the file to staging
+        with open(filepath, "rb") as f:
+            files = {"file": (filename, f, "image/jpeg")}
+            params = {p["name"]: p["value"] for p in target["parameters"]}
+            upload_resp = requests.post(target["url"], data=params, files=files, timeout=30)
+            upload_resp.raise_for_status()
+            
+        # Create file reference in Shopify
+        create_mut = """
+        mutation fileCreate($files: [FileCreateInput!]!) {
+          fileCreate(files: $files) {
+            files {
+              id
+              fileStatus
+            }
+            userErrors {
+              message
+            }
+          }
+        }
+        """
+        variables = {
+            "files": [
+                {
+                    "originalSource": target["resourceUrl"],
+                    "contentType": "FILE"
+                }
+            ]
+        }
+        r = _req("post", graphql_url, json={"query": create_mut, "variables": variables})
+        r.raise_for_status()
+        create_data = r.json()
+        
+        user_errors = create_data.get("data", {}).get("fileCreate", {}).get("userErrors", [])
+        if user_errors:
+            print(f"  [!] Shopify fileCreate user errors: {user_errors}")
+            return None
+            
+        file_id = create_data["data"]["fileCreate"]["files"][0]["id"]
+        
+        # Wait for file compilation
+        public_url = None
+        for _ in range(15):
+            time.sleep(2)
+            query_file = f"""
+            query {{
+              node(id: "{file_id}") {{
+                ... on GenericFile {{
+                  url
+                  fileStatus
+                }}
+              }}
+            }}
+            """
+            r = _req("post", graphql_url, json={"query": query_file})
+            r.raise_for_status()
+            node_data = r.json()
+            node = node_data.get("data", {}).get("node", {})
+            if node.get("fileStatus") == "READY":
+                public_url = node.get("url")
+                break
+                
+        if public_url:
+            cdn_url = public_url.split("?")[0]
+            print(f"  ✓ Uploaded successfully: {cdn_url}")
+            return cdn_url
+        else:
+            print("  [!] Timeout waiting for image compilation on Shopify CDN.")
+            return None
+    except Exception as e:
+        print(f"  [!] Failed to upload image to Shopify: {e}")
+        return None
+
+
 # ── Publish ────────────────────────────────────────────────────────────────────
 def publish_article(blog: dict, title: str, body_html: str, tags: list,
                     image_url: str, img_alt: str, meta_desc: str,
-                    dry_run: bool = False, publish: bool = False) -> dict | None:
+                    dry_run: bool = False, publish: bool = False,
+                    author: str = "Elena Vance, MeeeShop Lead Stylist") -> dict | None:
     if dry_run:
         print(f"  [DRY-RUN] '{title}'")
         print(f"  Blog   : {blog.get('title')}")
@@ -347,7 +612,7 @@ def publish_article(blog: dict, title: str, body_html: str, tags: list,
             "summary_html": f"<p>{meta_desc}</p>",
             "tags":         ", ".join(tags),
             "published":    publish,
-            "author":       "MeeeShop Editorial Team",
+            "author":       author,
         }
     }
     if image_url:
@@ -458,7 +723,15 @@ def _build_prompt(fmt: str, product: dict, keyword: str, similar_products: list 
         f"- H1 title must include year {YEAR} or 'for Women'\n"
         f"- Keyword density: natural reading, never stuffed — if it sounds forced, rephrase\n"
         f"- Answer a real problem women face when shopping for this item\n"
-        f"- To avoid programmatic footprints, vary your structure. Occasionally include a <blockquote style='border-left: 3px solid #ccc; padding-left: 10px; margin: 15px 0; font-style: italic;'> for a 'Stylist Tip', or distinct visual callouts. Make the flow feel like a hand-written editorial, not a template.\n\n"
+        f"- To avoid programmatic footprints, vary your structure. Occasionally include a <blockquote style='border-left: 3px solid #ccc; padding-left: 10px; margin: 15px 0; font-style: italic;'> for a 'Stylist Tip', or distinct visual callouts. Make the flow feel like a hand-written editorial, not a template.\n"
+        f"- You MUST include a Shoppers' Q&A section immediately before the final CTA/verdict section. This must consist of:\n"
+        f"  <h2>Shoppers' Q&A: Common Questions Answered</h2>\n"
+        f"  <h3>Why should this style be in my closet?</h3>\n"
+        f"  <p>[Detailed first-person answer from a stylist explaining why it's a wardrobe staple, 40-50 words]</p>\n"
+        f"  <h3>What is the fabric composition and how do I wash it?</h3>\n"
+        f"  <p>[Detailed answer detailing how to wash and maintain the fabric quality, 40-50 words]</p>\n"
+        f"  <h3>How do I choose the correct size?</h3>\n"
+        f"  <p>[Actionable advice on sizing fit, body shape guidelines, sizes XS-3X, 40-50 words]</p>\n\n"
         f"Store info: Free US shipping on orders $50+. Easy 7-day returns. Sizes XS-3X.\n\n"
     )
 
@@ -741,10 +1014,31 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False):
         print(f"  Meta desc : {seo['meta_desc'][:80]}…")
         print(f"  IMG ALT   : {seo['img_alt']}")
 
-        # Featured image (1200x630)
-        img_url = make_featured_image_url(product, fmt)
-        img_src = "Shopify CDN 1200x630" if product.get("images") else "Pollinations.ai fallback"
-        print(f"  Image     : {img_src}")
+        # Select styling matches and generate Discover-ready featured collage
+        matching_products = select_styling_matches(product, pool, num_matches=2)
+        collage_path = None
+        img_url = None
+        
+        if not dry_run:
+            collage_path = generate_outfit_collage(product, matching_products)
+            if collage_path and collage_path.exists():
+                ts = int(time.time())
+                filename = f"styling_collage_{product['id']}_{ts}.jpg"
+                img_url = upload_image_to_shopify(collage_path, filename)
+                try:
+                    collage_path.unlink()
+                except Exception:
+                    pass
+                    
+        if not img_url:
+            img_url = make_featured_image_url(product, fmt)
+            img_src = "Shopify CDN 1200x630 (Single product fallback)"
+        else:
+            img_src = f"Shopify CDN 1200x630 (Outfit Collage of {1 + len(matching_products)} products)"
+            
+        print(f"  Featured Image : {img_src}")
+        if img_url:
+            print(f"  Image URL      : {img_url[:90]}...")
 
         # Inject featured product card + related products
         html_body = inject_product_card(html_body, product, keyword)
@@ -753,13 +1047,25 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False):
         tags = _make_tags(product, fmt, keyword)
         print(f"  Title     : {post_title[:80]}")
 
+        # Select fictional author pseudonym for E-E-A-T
+        PEN_NAMES = [
+            "Elena Vance, MeeeShop Lead Stylist",
+            "Seraphina Croft, MeeeShop Fashion Editor",
+            "Audrey Sterling, MeeeShop Style Director",
+            "Maya Devereaux, MeeeShop Fashion Consultant",
+            "Vivienne Vance, MeeeShop Senior Stylist",
+            "Genevieve Thorne, MeeeShop Trend Forecaster"
+        ]
+        author_name = random.choice(PEN_NAMES)
+        print(f"  Author    : {author_name}")
+
         # Publish (or save as draft)
         status_label = "live" if publish else "DRAFT (review in Shopify Admin before publishing)"
         print(f"  Status    : {status_label}")
         article = publish_article(
             blog, post_title, html_body, tags,
             img_url, seo["img_alt"], seo["meta_desc"],
-            dry_run, publish=publish,
+            dry_run, publish=publish, author=author_name
         )
 
         # Set SEO metafields (title_tag + description_tag) after creation
