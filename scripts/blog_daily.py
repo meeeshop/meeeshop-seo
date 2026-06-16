@@ -193,6 +193,216 @@ def parse_and_clean_seo_meta(raw_seo_text: str, keyword: str, product_title: str
     }
 
 
+def generate_fallback_blog_post(fmt: str, product: dict, keyword: str, title_hint: str, similar_products: list, matching_products: list) -> tuple[str, dict]:
+    """
+    Generates a high-quality, Discover-ready blog article and SEO metadata locally
+    as a fallback when all AI API providers are rate-limited or down.
+    """
+    display_name = get_product_display_name(product)
+    clean_ptype = get_clean_product_type(product)
+    price = product["variants"][0]["price"] if product.get("variants") else "49"
+    
+    match1_name = get_product_display_name(matching_products[0]) if len(matching_products) > 0 else "a classic handbag"
+    match2_name = get_product_display_name(matching_products[1]) if len(matching_products) > 1 else "complementary accessories"
+    
+    # Alt/Similar products for comparison format
+    real_alts = [
+        p for p in similar_products
+        if p.get('handle') != product.get('handle') and p.get('images')
+    ][:2]
+    if len(real_alts) < 2:
+        real_alts = [
+            p for p in similar_products
+            if p.get('handle') != product.get('handle')
+        ][:2]
+    alt1_display = get_product_display_name(real_alts[0]) if real_alts else "a similar style"
+    alt1_price = real_alts[0]['variants'][0]['price'] if (real_alts and real_alts[0].get('variants')) else "49"
+    alt2_display = get_product_display_name(real_alts[1]) if len(real_alts) > 1 else "another option"
+    alt2_price = real_alts[1]['variants'][0]['price'] if (len(real_alts) > 1 and real_alts[1].get('variants')) else "49"
+
+    # Templates
+    templates = {
+        "sizing_guide": f"""
+<p>Finding the perfect fit online can be a daunting experience, especially when dealing with premium boutique styles. Today, we're doing a deep-dive sizing and fit analysis of the {display_name} to help you select your ideal size with absolute confidence.</p>
+<h2>Understanding Sizing for this {clean_ptype}</h2>
+<p>The {display_name} is designed to flatter a wide range of silhouettes. Fabricated with a curated blend of fibers, it provides comfortable wear while maintaining its structural integrity. In general, this piece runs true to standard US boutique sizing, offering size options from XS through 3X to accommodate diverse body proportions.</p>
+<h2>Fit Review by Silhouette & Body Shape</h2>
+<h3>Petite Styling and Fit Recommendations</h3>
+<p>For individuals with shorter torsos or petite frames, the {display_name} sits beautifully. We recommend staying with your standard size. The hemline and shoulder proportions are tailored so they do not overwhelm smaller frames, creating an elongated and elegant silhouette.</p>
+<h3>Hourglass Styling and Fit Recommendations</h3>
+<p>If you possess an hourglass figure, this style highlights your natural waistline beautifully. The drape of the fabric follows your curves without feeling constrictive. If you are between sizes, we recommend choosing your smaller size for a more defined, tailored look.</p>
+<h3>Plus Size & Curvy Styling Recommendations</h3>
+<p>Available up to 3X, this style offers generous stretch and cut allowances around the bust and hips. Curvy styling tips suggest wearing it with simple, streamlined basics to let the silhouette of this {clean_ptype} stand out. The fabric does not cling, providing an exceptionally comfortable and confidence-boosting wear.</p>
+<h2>Fabric Stretch and Draping Factor</h2>
+<p>Understanding how the fabric responds to movement is key. This style features moderate stretch with excellent recovery, meaning it won't bag out after a long day of wear. The draping factor is high, allowing the garment to cascade naturally and respond smoothly to your natural stride.</p>
+<h2>Stylist Sizing Recommendation</h2>
+<p>Our final verdict: choose your typical US size for the intended boutique fit. If you prefer a loose, oversized fashion statement, you can safely size up. If you prefer a highly defined fit, size down.</p>
+""",
+
+        "outfit_formula": f"""
+<p>A smart wardrobe is built on versatile pieces that can be styled in multiple ways. Today, we put the {display_name} to the test, styling it in five distinct outfit formulas suitable for any occasion.</p>
+<h2>Outfit Formula 1: The Sunday Farmers Market</h2>
+<p>For a relaxed weekend vibe, style this {clean_ptype} with comfortable canvas sneakers and a simple canvas tote. This creates an effortless, laid-back aesthetic that is perfect for running errands or strolling through the city. Tie a light knit sweater over your shoulders for the perfect layer.</p>
+<h2>Outfit Formula 2: Office Polished</h2>
+<p>Elevate the {display_name} for the workplace by layering it under a structured blazer. Complete the look with pointed-toe flats or low heels and carrying the {match1_name}. The tailored structure of the blazer contrasts beautifully with the comfortable drape of this {clean_ptype}.</p>
+<h2>Outfit Formula 3: Date Night Glamour</h2>
+<p>Transition seamlessly into evening wear. Pair the {display_name} with statement earrings, strappy heels, and the {match2_name}. Adding a bold lip color and a tailored leather jacket adds a hint of edge while maintaining absolute sophistication.</p>
+<h2>Outfit Formula 4: The Weekend Getaway</h2>
+<p>For travel or a resort escape, wear this style with strappy sandals and a wide-brim straw hat. It offers lightweight comfort and packable convenience, keeping you chic from airport arrivals to sunset dinners.</p>
+<h2>Outfit Formula 5: Transitional Season Layers</h2>
+<p>When the temperature drops, don't pack this {clean_ptype} away. Style it with tall suede boots and a cozy oversized cardigan. The mix of textures creates visual interest and keeps you warm throughout the changing seasons.</p>
+""",
+
+        "buying_guide": f"""
+<p>Shopping for a new {clean_ptype} can be overwhelming with so many options available online. Today, we present the definitive editor's guide to the {display_name}, reviewing its fabric quality, silhouette structure, and overall styling value.</p>
+<h2>What Makes a Great {clean_ptype.title()}?</h2>
+<ul>
+  <li><strong>Fabric Weight:</strong> Look for fabrics that feel substantial but allow skin to breathe throughout the day.</li>
+  <li><strong>Cut & Hemline:</strong> The proportions must align with the natural waist to elongate the silhouette.</li>
+  <li><strong>Drape & Structure:</strong> A quality garment should hold its shape while responding beautifully to movement.</li>
+  <li><strong>Versatility:</strong> The style should transition easily between casual and formal wear.</li>
+</ul>
+<h2>Our Featured Recommendation: {display_name} Review</h2>
+<p>The {display_name} stands out as a top-tier recommendation. From the expert fabric selection to the high-quality stitching, every detail is considered. It offers a structured drape that complements various silhouettes, making it a reliable wardrobe staple that lasts season after season.</p>
+<h2>Curated Style Pairings: 3 Outfit Formulas</h2>
+<h3>Outfit 1: The Casual Weekday</h3>
+<p>Keep things relaxed by styling it with classic sneakers. We recommend pairing it with the {match1_name} to keep your daily essentials organized in style.</p>
+<h3>Outfit 2: The Chic Brunch</h3>
+<p>Step up your style style by pairing the {display_name} with block heel sandals. Adding the {match2_name} completes the styling formula for a polished aesthetic.</p>
+<h3>Outfit 3: Evening Sophistication</h3>
+<p>For dinner plans, pair this style with an elegant trench coat and strappy heels, creating a balanced and high-fashion look.</p>
+<h2>Who Is This {clean_ptype.title()} Perfect For?</h2>
+<p>This style is ideal for active, modern women who value both comfort and premium design. Whether you need a dependable outfit for office days or an easy-going style for weekend travel, this piece fits the bill perfectly.</p>
+""",
+
+        "comparison": f"""
+<p>We receive frequent questions from our customers asking how the {display_name} compares to other popular styles in our boutique. In this editor's comparison, we evaluate the drape, fit, and styling value of three outstanding options to help you choose the winner for your wardrobe.</p>
+<h2>Option 1: {display_name} — What We Love</h2>
+<p>The {display_name} is celebrated for its tailored fit and soft-touch fabric blend. It offers excellent structured support while remaining lightweight. It is the perfect choice if you want a reliable, elegant staple that works for both casual and dressy events.</p>
+<h2>Option 2: {alt1_display} — The Alternative Style</h2>
+<p>The {alt1_display} is a fantastic choice for those seeking a more relaxed, bohemian aesthetic. Priced at ${alt1_price}, it features a slightly looser cut, making it ideal for warm weather wear or casual layering.</p>
+<h2>Option 3: {alt2_display} — The Trend-Forward Option</h2>
+<p>For a modern silhouette, the {alt2_display} (priced at ${alt2_price}) offers a structured cut. It provides a distinct style that stands out, making it a bold and fashionable statement piece.</p>
+<h2>Style and Fit Comparison Table</h2>
+<table style="width:100%; border-collapse:collapse; margin:20px 0; font-family:sans-serif; font-size:14px; text-align:left;">
+  <thead>
+    <tr style="background-color:#f2f2f2; border-bottom:2px solid #ddd;">
+      <th style="padding:12px; border:1px solid #ddd;">Style</th>
+      <th style="padding:12px; border:1px solid #ddd;">Best For</th>
+      <th style="padding:12px; border:1px solid #ddd;">Price Range</th>
+      <th style="padding:12px; border:1px solid #ddd;">Fabric Stretch</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr style="border-bottom:1px solid #ddd;">
+      <td style="padding:12px; border:1px solid #ddd; font-weight:bold;">{display_name}</td>
+      <td style="padding:12px; border:1px solid #ddd;">Everyday Elegance</td>
+      <td style="padding:12px; border:1px solid #ddd;">${price}</td>
+      <td style="padding:12px; border:1px solid #ddd;">Moderate</td>
+    </tr>
+    <tr style="border-bottom:1px solid #ddd;">
+      <td style="padding:12px; border:1px solid #ddd; font-weight:bold;">{alt1_display}</td>
+      <td style="padding:12px; border:1px solid #ddd;">Relaxed / Boho Chic</td>
+      <td style="padding:12px; border:1px solid #ddd;">${alt1_price}</td>
+      <td style="padding:12px; border:1px solid #ddd;">High</td>
+    </tr>
+    <tr style="border-bottom:1px solid #ddd;">
+      <td style="padding:12px; border:1px solid #ddd; font-weight:bold;">{alt2_display}</td>
+      <td style="padding:12px; border:1px solid #ddd;">Modern Statements</td>
+      <td style="padding:12px; border:1px solid #ddd;">${alt2_price}</td>
+      <td style="padding:12px; border:1px solid #ddd;">Structured / Low</td>
+    </tr>
+  </tbody>
+</table>
+<h2>Our Honest Verdict — The Winner for Most Women</h2>
+<p>While all three options are beautiful, the {display_name} wins for its sheer versatility and premium quality. It bridges the gap between casual comfort and sophisticated styling, making it the most cost-effective and wearable investment for your capsule wardrobe.</p>
+""",
+
+        "problem_solver": f"""
+<p>One of the biggest struggles our customers face is finding a versatile {clean_ptype} that looks amazing, flatters their shape, and stays comfortable all day long. Today, we explain how the {display_name} solves this styling dilemma with ease.</p>
+<h2>Why This Styling Struggle Is So Frustrating</h2>
+<p>Many garments look beautiful on hangers but lose their structure or stretch out within hours of wear. This leads to a closet full of clothes but nothing to wear. A great styling piece should offer reliable fit retention and transition seamlessly across different settings.</p>
+<h2>The Solution: {display_name} — Why It Works</h2>
+<p>The {display_name} is specifically designed to solve these frustrations. Combining premium fabric blend technology with precision tailoring, it maintains its shape, flatters the waistline, and provides breathable comfort that lasts from morning meetings to evening dinners.</p>
+<h2>3 Curated Outfit Solutions</h2>
+<h3>Occasion 1: The Busy Morning</h3>
+<p>Style this {clean_ptype} with comfortable flats and a classic white tee. Pair it with the {match1_name} to look put-together in seconds.</p>
+<h3>Occasion 2: The Casual Work Environment</h3>
+<p>Layer it with a lightweight trench coat. We recommend styling this combination with the {match2_name} to complete the look.</p>
+<h3>Occasion 3: Weekend Brunch</h3>
+<p>Style it with slide sandals, a straw bag, and oversized sunglasses for an effortless chic look.</p>
+<h2>Our Top 4 Styling Tips From Years in Boutique Fashion</h2>
+<ul>
+  <li>Always focus on balanced proportions: pair loose tops with structured bottoms, and vice versa.</li>
+  <li>Invest in quality accessories to elevate simple, clean-cut basics instantly.</li>
+  <li>Choose neutral layers to maximize the outfit formulas you can build.</li>
+  <li>Prioritize comfort—confidence is the best style multiplier.</li>
+</ul>
+""",
+
+        "trend_report": f"""
+<p>Fashion moves quickly, and tracking the latest trends can be a full-time job. Today, we bring you our boutique trend report for {MONTH}, featuring the top styles real women are wearing in the USA right now.</p>
+<h2>Trend #1: The {display_name} Statement</h2>
+<p>The biggest breakout trend this season is the {display_name}. Fashion editors are styling this {clean_ptype} as the centerpiece of capsule wardrobes. Its structured look and breathable fit make it highly sought-after for chic, minimalist styles.</p>
+<h2>Trend #2: Textured Knit Layering</h2>
+<p>Lightweight, open-knit cardigans and vests are dominating street style. Pair them with basics to add depth and interest to your everyday outfits.</p>
+<h2>Trend #3: Sustainable Earth Tones</h2>
+<p>Rich olives, warm terracotta, and sandy neutrals are the color palette of the month. They pair beautifully together to create clean, high-end looks.</p>
+<h2>Trend #4: The Return of Classic Denims</h2>
+<p>Relaxed, high-waisted denims are back in style, providing comfort without sacrificing structure. They style perfectly with neutral blouses.</p>
+<h2>Trend #5: Functional Chic Accessories</h2>
+<p>Women are opting for structured, utilitarian accessories that combine practical storage with elegant buckle details.</p>
+<h2>How to Mix These Trends Without Looking Overdone</h2>
+<p>To pull off these trends successfully, pick one focal point—like the {display_name}—and pair it with neutral basics. For instance, style it with the {match1_name} and the {match2_name} to add functional elegance without overwhelming your look.</p>
+""",
+
+        "care_guide": f"""
+<p>Keeping your clothing in pristine condition extends its life, preserves its rich colors, and maintains its original fit. Today, we outline the complete care and washing instructions for the {display_name}.</p>
+<h2>Fabric Care Label Analysis</h2>
+<p>The {display_name} features a high-grade blend of materials designed for style and comfort. Always consult the care label inside the garment before washing. Modern blends react best to cool temperatures to avoid fabric shrinking or fiber deterioration.</p>
+<h2>Step-by-Step Washing Instructions</h2>
+<h3>Machine Wash Instructions</h3>
+<p>When machine washing, turn the {clean_ptype} inside out to protect the surface fibers. Wash on a gentle, delicate cycle using cold water and a mild, color-safe liquid detergent. Avoid washing with rough materials like zippers or heavy denims.</p>
+<h3>Hand Washing Instructions</h3>
+<p>For hand washing, submerge the garment in cold water mixed with a small amount of delicate detergent. Agitate gently by hand for a few minutes. Do not wring or twist the fabric; instead, press the water out gently against the basin.</p>
+<h2>How to Dry and Iron Without Damage</h2>
+<p>We highly recommend line drying or laying the {clean_ptype} flat on a clean towel to dry. If using a dryer, select the lowest heat/tumble setting to avoid heat damage. To remove wrinkles, steam styling is preferred over direct ironing.</p>
+<h2>Stylist Care & Storage Tips</h2>
+<p>Store your {display_name} folded neatly in drawers or hung on padded hangers depending on weight. Knitted styles should always be folded to prevent shoulder stretching, while woven fabrics hang beautifully.</p>
+"""
+    }
+
+    # Select template body or default to care_guide
+    template_body = templates.get(fmt, templates["care_guide"])
+
+    # Q&A Block
+    qa_section = f"""
+<h2>Shoppers' Q&A: Common Questions Answered</h2>
+<h3>Why should the {display_name} be in my closet?</h3>
+<p>The {display_name} offers the perfect balance of comfort, premium quality, and timeless styling versatility. It is designed to fit seamlessly into any capsule wardrobe, making it easy to create multiple outfit formulas with pieces you already own.</p>
+<h3>What is the fabric composition and how do I wash this style?</h3>
+<p>This style is made from a durable, high-quality fabric blend selected for its soft drape and fit retention. To keep it looking pristine, we recommend washing inside out in cold water on a gentle cycle, then line drying or laying flat to dry.</p>
+<h3>How do I choose the correct size for the {display_name}?</h3>
+<p>This style runs true to standard US boutique sizing and is available in sizes XS to 3X. If you prefer a relaxed or slightly oversized layering fit, we recommend sizing up one size. For a more tailored look, stay true to your usual size.</p>
+"""
+
+    # Verdict & CTA Block
+    cta_text = f"""
+<h2>The Styling Verdict</h2>
+<p>Overall, the {display_name} is a stellar fashion investment for {YEAR}. Priced at ${price}, it offers premium boutique construction at an accessible value. Shop yours at MeeeShop today—enjoy free US shipping on orders $50+, easy 7-day returns, and a full size range from XS to 3X.</p>
+"""
+
+    html_body = f"<h1>{title_hint}</h1>\n{template_body}\n{qa_section}\n{cta_text}"
+    
+    seo = {
+        "seo_title": f"{title_hint[:60]} — MeeeShop",
+        "meta_desc": f"Shop the {display_name} at MeeeShop. Free US shipping on orders $50+, easy 7-day returns, sizes XS–3X. Discover fit and styling tips.",
+        "img_alt": f"{display_name} — {clean_ptype} for women, {YEAR} fashion guide at MeeeShop",
+    }
+    
+    return html_body, seo
+
+
 def set_article_seo_metafields(blog_id: int, article_id: int, seo_title: str, meta_desc: str):
     """
     Set SEO title and meta description via Shopify metafields.
@@ -1105,38 +1315,43 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
         print("  Generating content…")
         html_body = ai_client.generate(prompt, max_tokens=1600, temperature=0.75)
 
-        if not html_body:
-            print("  [AI] all providers failed — skipping\n")
-            continue
-
-        # Extract <seometa> block if present
+        is_fallback_mode = False
         seo_text = ""
-        seo_match = re.search(r"<seometa>(.*?)</seometa>", html_body, re.DOTALL | re.IGNORECASE)
-        if seo_match:
-            seo_text = seo_match.group(1).strip()
-            # Remove the <seometa> block from body
-            html_body = html_body[:seo_match.start()] + html_body[seo_match.end():]
+
+        if not html_body:
+            print("  [AI] All providers failed — executing local template-based fallback generator...")
+            is_fallback_mode = True
+            html_body, seo = generate_fallback_blog_post(fmt, product, keyword, title_hint, pool, matching_products)
         else:
-            # Inline detection fallback if tags were omitted
-            lines = html_body.splitlines()
-            cleaned_lines = []
-            seo_lines = []
-            for line in lines:
-                l_upper = line.strip().upper()
-                if l_upper.startswith("SEO_TITLE:") or l_upper.startswith("META_DESC:") or l_upper.startswith("IMG_ALT:"):
-                    seo_lines.append(line)
-                elif "seometa" not in line.lower():
-                    cleaned_lines.append(line)
-            if seo_lines:
-                seo_text = "\n".join(seo_lines)
-                html_body = "\n".join(cleaned_lines)
+            # Extract <seometa> block if present
+            seo_match = re.search(r"<seometa>(.*?)</seometa>", html_body, re.DOTALL | re.IGNORECASE)
+            if seo_match:
+                seo_text = seo_match.group(1).strip()
+                # Remove the <seometa> block from body
+                html_body = html_body[:seo_match.start()] + html_body[seo_match.end():]
+            else:
+                # Inline detection fallback if tags were omitted
+                lines = html_body.splitlines()
+                cleaned_lines = []
+                seo_lines = []
+                for line in lines:
+                    l_upper = line.strip().upper()
+                    if l_upper.startswith("SEO_TITLE:") or l_upper.startswith("META_DESC:") or l_upper.startswith("IMG_ALT:"):
+                        seo_lines.append(line)
+                    elif "seometa" not in line.lower():
+                        cleaned_lines.append(line)
+                if seo_lines:
+                    seo_text = "\n".join(seo_lines)
+                    html_body = "\n".join(cleaned_lines)
 
         html_body = _clean_html(html_body)
         post_title = _extract_h1(html_body, h1_hint)
 
-        print("  Extracting SEO metadata…")
-        ptype = (product.get("product_type") or "women's fashion").lower()
-        seo   = parse_and_clean_seo_meta(seo_text, keyword, product["title"], ptype)
+        if not is_fallback_mode:
+            print("  Extracting SEO metadata…")
+            ptype = (product.get("product_type") or "women's fashion").lower()
+            seo   = parse_and_clean_seo_meta(seo_text, keyword, product["title"], ptype)
+            
         print(f"  SEO title : {seo['seo_title']}")
         print(f"  Meta desc : {seo['meta_desc'][:80]}…")
         print(f"  IMG ALT   : {seo['img_alt']}")
