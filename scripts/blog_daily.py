@@ -157,33 +157,15 @@ def fetch_products(limit=100) -> list:
 
 
 # ── SEO metadata generation ────────────────────────────────────────────────────
-def _build_seo_prompt(post_title: str, keyword: str, product_title: str, ptype: str) -> str:
-    return (
-        f"Generate SEO metadata for a women's fashion blog post. "
-        f"Post title: \"{post_title}\"\n"
-        f"Target keyword: \"{keyword}\"\n"
-        f"Featured product: {product_title} ({ptype})\n"
-        f"Store: MeeeShop — USA women's boutique at us.meeeshop.com\n\n"
-        f"Return ONLY these 3 lines, nothing else:\n"
-        f"SEO_TITLE: [50-60 chars, keyword near start, year or 'for Women', compelling]\n"
-        f"META_DESC: [140-155 chars, action-oriented, includes keyword, free shipping mention, ends with CTA]\n"
-        f"IMG_ALT: [descriptive ALT text for featured image, 10-15 words, includes keyword + 'women' + product type, no quotes]\n"
-    )
-
-
-def generate_seo_meta(post_title: str, keyword: str, product_title: str, ptype: str,
-                      h1_hint: str) -> dict:
+def parse_and_clean_seo_meta(raw_seo_text: str, keyword: str, product_title: str, ptype: str) -> dict:
     """
-    Ask AI for SEO title, meta description, and image ALT text.
-    Falls back to deterministic values if AI fails.
+    Parse SEO title, meta description, and image ALT text from the extracted text block.
+    Falls back to deterministic values if parsing fails or fields are missing.
     """
-    prompt = _build_seo_prompt(post_title, keyword, product_title, ptype)
-    raw = ai_client.generate(prompt, max_tokens=200, temperature=0.4)
-
     seo_title = meta_desc = img_alt = ""
 
-    if raw:
-        for line in raw.splitlines():
+    if raw_seo_text:
+        for line in raw_seo_text.splitlines():
             line = line.strip()
             if line.upper().startswith("SEO_TITLE:"):
                 seo_title = line.split(":", 1)[1].strip().strip('"')
@@ -927,6 +909,17 @@ def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, simila
             f"Target: 750-900 words. Output ONLY clean HTML."
         )
 
+    # Append SEO metadata instructions to the prompt so we generate all details in one AI call
+    prompt += (
+        f"\n\nAt the very end of your response, after the HTML content, you MUST append a `<seometa>` section containing the SEO metadata. The format MUST be exactly like this (use these exact keys):\n"
+        f"<seometa>\n"
+        f"SEO_TITLE: [50-60 chars, keyword near start, year or 'for Women', compelling]\n"
+        f"META_DESC: [140-155 chars, action-oriented, includes keyword, free shipping mention, ends with CTA]\n"
+        f"IMG_ALT: [descriptive ALT text for featured image, 10-15 words, includes keyword + 'women' + product type, no quotes]\n"
+        f"</seometa>\n"
+        f"Make sure there are no other text or markdown code fences enclosing the <seometa> block."
+    )
+
     return prompt, title_hint
 
 
@@ -1116,13 +1109,34 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
             print("  [AI] all providers failed — skipping\n")
             continue
 
+        # Extract <seometa> block if present
+        seo_text = ""
+        seo_match = re.search(r"<seometa>(.*?)</seometa>", html_body, re.DOTALL | re.IGNORECASE)
+        if seo_match:
+            seo_text = seo_match.group(1).strip()
+            # Remove the <seometa> block from body
+            html_body = html_body[:seo_match.start()] + html_body[seo_match.end():]
+        else:
+            # Inline detection fallback if tags were omitted
+            lines = html_body.splitlines()
+            cleaned_lines = []
+            seo_lines = []
+            for line in lines:
+                l_upper = line.strip().upper()
+                if l_upper.startswith("SEO_TITLE:") or l_upper.startswith("META_DESC:") or l_upper.startswith("IMG_ALT:"):
+                    seo_lines.append(line)
+                elif "seometa" not in line.lower():
+                    cleaned_lines.append(line)
+            if seo_lines:
+                seo_text = "\n".join(seo_lines)
+                html_body = "\n".join(cleaned_lines)
+
         html_body = _clean_html(html_body)
         post_title = _extract_h1(html_body, h1_hint)
 
-        # Generate SEO metadata (separate AI call with low temperature for precision)
-        print("  Generating SEO metadata…")
+        print("  Extracting SEO metadata…")
         ptype = (product.get("product_type") or "women's fashion").lower()
-        seo   = generate_seo_meta(post_title, keyword, product["title"], ptype, h1_hint)
+        seo   = parse_and_clean_seo_meta(seo_text, keyword, product["title"], ptype)
         print(f"  SEO title : {seo['seo_title']}")
         print(f"  Meta desc : {seo['meta_desc'][:80]}…")
         print(f"  IMG ALT   : {seo['img_alt']}")
