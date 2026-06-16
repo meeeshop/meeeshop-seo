@@ -48,6 +48,30 @@ TAXONOMY_MAP = {
         "key": "fabric",
         "type": "shopify--fabric"
     },
+    "bag_case_material": {
+        "key": "bag-case-material",
+        "type": "shopify--bag-case-material"
+    },
+    "carry_options": {
+        "key": "carry-options",
+        "type": "shopify--carry-options"
+    },
+    "accessory_size": {
+        "key": "accessory-size",
+        "type": "shopify--accessory-size"
+    },
+    "bag_case_closure": {
+        "key": "bag-case-closure",
+        "type": "shopify--bag-case-closure"
+    },
+    "bag_case_features": {
+        "key": "bag-case-features",
+        "type": "shopify--bag-case-features"
+    },
+    "bag_case_storage_features": {
+        "key": "bag-case-storage-features",
+        "type": "shopify--bag-case-storage-features"
+    },
     "target_gender": {
         "key": "target-gender",
         "type": "shopify--target-gender"
@@ -121,6 +145,12 @@ def init_taxonomy_cache():
     TAXONOMY_TYPES = [
         "shopify--color-pattern",
         "shopify--fabric",
+        "shopify--bag-case-material",
+        "shopify--carry-options",
+        "shopify--accessory-size",
+        "shopify--bag-case-closure",
+        "shopify--bag-case-features",
+        "shopify--bag-case-storage-features",
         "shopify--target-gender",
         "shopify--age-group",
         "shopify--sleeve-length-type",
@@ -376,7 +406,8 @@ def get_product_by_handle(handle):
           "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
           "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
           "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
-          "shopify.dress-occasion"
+          "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
+          "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features"
         ]) {
           edges {
             node {
@@ -444,7 +475,8 @@ def get_recent_products(since_iso, query_field="created_at"):
               "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
               "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
               "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
-              "shopify.dress-occasion"
+              "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
+              "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features"
             ]) {
               edges {
                 node {
@@ -534,7 +566,8 @@ def get_all_products():
               "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
               "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
               "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
-              "shopify.dress-occasion"
+              "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
+              "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features"
             ]) {
               edges {
                 node {
@@ -708,10 +741,91 @@ def parse_with_heuristics(title, desc, category_name):
     if "everyday" in text or "daily" in text:
         matched_occasion.append("Everyday")
     dress_occasion = matched_occasion if matched_occasion else None
+
+    # 10. Handbag-specific heuristics (material & carry options)
+    bag_case_material = None
+    if "leather" in text:
+        bag_case_material = ["Leather"]
+        if "faux leather" in text or "vegan leather" in text or "pu leather" in text:
+            bag_case_material = ["Faux leather"]
+    elif "nylon" in text:
+        bag_case_material = ["Nylon"]
+    elif "canvas" in text:
+        bag_case_material = ["Canvas"]
+    elif "polyester" in text:
+        bag_case_material = ["Polyester"]
+    elif "straw" in text:
+        bag_case_material = ["Straw"]
+    elif "velvet" in text:
+        bag_case_material = ["Velvet"]
+        
+    carry_options = []
+    if "shoulder strap" in text or "shoulder bag" in text or "shoulder" in text:
+        carry_options.append("Shoulder strap")
+    if "top handle" in text or "tote" in text or "handle" in text:
+        carry_options.append("Top handle")
+    if "crossbody" in text or "cross-body" in text:
+        carry_options.append("Crossbody strap")
+    if "wristlet" in text:
+        carry_options.append("Wristlet")
+    if "backpack" in text:
+        carry_options.append("Backpack strap")
+    if "clutch" in text:
+        carry_options.append("Clutch")
+    carry_options = carry_options if carry_options else None
+
+    # 11. Handbag closure heuristic
+    bag_case_closure = None
+    closures = ["zipper", "zip", "magnetic", "flap", "drawstring", "snap", "buckle", "open top", "kiss lock"]
+    for cl in closures:
+        if cl in text:
+            bag_case_closure = "Zipper" if cl in ["zipper", "zip"] else cl.capitalize()
+            break
+
+    # 12. Handbag features heuristic
+    bag_features = []
+    if "water resistant" in text or "water-resistant" in text or "waterproof" in text:
+        bag_features.append("Water resistant")
+    if "lightweight" in text:
+        bag_features.append("Lightweight")
+    if "adjustable strap" in text or "adjustable-strap" in text:
+        bag_features.append("Adjustable strap")
+    if "detachable strap" in text or "detachable-strap" in text or "removable strap" in text:
+        bag_features.append("Detachable strap")
+    if "convertible" in text:
+        bag_features.append("Convertible")
+    bag_features = bag_features if bag_features else None
+
+    # 13. Handbag storage features heuristic
+    bag_storage = []
+    if "laptop compartment" in text or "laptop pocket" in text:
+        bag_storage.append("Laptop compartment")
+    if "inner pocket" in text or "interior pocket" in text:
+        bag_storage.append("Inner pockets")
+    if "card slot" in text:
+        bag_storage.append("Card slots")
+    bag_storage = bag_storage if bag_storage else None
+
+    # 14. Handbag size heuristic
+    accessory_size = None
+    if "mini" in text:
+        accessory_size = "Mini"
+    elif "small" in text:
+        accessory_size = "Small"
+    elif "medium" in text:
+        accessory_size = "Medium"
+    elif "large" in text:
+        accessory_size = "Large"
         
     return {
         "color": color,
         "fabric": fabric,
+        "bag_case_material": bag_case_material,
+        "carry_options": carry_options,
+        "accessory_size": accessory_size,
+        "bag_case_closure": bag_case_closure,
+        "bag_case_features": bag_features,
+        "bag_case_storage_features": bag_storage,
         "target_gender": "Female",  # Meeeshop defaults
         "age_group": "Adults",
         "dress_style": style,
@@ -731,20 +845,26 @@ Title: {title}
 Description: {desc}
 Category: {category_label}
 
-Suggest values for the following standard attributes if you can identify them from the text. Note that you can return a list of strings for attributes that support multiple values (like fabric, care_instructions, clothing_features, sleeve_length_type) or a single string:
+Suggest values for the following standard attributes if you can identify them from the text. Note that you can return a list of strings for attributes that support multiple values (like fabric, care_instructions, clothing_features, sleeve_length_type, carry_options, bag_case_material, bag_case_features, bag_case_storage_features) or a single string:
 1. target_gender (values: Female, Male, Unisex)
 2. age_group (values: Adults, Kids, Teens, Babies, Toddlers, Universal)
 3. color (e.g. Navy, Sage, Floral, Denim)
-4. fabric (e.g. Denim, Linen, Cotton, Viscose, Polyester) - list or string
-5. dress_style (values: A-line, Babydoll, Blouson, Caftan, Drop waist, Empire waist, Flared, Gown, Jacket, Mermaid, Pencil, Peplum, Sheath, Shift, Shirt, Skater, Slip, Sweater, Tank, Trumpet, Wrap)
-6. neckline (values: V-neck, Split, Asymmetric, Bardot, Boat, Cowl, Halter, Hooded, Mandarin, Crew, Mock, Plunging, Sweetheart, Turtle, Wrap, Round, Square)
-7. skirt_length_type (values: Mini, Midi, Maxi, Knee, Short)
-8. sleeve_length_type (values: Short, Sleeveless, Spaghetti strap, Strapless, 3/4, Cap, Long) - list or string
-9. care_instructions (e.g. Machine washable, Tumble dry, Hand wash, Dry clean only, Dryer safe) - list or string
-10. clothing_features (e.g. Stretchable, Insulated, Moisture wicking, Quick drying, Reversible, UV protection) - list or string
-11. dress_occasion (values: Birthday, Casual, Dance, Everyday, Formal, Holiday, Pageant, Party, Portrait, Religious ceremony, School, Wedding) - list or string
+4. fabric (e.g. Denim, Linen, Cotton, Viscose, Polyester) - list or string (for clothing only)
+5. bag_case_material (values: Leather, Faux leather, Canvas, Nylon, Polyester, Polyurethane, Straw, Velvet) - list or string (for bags/handbags only)
+6. carry_options (values: Shoulder strap, Top handle, Crossbody strap, Wristlet, Backpack strap, Clutch) - list or string (for bags/handbags only)
+7. accessory_size (values: One Size, Mini, Small, Medium, Large, Extra Large) - for bags/handbags only
+8. bag_case_closure (values: Zipper, Magnetic, Flap, Drawstring, Snap, Buckle, Open top, Kiss lock) - for bags/handbags only
+9. bag_case_features (values: Water resistant, Lightweight, Adjustable strap, Detachable strap, Convertible, Anti-theft) - list or string (for bags/handbags only)
+10. bag_case_storage_features (values: Laptop compartment, Tablet pocket, Inner pockets, Card slots, Key leash) - list or string (for bags/handbags only)
+11. dress_style (values: A-line, Babydoll, Blouson, Caftan, Drop waist, Empire waist, Flared, Gown, Jacket, Mermaid, Pencil, Peplum, Sheath, Shift, Shirt, Skater, Slip, Sweater, Tank, Trumpet, Wrap)
+12. neckline (values: V-neck, Split, Asymmetric, Bardot, Boat, Cowl, Halter, Hooded, Mandarin, Crew, Mock, Plunging, Sweetheart, Turtle, Wrap, Round, Square)
+13. skirt_length_type (values: Mini, Midi, Maxi, Knee, Short)
+14. sleeve_length_type (values: Short, Sleeveless, Spaghetti strap, Strapless, 3/4, Cap, Long) - list or string
+15. care_instructions (e.g. Machine washable, Tumble dry, Hand wash, Dry clean only, Dryer safe) - list or string
+16. clothing_features (e.g. Stretchable, Insulated, Moisture wicking, Quick drying, Reversible, UV protection) - list or string
+17. dress_occasion (values: Birthday, Casual, Dance, Everyday, Formal, Holiday, Pageant, Party, Portrait, Religious ceremony, School, Wedding) - list or string
 
-Return ONLY a valid JSON object with keys: color, fabric, target_gender, age_group, dress_style, neckline, skirt_length_type, sleeve_length_type, care_instructions, clothing_features, dress_occasion. If you can't identify any value for a key, use null.
+Return ONLY a valid JSON object with keys: color, fabric, bag_case_material, carry_options, accessory_size, bag_case_closure, bag_case_features, bag_case_storage_features, target_gender, age_group, dress_style, neckline, skirt_length_type, sleeve_length_type, care_instructions, clothing_features, dress_occasion. If you can't identify any value for a key, use null.
 """
     try:
         # Single try for AI
@@ -840,31 +960,43 @@ For each product, identify values for these standard attributes if they are pres
 2. age_group (values: Adults, Kids, Teens, Babies, Toddlers, Universal)
 3. color (e.g. Navy, Sage, Floral, Denim)
 4. fabric (e.g. Denim, Linen, Cotton, Viscose, Polyester) - list or string
-5. dress_style (values: A-line, Babydoll, Blouson, Caftan, Drop waist, Empire waist, Flared, Gown, Jacket, Mermaid, Pencil, Peplum, Sheath, Shift, Shirt, Skater, Slip, Sweater, Tank, Trumpet, Wrap)
-6. neckline (values: V-neck, Split, Asymmetric, Bardot, Boat, Cowl, Halter, Hooded, Mandarin, Crew, Mock, Plunging, Sweetheart, Turtle, Wrap, Round, Square)
-7. skirt_length_type (values: Mini, Midi, Maxi, Knee, Short)
-8. sleeve_length_type (values: Short, Sleeveless, Spaghetti strap, Strapless, 3/4, Cap, Long) - list or string
-9. care_instructions (e.g. Machine washable, Tumble dry, Hand wash, Dry clean only, Dryer safe) - list or string
-10. clothing_features (e.g. Stretchable, Insulated, Moisture wicking, Quick drying, Reversible, UV protection) - list or string
-11. dress_occasion (values: Birthday, Casual, Dance, Everyday, Formal, Holiday, Pageant, Party, Portrait, Religious ceremony, School, Wedding) - list or string
+5. bag_case_material (values: Leather, Faux leather, Canvas, Nylon, Polyester, Polyurethane, Straw, Velvet) - list or string (for bags/handbags only)
+6. carry_options (values: Shoulder strap, Top handle, Crossbody strap, Wristlet, Backpack strap, Clutch) - list or string (for bags/handbags only)
+7. accessory_size (values: One Size, Mini, Small, Medium, Large, Extra Large) - for bags/handbags only
+8. bag_case_closure (values: Zipper, Magnetic, Flap, Drawstring, Snap, Buckle, Open top, Kiss lock) - for bags/handbags only
+9. bag_case_features (values: Water resistant, Lightweight, Adjustable strap, Detachable strap, Convertible, Anti-theft) - list or string (for bags/handbags only)
+10. bag_case_storage_features (values: Laptop compartment, Tablet pocket, Inner pockets, Card slots, Key leash) - list or string (for bags/handbags only)
+11. dress_style (values: A-line, Babydoll, Blouson, Caftan, Drop waist, Empire waist, Flared, Gown, Jacket, Mermaid, Pencil, Peplum, Sheath, Shift, Shirt, Skater, Slip, Sweater, Tank, Trumpet, Wrap)
+12. neckline (values: V-neck, Split, Asymmetric, Bardot, Boat, Cowl, Halter, Hooded, Mandarin, Crew, Mock, Plunging, Sweetheart, Turtle, Wrap, Round, Square)
+13. skirt_length_type (values: Mini, Midi, Maxi, Knee, Short)
+14. sleeve_length_type (values: Short, Sleeveless, Spaghetti strap, Strapless, 3/4, Cap, Long) - list or string
+15. care_instructions (e.g. Machine washable, Tumble dry, Hand wash, Dry clean only, Dryer safe) - list or string
+16. clothing_features (e.g. Stretchable, Insulated, Moisture wicking, Quick drying, Reversible, UV protection) - list or string
+17. dress_occasion (values: Birthday, Casual, Dance, Everyday, Formal, Holiday, Pageant, Party, Portrait, Religious ceremony, School, Wedding) - list or string
 
 Return ONLY a valid JSON object mapping each Product ID to its identified attributes. If you cannot identify a value for an attribute, use null.
-The output format must be a single JSON object where keys are the exact Product IDs and values are objects with keys: color, fabric, target_gender, age_group, dress_style, neckline, skirt_length_type, sleeve_length_type, care_instructions, clothing_features, dress_occasion.
+The output format must be a single JSON object where keys are the exact Product IDs and values are objects with keys: color, fabric, bag_case_material, carry_options, accessory_size, bag_case_closure, bag_case_features, bag_case_storage_features, target_gender, age_group, dress_style, neckline, skirt_length_type, sleeve_length_type, care_instructions, clothing_features, dress_occasion.
 
 Example Output Format:
 {{
   "gid://shopify/Product/12345": {{
     "color": "Navy",
-    "fabric": ["Cotton", "Polyester"],
+    "fabric": null,
+    "bag_case_material": ["Faux leather"],
+    "carry_options": ["Shoulder strap", "Top handle"],
+    "accessory_size": "Medium",
+    "bag_case_closure": "Zipper",
+    "bag_case_features": ["Detachable strap"],
+    "bag_case_storage_features": ["Inner pockets"],
     "target_gender": "Female",
     "age_group": "Adults",
-    "dress_style": "Wrap",
-    "neckline": "V-neck",
-    "skirt_length_type": "Midi",
-    "sleeve_length_type": "Short",
-    "care_instructions": ["Machine washable"],
-    "clothing_features": ["Stretchable"],
-    "dress_occasion": ["Casual", "Everyday"]
+    "dress_style": null,
+    "neckline": null,
+    "skirt_length_type": null,
+    "sleeve_length_type": null,
+    "care_instructions": null,
+    "clothing_features": null,
+    "dress_occasion": null
   }}
 }}
 Do not include any explanation or markdown formatting outside of the raw JSON code block.
@@ -1091,7 +1223,8 @@ def fetch_current_metafields_and_variants(product_ids):
             "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
             "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
             "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
-            "shopify.dress-occasion"
+            "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
+            "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features"
           ]) {
             edges {
               node {
