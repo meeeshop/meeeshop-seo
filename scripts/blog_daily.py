@@ -1003,7 +1003,7 @@ def get_clean_product_type(product: dict) -> str:
     return ptype if ptype else "apparel"
 
 
-def generate_keyword_title_and_format(product: dict) -> tuple[str, str, str]:
+def generate_keyword_title_and_format(product: dict, format_override: str = None) -> tuple[str, str, str]:
     display_name = get_product_display_name(product)
     
     options = [
@@ -1014,14 +1014,22 @@ def generate_keyword_title_and_format(product: dict) -> tuple[str, str, str]:
         (f"how to wash {display_name}", f"How to Wash and Care for Your {display_name} ({YEAR} Style Guide)", "care_guide"),
         (f"{display_name} styling", f"How to Style the {display_name} for Casual Chic Outfits", "problem_solver")
     ]
-    return random.choice(options)
+    
+    if format_override:
+        matched = [opt for opt in options if opt[2] == format_override]
+        if matched:
+            return matched[0]
+            
+    # Weights: sizing_guide (10%), outfit_formula (25%), buying_guide (20%), trend_report (20%), care_guide (5%), problem_solver (20%)
+    weights = [0.10, 0.25, 0.20, 0.20, 0.05, 0.20]
+    return random.choices(options, weights=weights, k=1)[0]
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
-def run(count: int = 1, dry_run: bool = False, publish: bool = False):
+def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_override: str = None):
     print(f"\n{'='*62}")
     print(f"  MeeeShop Blog Automation — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"  Posts: {count} | Dry-run: {dry_run} | Publish: {publish}")
+    print(f"  Posts: {count} | Dry-run: {dry_run} | Publish: {publish} | Format: {format_override or 'weighted random'}")
     print(f"{'='*62}\n")
 
     print("Fetching products…")
@@ -1046,7 +1054,7 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False):
 
     created = 0
     for i, product in enumerate(chosen):
-        keyword, title_hint, fmt = generate_keyword_title_and_format(product)
+        keyword, title_hint, fmt = generate_keyword_title_and_format(product, format_override)
 
         print(f"[{i+1}/{count}] Format: {fmt} | Keyword: '{keyword}'")
         print(f"  Product: {product['title'][:70]}")
@@ -1084,16 +1092,19 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False):
         collage_path = None
         img_url = None
         
-        if not dry_run and is_styling_format and matching_products:
+        if is_styling_format and matching_products:
             collage_path = generate_outfit_collage(product, matching_products)
             if collage_path and collage_path.exists():
-                ts = int(time.time())
-                filename = f"styling_collage_{product['id']}_{ts}.jpg"
-                img_url = upload_image_to_shopify(collage_path, filename)
-                try:
-                    collage_path.unlink()
-                except Exception:
-                    pass
+                if not dry_run:
+                    ts = int(time.time())
+                    filename = f"styling_collage_{product['id']}_{ts}.jpg"
+                    img_url = upload_image_to_shopify(collage_path, filename)
+                    try:
+                        collage_path.unlink()
+                    except Exception:
+                        pass
+                else:
+                    img_url = f"file:///{collage_path.absolute().as_posix()}"
                     
         if not img_url:
             img_url = make_featured_image_url(product, fmt)
@@ -1164,5 +1175,8 @@ if __name__ == "__main__":
     ap.add_argument("--count",    type=int, default=1,  help="Number of posts to create (default 1)")
     ap.add_argument("--publish",  action="store_true",
                     help="Publish immediately (default: save as DRAFT for human review)")
+    ap.add_argument("--format",   type=str, default=None,
+                    choices=["sizing_guide", "outfit_formula", "buying_guide", "trend_report", "care_guide", "problem_solver"],
+                    help="Force a specific blog format (default: weighted choice)")
     args = ap.parse_args()
-    run(count=args.count, dry_run=args.dry_run, publish=args.publish)
+    run(count=args.count, dry_run=args.dry_run, publish=args.publish, format_override=args.format)
