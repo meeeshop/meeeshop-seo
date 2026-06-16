@@ -205,6 +205,32 @@ def extract_size_table(html):
         return ''
     return block
 
+
+def remove_clothing_size_table(html):
+    """Remove any clothing size table (containing bust, waist, hip, etc.) and its heading."""
+    if not html:
+        return ""
+    
+    # 1. Match clothing-specific terms inside tables
+    clothing_terms = re.compile(r'\b(bust|waist|hip|sleeve|inseam|rise|underwire|chest)\b', re.IGNORECASE)
+    
+    def replacement(match):
+        table_html = match.group(0)
+        if clothing_terms.search(table_html):
+            return ""
+        return table_html
+        
+    cleaned = re.sub(r'<table[\s\S]*?</table>', replacement, html)
+    
+    # 2. Clean up orphaned headings like <h3>Size Chart</h3> immediately followed by another heading/tag or end of string
+    cleaned = re.sub(
+        r'(<h[1-6][^>]*>[^<]*size[^<]*</h[1-6]>\s*|<p[^>]*>\s*<strong>\s*size[^<]*chart[^<]*</strong>\s*</p>\s*)'
+        r'(?=<h|<p|<ul>|<li>|<div>|<!--|$)',
+        '', cleaned, flags=re.IGNORECASE
+    )
+    return cleaned.strip()
+
+
 # ── Build size chart based on product type ────────────────────────────────────
 def build_size_chart(word):
     """Create appropriate size chart based on product category."""
@@ -240,17 +266,25 @@ def build_size_chart(word):
     )
     return size_chart
 
+
 # ── SEO description with keywords + size chart ───────────────────────────────
 def build_description(product, force=False):
     title    = product['title']
     html_body = product.get('body_html', '') or ''
-    existing = strip_html(html_body)
     cat, word = detect_cat(title)
+    
+    if cat == 'Bags':
+        html_body = remove_clothing_size_table(html_body)
+        
+    existing = strip_html(html_body)
 
     # Detect if product already has a custom/storytelling description
     if len(existing) >= 200 and not ("Discover the" in html_body and "Why Choose" in html_body):
-        # Preserve the custom description, clean return policies, and append size table if missing
+        # Preserve the custom description, clean return policies
         cleaned_body = clean_return_policy(html_body)
+        if cat == 'Bags':
+            return cleaned_body.strip()
+            
         if not has_size_table(cleaned_body):
             size_chart = build_size_chart(word)
             return cleaned_body.strip() + "\n\n" + size_chart
@@ -288,10 +322,13 @@ def build_description(product, force=False):
 
     # Preserve existing size table verbatim; otherwise build the standard one
     existing_table = extract_size_table(html_body)
-    if existing_table:
-        size_chart = existing_table
+    if cat == 'Bags':
+        size_chart = existing_table if existing_table else ''
     else:
-        size_chart = build_size_chart(word)
+        if existing_table:
+            size_chart = existing_table
+        else:
+            size_chart = build_size_chart(word)
 
     if not force and len(existing) >= 500:
         return html_body
