@@ -36,6 +36,10 @@ _OPENROUTER_MODEL_CATEGORIES = {
     "general": _OPENROUTER_FREE_MODELS,
 }
 
+# Persistent session and last successful provider tracking
+_session = requests.Session()
+_last_success_provider = None
+
 
 def _get_openrouter_models(category: Optional[str] = None) -> List[str]:
     if category and category in _OPENROUTER_MODEL_CATEGORIES:
@@ -46,7 +50,7 @@ def _get_openrouter_models(category: Optional[str] = None) -> List[str]:
 def _call_gemini(prompt: str, max_tokens: int, temperature: float) -> str:
     if not GEMINI_KEY:
         raise RuntimeError("GEMINI_API_KEY not set")
-    r = requests.post(
+    r = _session.post(
         _GEMINI_URL,
         params={"key": GEMINI_KEY},
         json={
@@ -64,7 +68,7 @@ def _call_gemini(prompt: str, max_tokens: int, temperature: float) -> str:
 def _call_groq(prompt: str, max_tokens: int, temperature: float) -> str:
     if not GROQ_KEY:
         raise RuntimeError("GROQ_API_KEY not set")
-    r = requests.post(
+    r = _session.post(
         _GROQ_URL,
         headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
         json={
@@ -91,7 +95,7 @@ def _call_openrouter(prompt: str, max_tokens: int, temperature: float, category:
     for model in models:
         try:
             print(f"    [OpenRouter] Trying model: {model}...", flush=True)
-            r = requests.post(
+            r = _session.post(
                 _OPENROUTER_URL,
                 headers={
                     "Authorization": f"Bearer {OPENROUTER_KEY}",
@@ -150,6 +154,7 @@ _PROVIDERS = [
 
 def generate(prompt: str, max_tokens: int = 400, temperature: float = 0.8, category: str = None) -> str | None:
     """Try Gemini → Groq → OpenRouter. Returns text on first success, None if all fail."""
+    global _last_success_provider
     if category == "pricing":
         try:
             text = _call_openrouter(prompt, max_tokens, temperature, category="pricing")
@@ -159,6 +164,24 @@ def generate(prompt: str, max_tokens: int = 400, temperature: float = 0.8, categ
         except Exception as e:
             print(f"  [AI:OpenRouter-Pricing] {e} - falling back...")
 
+    # If we already have a successful provider, try ONLY that provider to avoid rate-limit loops
+    if _last_success_provider:
+        provider_fn = next((fn for name, fn in _PROVIDERS if name == _last_success_provider), None)
+        if provider_fn:
+            try:
+                if category == "pricing":
+                    text = _call_openrouter(prompt, max_tokens, temperature, category="pricing")
+                else:
+                    text = provider_fn(prompt, max_tokens, temperature)
+                if text:
+                    print(f"  [AI:{_last_success_provider} (sticky)] OK")
+                    return text
+            except Exception as e:
+                print(f"  [AI:{_last_success_provider} (sticky)] {e} - failed")
+        print("  [AI] sticky provider failed - returning None")
+        return None
+
+    # Try providers in default order on first call/success search
     for name, fn in _PROVIDERS:
         try:
             if category == "pricing":
@@ -167,6 +190,7 @@ def generate(prompt: str, max_tokens: int = 400, temperature: float = 0.8, categ
                 text = fn(prompt, max_tokens, temperature)
             if text:
                 print(f"  [AI:{name}] OK")
+                _last_success_provider = name
                 return text
         except Exception as e:
             print(f"  [AI:{name}] {e} - trying next...")

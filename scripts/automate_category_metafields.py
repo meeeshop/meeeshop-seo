@@ -24,6 +24,9 @@ headers = {
     "Content-Type": "application/json"
 }
 
+_session = requests.Session()
+_session.headers.update(headers)
+
 # Cache for standard taxonomy metaobjects: key is (type, display_name.lower()) -> GID
 taxonomy_cache = {}
 
@@ -322,7 +325,7 @@ def make_request(method, url, json_data=None):
     """Dynamically rate-limited HTTP requests wrapper."""
     while True:
         try:
-            resp = requests.request(method, url, headers=headers, json=json_data, timeout=30)
+            resp = _session.request(method, url, json=json_data, timeout=30)
             if resp.status_code == 429:
                 retry_after = float(resp.headers.get("Retry-After", 2.0))
                 print(f"Rate limited (429). Sleeping for {retry_after}s...")
@@ -799,9 +802,93 @@ def find_matching_image(variant_title, options, product_media, unique_colors=Non
             
     return None
 
+def get_batch_extracted_attributes(products_info):
+    """
+    Query AI with a batch of products to extract their category metafields.
+    products_info is a list of dicts:
+      {
+        "id": product GID (string),
+        "title": title (string),
+        "description": cleaned description (string, first 300 chars),
+        "category": category label (string)
+      }
+    Returns a dict mapping product GID -> attributes dict.
+    If the batch call fails or returns invalid JSON, returns an empty dict (allowing fallback).
+    """
+    if not products_info:
+        return {}
+
+    # Format the product info for the prompt
+    formatted_products = []
+    for p in products_info:
+        desc_snippet = p["description"][:300] if p["description"] else ""
+        formatted_products.append(
+            f"Product ID: {p['id']}\n"
+            f"Title: {p['title']}\n"
+            f"Category: {p['category']}\n"
+            f"Description: {desc_snippet}\n"
+            f"---"
+        )
+    products_text = "\n".join(formatted_products)
+
+    prompt = f"""You are an expert product data taxonomist. Analyze the following list of products:
+
+{products_text}
+
+For each product, identify values for these standard attributes if they are present in the title or description. Attributes and their allowed/example values:
+1. target_gender (values: Female, Male, Unisex)
+2. age_group (values: Adults, Kids, Teens, Babies, Toddlers, Universal)
+3. color (e.g. Navy, Sage, Floral, Denim)
+4. fabric (e.g. Denim, Linen, Cotton, Viscose, Polyester) - list or string
+5. dress_style (values: A-line, Babydoll, Blouson, Caftan, Drop waist, Empire waist, Flared, Gown, Jacket, Mermaid, Pencil, Peplum, Sheath, Shift, Shirt, Skater, Slip, Sweater, Tank, Trumpet, Wrap)
+6. neckline (values: V-neck, Split, Asymmetric, Bardot, Boat, Cowl, Halter, Hooded, Mandarin, Crew, Mock, Plunging, Sweetheart, Turtle, Wrap, Round, Square)
+7. skirt_length_type (values: Mini, Midi, Maxi, Knee, Short)
+8. sleeve_length_type (values: Short, Sleeveless, Spaghetti strap, Strapless, 3/4, Cap, Long) - list or string
+9. care_instructions (e.g. Machine washable, Tumble dry, Hand wash, Dry clean only, Dryer safe) - list or string
+10. clothing_features (e.g. Stretchable, Insulated, Moisture wicking, Quick drying, Reversible, UV protection) - list or string
+11. dress_occasion (values: Birthday, Casual, Dance, Everyday, Formal, Holiday, Pageant, Party, Portrait, Religious ceremony, School, Wedding) - list or string
+
+Return ONLY a valid JSON object mapping each Product ID to its identified attributes. If you cannot identify a value for an attribute, use null.
+The output format must be a single JSON object where keys are the exact Product IDs and values are objects with keys: color, fabric, target_gender, age_group, dress_style, neckline, skirt_length_type, sleeve_length_type, care_instructions, clothing_features, dress_occasion.
+
+Example Output Format:
+{{
+  "gid://shopify/Product/12345": {{
+    "color": "Navy",
+    "fabric": ["Cotton", "Polyester"],
+    "target_gender": "Female",
+    "age_group": "Adults",
+    "dress_style": "Wrap",
+    "neckline": "V-neck",
+    "skirt_length_type": "Midi",
+    "sleeve_length_type": "Short",
+    "care_instructions": ["Machine washable"],
+    "clothing_features": ["Stretchable"],
+    "dress_occasion": ["Casual", "Everyday"]
+  }}
+}}
+Do not include any explanation or markdown formatting outside of the raw JSON code block.
+"""
+    try:
+        print(f"Calling AI for batch attribute extraction of {len(products_info)} product(s)...")
+        # Increase max_tokens for batch response: 300 per product
+        max_tokens = max(400, len(products_info) * 300)
+        ai_resp = generate(prompt, max_tokens=max_tokens, temperature=0.2)
+        if ai_resp:
+            # Parse JSON
+            match = re.search(r'\{[\s\S]*\}', ai_resp)
+            if match:
+                parsed = json.loads(match.group(0))
+                print("✓ Batch AI Extraction successful.")
+                return parsed
+    except Exception as e:
+        print(f"[Warning] Batch AI extraction failed or rate-limited: {e}")
+
+    return {}
+
 # --- Main Automation Logic ---
 
-def process_product(product, dry_run=True, skip_ai=False):
+def process_product(product, dry_run=True, skip_ai=False, pre_extracted_attrs=None):
     """Process a single product: extract GPC metafields and variant images."""
     p_id = product["id"]
     p_title = product["title"]
@@ -831,6 +918,9 @@ def process_product(product, dry_run=True, skip_ai=False):
     if skip_ai:
         print(f"  - Category metafields already set for '{p_title}'. Skipping AI/heuristics attribute extraction.")
         attrs = {}
+    elif pre_extracted_attrs is not None:
+        print(f"  - Using pre-extracted attributes from batch AI call.")
+        attrs = pre_extracted_attrs
     else:
         attrs = get_extracted_attributes(p_title, desc, category_name)
     print(f"  Extracted Attributes: {attrs}")
@@ -1325,7 +1415,9 @@ def main():
     processed_ids = set()
         
     # Analyze and generate suggestions
-    all_suggestions = []
+    products_to_process = []
+    products_needing_ai = []
+    
     for p in products:
         p_id = p["id"]
         if not args.full and not args.handle and p_id in skip_ids:
@@ -1342,7 +1434,51 @@ def main():
                 break
 
         skip_ai = has_metafields and not args.full and not args.handle
-        s = process_product(p, skip_ai=skip_ai)
+        products_to_process.append((p, skip_ai))
+        
+        if not skip_ai:
+            desc_html = p.get("descriptionHtml") or ""
+            desc_clean = re.sub(r'<[^>]*>', '', desc_html).strip()
+            desc_clean = re.sub(r'\s+', ' ', desc_clean)
+            products_needing_ai.append({
+                "id": p_id,
+                "title": p["title"],
+                "description": desc_clean[:300],
+                "category": p.get("category", {}).get("name") if p.get("category") else "Clothing"
+            })
+
+    # Run batch AI call in chunks of 10 to avoid token limitations or output truncations
+    batch_results = {}
+    if products_needing_ai:
+        chunk_size = 10
+        total_chunks = (len(products_needing_ai) - 1) // chunk_size + 1
+        for i in range(0, len(products_needing_ai), chunk_size):
+            chunk = products_needing_ai[i:i + chunk_size]
+            chunk_num = i // chunk_size + 1
+            print(f"\n--- Batch Chunk {chunk_num} of {total_chunks} ({len(chunk)} products) ---")
+            chunk_results = get_batch_extracted_attributes(chunk)
+            if chunk_results:
+                batch_results.update(chunk_results)
+
+    all_suggestions = []
+    for p, skip_ai in products_to_process:
+        p_id = p["id"]
+        p_pre_extracted = None
+        if not skip_ai:
+            if batch_results and p_id in batch_results:
+                p_pre_extracted = batch_results.get(p_id)
+                if not isinstance(p_pre_extracted, dict) or not p_pre_extracted:
+                    p_pre_extracted = None
+            
+            # If batch results didn't have it, or batch failed, use non-AI heuristics fallback immediately
+            if p_pre_extracted is None:
+                print(f"  ⚠ AI failed or not available for '{p['title']}'. Falling back to local heuristics immediately.")
+                title = p["title"]
+                desc_html = p.get("descriptionHtml") or ""
+                category_name = p.get("category", {}).get("name") if p.get("category") else "Clothing"
+                p_pre_extracted = parse_with_heuristics(title, desc_html, category_name)
+                
+        s = process_product(p, skip_ai=skip_ai, pre_extracted_attrs=p_pre_extracted)
         processed_ids.add(p_id)
         if s["metafields"] or s["variants"]:
             all_suggestions.append(s)
