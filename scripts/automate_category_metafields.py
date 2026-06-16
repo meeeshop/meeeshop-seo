@@ -1593,8 +1593,10 @@ def main():
             print(f"Error: Product handle '{args.handle}' not found.")
             sys.exit(1)
     elif args.query:
-        print(f"Loading products matching query: {args.query}")
-        products = get_products_by_query(args.query)
+        # Strip outer quotes if passed literally by shell escaping
+        clean_query = args.query.strip().strip('"').strip("'")
+        print(f"Loading products matching query: {clean_query}")
+        products = get_products_by_query(clean_query)
         print(f"Fetched {len(products)} products.")
     elif args.full:
         print("Loading full store catalog...")

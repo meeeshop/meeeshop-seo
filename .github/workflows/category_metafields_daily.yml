@@ -155,41 +155,35 @@ jobs:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          # Determine execution action
-          ACTION="--apply"
+          # Build arguments array
+          ARGS=()
+          
+          # Action
           if [ "${{ github.event.inputs.action }}" = "diagnose" ]; then
-            ACTION="--diagnose"
-          fi
-          
-          MODE="${{ needs.setup.outputs.mode }}"
-          SCOPE=""
-          BATCH_ARGS=""
-          
-          if [ "$MODE" = "force" ]; then
-            SCOPE="--full"
-            BATCH_ARGS="--batch-size ${{ env.BATCH_SIZE }} --batch-index ${{ matrix.batch_index }}"
-          elif [ "$MODE" = "weekly" ]; then
-            SCOPE="--weekly"
+            ARGS+=("--diagnose")
           else
-            SCOPE="--daily"
+            ARGS+=("--apply")
           fi
           
-          HANDLE=""
-          if [ -n "${{ github.event.inputs.handle }}" ]; then
-            HANDLE="--handle ${{ github.event.inputs.handle }}"
-            SCOPE=""
-            BATCH_ARGS=""
-          fi
-          
-          QUERY=""
+          # Mode/Scope
+          MODE="${{ needs.setup.outputs.mode }}"
           if [ -n "${{ github.event.inputs.query }}" ]; then
-            QUERY="--query \"${{ github.event.inputs.query }}\""
-            SCOPE=""
-            BATCH_ARGS=""
+            # Query overrides other scopes
+            ARGS+=("--query" "${{ github.event.inputs.query }}")
+          elif [ -n "${{ github.event.inputs.handle }}" ]; then
+            # Handle overrides other scopes
+            ARGS+=("--handle" "${{ github.event.inputs.handle }}")
+          elif [ "$MODE" = "force" ]; then
+            ARGS+=("--full")
+            ARGS+=("--batch-size" "${{ env.BATCH_SIZE }}" "--batch-index" "${{ matrix.batch_index }}")
+          elif [ "$MODE" = "weekly" ]; then
+            ARGS+=("--weekly")
+          else
+            ARGS+=("--daily")
           fi
           
-          echo "Running automate_category_metafields.py $ACTION $SCOPE $HANDLE $QUERY $BATCH_ARGS..."
-          python scripts/automate_category_metafields.py $ACTION $SCOPE $HANDLE $QUERY $BATCH_ARGS
+          echo "Running automate_category_metafields.py ${ARGS[@]}..."
+          python scripts/automate_category_metafields.py "${ARGS[@]}"
 
       - name: Upload backup or preview artifact
         if: always()
