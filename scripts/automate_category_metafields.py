@@ -636,6 +636,96 @@ def get_all_products():
         
     return products
 
+def get_products_by_query(query_str):
+    """Retrieve products matching a specific query string."""
+    query = """
+    query GetProductsByQuery($queryStr: String, $cursor: String) {
+      products(first: 50, query: $queryStr, after: $cursor) {
+        edges {
+          node {
+            id
+            title
+            handle
+            descriptionHtml
+            productType
+            category {
+              id
+              name
+            }
+            metafields(first: 20, keys: [
+              "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
+              "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
+              "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
+              "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
+              "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features"
+            ]) {
+              edges {
+                node {
+                  id
+                  namespace
+                  key
+                  value
+                }
+              }
+            }
+            media(first: 50) {
+              edges {
+                node {
+                  id
+                  alt
+                  mediaContentType
+                  ... on MediaImage {
+                    image {
+                      url
+                    }
+                  }
+                }
+              }
+            }
+            variants(first: 100) {
+              edges {
+                node {
+                  id
+                  title
+                  media(first: 1) {
+                    nodes {
+                      id
+                    }
+                  }
+                  selectedOptions {
+                    name
+                    value
+                  }
+                }
+              }
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+    """
+    products = []
+    has_next = True
+    cursor = None
+    
+    while has_next:
+        res = run_graphql(query, {"queryStr": query_str, "cursor": cursor})
+        data = res.get("data", {}).get("products", {})
+        edges = data.get("edges", [])
+        
+        for edge in edges:
+            products.append(edge["node"])
+            
+        page_info = data.get("pageInfo", {})
+        has_next = page_info.get("hasNextPage", False)
+        cursor = page_info.get("endCursor")
+        
+    return products
+
 # --- Local Heuristics / Rules Fallback ---
 
 def parse_with_heuristics(title, desc, category_name):
@@ -1475,6 +1565,7 @@ def main():
     group.add_argument("--revert", action="store_true", help="Revert changes from a backup file")
     
     parser.add_argument("--handle", help="Restrict run to a single product handle (for local validation)")
+    parser.add_argument("--query", help="Scan products matching a custom Shopify query (e.g. 'product_type:Handbags')")
     parser.add_argument("--full", action="store_true", help="Trigger a full catalog scan (forced)")
     parser.add_argument("--weekly", action="store_true", help="Scan products created in the last 7 days")
     parser.add_argument("--daily", action="store_true", help="Scan products created in the last 24 hours")
@@ -1501,6 +1592,10 @@ def main():
         else:
             print(f"Error: Product handle '{args.handle}' not found.")
             sys.exit(1)
+    elif args.query:
+        print(f"Loading products matching query: {args.query}")
+        products = get_products_by_query(args.query)
+        print(f"Fetched {len(products)} products.")
     elif args.full:
         print("Loading full store catalog...")
         products = get_all_products()
@@ -1537,7 +1632,7 @@ def main():
 
     # ── Load recently processed GIDs to skip ──────────────────────────────────
     skip_ids = set()
-    if not args.full and not args.handle:
+    if not args.full and not args.handle and not args.query:
         try:
             skip_ids = load_recently_updated_ids()
             if skip_ids:
@@ -1553,7 +1648,7 @@ def main():
     
     for p in products:
         p_id = p["id"]
-        if not args.full and not args.handle and p_id in skip_ids:
+        if not args.full and not args.handle and not args.query and p_id in skip_ids:
             print(f"Skipping product (recently processed): {p['title']}")
             continue
 
@@ -1566,7 +1661,7 @@ def main():
                 has_metafields = True
                 break
 
-        skip_ai = has_metafields and not args.full and not args.handle
+        skip_ai = has_metafields and not args.full and not args.handle and not args.query
         products_to_process.append((p, skip_ai))
         
         if not skip_ai:

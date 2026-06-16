@@ -28,6 +28,11 @@ on:
         required: false
         default: ''
         type: string
+      query:
+        description: 'Shopify search query (optional, overrides mode, e.g. product_type:Handbags)'
+        required: false
+        default: ''
+        type: string
 
 env:
   PYTHONUTF8: "1"
@@ -176,8 +181,15 @@ jobs:
             BATCH_ARGS=""
           fi
           
-          echo "Running automate_category_metafields.py $ACTION $SCOPE $HANDLE $BATCH_ARGS..."
-          python scripts/automate_category_metafields.py $ACTION $SCOPE $HANDLE $BATCH_ARGS
+          QUERY=""
+          if [ -n "${{ github.event.inputs.query }}" ]; then
+            QUERY="--query \"${{ github.event.inputs.query }}\""
+            SCOPE=""
+            BATCH_ARGS=""
+          fi
+          
+          echo "Running automate_category_metafields.py $ACTION $SCOPE $HANDLE $QUERY $BATCH_ARGS..."
+          python scripts/automate_category_metafields.py $ACTION $SCOPE $HANDLE $QUERY $BATCH_ARGS
 
       - name: Upload backup or preview artifact
         if: always()
