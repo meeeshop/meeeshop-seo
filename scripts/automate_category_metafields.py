@@ -369,6 +369,21 @@ def get_product_by_handle(handle):
           id
           name
         }
+        metafields(first: 20, keys: [
+          "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
+          "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
+          "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
+          "shopify.dress-occasion"
+        ]) {
+          edges {
+            node {
+              id
+              namespace
+              key
+              value
+            }
+          }
+        }
         media(first: 50) {
           edges {
             node {
@@ -421,6 +436,21 @@ def get_recent_products(since_iso, query_field="created_at"):
             category {
               id
               name
+            }
+            metafields(first: 20, keys: [
+              "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
+              "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
+              "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
+              "shopify.dress-occasion"
+            ]) {
+              edges {
+                node {
+                  id
+                  namespace
+                  key
+                  value
+                }
+              }
             }
             media(first: 50) {
               edges {
@@ -496,6 +526,21 @@ def get_all_products():
             category {
               id
               name
+            }
+            metafields(first: 20, keys: [
+              "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
+              "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
+              "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
+              "shopify.dress-occasion"
+            ]) {
+              edges {
+                node {
+                  id
+                  namespace
+                  key
+                  value
+                }
+              }
             }
             media(first: 50) {
               edges {
@@ -756,7 +801,7 @@ def find_matching_image(variant_title, options, product_media, unique_colors=Non
 
 # --- Main Automation Logic ---
 
-def process_product(product, dry_run=True):
+def process_product(product, dry_run=True, skip_ai=False):
     """Process a single product: extract GPC metafields and variant images."""
     p_id = product["id"]
     p_title = product["title"]
@@ -783,7 +828,11 @@ def process_product(product, dry_run=True):
     }
     
     # 1. Fetch AI/Local Category Metafields
-    attrs = get_extracted_attributes(p_title, desc, category_name)
+    if skip_ai:
+        print(f"  - Category metafields already set for '{p_title}'. Skipping AI/heuristics attribute extraction.")
+        attrs = {}
+    else:
+        attrs = get_extracted_attributes(p_title, desc, category_name)
     print(f"  Extracted Attributes: {attrs}")
     
     # Map to metafield list
@@ -1119,6 +1168,81 @@ def revert_metafields_and_variants(backup_file):
             })
             print(f"  ✓ Restored original images for {len(variants_payload)} variants.")
 
+# ══════════════════════════════════════════════════════════════════════════════
+# LOG HELPERS FOR SKIP HISTORY
+# ══════════════════════════════════════════════════════════════════════════════
+
+def load_recently_updated_ids(filepath: str = "category_metafields_log.json") -> set:
+    """
+    Return a set of product IDs (GID strings) that were successfully processed/updated.
+    Searches recursively for all category_metafields_log.json files in the workspace.
+    """
+    from pathlib import Path
+    log_files = []
+    if os.path.exists(filepath):
+        log_files.append(Path(filepath))
+
+    for p in Path(".").glob("**/category_metafields_log.json"):
+        if p.resolve() not in [lf.resolve() for lf in log_files]:
+            log_files.append(p)
+
+    processed_ids = set()
+    for lf in log_files:
+        try:
+            logs = json.loads(lf.read_text(encoding="utf-8"))
+            if not isinstance(logs, list):
+                continue
+            for entry in logs:
+                if not isinstance(entry, dict):
+                    continue
+                ids = entry.get("processed_ids", [])
+                for item_id in ids:
+                    processed_ids.add(str(item_id))
+        except Exception:
+            pass
+    return processed_ids
+
+
+def save_update_log(processed_ids: set, stats: dict, filepath: str = "category_metafields_log.json"):
+    from pathlib import Path
+    log_path = Path(filepath)
+    logs = []
+    if log_path.exists():
+        try:
+            logs = json.loads(log_path.read_text(encoding="utf-8"))
+        except Exception:
+            logs = []
+
+    existing_timestamps = {entry.get("timestamp") for entry in logs if isinstance(entry, dict)}
+
+    # Merge logs from other files
+    for p in Path(".").glob("**/category_metafields_log.json"):
+        if p.resolve() == log_path.resolve():
+            continue
+        try:
+            sub_logs = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(sub_logs, list):
+                for entry in sub_logs:
+                    if isinstance(entry, dict):
+                        ts = entry.get("timestamp")
+                        if ts not in existing_timestamps:
+                            logs.append(entry)
+                            existing_timestamps.add(ts)
+        except Exception:
+            pass
+
+    logs.sort(key=lambda entry: entry.get("timestamp", ""))
+
+    logs.append({
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "summary": stats,
+        "processed_ids": sorted(list(processed_ids))
+    })
+
+    log_path.write_text(json.dumps(logs, indent=2), encoding="utf-8")
+    print(f"[Log] Saved consolidated log to {filepath}")
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Shopify Category Metafields & Variant Image Automation Utility")
@@ -1187,16 +1311,55 @@ def main():
         if not products:
             print("No products in this batch slice.")
             return
+
+    # ── Load recently processed GIDs to skip ──────────────────────────────────
+    skip_ids = set()
+    if not args.full and not args.handle:
+        try:
+            skip_ids = load_recently_updated_ids()
+            if skip_ids:
+                print(f"[Skip] {len(skip_ids)} product(s) already processed in previous runs — will skip\n")
+        except Exception as e:
+            print(f"Warning: Failed to load skip history: {e}")
+
+    processed_ids = set()
         
     # Analyze and generate suggestions
     all_suggestions = []
     for p in products:
-        s = process_product(p)
+        p_id = p["id"]
+        if not args.full and not args.handle and p_id in skip_ids:
+            print(f"Skipping product (recently processed): {p['title']}")
+            continue
+
+        # Check if product already has standard category metafields populated
+        metafield_edges = p.get("metafields", {}).get("edges", []) if p.get("metafields") else []
+        has_metafields = False
+        for edge in metafield_edges:
+            m = edge.get("node", {})
+            if m.get("value"):
+                has_metafields = True
+                break
+
+        skip_ai = has_metafields and not args.full and not args.handle
+        s = process_product(p, skip_ai=skip_ai)
+        processed_ids.add(p_id)
         if s["metafields"] or s["variants"]:
             all_suggestions.append(s)
             
     if not all_suggestions:
         print("\nNo metadata or variant image updates are needed.")
+        # Save processed GIDs log if no updates are needed
+        if not args.full and not args.handle:
+            try:
+                stats = {
+                    "total_fetched": len(products),
+                    "total_processed": len(processed_ids),
+                    "total_updates_found": 0
+                }
+                save_update_log(processed_ids, stats)
+            except Exception as e:
+                print(f"Warning: Failed to save skip history: {e}")
         return
         
     print(f"\nFound updates for {len(all_suggestions)} products.")
@@ -1224,6 +1387,18 @@ def main():
         for s in all_suggestions:
             apply_product_updates(s)
         print("\nAll updates applied successfully.")
+
+        # Save processed GIDs log after successfully applying updates
+        if not args.full and not args.handle:
+            try:
+                stats = {
+                    "total_fetched": len(products),
+                    "total_processed": len(processed_ids),
+                    "total_updates_found": len(all_suggestions)
+                }
+                save_update_log(processed_ids, stats)
+            except Exception as e:
+                print(f"Warning: Failed to save skip history: {e}")
 
 if __name__ == "__main__":
     main()

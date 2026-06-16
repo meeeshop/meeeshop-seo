@@ -131,6 +131,33 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Download previous SEO update log
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Finding latest successful run of MeeeShop SEO Automation..."
+          RUN_ID=$(gh run list --workflow "seo_daily.yml" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -n "$RUN_ID" ]; then
+            echo "Found run ID: $RUN_ID"
+            echo "Listing artifacts for run $RUN_ID..."
+            ARTIFACT_NAME=$(gh api repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts --jq '.artifacts[] | select(.name | startswith("seo-log-")) | .name' | head -n 1)
+            if [ -n "$ARTIFACT_NAME" ]; then
+              echo "Downloading artifact: $ARTIFACT_NAME"
+              gh run download "$RUN_ID" -n "$ARTIFACT_NAME" --dir tmp_download
+              if [ -f "tmp_download/seo_update_log.json" ]; then
+                cp tmp_download/seo_update_log.json ./seo_update_log.json
+                echo "Successfully restored seo_update_log.json"
+              else
+                echo "seo_update_log.json not found in downloaded folder"
+              fi
+            else
+              echo "No seo-log artifact found for run $RUN_ID"
+            fi
+          else
+            echo "No successful previous runs found."
+          fi
+
       - name: Run SEO automation
         env:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
@@ -154,4 +181,12 @@ jobs:
           name: seo-report-${{ needs.setup.outputs.mode }}-${{ matrix.resource }}-b${{ matrix.batch_index }}-run${{ github.run_number }}
           path: seo_report_*.json
           if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload SEO log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seo-log-${{ needs.setup.outputs.mode }}-${{ matrix.resource }}-b${{ matrix.batch_index }}-run${{ github.run_number }}
+          path: seo_update_log.json
           retention-days: 30
