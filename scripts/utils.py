@@ -15,6 +15,7 @@ from io import BytesIO
 from typing import List, Dict
 
 import requests
+import trafilatura
 from bs4 import BeautifulSoup
 from PIL import Image
 
@@ -35,11 +36,21 @@ HEADERS = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 def download_article_content(url: str) -> str:
     """Fetch a URL and return cleaned article text.
 
-    The function attempts to locate a <article> tag; if not found it falls back to
-    extracting the main body text. HTML tags are stripped and excessive whitespace
-    is collapsed.
+    Uses trafilatura as the primary scraper for high-quality boilerplate removal,
+    falling back to BeautifulSoup if needed.
     """
     try:
+        # 1. Try fetching with trafilatura
+        downloaded = trafilatura.fetch_url(url)
+        if downloaded:
+            extracted = trafilatura.extract(downloaded, no_fallback=False, include_comments=False, include_tables=True)
+            if extracted:
+                # Clean whitespace
+                text = re.sub(r"\s+", " ", extracted).strip()
+                if len(text) > 100:
+                    return text
+
+        # 2. Fallback to requests + BeautifulSoup
         resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0 (compatible; MeeeShop SEO bot/1.0)"})
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
@@ -56,6 +67,7 @@ def download_article_content(url: str) -> str:
     except Exception as e:
         print(f"[download_article_content] Failed for {url}: {e}")
         return ""
+
 
 # ---------------------------------------------------------------------------
 # 2. Keyword extraction (very lightweight, industry‑standard style)

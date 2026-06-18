@@ -948,13 +948,19 @@ def _build_article_prompt(main_product: dict, research_data: dict, matching_prod
         for idx, art in enumerate(articles[:4]):
             title = art.get("title", "")
             summary = art.get("summary", "")
-            snippet = (art.get("full_content") or "")[:500]
+            snippet = (art.get("full_content") or "")[:2500]
             src = art.get("source", "")
             research_context += f"Ref #{idx+1} [{src}]:\n  Title: {title}\n  Summary: {summary}\n  Snippet: {snippet}\n\n"
 
     prompt = f"""You are {random.choice(PEN_NAMES)}, an expert fashion editor writing for MeeeShop — a premium women's clothing boutique based in the USA.
 
 Your mission today: Write a **100% original, highly engaging** blog article in the style of Who What Wear & Refinery29, adapted for MeeeShop's audience.
+
+────────── LEARNING & SYNTHESIZING FROM SOURCES ──────────
+You MUST review the "TRENDING ARTICLE REFERENCES" below. Do NOT copy their text or commit plagiarism. Instead:
+- Analyze their structure, key points, trending facts, fashion terminology, and hooks.
+- Synthesize this research to create a brand-new, unique perspective or advice angle.
+- Ensure your article is richer, more detailed, and offers higher value than the sources.
 
 ────────── ARTICLE MODE ──────────
 Mode: {mode['id']}
@@ -978,7 +984,7 @@ Zero-Search-Volume: {', '.join(zero_search[:5])}
 ────────── TREND RESEARCH ──────────
 {research_context if research_context else 'No external trend references available — use your expert fashion knowledge for {MONTH}.'}
 
-────────── MANDATORY EDITORIAL RULES ──────────
+────────── MANDATORY EDITORIAL & VISUAL STYLING RULES ──────────
 1. Target audience: Women in the USA, ages 25-55. Speak directly to her.
 2. Open with a STRONG hook — surprising stat, relatable pain point, bold statement, or intriguing question. NO generic 'In today's world...' openers.
 3. Include a Table of Contents (HTML anchor links) after the intro.
@@ -988,6 +994,10 @@ Zero-Search-Volume: {', '.join(zero_search[:5])}
 7. End with an FAQ section containing 5-6 specific, realistic questions women ask about this topic, with detailed answers.
 8. DO NOT be generic. Every tip must be specific. "Pair with white sneakers" is boring. "Try the {m_names[0] if m_names else 'MeeeShop top'} in cream for a tonal, editorial moment" is great.
 9. Article length: Aim for 900-1200 words of body content (excluding product cards added separately).
+10. PREMIUM HTML STYLING: Make the article visually outstanding and premium. Use these HTML elements:
+    - **Styled Blockquotes**: Use `<blockquote>` with elegant borders and styling (e.g. `<blockquote style="border-left: 4px solid #111; padding-left: 20px; font-style: italic; margin: 30px 0; color: #555;">...</blockquote>`).
+    - **Key Takeaway Cards / Callout Boxes**: Insert styled `div`s for editor's tips or warnings (e.g. `<div style="background: #faf5f5; border-left: 4px solid #d9534f; padding: 15px 20px; margin: 20px 0; border-radius: 4px;"><strong>Editor's Note:</strong> ...</div>`).
+    - **Comparison / Styling Recipe Cards**: Create side-by-side recipe or match guides with inline style (using border-radius, clean fonts, subtle colors).
 
 At the very end, append this block:
 <seometa>
