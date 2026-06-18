@@ -143,34 +143,124 @@ def get_or_create_blog(product_type: str, all_blogs: list, dry_run: bool = False
     all_blogs.append(new_blog)
     return new_blog
 
-def set_article_seo_metafields(blog_id: int, article_id: int, seo_title: str, meta_desc: str):
-    """
-    Set SEO title and meta description via Shopify metafields.
-    These map to the <title> tag and <meta name="description"> in Shopify themes.
-    Namespace: global — keys: title_tag, description_tag (standard Shopify SEO metafields).
-    """
+def update_article_and_metafields_graphql(article_id: int, payload: dict, seo_title: str, meta_desc: str, redirect_path: str = None, redirect_target: str = None):
+    graphql_url = f"{BASE}/graphql.json"
+    
+    # Map REST payload to GraphQL ArticleUpdateInput
+    gql_article = {
+        "title": payload.get("title"),
+        "author": payload.get("author"),
+        "body": payload.get("body_html"),
+        "summary": payload.get("summary_html"),
+        "tags": payload.get("tags"),
+        "handle": payload.get("handle"),
+    }
+    
+    if "published" in payload:
+        gql_article["isPublished"] = payload["published"]
+    
+    if "image" in payload:
+        gql_article["image"] = {
+            "src": payload["image"]["src"],
+            "altText": payload["image"]["alt"]
+        }
+
+    owner_id = f"gid://shopify/Article/{article_id}"
+    
     metafields = [
-        {"namespace": "global", "key": "title_tag",       "value": seo_title, "type": "single_line_text_field"},
-        {"namespace": "global", "key": "description_tag", "value": meta_desc, "type": "single_line_text_field"},
+        {
+            "ownerId": owner_id,
+            "namespace": "global",
+            "key": "title_tag",
+            "type": "single_line_text_field",
+            "value": seo_title
+        },
+        {
+            "ownerId": owner_id,
+            "namespace": "global",
+            "key": "description_tag",
+            "type": "single_line_text_field",
+            "value": meta_desc
+        }
     ]
-    for mf in metafields:
-        # Check if metafield exists to update, otherwise create
-        existing_metafields = _req("get", f"{BASE}/blogs/{blog_id}/articles/{article_id}/metafields.json").json().get("metafields", [])
-        existing_mf = next((m for m in existing_metafields if m["namespace"] == mf["namespace"] and m["key"] == mf["key"]), None)
 
-        if existing_mf:
-            r = _req("put",
-                     f"{BASE}/blogs/{blog_id}/articles/{article_id}/metafields/{existing_mf['id']}.json",
-                     json={"metafield": {"id": existing_mf["id"], "value": mf["value"]}})
-        else:
-            r = _req("post",
-                     f"{BASE}/blogs/{blog_id}/articles/{article_id}/metafields.json",
-                     json={"metafield": mf})
+    variables = {
+        "articleId": owner_id,
+        "article": gql_article,
+        "metafields": metafields
+    }
 
-        if r.status_code in (200, 201):
-            print(f"  SEO metafield set: {mf['key']} = {mf['value'][:60]}")
+    query = """
+    mutation updateArticleAndMetafields($articleId: ID!, $article: ArticleUpdateInput!, $metafields: [MetafieldsSetInput!]!
+    """
+    
+    if redirect_path and redirect_target:
+        query += ", $redirect: UrlRedirectInput!"
+        variables["redirect"] = {
+            "path": redirect_path,
+            "target": redirect_target
+        }
+
+    query += """) {
+      articleUpdate(id: $articleId, article: $article) {
+        article {
+          id
+          handle
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+      metafieldsSet(metafields: $metafields) {
+        metafields {
+          id
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    """
+
+    if redirect_path and redirect_target:
+        query += """
+      urlRedirectCreate(urlRedirect: $redirect) {
+        urlRedirect {
+          id
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+        """
+        
+    query += "}"
+
+    r = _req("post", graphql_url, json={"query": query, "variables": variables})
+    r.raise_for_status()
+    data = r.json()
+    
+    if "errors" in data:
+        raise RuntimeError(f"GraphQL Errors: {data['errors']}")
+        
+    update_errors = data.get("data", {}).get("articleUpdate", {}).get("userErrors", [])
+    if update_errors:
+        raise RuntimeError(f"Article Update Errors: {update_errors}")
+        
+    mf_errors = data.get("data", {}).get("metafieldsSet", {}).get("userErrors", [])
+    if mf_errors:
+        print(f"    [WARN] Metafields Set Errors: {mf_errors}")
+        
+    if redirect_path and redirect_target:
+        redir_errors = data.get("data", {}).get("urlRedirectCreate", {}).get("userErrors", [])
+        if redir_errors:
+            print(f"    [INFO] Redirect Creation Message: {redir_errors[0].get('message')}")
         else:
-            print(f"  SEO metafield FAILED ({mf['key']}): {r.status_code} {r.text[:100]}")
+            print(f"    [Redirect] Created redirect: '{redirect_path}' -> '{redirect_target}'")
+            
+    return data.get("data", {}).get("articleUpdate", {}).get("article")
 
 
 # ── New functions for this script ──────────────────────────────────────────────
@@ -247,46 +337,6 @@ def fetch_all_articles_with_blog_info(article_id: int | None = None) -> list:
                     break
     return all_articles
 
-def create_redirect(old_full_url: str, new_full_url: str, dry_run: bool) -> bool:
-    """
-    Creates a 301 redirect from old_full_url to new_full_url.
-    Checks if redirect already exists to prevent duplicates.
-    """
-    # Extract path from full URLs
-    old_path = urlparse(old_full_url).path
-    new_target = new_full_url # Shopify redirect target can be a full URL
-
-    # Check for existing redirect
-    try:
-        r = _req("get", f"{BASE}/redirects.json?path={quote(old_path)}")
-        r.raise_for_status()
-        existing_redirects = r.json().get("redirects", [])
-        for redirect in existing_redirects:
-            if redirect["path"] == old_path and redirect["target"] == new_target:
-                print(f"    [Redirect] Existing redirect found for '{old_path}' -> '{new_target}'. Skipping.")
-                return False
-    except Exception as e:
-        print(f"    [Redirect] Error checking existing redirects for path '{old_path}': {e}")
-        # Continue to attempt creation if check fails
-
-    if dry_run:
-        print(f"    [DRY-RUN] Would create redirect: '{old_path}' -> '{new_target}'")
-        return True
-
-    try:
-        payload = {
-            "redirect": {
-                "path": old_path,
-                "target": new_target
-            }
-        }
-        r = _req("post", f"{BASE}/redirects.json", json=payload)
-        r.raise_for_status()
-        print(f"    [Redirect] Created redirect: '{old_path}' -> '{new_target}'")
-        return True
-    except Exception as e:
-        print(f"    [Redirect] Failed to create redirect for '{old_path}' -> '{new_target}': {e}")
-        return False
 
 def regenerate_single_article(
     original_article: dict,
@@ -455,18 +505,18 @@ def regenerate_single_article(
 
     # 9. Handle comparison and redirect
     final_handle = original_handle
+    redirect_path = None
+    redirect_target = None
     if suggested_handle != original_handle:
         if suggested_handle.replace('-', '') not in original_handle.replace('-', '') and original_handle.replace('-', '') not in suggested_handle.replace('-', ''):
             print(f"  [HANDLE CHANGE] Suggested handle '{suggested_handle}' differs from original '{original_handle}'.")
             old_full_url = f"{STORE_URL}/blogs/{blog_handle}/{original_handle}"
             new_full_url = f"{STORE_URL}/blogs/{blog_handle}/{suggested_handle}" 
             if not dry_run:
-                if create_redirect(old_full_url, new_full_url, dry_run=False):
-                    final_handle = suggested_handle
-                    log_entry["changes"].append({"field": "handle", "old": original_handle, "new": suggested_handle, "redirect_created": True})
-                else:
-                    print(f"    [WARN] Failed to create redirect. Keeping original handle: '{original_handle}'.")
-                    log_entry["changes"].append({"field": "handle", "old": original_handle, "new": original_handle, "redirect_created": False, "message": "Redirect failed"})
+                redirect_path = urlparse(old_full_url).path
+                redirect_target = new_full_url
+                final_handle = suggested_handle
+                log_entry["changes"].append({"field": "handle", "old": original_handle, "new": suggested_handle, "redirect_created": True})
             else:
                 print(f"    [DRY-RUN] Would change handle to '{suggested_handle}' and create redirect from '{old_full_url}' to '{new_full_url}'.")
                 final_handle = suggested_handle # For dry-run output
@@ -534,11 +584,9 @@ def regenerate_single_article(
             backup_file.write_text(json.dumps(backup_data, indent=2, ensure_ascii=False), encoding="utf-8")
             print(f"    [Backup] Saved original article content to backup_articles/{backup_file.name}")
 
-            updated_article = _req("put", f"{BASE}/blogs/{blog_id}/articles/{article_id}.json", json={"article": payload}).json().get("article")
+            updated_article = update_article_and_metafields_graphql(article_id, payload, new_title, meta_desc, redirect_path, redirect_target)
             if updated_article:
-                print(f"  ✓ Successfully updated article {article_id}.")
-                # Set SEO metafields
-                set_article_seo_metafields(blog_id, article_id, new_title, meta_desc)
+                print(f"  ✓ Successfully updated article {article_id} and SEO metafields in one GraphQL call.")
                 log_entry["status"] = "success"
             else:
                 raise RuntimeError("Shopify update returned no article data.")
