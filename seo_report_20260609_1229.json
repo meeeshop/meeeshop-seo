@@ -1,0 +1,36 @@
+{
+  "products": 0,
+  "pages": 0,
+  "collections": 0,
+  "articles": 1,
+  "titles": 0,
+  "descriptions": 0,
+  "meta_titles": 1,
+  "meta_descs": 1,
+  "handles": 0,
+  "redirects": 0,
+  "alts": 0,
+  "run_at": "2026-06-09T06:59:37.446503+00:00",
+  "mode": "daily",
+  "batch_index": null,
+  "batch_size": null,
+  "products_fixed": [
+    {
+      "type": "article",
+      "title": "Building a Versatile Wardrobe in 2026: A Women's Jeans Styles Guide to Effortless Chic",
+      "url": "https://us.meeeshop.com/blogs/womens-shirts-tops-style-guide/building-a-versatile-wardrobe-in-2026-a-womens-jeans-styles-guide-to-effortless-chic",
+      "fixed": [
+        {
+          "field": "meta_title",
+          "before": "Building a Versatile Wardrobe in 2026: A | us.meeeshop.com",
+          "after": "Building a Versatile Wardrobe in 2026: A | us.meeeshop.com"
+        },
+        {
+          "field": "meta_desc",
+          "before": "Building a Versatile Wardrobe in 2026: A Women's Jeans Style",
+          "after": "Building a Versatile Wardrobe in 2026: A Women's Jeans Style"
+        }
+      ]
+    }
+  ]
+}

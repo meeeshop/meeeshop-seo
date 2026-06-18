@@ -1,0 +1,425 @@
+{
+  "articles_processed": 7,
+  "suggestions": 77,
+  "links_injected": 18,
+  "mode": "weekly",
+  "apply": false,
+  "max_links_per_article": 3,
+  "timestamp": "2026-06-09T09:56:53.608434",
+  "detailed_log": [
+    {
+      "article_title": "Adorn Leggings vs. Wide Leg Pants and Trousers: Which Is Right for You in 2026 for Women?",
+      "article_url": "https://us.meeeshop.com/blogs/announcements/adorn-leggings-vs-wide-leg-pants-and-trousers-which-is-right-for-you-in-2026-for-women",
+      "blog_name": "Announcements",
+      "links_injected": [
+        {
+          "keyword": "leggings",
+          "target_url": "https://us.meeeshop.com/collections/womens-pants-leggings",
+          "anchor_text": "Pants & Leggings",
+          "occurrences_in_article": 21
+        }
+      ],
+      "links_skipped": [
+        {
+          "keyword": "leg jeans",
+          "reason": "Already linked or regex match failed"
+        },
+        {
+          "keyword": "pants",
+          "reason": "Already linked or regex match failed"
+        },
+        {
+          "keyword": "tops",
+          "reason": "Already linked or regex match failed"
+        },
+        {
+          "keyword": "jeans",
+          "reason": "Already linked or regex match failed"
+        }
+      ],
+      "widget_added": false
+    },
+    {
+      "article_title": "5 Stunning Outfits You Can Build Around Corset plus Super Skinny Jeans (I Wore All 5 This Month) for Women in 2026",
+      "article_url": "https://us.meeeshop.com/blogs/announcements/5-stunning-outfits-you-can-build-around-corset-plus-super-skinny-jeans-i-wore-all-5-this-month-for-women-in-2026",
+      "blog_name": "Announcements",
+      "links_injected": [
+        {
+          "keyword": "jeans",
+          "target_url": "https://us.meeeshop.com/collections/flare-jeans",
+          "anchor_text": "FLARE JEANS",
+          "occurrences_in_article": 34
+        },
+        {
+          "keyword": "pants",
+          "target_url": "https://us.meeeshop.com/collections/womens-pants-leggings",
+          "anchor_text": "Pants & Leggings",
+          "occurrences_in_article": 7
+        },
+        {
+          "keyword": "top",
+          "target_url": "https://us.meeeshop.com/products/abigail-top",
+          "anchor_text": "Abigail Top",
+          "occurrences_in_article": 7
+        }
+      ],
+      "links_skipped": [
+        {
+          "keyword": "blouse",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "blazer",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "tops",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "tee",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "dress",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "crossbody",
+          "reason": "Limit reached (3 max per article)"
+        }
+      ],
+      "widget_added": false
+    },
+    {
+      "article_title": "Affordable Spring Dresses 2026: Budget-Friendly Finds for Trendy Shoppers",
+      "article_url": "https://us.meeeshop.com/blogs/dresses-style-guide/affordable-spring-dresses-2026-budget-friendly-finds-for-trendy-shoppers",
+      "blog_name": "Dresses",
+      "links_injected": [
+        {
+          "keyword": "dresses",
+          "target_url": "https://us.meeeshop.com/collections/womens-casual-dresses",
+          "anchor_text": "Casual Dresses",
+          "occurrences_in_article": 31
+        },
+        {
+          "keyword": "dress",
+          "target_url": "https://us.meeeshop.com/products/alexandra-mini-dress",
+          "anchor_text": "Alexandra Mini Dress",
+          "occurrences_in_article": 28
+        },
+        {
+          "keyword": "cotton",
+          "target_url": "https://us.meeeshop.com/products/beatrice-eco-zero-cotton-high-rise-phone-pocket-bootcut-jeans",
+          "anchor_text": "Beatrice Eco Zero Cotton High Rise Phone Pocket Bootcut Jeans",
+          "occurrences_in_article": 1
+        }
+      ],
+      "links_skipped": [
+        {
+          "keyword": "mini dress",
+          "reason": "Already linked or regex match failed"
+        },
+        {
+          "keyword": "midi dress",
+          "reason": "Already linked or regex match failed"
+        },
+        {
+          "keyword": "woven midi",
+          "reason": "Already linked or regex match failed"
+        },
+        {
+          "keyword": "top",
+          "reason": "Already linked or regex match failed"
+        },
+        {
+          "keyword": "linen",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "denim",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "cardigan",
+          "reason": "Limit reached (3 max per article)"
+        }
+      ],
+      "widget_added": false
+    },
+    {
+      "article_title": "Mix and Match: Styling Your Jeans for Every Occasion This Spring",
+      "article_url": "https://us.meeeshop.com/blogs/jeans-style-guide/mix-and-match-styling-your-jeans-for-every-occasion-this-spring",
+      "blog_name": "Jeans",
+      "links_injected": [
+        {
+          "keyword": "boyfriend jeans",
+          "target_url": "https://us.meeeshop.com/products/mid-rise-modern-boyfriend-jeans",
+          "anchor_text": "Mid Rise Modern Boyfriend Jeans",
+          "occurrences_in_article": 1
+        },
+        {
+          "keyword": "skinny jeans",
+          "target_url": "https://us.meeeshop.com/products/alexis-high-rise-stretch-skinny-jeans",
+          "anchor_text": "Alexis High Rise Stretch Skinny Jeans",
+          "occurrences_in_article": 1
+        },
+        {
+          "keyword": "jeans in",
+          "target_url": "https://us.meeeshop.com/blogs/womens-shirts-tops-style-guide/best-tops-to-wear-with-jeans-in-2026-how-to-build-a-versatile-work-to-weekend-wardrobe-on-a-budget",
+          "anchor_text": "Best Tops to Wear with Jeans in 2026: How to Build a Versatile Work-to-Weekend Wardrobe on a Budget",
+          "occurrences_in_article": 2
+        }
+      ],
+      "links_skipped": [
+        {
+          "keyword": "hem jeans",
+          "reason": "Already linked or regex match failed"
+        },
+        {
+          "keyword": "flare jeans",
+          "reason": "Already linked or regex match failed"
+        },
+        {
+          "keyword": "jeans plus",
+          "reason": "Already linked or regex match failed"
+        },
+        {
+          "keyword": "jeans and",
+          "reason": "Already linked or regex match failed"
+        },
+        {
+          "keyword": "cardigan for",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "with jeans",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "jeans",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "denim",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "tee",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "tops",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "blazer",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "satin",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "blouse",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "top",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "shirt",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "dress",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "handbag",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "cardigan",
+          "reason": "Limit reached (3 max per article)"
+        }
+      ],
+      "widget_added": false
+    },
+    {
+      "article_title": "Building a Versatile Wardrobe in 2026: A Women's Jeans Styles Guide to Effortless Chic",
+      "article_url": "https://us.meeeshop.com/blogs/womens-shirts-tops-style-guide/building-a-versatile-wardrobe-in-2026-a-womens-jeans-styles-guide-to-effortless-chic",
+      "blog_name": "Women's Shirts & Tops",
+      "links_injected": [
+        {
+          "keyword": "my top",
+          "target_url": "https://us.meeeshop.com/blogs/womens-shirts-tops-style-guide/building-a-versatile-work-to-weekend-wardrobe-on-a-budget-my-top-picks-for-women-in-2026",
+          "anchor_text": "Building a Versatile Work-to-Weekend Wardrobe on a Budget: My Top Picks for Women in 2026",
+          "occurrences_in_article": 1
+        },
+        {
+          "keyword": "top with",
+          "target_url": "https://us.meeeshop.com/products/chesapeake-top-with-cups-on-the-back",
+          "anchor_text": "Chesapeake Top with Cups on the Back",
+          "occurrences_in_article": 1
+        },
+        {
+          "keyword": "skinny jeans",
+          "target_url": "https://us.meeeshop.com/products/alexis-high-rise-stretch-skinny-jeans",
+          "anchor_text": "Alexis High Rise Stretch Skinny Jeans",
+          "occurrences_in_article": 1
+        }
+      ],
+      "links_skipped": [
+        {
+          "keyword": "leg jeans",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "doris skirt",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "jeans",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "tops",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "blouse",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "top",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "denim",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "handbag",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "skirt",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "maxi",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "cardigan",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "jacket",
+          "reason": "Limit reached (3 max per article)"
+        }
+      ],
+      "widget_added": false
+    },
+    {
+      "article_title": "June 2026 Women's Fashion Trends: What I'm Seeing (and Wearing) Right Now",
+      "article_url": "https://us.meeeshop.com/blogs/womens-shirts-tops-style-guide/june-2026-womens-fashion-trends-what-im-seeing-and-wearing-right-now",
+      "blog_name": "Women's Shirts & Tops",
+      "links_injected": [
+        {
+          "keyword": "shirt",
+          "target_url": "https://us.meeeshop.com/products/my-love-is-a-cowboy-t-shirt",
+          "anchor_text": "\"my Love Is a Cowboy\" T-shirt",
+          "occurrences_in_article": 23
+        },
+        {
+          "keyword": "tops",
+          "target_url": "https://us.meeeshop.com/collections/womens-active-tops",
+          "anchor_text": "Active Tops",
+          "occurrences_in_article": 8
+        },
+        {
+          "keyword": "blouse",
+          "target_url": "https://us.meeeshop.com/products/bibi-flower-printed-short-dolman-blouse-top",
+          "anchor_text": "Bibi Flower Printed Short Dolman Blouse Top",
+          "occurrences_in_article": 6
+        }
+      ],
+      "links_skipped": [
+        {
+          "keyword": "jeans",
+          "reason": "Already linked or regex match failed"
+        },
+        {
+          "keyword": "denim",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "top",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "skirt",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "shorts",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "tee",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "linen",
+          "reason": "Limit reached (3 max per article)"
+        },
+        {
+          "keyword": "cotton",
+          "reason": "Limit reached (3 max per article)"
+        }
+      ],
+      "widget_added": false
+    },
+    {
+      "article_title": "Affordable Boutique Fashion USA for Women in 2026: Our Editor's Guide",
+      "article_url": "https://us.meeeshop.com/blogs/womens-shirts-tops-style-guide/affordable-boutique-fashion-usa-for-women-in-2026-our-editors-guide",
+      "blog_name": "Women's Shirts & Tops",
+      "links_injected": [
+        {
+          "keyword": "tops",
+          "target_url": "https://us.meeeshop.com/collections/womens-active-tops",
+          "anchor_text": "Active Tops",
+          "occurrences_in_article": 12
+        },
+        {
+          "keyword": "skirt",
+          "target_url": "https://us.meeeshop.com/products/aiza-mini-skirt",
+          "anchor_text": "Aiza Mini Skirt",
+          "occurrences_in_article": 1
+        }
+      ],
+      "links_skipped": [
+        {
+          "keyword": "leg jeans",
+          "reason": "Already linked or regex match failed"
+        },
+        {
+          "keyword": "jeans",
+          "reason": "Already linked or regex match failed"
+        },
+        {
+          "keyword": "denim",
+          "reason": "Already linked or regex match failed"
+        },
+        {
+          "keyword": "dress",
+          "reason": "Already linked or regex match failed"
+        }
+      ],
+      "widget_added": false
+    }
+  ]
+}

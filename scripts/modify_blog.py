@@ -338,36 +338,92 @@ def make_related_products_section(products: list, exclude_handle: str,
 
 # ── SEO metadata generation ───────────────────────────────────────────────────
 EEAT_RULES = (
-    "E-E-A-T requirements (Google trust signals):\n"
-    "1. Write from the perspective of an expert MeeeShop fashion stylist/editor.\n"
-    "2. Focus on objective product specifications (e.g., fabric blend, cut structure, weight, how the garment drapes).\n"
-    "3. Provide genuine, actionable styling advice (e.g., what shoes/accessories pair best, how to transition from casual to formal).\n"
-    "4. Address real-world questions from customer interactions (e.g., 'our customers often ask how the shoulders fit' or 'how to care for this fabric').\n"
-    "5. Highlight merchant trust elements: free US shipping on orders $50+, easy 7-day returns, size availability from XS to 3X.\n"
-    "6. Avoid fake personal anecdotes (e.g., do NOT invent stories like 'I wore this to a party last weekend'). Stick to professional analysis.\n"
-    "7. Use varied, authentic vocabulary. Keep tone warm, clean, and helpful, and cut generic filler.\n\n"
+    "EDITORIAL VOICE & E-E-A-T REQUIREMENTS (non-negotiable — Google trust signals + reader value):\n\n"
+
+    "═══ OPENING HOOK (Critical for Google Discover CTR) ═══\n"
+    "Open with a SPECIFIC, OPINIONATED hook that immediately validates the reader's real-world problem.\n"
+    "✅ GOOD: 'The single-roll cuff is everywhere right now — and after testing every variation on dark wash, barrel leg, and cigarette jeans, here is exactly what actually works.'\n"
+    "✅ GOOD: 'If your jeans still smell faintly musty after washing, you are not alone — and a second wash is rarely the answer.'\n"
+    "❌ BAD: 'Jeans are a timeless wardrobe staple that women everywhere love.'\n"
+    "❌ BAD: 'In today's world of fashion, finding the perfect pair of jeans can be challenging.'\n\n"
+
+    "═══ VOICE & TONE ═══\n"
+    "Write as a knowledgeable, trusted stylist friend — warm, direct, and specific. NOT a brand.\n"
+    "• Use second person ('your jeans', 'your body') to keep the reader central.\n"
+    "• Mix short punchy sentences with longer explanatory ones. Vary rhythm deliberately.\n"
+    "• Be opinionated where it helps: 'Skip the wide-leg for petite frames — the volume will overwhelm.'\n"
+    "• Acknowledge real trade-offs: 'Cigarette jeans are incredibly chic, but if you run curvy in the hip, size up and have them tailored at the waist.'\n\n"
+
+    "═══ SPECIFIC RECOMMENDATIONS (Required — not vague) ═══\n"
+    "All styling advice MUST name specific item categories with descriptors. MeeeShop sells clothing only — do NOT recommend specific shoes. Instead recommend clothing layers, tops, bags, belts, and jewelry with specific descriptors:\n"
+    "✅ GOOD: 'A relaxed linen button-down in ecru — untucked, one button undone at the collar — hits differently over dark wash jeans.'\n"
+    "✅ GOOD: 'A structured mini tote in chocolate brown or off-white anchors the quiet luxury aesthetic without trying too hard.'\n"
+    "✅ GOOD: 'Layer a cropped blazer in camel or ivory over the top — it balances the proportions instantly.'\n"
+    "❌ BAD: 'Pair with heels for a polished look.' (no shoe recs — MeeeShop doesn't sell shoes)\n"
+    "❌ BAD: 'Accessorize to complete the outfit.' (too vague)\n"
+    "❌ BAD: 'Add a bag to elevate the look.' (generic filler)\n\n"
+
+    "═══ 2026 TREND CONTEXT (Weave in naturally — sourced from Flipboard #Style 8.4M followers) ═══\n"
+    "Reference real trends where relevant but do NOT force every trend into every article:\n"
+    "• Quiet luxury: 'No logos, no distressing — clean dark wash denim with a tucked-in linen shirt is the 2026 quiet luxury formula.'\n"
+    "• Cigarette/stovepipe silhouette replacing wide-leg as dominant denim cut in 2026.\n"
+    "• Dark indigo clean wash over distressed/light wash — reads more expensive instantly.\n"
+    "• Linen top + dark wash jean = the heat-proof chic summer formula trending on Flipboard.\n"
+    "• All-black outfits even in summer — trending on Flipboard #Style with 8.4M followers.\n"
+    "• Oversized blazer over a simple tank + straight-leg jeans = the office-to-evening formula.\n\n"
+
+    "═══ STRUCTURE & FORMAT ═══\n"
+    "• Use H2 for major sections, H3 for sub-steps or occasions.\n"
+    "• Include at least 1 blockquote styled as a 'Stylist Tip' with specific advice.\n"
+    "• Use bullet lists for step-by-step instructions (care guides, how-tos).\n"
+    "• For outfit formulas: name EACH look with a creative occasion title (e.g., 'Look 1: Sunday Farmers Market', not 'Casual Look').\n"
+    "• Vary structure between articles — avoid formulaic repetition.\n\n"
+
+    "═══ BANNED PHRASES (never use these) ═══\n"
+    "elevate your look | effortlessly chic | perfect for any occasion | versatile wardrobe staple\n"
+    "timeless classic | fashion-forward | look and feel your best | style game\n"
+    "take your look to the next level | complete your outfit | fashion journey\n\n"
+
+    "═══ TRUST SIGNALS ═══\n"
+    "Include naturally (once, in CTA or intro): Free US shipping on orders $50+. Easy 7-day returns. Sizes XS–3X.\n\n"
 )
 
 SEED_KEYWORDS = [
-    "women's fashion 2026", "affordable women's clothing USA",
-    "summer dress outfits for women", "women's jeans styles guide",
-    "casual chic outfits women", "cute outfits under $50",
-    "stylish women's tops", "best dresses for women",
-    "women's summer wardrobe essentials", "affordable boutique fashion USA",
-    "work outfits for women", "women's spring outfit ideas 2026",
+    # 2026 Trending — sourced from Flipboard #Style (8.4M followers) & Who What Wear
+    "women's fashion 2026", "summer outfit ideas for women 2026",
+    "affordable women's clothing USA", "summer dress outfits for women",
+    "women's jeans styles guide", "casual chic outfits women",
+    "cute outfits under $50", "stylish women's tops",
+    "best dresses for women", "women's summer wardrobe essentials",
+    "affordable boutique fashion USA", "work outfits for women",
     "best tops to wear with jeans", "women's date night outfit ideas",
+    # Jeans-specific trending 2026 (Flipboard #Jeans 66K followers)
+    "how to style jeans 2026", "dark wash jeans outfits",
+    "quiet luxury jeans women", "cigarette jeans styling tips",
+    "barrel leg jeans vs wide leg", "linen top with jeans outfit",
+    "blazer with jeans outfit ideas", "how to look taller in jeans",
+    # Care & How-To (high search intent)
+    "how to wash jeans without fading", "how to remove stains from jeans",
+    "how to remove smell from clothes", "how to fix pilling on clothes",
+    # Summer 2026 (Flipboard #SummerFashion 73.9K followers)
+    "linen top with jeans outfit", "summer denim outfit ideas",
+    "all black summer outfit women", "women's capsule wardrobe 2026",
 ]
 
 
 def _lsi_keywords(ptype: str) -> list[str]:
     ptype_lsi = {
-        "dress":      ["summer dress outfits", "flattering dresses women", "midi dress", "casual dress"],
-        "jean":       ["jeans for women", "best fitting jeans", "high waist jeans", "denim styles"],
-        "top":        ["tops for women", "blouse styles", "work tops", "casual tops women"],
-        "blouse":     ["blouse outfits", "women's blouse styles", "office blouse"],
-        "skirt":      ["skirt outfits women", "midi skirt", "how to wear skirts"],
-        "pant":       ["women's pants guide", "wide leg pants", "work pants women"],
-        "jacket":     ["women's jacket outfits", "blazer women", "casual jacket"],
+        "dress":      ["summer dress outfits", "flattering dresses women", "midi dress",
+                       "linen dresses 2026", "casual dress outfit ideas"],
+        "jean":       ["jeans for women 2026", "best fitting jeans", "high waist jeans",
+                       "dark wash jeans outfits", "cigarette jeans styling", "quiet luxury denim",
+                       "barrel leg jeans", "linen top with jeans outfit", "denim trends 2026"],
+        "top":        ["tops for women", "blouse styles", "work tops", "casual tops women",
+                       "linen tops summer 2026"],
+        "blouse":     ["blouse outfits", "women's blouse styles", "office blouse", "summer blouse ideas"],
+        "skirt":      ["skirt outfits women", "midi skirt", "how to wear skirts", "asymmetric skirt 2026"],
+        "pant":       ["women's pants guide", "wide leg pants", "work pants women", "trouser trends 2026"],
+        "jacket":     ["women's jacket outfits", "blazer women", "casual jacket", "blazer jeans combo"],
         "coat":       ["women's coat styles", "trench coat women", "coat outfit ideas"],
         "sweater":    ["cozy sweater outfits", "sweater styles", "fall fashion women"],
         "cardigan":   ["cardigan outfits", "layering cardigan", "cozy fashion"],
@@ -381,11 +437,90 @@ def _lsi_keywords(ptype: str) -> list[str]:
         if k in ptype.lower():
             extras = v
             break
-    return list(dict.fromkeys(extras + base))[:6]
+    return list(dict.fromkeys(extras + base))[:8]
+
+
+# ── Handle-aware content blueprint map ───────────────────────────────────────
+# Maps URL handle keywords → required article structure so content matches URL.
+# Sourced from Flipboard trending topics & Who What Wear 2026 editorial standards.
+HANDLE_CONTENT_RULES: dict[str, dict] = {
+    "how-to-cuff":         {"topic": "how to cuff jeans",
+                            "required_sections": ["Why Cuffing Works (proportion + ankle visibility + outfit balance)",
+                                                  "The Single Roll Cuff", "The Double Roll Cuff",
+                                                  "The Pin Roll Cuff",
+                                                  "What Tops Work Best With Each Cuff Style (tuck in or crop?)",
+                                                  "2026 Styling Tip: Cigarette Jeans + Cropped Linen Top — The Cuffed Look"],
+                            "tone": "step-by-step how-to, practical"},
+    "sizing-guide":        {"topic": "jeans sizing guide for women",
+                            "required_sections": ["How to Measure Yourself for Jeans",
+                                                  "US Jeans Size Chart",
+                                                  "Fit Guide by Body Shape (petite, hourglass, curvy, tall)",
+                                                  "High Waist vs Mid Rise vs Low Rise — Which Fits Best?",
+                                                  "How to Choose Size XS–3X Online"],
+                            "tone": "helpful, inclusive, size-positive"},
+    "how-to-look-taller":  {"topic": "how to look taller with clothing",
+                            "required_sections": ["The Leg-Lengthening Formula: Rise + Tuck-In Trick",
+                                                  "High-Waisted Jeans and Why They Work",
+                                                  "The Tuck-In Effect: How a Cropped or Tucked Top Creates Leg Length",
+                                                  "Monochrome Dressing for Height Illusion",
+                                                  "Vertical Stripes and Elongating Details on Tops",
+                                                  "2026 Pro Tip: Cigarette Jeans + Fitted Ribbed Top = Longest-Looking Legs"],
+                            "tone": "empowering, styling expert"},
+    "how-to-pair":         {"topic": "how to pair jeans with outfits",
+                            "required_sections": ["The Foundation: Choosing the Right Jeans Wash for the Vibe",
+                                                  "Casual Formula: Linen Top + Dark Wash Jean + Crossbody Bag",
+                                                  "Office Formula: Blazer + Fitted Top + Straight-Leg Jeans",
+                                                  "Evening Formula: Silk Blouse + Cigarette Jeans + Statement Earrings",
+                                                  "Weekend Formula: Oversized Tee + Barrel Leg + Tote Bag",
+                                                  "The Quiet Luxury Jeans Look for 2026"],
+                            "tone": "outfit formula, editorial"},
+    "what-to-pair":        {"topic": "what to pair with jeans",
+                            "required_sections": ["Tops That Always Work With Jeans (tuck-in vs untucked vs knotted)",
+                                                  "Layering Pieces: Blazers, Cardigans, and Jackets That Elevate Denim",
+                                                  "Accessories: Belts, Bags, and Jewelry That Complete the Look",
+                                                  "The Top + Bottom Proportion Rule for Different Jeans Silhouettes",
+                                                  "Complete Outfit Formulas for 5 Occasions"],
+                            "tone": "practical, shoppable, style guide"},
+    "how-to-clean-pilling": {"topic": "how to remove pilling from clothes",
+                             "required_sections": ["What Causes Pilling (and Which Fabrics Are Most Vulnerable)",
+                                                   "The Sweater Stone Method",
+                                                   "The Fabric Shaver Method",
+                                                   "The Razor Trick",
+                                                   "How to Prevent Pilling: Washing Tips",
+                                                   "Care Instructions by Fabric Type"],
+                             "tone": "practical, care expert"},
+    "stinky-smell":        {"topic": "how to remove smell from clothes without washing",
+                            "required_sections": ["Why Clothes Smell (bacteria, sweat, detergent buildup)",
+                                                  "The Freezer Method",
+                                                  "White Vinegar Spray",
+                                                  "Baking Soda Treatment",
+                                                  "Vodka Spritz Hack",
+                                                  "Steam vs Dry Air Out",
+                                                  "Prevention: The Wash-Less Denim Movement 2026"],
+                            "tone": "practical, problem-solver"},
+    "remove-stain":        {"topic": "how to remove stains from jeans and clothes",
+                            "required_sections": ["Act Fast: The First 60 Seconds Rule",
+                                                  "Oil and Grease Stains",
+                                                  "Wine and Berry Stains",
+                                                  "Grass and Mud Stains",
+                                                  "Dye Transfer Stains",
+                                                  "What NOT To Do (common mistakes)",
+                                                  "Care After Stain Removal"],
+                            "tone": "practical, urgent, step-by-step"},
+}
+
+
+def _get_handle_rules(article_handle: str) -> dict | None:
+    """Return handle-specific content rules if the handle matches a known pattern."""
+    handle_lower = (article_handle or "").lower()
+    for pattern, rules in HANDLE_CONTENT_RULES.items():
+        if pattern in handle_lower:
+            return rules
+    return None
 
 
 def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
-                          existing_body: str) -> str:
+                          existing_body: str, article_handle: str = "") -> str:
     title  = product["title"]
     ptype  = (product.get("product_type") or "women's fashion").lower()
     price  = product["variants"][0]["price"] if product.get("variants") else "49"
@@ -395,13 +530,48 @@ def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
     # Summarise existing content briefly to steer the rewrite
     existing_text = re.sub(r"<[^>]+>", " ", existing_body or "")[:600].strip()
 
+    # ── Handle-aware content blueprint ────────────────────────────────────────
+    # If the article handle matches a known how-to/guide pattern, inject
+    # explicit structural requirements so the content MATCHES the URL handle.
+    # This fixes the handle/content mismatch reported after daily/weekly refreshes.
+    handle_rules = _get_handle_rules(article_handle)
+    handle_section = ""
+    if handle_rules:
+        sections_list = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(handle_rules["required_sections"]))
+        handle_section = (
+            f"\n\n⚠️  CRITICAL — HANDLE/CONTENT ALIGNMENT (SEO REQUIREMENT):\n"
+            f"The URL handle for this article is: '{article_handle}'\n"
+            f"This URL handle tells Google and readers the article is about: '{handle_rules['topic']}'\n"
+            f"The article body MUST deliver exactly this promised content or Google will downrank it.\n"
+            f"Tone for this article: {handle_rules['tone']}\n"
+            f"REQUIRED H2 sections (cover ALL of these, in a logical order):\n{sections_list}\n"
+            f"The featured product ({title}) should be woven in as a RECOMMENDATION within this guide, "
+            f"NOT as the primary focus. The guide topic is the primary focus.\n"
+            f"2026 FRESHNESS ANGLES to include naturally:\n"
+            f"  - Reference 'quiet luxury' denim aesthetic: dark wash + tucked linen top, no logos, clean lines\n"
+            f"  - Mention cigarette/stovepipe jeans as the 2026 trending silhouette\n"
+            f"  - Reference linen tops + jeans as the trending summer formula (heat-proof + chic)\n"
+            f"  - Mention dark indigo/clean wash denim as the elevated 2026 choice\n"
+        )
+    else:
+        # For articles without a specific handle match, add general 2026 freshness
+        handle_section = (
+            f"\n\n2026 TREND FRESHNESS (weave in naturally, 1-2 references):\n"
+            f"  - Quiet luxury styling: clean lines, no logos, elevated basics\n"
+            f"  - Summer 2026 colour palette: dark indigo denim, linen textures, earth tones\n"
+            f"  - The office-to-evening formula: oversized blazer + fitted top + straight-leg jeans\n"
+            f"  - Heat-proof summer styling: linen tops, breathable fabrics, cropped layers\n"
+        )
+
     return (
         f"You are a fashion editor at MeeeShop, a USA women's clothing boutique.\n"
         f"TASK: Completely rewrite the body of this existing blog post for {MONTH}.\n"
         f"Keep the title EXACTLY as-is: \"{article_title}\"\n"
         f"Featured product (in-stock): {title} — ${price}\n"
-        f"Product type: {ptype}\n\n"
-        f"Existing content summary (do NOT copy, use as context only):\n{existing_text}\n\n"
+        f"Product type: {ptype}\n"
+        f"Article URL handle: {article_handle or '(unknown)'}\n\n"
+        f"Existing content summary (do NOT copy, use as context only):\n{existing_text}\n"
+        f"{handle_section}\n\n"
         f"{EEAT_RULES}"
         f"SEO rules:\n"
         f"- Target keyword '{keyword}': use 3-4 times — in first paragraph, H2 subheadings, body, conclusion\n"
@@ -410,17 +580,20 @@ def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
         f"- Limit mentions of the product title '{title}' to a maximum of 2 times in the entire body. When referring to the product subsequent times, use pronouns or generic terms (e.g., 'this dress', 'the top', 'it', 'this piece') instead of repeating the full product name.\n"
         f"- Do NOT include the <h1> tag — that is the article title already, start with <p>\n"
         f"- Use <h2>, <h3>, <p>, <ul>, <li> for structure\n"
-        f"- Include sizing notes, styling tips, outfit ideas specific to this product\n"
+        f"- Include sizing notes, styling tips, outfit ideas specific to the article topic and product\n"
         f"- End with a warm CTA recommendation and price (do NOT include HTML links)\n"
-        f"- Answer a real problem women face when shopping for {ptype}\n"
-        f"- To avoid programmatic footprints, vary your structure. Occasionally include a <blockquote style='border-left: 3px solid #ccc; padding-left: 10px; margin: 15px 0; font-style: italic;'> for a 'Stylist Tip', or distinct visual callouts. Make the flow feel like a hand-written editorial, not a template.\n\n"
+        f"- Answer a real problem women face: '{handle_rules['topic'] if handle_rules else f'shopping for {ptype}'}' \n"
+        f"- To avoid programmatic footprints, vary your structure. Occasionally include a "
+        f"<blockquote style='border-left: 3px solid #ccc; padding-left: 10px; margin: 15px 0; font-style: italic;'> "
+        f"for a 'Stylist Tip', or a styled callout box. Make the flow feel like a hand-written editorial, not a template.\n\n"
         f"Store info: Free US shipping on orders $50+. 7-day returns. Sizes XS-3X.\n\n"
-        f"Target: 750-900 words. Output ONLY clean HTML — no markdown, no code fences.\n"
-        f"\n\nAt the very end of your response, after the HTML content, you MUST append a `<seometa>` section containing the SEO metadata. The format MUST be exactly like this (use these exact keys):\n"
+        f"Target: 800-950 words. Output ONLY clean HTML — no markdown, no code fences.\n"
+        f"\n\nAt the very end of your response, after the HTML content, you MUST append a `<seometa>` section "
+        f"containing the SEO metadata. The format MUST be exactly like this (use these exact keys):\n"
         f"<seometa>\n"
-        f"SEO_TITLE: [50-60 chars, keyword near start, year or 'for Women', compelling]\n"
-        f"META_DESC: [140-155 chars, action-oriented, includes keyword, free shipping mention, ends with CTA]\n"
-        f"IMG_ALT: [descriptive ALT text for featured image, 10-15 words, includes keyword + 'women' + product type, no quotes]\n"
+        f"SEO_TITLE: [50-60 chars, handle topic keyword near start, year or 'for Women', compelling]\n"
+        f"META_DESC: [140-155 chars, action-oriented, includes handle topic keyword, free shipping mention, ends with CTA]\n"
+        f"IMG_ALT: [descriptive ALT text for featured image, 10-15 words, includes topic keyword + 'women' + product type, no quotes]\n"
         f"</seometa>\n"
         f"Make sure there are no other text or markdown code fences enclosing the <seometa> block."
     )
@@ -731,7 +904,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         }
     else:
         print("  Generating refreshed content via AI…")
-        prompt   = _build_refresh_prompt(art_title, chosen_featured, keyword, body)
+        prompt   = _build_refresh_prompt(art_title, chosen_featured, keyword, body, article_handle=art_handle)
         new_body = ai_client.generate(prompt, max_tokens=1800, temperature=0.75)
 
         is_fallback_mode = False

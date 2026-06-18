@@ -1,0 +1,47 @@
+[
+  {
+    "product_id": "gid://shopify/Product/8820186316971",
+    "title": "Umgee Drawstring Waist Frayed Denim Mini Dress",
+    "handle": "umgee-drawstring-waist-frayed-denim-mini-dress-1",
+    "metafields": [
+      {
+        "id": "gid://shopify/Metafield/46557778346155",
+        "namespace": "shopify",
+        "key": "shopify.color-pattern",
+        "value": "[\"gid://shopify/Metaobject/71717912747\"]"
+      },
+      {
+        "id": "gid://shopify/Metafield/46557778378923",
+        "namespace": "shopify",
+        "key": "shopify.fabric",
+        "value": "[\"gid://shopify/Metaobject/128460980395\"]"
+      },
+      {
+        "id": "gid://shopify/Metafield/46557778411691",
+        "namespace": "shopify",
+        "key": "shopify.target-gender",
+        "value": "[\"gid://shopify/Metaobject/128460882091\"]"
+      },
+      {
+        "id": "gid://shopify/Metafield/46557778444459",
+        "namespace": "shopify",
+        "key": "shopify.age-group",
+        "value": "[\"gid://shopify/Metaobject/128461013163\"]"
+      }
+    ],
+    "variants": [
+      {
+        "id": "gid://shopify/ProductVariant/47215184511147",
+        "media_id": "gid://shopify/MediaImage/50737643585707"
+      },
+      {
+        "id": "gid://shopify/ProductVariant/47215184543915",
+        "media_id": "gid://shopify/MediaImage/50737643585707"
+      },
+      {
+        "id": "gid://shopify/ProductVariant/47215184576683",
+        "media_id": "gid://shopify/MediaImage/50737643585707"
+      }
+    ]
+  }
+]
