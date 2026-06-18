@@ -1044,9 +1044,47 @@ def _clean_html(raw: str) -> str:
     raw = re.sub(r"<seometa>.*?</seometa>", "", raw, flags=re.DOTALL | re.IGNORECASE)
     return raw.strip()
 
+# ── Used Product Rotation Tracking ───────────────────────────────────────────
+def load_used_products_history() -> dict:
+    history_path = REPO_ROOT / "used_products_history.json"
+    if not history_path.exists():
+        return {}
+    try:
+        with open(history_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+    except Exception as e:
+        print(f"  [!] Warning loading used_products_history.json: {e}")
+    return {}
+
+def save_used_products_history(history: dict):
+    history_path = REPO_ROOT / "used_products_history.json"
+    try:
+        with open(history_path, "w", encoding="utf-8") as f:
+            json.dump(history, f, indent=2)
+    except Exception as e:
+        print(f"  [!] Warning saving used_products_history.json: {e}")
+
+def clean_old_history(history: dict, days: int = 7) -> dict:
+    cleaned = {}
+    cutoff = datetime.now() - timedelta(days=days)
+    for handle, date_str in history.items():
+        try:
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+            if dt >= cutoff:
+                cleaned[handle] = date_str
+        except Exception:
+            cleaned[handle] = date_str
+    return cleaned
+
 # ── Phase 4: Generate + Publish ───────────────────────────────────────────────
 def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap, count: int = 1, dry_run: bool = False, publish: bool = False):
     print(f"\n━━ PHASE 4: Generating {count} Weekly Trend Blog Article(s) ━━")
+    
+    # Load product selection history for rotation
+    product_history = load_used_products_history()
+    product_history = clean_old_history(product_history, days=7)
     
     type_pool = list(research.keys())
     random.shuffle(type_pool)
@@ -1065,7 +1103,20 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
             print(f"  [Skip] No products found with images.")
             continue
             
-        main_product = random.choice(prods_in_type)
+        # Rotate: filter out products used in the last 7 days
+        unused_prods = [p for p in prods_in_type if p.get("handle") not in product_history]
+        if unused_prods:
+            main_product = random.choice(unused_prods)
+            print(f"  [Rotation] Selected unused product: {main_product['title']}")
+        else:
+            print(f"  [Rotation] All products in category '{ptype}' have been featured recently. Resetting rotation.")
+            main_product = random.choice(prods_in_type)
+
+        # Record this product selection
+        if not dry_run:
+            product_history[main_product["handle"]] = datetime.now().strftime("%Y-%m-%d")
+            save_used_products_history(product_history)
+
         matching_products = select_styling_matches(main_product, all_products, num_matches=2)
         
         print(f"\n  Article {i+1} details:")
