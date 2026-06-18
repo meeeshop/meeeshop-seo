@@ -76,7 +76,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        batch_index: ${{ github.event.inputs.force == 'true' && range(0, (needs.get-total-articles.outputs.total_articles / github.event.inputs.batch_size) | ceil) || range(0, 1) }}
+        batch_index: ${{ github.event.inputs.force == 'true' && range(0, div(add(sub(needs.get-total-articles.outputs.total_articles, 1), github.event.inputs.batch_size), github.event.inputs.batch_size)) || range(0, 1) }}
     
     steps:
       - name: Checkout repository
