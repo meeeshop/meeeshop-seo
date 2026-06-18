@@ -1001,6 +1001,12 @@ Zero-Search-Volume: {', '.join(zero_search[:5])}
     - **Styled Blockquotes**: Use `<blockquote>` with elegant borders and styling (e.g. `<blockquote style="border-left: 4px solid #111; padding-left: 20px; font-style: italic; margin: 30px 0; color: #555;">...</blockquote>`).
     - **Key Takeaway Cards / Callout Boxes**: Insert styled `div`s for editor's tips or warnings (e.g. `<div style="background: #faf5f5; border-left: 4px solid #d9534f; padding: 15px 20px; margin: 20px 0; border-radius: 4px;"><strong>Editor's Note:</strong> ...</div>`).
     - **Comparison / Styling Recipe Cards**: Create side-by-side recipe or match guides with inline style (using border-radius, clean fonts, subtle colors).
+11. LIST FORMATTING (CRITICAL): NEVER write numbered items, tips, or Q&A as a single paragraph of text. ALWAYS use proper HTML list elements:
+    - For numbered steps/tips/ideas, use `<ol><li>…</li></ol>`.
+    - For unordered items/checklists, use `<ul><li>…</li></ul>`.
+    - For the FAQ section, wrap each Q&A in its own `<div>` block. Use a `<strong>` or `<h3>` for the question and a `<p>` for the answer, NEVER inline them like "Q: ... A: ..." in one paragraph.
+    - Example of WRONG format: "Here are tips: 1. Do X 2. Do Y 3. Do Z"
+    - Example of CORRECT format: `<ol><li>Do X</li><li>Do Y</li><li>Do Z</li></ol>`
 
 At the very end, append this block:
 <seometa>
