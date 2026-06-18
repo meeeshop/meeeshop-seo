@@ -145,6 +145,10 @@ jobs:
           echo "cli_args=$ARGS" >> "$GITHUB_OUTPUT"
           echo "Running with arguments: $ARGS"
 
+      - name: Debug Scripts Directory
+        run: |
+          ls -la scripts/ || echo "scripts directory not found"
+
       - name: Run Article Regenerator
         env:
           PYTHONUTF8: "1"

@@ -219,6 +219,7 @@ def _lsi_keywords(ptype: str, keyword: str) -> list[str]:
     return combined
 
 def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, similar_products: list | None = None, matching_products: list | None = None) -> tuple[str, str]:
+def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, similar_products: list | None = None, matching_products: list | None = None, force_topic_from_handle: str | None = None) -> tuple[str, str]:
     display_name = get_product_display_name(product)
     clean_ptype = get_clean_product_type(product)
     price  = product["variants"][0]["price"] if product.get("variants") else "49"
@@ -243,11 +244,25 @@ def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, simila
             f"- In the styling or outfit sections of your article, you MUST explicitly mention these matching pieces by name, explaining how to style them together with the main featured product to create a complete, cohesive outfit (e.g., 'pair it with the {clean_matches[0]}' or 'complete this look using the {clean_matches[1]}').\n"
         )
 
+    # Override title_hint and keyword if force_topic_from_handle is provided
+    eeat_override = ""
+    if force_topic_from_handle:
+        # Derive a new title_hint and keyword directly from the original handle
+        # This is for the retry attempt to force AI to align with the original URL topic
+        derived_title_hint = force_topic_from_handle.replace('-', ' ').title()
+        derived_keyword = force_topic_from_handle.replace('-', ' ')
+        print(f"  [RETRY PROMPT] Forcing AI to use original handle as topic: Title Hint='{derived_title_hint}', Keyword='{derived_keyword}'")
+        title_hint = derived_title_hint
+        keyword = derived_keyword
+        eeat_override = f"CRITICAL: The original URL handle for this article is '{force_topic_from_handle}'. The content MUST be semantically aligned with this handle. The primary topic of this article MUST be '{title_hint}'.\n\n"
+
     base = (
         f"You are a fashion editor at MeeeShop, a USA women's clothing boutique.\n"
-        f"Write a {MONTH} blog post. Target keyword: '{keyword}'\n"
+        f"Write a {MONTH} blog post. The PRIMARY TOPIC of this article MUST revolve around the premise: '{title_hint}'. Ensure the content directly addresses this subject.\n"
+        f"Target keyword: '{keyword}'\n"
         f"Feature product: {display_name} — ${price}\n"
         f"Category: {clean_ptype}\n\n"
+        f"{eeat_override}" # Inject the override here
         f"{EEAT_RULES}"
         f"2026 TREND FRESHNESS — weave 1-2 of these angles in naturally where relevant:\n"
         f"  • Quiet luxury: clean lines, no logos, elevated basics — trending on Flipboard #Style (8.4M followers)\n"
@@ -269,8 +284,8 @@ def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, simila
         f"- To avoid programmatic footprints, vary your structure. Occasionally include a <blockquote style='border-left: 3px solid #ccc; padding-left: 10px; margin: 15px 0; font-style: italic;'> for a 'Stylist Tip', or a styled callout box. Make the flow feel like a hand-written editorial, not a template.\n"
         f"- You MUST include a Shoppers' Q&A section immediately before the final CTA/verdict section. This must consist of:\n"
         f"  <h2>Shoppers' Q&A: Common Questions Answered</h2>\n"
-        f"  <h3>Why should the {display_name} be in my closet?</h3>\n"
-        f"  <p>[Detailed first-person answer from a stylist explaining why it's a wardrobe staple, 40-50 words]</p>\n"
+        f"  <h3>Why should this style be in my closet?</h3>\n"
+        f"  <p>[Detailed first-person answer from a stylist explaining why it relates to the topic, 40-50 words]</p>\n"
         f"  <h3>What is the fabric composition and how do I wash this style?</h3>\n"
         f"  <p>[Detailed answer detailing how to wash and maintain the fabric quality, 40-50 words]</p>\n"
         f"  <h3>How do I choose the correct size for the {display_name}?</h3>\n"
@@ -283,8 +298,8 @@ def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, simila
             f"Format: Definitive Buying Guide (Refinery29 / Who What Wear editorial depth)\n"
             f"Write in HTML (<h1>,<h2>,<h3>,<p>,<ul>,<li>):\n"
             f"1. <h1> '{title_hint}'\n"
-            f"2. <p> Hook — open with a SPECIFIC observation or problem (NOT 'In today's fashion world...'). Example: 'Here is the honest truth about the {clean_ptype} question I get asked every single week.' (80 words, stylist voice)\n"
-            f"3. <h2> What Actually Makes a Good {clean_ptype.title()}? (4 real criteria — e.g., fabric weight, drape quality, seam construction, size consistency — as <ul><li> with 1-sentence explanations. Be specific, not generic.)\n"
+            f"2. <p> Hook — open with a SPECIFIC observation or problem related to '{title_hint}' (NOT 'In today's fashion world...'). Example: 'Here is the honest truth about the question I get asked every single week.' (80 words, stylist voice)\n"
+            f"3. <h2> What Actually Makes a Good Choice? (4 real criteria related to the topic — as <ul><li> with 1-sentence explanations. Be specific, not generic.)\n"
             f"4. <h2> Why {display_name} Made Our Edit: The Honest Breakdown (120 words — discuss actual cut, fabric drape, fit reality for different body shapes, price-to-quality ratio. Do NOT include HTML links.)\n"
             f"5. <h2> 3 Real-Life Outfit Recipes (H3 each with creative occasion name like 'The Power Lunch' or 'Saturday Gallery Hop'. Each: list specific tops with fabric+color, a layering piece like a blazer or cardigan, a bag style, and one accessory with the reason it works. Do NOT recommend shoes — MeeeShop sells clothing only. 70 words each.)\n"
             f"6. <h2> Who This Actually Works For (and Who Should Skip It) (60 words — honest body shape and lifestyle fit advice. Acknowledge trade-offs.)\n"
@@ -313,7 +328,7 @@ def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, simila
             f"Format: Comparison Article — helps women choose the right style\n"
             f"Write in HTML:\n"
             f"1. <h1> '{title_hint}'\n"
-            f"2. <p> Intro — 'I get asked this question every week from our customers: how does {display_name} compare to other styles?' (70 words, empathetic stylist perspective)\n"
+            f"2. <p> Intro — 'I get asked this question every week from our customers: how do these styles compare?' (70 words, empathetic stylist perspective, focusing on '{title_hint}')\n"
             f"3. <h2> Option 1: {display_name} — What I Love + Who It's For (100 words, detailed stylist analysis of the drape and cut, do NOT include HTML links)\n"
             f"4. <h2> Option 2: {alt1_display} — Pros, Cons, and Styling Fit (80 words). Price: ${alt1_price}\n"
             f"5. <h2> Option 3: {alt2_display} — Pros, Cons, and Styling Fit (80 words). Price: ${alt2_price}\n"
@@ -343,12 +358,12 @@ def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, simila
             "dressing well on a budget without sacrificing style or looking like everyone else",
         )
         prompt = base + (
-            f"Format: Problem-Solver — directly addressing '{problem}'\n"
+            f"Format: Problem-Solver — directly addressing the topic '{title_hint}'\n"
             f"Write in HTML:\n"
             f"1. <h1> '{title_hint}'\n"
-            f"2. <p> Opening — validate the reader's exact pain point with empathy and insider knowledge. Start with their frustration, not a generic intro. (80 words, second-person, warm and direct — like a stylist friend who finally gets it)\n"
-            f"3. <h2> Why It Keeps Happening (and It's Not Your Fault) (60 words — explain the real structural or industry reason behind the problem, e.g., sizing inconsistency across brands, fabric quality shortcuts, etc.)\n"
-            f"4. <h2> The Fix: Why {display_name} Solves This (120 words — describe specific cut details, fabric stretch or structure, and exactly HOW these features solve '{problem}'. Do NOT include HTML links.)\n"
+            f"2. <p> Opening — validate the reader's exact pain point regarding the topic '{title_hint}' with empathy and insider knowledge. Start with their frustration, not a generic intro. (80 words, second-person, warm and direct — like a stylist friend who finally gets it)\n"
+            f"3. <h2> Why It Keeps Happening (and It's Not Your Fault) (60 words — explain the real reason behind the problem)\n"
+            f"4. <h2> The Fix: Why {display_name} Helps Solve This (120 words — describe specific cut details, fabric stretch or structure, and exactly HOW this featured product fits into the solution. Do NOT include HTML links.)\n"
             f"5. <h2> 3 Outfit Recipes That Prove It (H3 each with creative occasion name. Each outfit: name specific shoes with material+color, top with silhouette+fabric, bag style, one accessory. 70 words each.)\n"
             f"6. <h2> 4 Stylist Rules That Change Everything (bullet list — SPECIFIC tips like 'Always size up one in {clean_ptype} if you are between sizes — the waistband gap is easier to tailor than a tight seat.')\n"
             f"7. <p> Honest, warm CTA: price of {display_name}, free US shipping on $50+, 7-day returns, sizes XS-3X. Do NOT include HTML links.\n"
@@ -357,10 +372,10 @@ def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, simila
 
     elif fmt == "trend_report":
         prompt = base + (
-            f"Format: {MONTH} Trend Report — grounded in real 2026 fashion data\n"
+            f"Format: {MONTH} Trend Report — grounded in real 2026 fashion data, focusing on '{title_hint}'\n"
             f"Write in HTML:\n"
             f"1. <h1> '{title_hint}'\n"
-            f"2. <p> Intro — Anchor the reader in what is actually happening in fashion RIGHT NOW in summer 2026. Reference real Flipboard/street-style trends (quiet luxury, cigarette jeans replacing wide-leg, wedge sandals + denim combo). Be specific about what changed. (70 words, confident stylist voice)\n"
+            f"2. <p> Intro — Anchor the reader in what is actually happening in fashion RIGHT NOW in summer 2026 regarding '{title_hint}'. Reference real Flipboard/street-style trends. Be specific about what changed. (70 words, confident stylist voice)\n"
             f"3. Five trends, each as <h2> with opinionated trend name + 90-word description:\n"
             f"   - Trend #1 MUST be {display_name} (do NOT include HTML links) — explain why it fits the 2026 moment\n"
             f"   - Trend #2: Cigarette/Stovepipe Jeans Taking Over — why the wide-leg silhouette is being replaced\n"
@@ -386,17 +401,17 @@ def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, simila
             f"   • The freezer method for odor: seal in a zip bag, freeze overnight — kills odor-causing bacteria\n"
         ) if is_denim_care else ""
         prompt = base + (
-            f"Format: Practical Fabric Care & Washing Guide (reader-first, actionable like a Refinery29 care article)\n"
+            f"Format: Practical Care & Maintenance Guide (reader-first, actionable like a Refinery29 care article)\n"
             f"Write in HTML:\n"
             f"1. <h1> '{title_hint}'\n"
-            f"2. <p> Hook — open with a SPECIFIC care mistake women make that ruins their {clean_ptype}. E.g., for denim: 'Washing your jeans after every wear is the fastest way to ruin them — and most women don\'t know it.' (70 words, direct, problem-first)\n"
-            f"3. <h2> Reading Your Care Label: What Those Symbols Actually Mean (explain the 4 main care symbols: wash tub, triangle, square, iron — with plain English translations)\n"
-            f"4. <h2> The Right Way to Wash {display_name}\n"
+            f"2. <p> Hook — open with a SPECIFIC mistake women make regarding '{title_hint}'. (70 words, direct, problem-first)\n"
+            f"3. <h2> Understanding the Basics: What You Need to Know (explain the core principles of solving this care/stain/maintenance issue)\n"
+            f"4. <h2> The Right Way to Handle It (step-by-step instructions)\n"
             f"   <h3> Machine Washing (temperature, cycle, detergent — be precise, e.g., 'cold/delicate cycle, liquid detergent, turn inside out')\n"
             f"   <h3> Hand Washing (when and how — water temp, gentle swirl, no wringing)\n"
             f"{denim_care_specifics}"
-            f"5. <h2> Drying Without Damage (air dry vs dryer reality — explain WHY heat damages the fabric, give specific hang-dry instructions)\n"
-            f"6. <h2> Storage Tips That Preserve the Fit (folding vs hanging for this garment type, how to avoid stretch marks and misshaping)\n"
+            f"5. <h2> Why High-Quality Fabrics Matter (Introduce {display_name} as an example of a piece worth caring for. Explain why its material is resilient.)\n"
+            f"6. <h2> Storage & Long-term Maintenance Tips (how to avoid future issues)\n"
             f"7. <blockquote style='border-left:3px solid #ccc;padding-left:10px;margin:15px 0;font-style:italic;'> A Stylist Tip with one specific care hack that most people don't know\n"
             f"8. <p> Warm CTA: shop the {display_name} at MeeeShop, price, free US shipping on $50+, 7-day returns. Do NOT include HTML links.\n"
             f"Target: 750-900 words. Output ONLY clean HTML."
@@ -407,7 +422,7 @@ def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, simila
             f"Format: Inclusive Sizing & Fit Guide (body-shape-positive, honest, actionable)\n"
             f"Write in HTML:\n"
             f"1. <h1> '{title_hint}'\n"
-            f"2. <p> Hook — open with the real frustration: 'Ordering {clean_ptype} online is a gamble — until you know the three measurements that matter most.' (70 words, warm, second-person, direct)\n"
+            f"2. <p> Hook — open with the real frustration related to '{title_hint}'. 'Ordering online is a gamble — until you know the measurements that matter most.' (70 words, warm, second-person, direct)\n"
             f"3. <h2> How to Measure Yourself in 3 Steps (waist, hips, inseam/length — give specific instructions for each measurement point)\n"
             f"4. <h2> MeeeShop Size Chart: XS to 3X Decoded (present a <table> with size / waist / hip / inseam ranges in inches — realistic US measurements)\n"
             f"5. <h2> Fit by Body Shape\n"
@@ -426,11 +441,11 @@ def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, simila
             f"Format: 5-Outfit Formula — Who What Wear / Refinery29 editorial style\n"
             f"Write in HTML:\n"
             f"1. <h1> '{title_hint}'\n"
-            f"2. <p> Hook — open with a SPECIFIC insight about this garment's versatility that surprises the reader. NOT 'This piece is so versatile!' — instead: 'The reason the {display_name} works for five completely different occasions is one structural detail most people overlook.' (70 words, first-person stylist voice)\n"
+            f"2. <p> Hook — open with a SPECIFIC insight about '{title_hint}'. NOT 'This is so versatile!' — instead give a structural detail or styling secret most people overlook. (70 words, first-person stylist voice)\n"
             f"3. Five looks as <h2> sections — each MUST have a creative, evocative occasion title (not generic):\n"
             f"   Required: 'Look 1: [Creative Name]', 'Look 2: [Creative Name]', etc.\n"
             f"   Examples: 'Sunday Farmers Market', 'The Power Lunch', 'Date Night That Doesn\'t Look Like You Tried Too Hard', 'Airport Chic', 'Weekend Gallery Hop'\n"
-            f"   Each look (80-90 words) MUST include:\n"
+            f"   Each look (80-90 words) MUST feature the {display_name} or pieces relevant to the topic, and include:\n"
             f"   • Specific top or layer: silhouette + fabric + color (e.g., 'a relaxed linen shirt in ecru, left untucked')\n"
             f"   • A layering piece where relevant: blazer, cardigan, or jacket with specific color/weight\n"
             f"   • Specific bag: style + color (e.g., 'a mini structured tote in chocolate brown')\n"
@@ -442,6 +457,7 @@ def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, simila
             f"Target: 800-950 words. Output ONLY clean HTML."
         )
 
+    handle_instruction = f"SUGGESTED_HANDLE: [{original_handle}]\n" if original_handle else f"SUGGESTED_HANDLE: [{_slugify(title_hint)}]\n"
     # Append SEO metadata instructions to the prompt so we generate all details in one AI call
     prompt += (
         f"\n\nAt the very end of your response, after the HTML content, you MUST append a `<seometa>` section containing the SEO metadata. The format MUST be exactly like this (use these exact keys):\n"
@@ -450,6 +466,7 @@ def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, simila
         f"META_DESC: [140-155 chars, action-oriented, includes keyword, mentions 2026 trend angle or free shipping, ends with CTA]\n"
         f"IMG_ALT: [descriptive ALT text for featured image collage, 10-15 words, describes the outfit/styling scene shown, includes keyword + 'women' + product type, no quotes]\n"
         f"SUGGESTED_HANDLE: [{_slugify(title_hint)}]\n" # Add suggested handle here
+        f"{handle_instruction}"
         f"</seometa>\n"
         f"Make sure there are no other text or markdown code fences enclosing the <seometa> block."
     )
@@ -1301,8 +1318,42 @@ def regenerate_single_article(
 
     print(f"  Selected product for regeneration: '{selected_product['title']}' (Type: {selected_product.get('product_type')})")
 
-    # 2. Generate keyword, title hint, and format
-    keyword, title_hint, fmt = generate_keyword_title_and_format(selected_product, format_override=force_format)
+    # 2. Infer keyword, title hint, and format from the original article to retain SEO value
+    original_title_lower = original_title.lower()
+    
+    if force_format:
+        fmt = force_format
+    elif any(x in original_title_lower for x in ["wash", "clean", "stain", "care", "smell", "pilling", "shrink"]):
+        fmt = "care_guide"
+    elif any(x in original_title_lower for x in ["vs", "compare", "difference", "versus"]):
+        fmt = "comparison"
+    elif any(x in original_title_lower for x in ["size", "fit", "measure", "tall", "petite", "curvy"]):
+        fmt = "sizing_guide"
+    elif any(x in original_title_lower for x in ["style", "outfit", "wear", "look", "pair"]):
+        fmt = "outfit_formula"
+    elif any(x in original_title_lower for x in ["trend", "202", "summer", "fall", "winter", "spring", "fashion"]):
+        fmt = "trend_report"
+    elif any(x in original_title_lower for x in ["guide", "best", "review", "top", "must-have"]):
+        fmt = "buying_guide"
+    else:
+        fmt = "problem_solver"
+
+    # Extract a clean keyword from original title
+    clean_title = re.sub(r'[^a-zA-Z0-9\s\']', '', original_title)
+    words = clean_title.split()
+    keyword = " ".join(words[:8]) if len(words) > 8 else clean_title
+
+    # Keep original title as title_hint, update any old years to current year
+    title_hint = re.sub(r'\b202[0-5]\b', str(YEAR), original_title)
+    # Derive title and keyword directly from the handle to ensure we recreate the same topic
+    handle_words = original_handle.split('-')
+    title_from_handle = " ".join(handle_words).title()
+    keyword = " ".join(handle_words[:8]) if len(handle_words) > 8 else " ".join(handle_words)
+    
+    title_hint = title_from_handle
+    if str(YEAR) not in title_hint and "year" not in title_hint.lower() and fmt in ["trend_report", "buying_guide"]:
+        title_hint += f" ({YEAR})"
+        
     print(f"  Generated format: {fmt} | Keyword: '{keyword}' | Title Hint: '{title_hint}'")
 
     # 3. Select styling matches for collage and prompt
@@ -1311,6 +1362,7 @@ def regenerate_single_article(
 
     # 4. Build AI prompt and generate content
     prompt, _ = _build_prompt(fmt, selected_product, keyword, title_hint, similar_products=all_products_with_images, matching_products=matching_products)
+    prompt, _ = _build_prompt(fmt, selected_product, keyword, title_hint, similar_products=all_products_with_images, matching_products=matching_products, original_handle=original_handle)
     print("  Generating new content with AI...")
     raw_ai_response = ai_client.generate(prompt, max_tokens=2000, temperature=0.75)
 
@@ -1362,6 +1414,10 @@ def regenerate_single_article(
     # 8. Handle comparison and redirect
     final_handle = original_handle
     if suggested_handle != original_handle:
+    # Only redirect as a last resort if the suggested handle is vastly different from the original handle
+    # (e.g. if the original handle is 'news' or something generic, and we generated a highly specific article).
+    # If the original handle is mostly contained in the new handle or vice versa, keep the original to preserve SEO.
+    if suggested_handle != original_handle and suggested_handle.replace('-', '') not in original_handle.replace('-', '') and original_handle.replace('-', '') not in suggested_handle.replace('-', ''):
         print(f"  [HANDLE CHANGE] Suggested handle '{suggested_handle}' differs from original '{original_handle}'.")
         old_full_url = f"{STORE_URL}/blogs/{blog_handle}/{original_handle}"
         new_full_url = f"{STORE_URL}/blogs/{blog_handle}/{suggested_handle}" # Assuming blog_handle remains same
@@ -1369,15 +1425,34 @@ def regenerate_single_article(
             if create_redirect(old_full_url, new_full_url, dry_run=False):
                 final_handle = suggested_handle
                 log_entry["changes"].append({"field": "handle", "old": original_handle, "new": suggested_handle, "redirect_created": True})
+        # Only redirect as a last resort if the suggested handle is vastly different from the original handle
+        # (e.g. if the original handle is 'news' or something generic, and we generated a highly specific article).
+        # If the original handle is mostly contained in the new handle or vice versa, keep the original to preserve SEO.
+        if suggested_handle.replace('-', '') not in original_handle.replace('-', '') and original_handle.replace('-', '') not in suggested_handle.replace('-', ''):
+            print(f"  [HANDLE CHANGE] Suggested handle '{suggested_handle}' differs from original '{original_handle}'.")
+            old_full_url = f"{STORE_URL}/blogs/{blog_handle}/{original_handle}"
+            new_full_url = f"{STORE_URL}/blogs/{blog_handle}/{suggested_handle}" # Assuming blog_handle remains same
+            if not dry_run:
+                if create_redirect(old_full_url, new_full_url, dry_run=False):
+                    final_handle = suggested_handle
+                    log_entry["changes"].append({"field": "handle", "old": original_handle, "new": suggested_handle, "redirect_created": True})
+                else:
+                    print(f"    [WARN] Failed to create redirect. Keeping original handle: '{original_handle}'.")
+                    log_entry["changes"].append({"field": "handle", "old": original_handle, "new": original_handle, "redirect_created": False, "message": "Redirect failed"})
             else:
                 print(f"    [WARN] Failed to create redirect. Keeping original handle: '{original_handle}'.")
                 log_entry["changes"].append({"field": "handle", "old": original_handle, "new": original_handle, "redirect_created": False, "message": "Redirect failed"})
+                print(f"    [DRY-RUN] Would change handle to '{suggested_handle}' and create redirect from '{old_full_url}' to '{new_full_url}'.")
+                final_handle = suggested_handle # For dry-run output
+                log_entry["changes"].append({"field": "handle", "old": original_handle, "new": suggested_handle, "redirect_created": True, "dry_run": True})
         else:
             print(f"    [DRY-RUN] Would change handle to '{suggested_handle}' and create redirect from '{old_full_url}' to '{new_full_url}'.")
             final_handle = suggested_handle # For dry-run output
             log_entry["changes"].append({"field": "handle", "old": original_handle, "new": suggested_handle, "redirect_created": True, "dry_run": True})
+            print(f"  [HANDLE] Handle differs slightly, but keeping original handle: '{original_handle}' to preserve SEO.")
     else:
         print(f"  [HANDLE] Handle remains unchanged: '{original_handle}'.")
+        print(f"  [HANDLE] Keeping original handle: '{original_handle}' to preserve SEO.")
 
     # 9. Prepare payload for article update
     payload = {
