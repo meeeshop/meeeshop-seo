@@ -293,7 +293,10 @@ def regenerate_single_article(
     all_products_with_images: list,
     all_blogs: list,
     dry_run: bool,
-    force_format: str | None = None
+    force_format: str | None,
+    type_map: dict,
+    research_cache: dict,
+    link_map: object
 ) -> dict:
     """
     Regenerates content for a single article, handles redirects, and updates Shopify.
@@ -555,7 +558,7 @@ def main():
     parser.add_argument("--batch-index", type=int, default=0, help="0-based index of the batch to process in --force mode.")
     parser.add_argument("--count-only", action="store_true", help="Print total number of articles to process and exit (for CI matrix).")
     parser.add_argument("--force-format", type=str, default=None,
-                        choices=FORMATS,
+                        choices=[m["id"] for m in wtb.ARTICLE_MODES],
                         help="Force a specific blog format for all regenerated articles.")
     args = parser.parse_args()
 
