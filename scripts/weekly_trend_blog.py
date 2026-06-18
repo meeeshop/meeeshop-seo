@@ -327,7 +327,7 @@ def _fetch_google_news(keyword: str, num_sites: int = 3) -> list[dict]:
                     "published":   pub_el.text if pub_el is not None else "",
                     "topic":       keyword,
                     "source":      f"google-news:{site_filter}",
-                    "full_content": download_article_content(link) if link else "",
+                    "full_content": "",
                 })
                 if len(results) >= 8:
                     break
@@ -354,9 +354,6 @@ def research_flipboard_per_category(type_map: dict) -> dict:
         all_articles = []
         for topic in topics_to_query:
             rss_articles = _fetch_flipboard_rss(topic)
-            for art in rss_articles:
-                if art.get("link"):
-                    art["full_content"] = download_article_content(art["link"])
             all_articles.extend(rss_articles)
             time.sleep(0.3)
 
@@ -370,9 +367,6 @@ def research_flipboard_per_category(type_map: dict) -> dict:
         for q in queries:
             print(f"    Searching Flipboard for: '{q}'...")
             search_articles = _fetch_flipboard_search(q)
-            for art in search_articles:
-                if art.get("link"):
-                    art["full_content"] = download_article_content(art["link"])
             all_articles.extend(search_articles)
             flipboard_search_found += len(search_articles)
 
@@ -393,10 +387,19 @@ def research_flipboard_per_category(type_map: dict) -> dict:
                 seen.add(norm_title)
                 unique.append(a)
 
+        # Slice to target subset for full text download
+        target_articles = unique[:4]
+
+        # Download content only for the target articles
+        for art in target_articles:
+            if art.get("link") and not art.get("full_content"):
+                print(f"    [Scraper] Downloading trend reference: '{art['title'][:60]}...'")
+                art["full_content"] = download_article_content(art["link"])
+
         # Extract keywords
         long_tail = []
         zero_search = []
-        for a in unique:
+        for a in target_articles:
             if a.get("full_content"):
                 kws = extract_keywords(a["full_content"])
                 long_tail.extend(kws.get("long_tail", []))
@@ -410,7 +413,7 @@ def research_flipboard_per_category(type_map: dict) -> dict:
         research[ptype] = {
             "product_type": ptype,
             "sample_products": [{"id": p["id"], "title": p["title"], "handle": p["handle"]} for p in sample_products],
-            "articles": unique[:10],
+            "articles": target_articles,
             "keywords": {
                 "long_tail": list(set(long_tail))[:10],
                 "zero_search": list(set(zero_search))[:10]
@@ -1283,8 +1286,15 @@ def main():
     type_map = store_info["types"]
     all_products = store_info["all_products"]
     
-    # Step 2: Research Flipboard
-    research = research_flipboard_per_category(type_map)
+    # Optimize: only research product types we are actually going to generate blogs for.
+    available_types = list(type_map.keys())
+    random.shuffle(available_types)
+    target_types = available_types[:args.count]
+    filtered_type_map = {ptype: type_map[ptype] for ptype in target_types if ptype in type_map}
+    print(f"\n[Optimization] Selected {len(filtered_type_map)} target product type(s) for generation: {list(filtered_type_map.keys())}")
+    
+    # Step 2: Research Flipboard (only for targeted categories)
+    research = research_flipboard_per_category(filtered_type_map)
     
     # Step 3: Build link map for internal linking
     link_map = build_linker_map()
