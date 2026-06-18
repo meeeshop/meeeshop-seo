@@ -562,6 +562,11 @@ def main():
                         help="Force a specific blog format for all regenerated articles.")
     args = parser.parse_args()
 
+    if args.count_only:
+        all_articles = fetch_all_articles_with_blog_info(args.article_id)
+        print(len(all_articles))
+        return
+
     print(f"\n{'='*70}")
     print(f"  MeeeShop Article Regenerator — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print(f"  Mode: {'DRY RUN' if args.dry_run else 'LIVE'}")
@@ -587,10 +592,6 @@ def main():
     all_articles = fetch_all_articles_with_blog_info(args.article_id)
     if not all_articles:
         sys.exit("ERROR: No articles found to process.")
-    
-    if args.count_only:
-        print(len(all_articles))
-        return
 
     articles_to_process = []
     if args.article_id:
