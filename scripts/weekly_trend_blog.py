@@ -638,67 +638,316 @@ def make_related_products_section(products: list) -> str:
 </div>
 """
 
-# ── AI Prompt Construction ───────────────────────────────────────────────────
-def _build_article_prompt(main_product: dict, research_data: dict, matching_products: list) -> str:
+# ── Article Modes ──────────────────────────────────────────────────────
+ARTICLE_MODES = [
+    {
+        "id": "fabric_care_guide",
+        "title_pattern": "How to Wash & Care for {ptype} Without Ruining It",
+        "angle": "fabric-care-maintenance",
+        "description": "Deep-dive care & maintenance guide. Cover washing temperatures, hand vs machine wash, stain removal, odour elimination (especially denim/synthetic), preventing piling/fading, ironing & storage secrets.",
+        "structure": "Intro hook (care secret) | TOC | Fabric type breakdown | Step-by-step wash guide | Stain removal table | Odour & piling prevention | Storage tips | FAQ (6 Qs) | Product recommendation woven throughout",
+        "tone": "Knowledgeable friend who just saved your favourite piece",
+        "title_examples": ["How to Wash Your Jeans (And When NOT To)", "The Right Way to Care for Your Midi Dress So It Lasts for Years"],
+    },
+    {
+        "id": "outfit_ideas_occasions",
+        "title_pattern": "{num} Outfit Ideas for {occasion} Using {ptype}",
+        "angle": "occasion-based-outfit-inspiration",
+        "description": "Curated outfit recipes for 5-7 real-life occasions (work, brunch, date night, weekend errands, travel, gym-to-street, wedding guest). Each outfit names the exact MeeeShop product + styling pairing + shoes + bag tip.",
+        "structure": "Hook (relatable scenario) | TOC | 5-7 Occasion sections each with: outfit recipe + product card + styling notes | Mix & match matrix | FAQ | Related products",
+        "tone": "Personal stylist texting you outfit ideas",
+        "title_examples": ["7 Outfit Ideas for Every Weekend Plan This Summer", "5 Ways to Wear a Midi Dress From Brunch to Boardroom"],
+    },
+    {
+        "id": "capsule_wardrobe",
+        "title_pattern": "Build Your {season} Capsule Wardrobe with {num} {ptype} Staples",
+        "angle": "capsule-wardrobe-minimalism",
+        "description": "Teach readers how to build a seasonal capsule wardrobe around this product type. Show how {num} key pieces create 20+ outfits. Emphasise mix-and-match, cost-per-wear and avoiding impulse buys.",
+        "structure": "Hook (why capsule?) | The formula (X pieces = Y outfits) | Each capsule piece with: what it is + why it works + how to style | The outfit matrix table | Budget breakdown | FAQ | MeeeShop product picks",
+        "tone": "Thoughtful minimalist editor, warm and practical",
+        "title_examples": ["Your Summer Capsule Wardrobe: 10 Pieces, 30 Outfits", "Build the Perfect Fall Wardrobe Around 1 Pair of Dark-Wash Jeans"],
+    },
+    {
+        "id": "trend_report",
+        "title_pattern": "The Biggest {ptype} Trends for {year} (And How to Wear Them)",
+        "angle": "trend-forecast-real-life-translation",
+        "description": "Identify 5-6 current/upcoming trends in this product category. For each trend: what it is, why it's hot right now, how real women can wear it, what to pair it with, and link to specific MeeeShop products.",
+        "structure": "Trend intro hook | TOC | Each trend: name + why trending + how to wear + do's & don'ts + MeeeShop pick | Editor's top trend pick | FAQ | Related products",
+        "tone": "Fashion editor sharing exclusive intel from the season's shows & street style",
+        "title_examples": ["5 Dress Trends Taking Over Summer 2026", "The 6 Jean Silhouettes Fashion Editors Are Obsessed With Right Now"],
+    },
+    {
+        "id": "styling_rules",
+        "title_pattern": "{num} {ptype} Styling Rules Every Woman Should Know",
+        "angle": "expert-styling-rules-secrets",
+        "description": "Share {num} little-known but transformative styling rules specific to this product type. Rules should feel like insider secrets: proportion play, colour theory, layering hacks, footwear pairings, belt tricks, etc.",
+        "structure": "Hook (surprising rule teaser) | TOC | Each rule: name + explanation + visual example + common mistake to avoid | Quick cheat sheet | FAQ | MeeeShop product picks",
+        "tone": "Confident boutique owner who's seen every styling mistake and fix",
+        "title_examples": ["11 Skirt Styling Rules Fashion Girls Swear By", "9 Handbag Styling Rules That Will Instantly Elevate Any Outfit"],
+    },
+    {
+        "id": "body_type_guide",
+        "title_pattern": "The Best {ptype} Styles for Every Body Type (2026 Guide)",
+        "angle": "body-positive-proportion-styling",
+        "description": "Modern, body-positive proportion guide. Instead of 'hiding' shapes, teach readers how specific {ptype} cuts/silhouettes work with different proportions. Cover petite, tall, curvy, straight-frame, pear, apple, hourglass.",
+        "structure": "Hook (proportion over labels) | TOC | Each body proportion type: what to look for + what to avoid + MeeeShop picks + confidence tip | Universal rules | FAQ | Related products",
+        "tone": "Inclusive, empowering stylist who celebrates all bodies",
+        "title_examples": ["The Best Jeans for Every Body Type", "Which Dress Silhouette Flatters YOUR Proportions? A 2026 Guide"],
+    },
+    {
+        "id": "one_item_multiple_ways",
+        "title_pattern": "{num} Ways to Style the {main_product} (Work to Weekend)",
+        "angle": "one-item-multiple-outfit-challenge",
+        "description": "Deep-dive on one specific hero product. Show {num} completely different ways to style it across different occasions, seasons and moods. Include a 'What I packed for a 3-day trip using only this piece' section.",
+        "structure": "Hero product spotlight | {num} styled looks each with: occasion + outfit recipe + styling notes + links | Travel packing tip | Seasonal transitions | FAQ | Related products",
+        "tone": "Relatable blogger sharing her personal styling challenge diary",
+        "title_examples": ["7 Ways I Styled My Soft Knit Babydoll This Week", "One Wide-Leg Jean, 9 Outfits: My Monday-to-Sunday Styling Diary"],
+    },
+    {
+        "id": "shopping_guide_edit",
+        "title_pattern": "The MeeeShop Editor's Edit: Best {ptype} to Shop Right Now",
+        "angle": "curated-shopping-editors-picks",
+        "description": "Curated 'editor's pick' shopping list of 8-10 {ptype} pieces. For each pick: why editors love it, how to style it, what makes it worth buying, who it's perfect for. Position MeeeShop as the trusted source.",
+        "structure": "Editor intro (authority voice) | TOC | Each pick: product name + why we love it + styling recipe + who it's for | Value comparison (quality vs price) | FAQ | How to order",
+        "tone": "Confident fashion editor curating her favourite finds like a magazine 'The Edit' feature",
+        "title_examples": ["The 10 Best Midi Dresses to Shop This Summer", "Our Editor's Favourite Wide-Leg Jeans Right Now"],
+    },
+    {
+        "id": "seasonal_transition",
+        "title_pattern": "How to Transition Your {ptype} from {season1} to {season2}",
+        "angle": "seasonal-transition-layering",
+        "description": "Practical guide to making {ptype} work across two seasons through layering, fabric choices and styling tricks. Cover specific tips like: what to add, what to swap, colour palette shifts, footwear transitions.",
+        "structure": "Seasonal challenge hook | TOC | The layering formula | 5-6 specific transition outfits | Fabric guide (what works in both seasons) | The 3 hero pieces to invest in | FAQ | MeeeShop picks",
+        "tone": "Practical, cost-savvy stylist who hates re-buying the same thing every season",
+        "title_examples": ["How to Wear Your Summer Dresses in Fall", "Transitioning Your Denim: Summer Jeans That Work All Year"],
+    },
+    {
+        "id": "colour_palette_guide",
+        "title_pattern": "The {season} Colour Palette for {ptype}: What's Trending & How to Wear It",
+        "angle": "colour-theory-palette-guide",
+        "description": "Explore the season's trending colour palette for this product type. Explain colour theory in plain language, how to use the trending shades, which neutrals they pair with, and how to incorporate a pop of colour without looking overwhelming.",
+        "structure": "Colour trends hook | TOC | Top 5 trending colours (each: name, what it is, best pairings, avoid with) | Building a colour-cohesive outfit | Colour confidence tips for beginners | FAQ | MeeeShop colour picks",
+        "tone": "Colour-obsessed art director turned stylist, approachable and inspiring",
+        "title_examples": ["The 5 Dress Colours Every Stylish Woman Will Wear This Summer", "Butter Yellow, Powder Blue & Beyond: The Color Palette Dominating 2026"],
+    },
+    {
+        "id": "stain_odour_rescue",
+        "title_pattern": "How to Remove Stains & Odours from {ptype} (Without Ruining Them)",
+        "angle": "problem-solving-stain-odour-removal",
+        "description": "Emergency rescue guide for the most common {ptype} disasters: coffee, wine, sweat, makeup, oil, grass, mystery stains, musty smell. Provide step-by-step DIY methods using household products. Cover prevention tips too.",
+        "structure": "Emergency hook (relatable stain disaster) | TOC | Stain type table (stain: method: products: time) | Step-by-step for each major stain type | Odour elimination deep dive | What NEVER to do | Prevention habits | FAQ | MeeeShop care picks",
+        "tone": "Practical problem-solver sharing the cleaning secret your dry cleaner doesn't want you to know",
+        "title_examples": ["How to Get Red Wine Out of Your Favourite Dress (And 9 Other Common Stains)", "Why Your Jeans Smell & How to Fix It For Good"],
+    },
+    {
+        "id": "budget_style_guide",
+        "title_pattern": "How to Look Expensive on a Budget: {ptype} Edition",
+        "angle": "budget-savvy-high-low-styling",
+        "description": "Teach readers how to dress like they spent a lot without actually doing so. Cover: quality markers to look for when buying, which {ptype} details signal luxury, high-low dressing, cost-per-wear calculations, and how MeeeShop finds offer designer looks for less.",
+        "structure": "Budget-chic hook | TOC | The 5 markers of 'expensive-looking' {ptype} | High-low outfit formulas | Cost-per-wear breakdown | The 3 items worth spending more on | FAQ | MeeeShop picks (value champions)",
+        "tone": "Savvy shopper who always looks like she spent double, sharing her secrets freely",
+        "title_examples": ["How to Make a $40 Dress Look Like It Cost $200", "The Affordable Jean Brands That Look Designer (We're Obsessed)"],
+    },
+    {
+        "id": "work_dress_code",
+        "title_pattern": "What to Wear to Work: {ptype} Styling for Every Dress Code",
+        "angle": "workplace-dress-code-styling",
+        "description": "Guide women through styling {ptype} for different workplace dress codes: business formal, business casual, smart casual, creative casual and work-from-home chic. Show how one piece can work across multiple codes with different styling.",
+        "structure": "Dress code confusion hook | TOC | Each dress code: definition + {ptype} picks + complete outfit recipe + what to avoid | Day-to-dinner transition tips | WFH to in-office styling | FAQ | MeeeShop office picks",
+        "tone": "Career-oriented fashion advisor who wants women to feel powerful and appropriate at work",
+        "title_examples": ["How to Wear Wide-Leg Trousers to Every Kind of Office", "Office-Ready Dresses for Every Dress Code (Business Formal to Casual)"],
+    },
+    {
+        "id": "weekend_lifestyle",
+        "title_pattern": "Your Perfect Weekend Outfit Formula with {ptype}",
+        "angle": "effortless-weekend-lifestyle-content",
+        "description": "Relaxed, lifestyle-led guide to effortless weekend dressing with {ptype}. Cover different weekend scenarios: farmers market, brunch, road trip, day at the beach, movie night, Sunday errands. Make it feel like a fun Saturday morning read.",
+        "structure": "Relatable weekend scenario hook | TOC | 6 weekend scenarios each with: vibe + outfit recipe + why it works + MeeeShop product | The 'lazy Sunday' formula | Packing light for a weekend trip | FAQ | Related products",
+        "tone": "Your stylish best friend texting you 'what are you wearing today?' energy",
+        "title_examples": ["Your Ultimate Weekend Outfit Guide for Every Saturday Plan", "Effortless Brunch Outfits That Feel Expensive But Aren't"],
+    },
+    {
+        "id": "travel_packing_guide",
+        "title_pattern": "The Ultimate Travel Packing Guide: {ptype} That Work Everywhere",
+        "angle": "travel-packing-versatile-wardrobe",
+        "description": "Guide to packing {ptype} for travel. Cover wrinkle-resistant fabrics, versatile pieces that create multiple outfits, how to pack to avoid damage, destination-specific styling (city, beach, mountain, Euro trip), and a packing list template.",
+        "structure": "Overpacking regret hook | TOC | The travel {ptype} formula | Destination guides (3-4 destinations with packing list) | Packing techniques | Anti-wrinkle care tips | FAQ | MeeeShop travel picks",
+        "tone": "Well-travelled fashion editor sharing hard-learned suitcase wisdom",
+        "title_examples": ["Pack Like a Pro: The Only 5 Dresses You Need for a 2-Week Trip", "The Travel Jean: What Makes a Jean Perfect for Every Destination"],
+    },
+    {
+        "id": "handbag_guide",
+        "title_pattern": "The Complete Guide to Choosing & Styling {ptype} for Any Occasion",
+        "angle": "handbag-buying-styling-functionality-guide",
+        "description": "Comprehensive handbag guide covering: how to choose the right size/shape/strap for your body and lifestyle, matching bags to outfits without being matchy-matchy, organisation tips to stop the 'black hole' effect, and which bag styles every woman needs. Applicable to handbags AND clothing accessories.",
+        "structure": "Bag chaos hook | TOC | How to choose by body proportions | The 5 essential bag silhouettes | Outfit-to-bag matching guide | Organisation masterclass | Investment vs. budget picks | FAQ | MeeeShop bag/accessory picks",
+        "tone": "Organised, practical stylist who knows how a great bag completes the look",
+        "title_examples": ["Which Handbag Shape Is Right for You? A Complete Styling Guide", "11 Handbag Rules Every Stylish Woman Should Know"],
+    },
+    {
+        "id": "grwm_personal_story",
+        "title_pattern": "Get Ready With Me: How I Built {num} Outfits Around the {main_product}",
+        "angle": "personal-story-GRWM-relatable-content",
+        "description": "First-person narrative GRWM-style article. The MeeeShop stylist (pen name) shares her personal experience styling the hero product for different real-life situations across a week. Include styling decisions, mishaps, compliments received, and honest tips.",
+        "structure": "Personal intro (why this piece caught my eye) | Day-by-day styling diary (Mon-Sat) | Styling lessons learned | Honest review of fit/fabric | How to shop it | FAQ | Related products",
+        "tone": "Warm, funny, relatable first-person voice like a fashion-obsessed best friend",
+        "title_examples": ["Get Ready With Me: I Wore the Same Dress 6 Ways This Week", "My Honest Review: I Tested This Viral Midi Skirt for 7 Days Straight"],
+    },
+    {
+        "id": "plus_size_curvy_guide",
+        "title_pattern": "The Best {ptype} for Curvy & Plus-Size Women: A Celebration of Your Shape",
+        "angle": "inclusive-plus-size-curvy-styling",
+        "description": "Inclusive, empowering guide to finding and styling {ptype} for curvy and plus-size bodies. Focus on fit principles, what features to look for (elastic waistbands, stretch fabric, adjustable closures), confidence boosting, and celebrating your shape. Feature MeeeShop products available in extended sizes.",
+        "structure": "Body-celebration hook | TOC | Key fit principles for curvy proportions | What to look for in {ptype} | Style formulas that always work | Common fit problems + solutions | Confidence tips | FAQ | MeeeShop plus-size picks",
+        "tone": "Body-positive champion who is passionate about every woman feeling fabulous",
+        "title_examples": ["The Best Wide-Leg Jeans for Curvy Women (That Actually Fit)", "Celebrating Your Curves: The Dress Styles That Will Make You Feel Amazing"],
+    },
+    {
+        "id": "age_decade_guide",
+        "title_pattern": "How to Wear {ptype} in Your 30s, 40s & 50s: The Modern Style Guide",
+        "angle": "age-inclusive-decade-styling",
+        "description": "Modern, age-positive guide to styling {ptype} across different life decades. Reject the idea of 'dressing your age' and instead focus on dressing for your lifestyle, energy and confidence. Give specific styling advice and product picks for women in their 30s, 40s, and 50s+.",
+        "structure": "Age-positive hook (reject old rules) | TOC | 30s: bold experimentation guide | 40s: elevated confidence guide | 50s+: effortless chic guide | Universal rules that work at any age | FAQ | MeeeShop picks for each decade",
+        "tone": "Liberating, modern stylist who believes age is irrelevant when it comes to great style",
+        "title_examples": ["Style Has No Age Limit: How to Wear Midi Skirts in Your 30s, 40s & 50s", "Jeans at 50? Absolutely. Here's How to Make Them Look Incredible"],
+    },
+    {
+        "id": "gift_guide",
+        "title_pattern": "The Best {ptype} Gift Ideas for the Stylish Woman in Your Life",
+        "angle": "gift-guide-shopping-helper",
+        "description": "Gift guide featuring {ptype} as the perfect present. Organise by budget (Under $50, $50-$100, $100+), occasion (birthday, holidays, Mother's Day, just because) and recipient personality (the minimalist, the trendsetter, the comfort lover, the professional). Each recommendation links directly to MeeeShop.",
+        "structure": "Gift stress hook | TOC | By budget sections | By recipient personality | Gifting etiquette (size tips, gift wrapping ideas) | How to include a gift note | FAQ (returns, sizing) | MeeeShop product picks",
+        "tone": "Helpful gift concierge who takes the stress out of finding the perfect fashion present",
+        "title_examples": ["The Best Fashion Gifts for Women (For Every Budget)", "What to Gift the Woman Who Has Everything: 10 MeeeShop Picks"],
+    },
+]
+
+# Seasons and occasions for dynamic title generation
+_SEASONS = ["Summer", "Fall", "Winter", "Spring", "Year-Round"]
+_OCCASIONS = ["Brunch", "Date Night", "Work", "Weekend", "Travel", "a Wedding", "Summer Parties", "Holiday Events"]
+_NUMS = ["5", "7", "9", "10", "11", "12"]
+
+
+def _pick_article_mode(ptype: str) -> dict:
+    """Pick a random article mode. Bias certain modes toward certain product types."""
+    ptype_l = ptype.lower()
+    # Weight handbag-specific mode higher for bag product types
+    weights = [1] * len(ARTICLE_MODES)
+    for idx, mode in enumerate(ARTICLE_MODES):
+        mid = mode["id"]
+        if "handbag" in ptype_l or "bag" in ptype_l or "purse" in ptype_l:
+            if mid == "handbag_guide":
+                weights[idx] = 5
+        if any(x in ptype_l for x in ["jean", "denim"]):
+            if mid in ("fabric_care_guide", "stain_odour_rescue", "capsule_wardrobe"):
+                weights[idx] = 4
+        if "dress" in ptype_l:
+            if mid in ("occasion_based", "trend_report", "body_type_guide", "seasonal_transition"):
+                weights[idx] = 3
+        if any(x in ptype_l for x in ["top", "blouse", "shirt"]):
+            if mid in ("one_item_multiple_ways", "work_dress_code", "colour_palette_guide"):
+                weights[idx] = 3
+
+    total = sum(weights)
+    r = random.random() * total
+    cumulative = 0
+    for idx, w in enumerate(weights):
+        cumulative += w
+        if r < cumulative:
+            return ARTICLE_MODES[idx]
+    return random.choice(ARTICLE_MODES)
+
+
+# ── AI Prompt Construction ──────────────────────────────────────────────────────
+def _build_article_prompt(main_product: dict, research_data: dict, matching_products: list, mode: dict | None = None) -> str:
     ptype = research_data["product_type"]
     kws = research_data["keywords"]
     long_tail = kws.get("long_tail", [])
     zero_search = kws.get("zero_search", [])
     articles = research_data.get("articles", [])
-
     m_names = [m["title"] for m in matching_products]
-    
-    # Format the research context from WhoWhatWear / Refinery29
+
+    if mode is None:
+        mode = _pick_article_mode(ptype)
+
+    # Resolve dynamic placeholders in title pattern
+    season = random.choice(_SEASONS)
+    season2 = random.choice([s for s in _SEASONS if s != season])
+    occasion = random.choice(_OCCASIONS)
+    num = random.choice(_NUMS)
+    title_hint = (
+        mode["title_pattern"]
+        .replace("{ptype}", ptype)
+        .replace("{main_product}", main_product["title"])
+        .replace("{season}", season)
+        .replace("{season1}", season)
+        .replace("{season2}", season2)
+        .replace("{occasion}", occasion)
+        .replace("{num}", num)
+        .replace("{year}", str(YEAR))
+    )
+
+    # Research context from trending articles
     research_context = ""
     if articles:
-        research_context += "TRENDING ARTICLE REFERENCE FROM WHO WHAT WEAR & REFINERY29:\n"
+        research_context = "TRENDING ARTICLE REFERENCES (Who What Wear, Refinery29, Harper's Bazaar, Elle — last 48h):\n"
         for idx, art in enumerate(articles[:4]):
             title = art.get("title", "")
             summary = art.get("summary", "")
-            content_snippet = art.get("full_content", "")[:600]
-            research_context += f"Reference #{idx+1}:\nTitle: {title}\nSummary: {summary}\nContent Snippet: {content_snippet}\n\n"
+            snippet = (art.get("full_content") or "")[:500]
+            src = art.get("source", "")
+            research_context += f"Ref #{idx+1} [{src}]:\n  Title: {title}\n  Summary: {summary}\n  Snippet: {snippet}\n\n"
 
-    prompt = f"""
-You are an expert fashion stylist and editor writing for MeeeShop, a premium clothing boutique catering to women in the USA.
-Write a highly engaging, helpful, and 100% original blog post.
+    prompt = f"""You are {random.choice(PEN_NAMES)}, an expert fashion editor writing for MeeeShop — a premium women's clothing boutique based in the USA.
 
-Featured Store Product: {main_product['title']} (Product Type: {ptype})
-Complementary Products to Mention: {', '.join(m_names)}
+Your mission today: Write a **100% original, highly engaging** blog article in the style of Who What Wear & Refinery29, adapted for MeeeShop's audience.
 
-Target Audience: USA women who want styling solutions, care guidance, and clothes longevity advice.
-Topic/Theme: Help readers with practical solutions. Include tips such as cleaning stains, removing stinky odors, preventing piling, washing and maintaining fabrics.
+────────── ARTICLE MODE ──────────
+Mode: {mode['id']}
+Angle: {mode['angle']}
+Title Suggestion: {title_hint}
+Content Brief: {mode['description']}
+Required Structure: {mode['structure']}
+Writing Tone: {mode['tone']}
+Title Examples (for inspiration, do NOT copy): {'; '.join(mode.get('title_examples', []))}
 
-SEO Keywords to weave in naturally:
+────────── PRODUCT CONTEXT ──────────
+Hero Product: {main_product['title']} (Type: {ptype})
+Complementary Products to naturally mention: {', '.join(m_names)}
+Store URL base: {STORE_URL}
+
+────────── SEO KEYWORDS ──────────
+Weave these naturally — never stuff them:
 Long-tail: {', '.join(long_tail[:5])}
-Zero Search Volume: {', '.join(zero_search[:5])}
+Zero-Search-Volume: {', '.join(zero_search[:5])}
 
-{research_context}
+────────── TREND RESEARCH ──────────
+{research_context if research_context else 'No external trend references available — use your expert fashion knowledge for {MONTH}.'}
 
-Editorial Guidelines & Style Analysis (Inspired by Who What Wear & Refinery29):
-1. Title Style: Catchy, benefits-focused, or problem-solving (e.g. "How to Style {ptype}", "What to Wear with {ptype}", "How to Wash & Care for {ptype} Without Ruining It").
-2. Content Style: Benefit-driven, authoritative but friendly boutique-owner or personal-stylist voice. Highly structured and readable.
-3. Structure: 
-   - A strong, benefit-driven intro paragraph that hooks the reader with a styling/care secret (no generic setups).
-   - A clear "Table of Contents" at the top linking to the main H2 sections.
-   - Deep H2 & H3 sections providing styling recipes and fabric care/maintenance (e.g., how to wash, remove stinky smells from denim, prevent piling, clean stains).
-   - Bullet lists or numbered guides for actionable tips.
-   - A helpful FAQs section with 5-6 common questions (answering footwear pairings, day-to-night transitions, sizing fit, fabric maintenance) and detailed answers.
-4. Product Promotion: Weave the store products naturally into the text (e.g. "We recommend pairing it with the {m_names[0] if m_names else 'collection top'}" or "The {main_product['title']} is the perfect foundation...").
-5. Ignore Google Discover constraints (no strict formatting hooks required, write in a warm, expert boutique-owner tone).
+────────── MANDATORY EDITORIAL RULES ──────────
+1. Target audience: Women in the USA, ages 25-55. Speak directly to her.
+2. Open with a STRONG hook — surprising stat, relatable pain point, bold statement, or intriguing question. NO generic 'In today's world...' openers.
+3. Include a Table of Contents (HTML anchor links) after the intro.
+4. Use H2 and H3 headers. Every section must provide REAL, actionable value.
+5. Include at least one numbered list OR bullet-point checklist with 5+ items.
+6. Mention the hero product AND at least one complementary product NATURALLY within the article body (not just in promotional sections).
+7. End with an FAQ section containing 5-6 specific, realistic questions women ask about this topic, with detailed answers.
+8. DO NOT be generic. Every tip must be specific. "Pair with white sneakers" is boring. "Try the {m_names[0] if m_names else 'MeeeShop top'} in cream for a tonal, editorial moment" is great.
+9. Article length: Aim for 900-1200 words of body content (excluding product cards added separately).
 
-At the very end of your response, append a <seometa> block:
+At the very end, append this block:
 <seometa>
-SEO_TITLE: [50-60 chars, keyword near start, year or 'for Women']
-META_DESC: [140-155 chars, action-oriented description, ends with CTA]
-IMG_ALT: [10-15 words, description of styling scene]
-SUGGESTED_HANDLE: [slugified-title]
-SUGGESTED_TAGS: [comma-separated tags]
+SEO_TITLE: [50-60 chars, include main keyword near start, current year or 'for Women']
+META_DESC: [140-155 chars, benefit-first, end with CTA]
+IMG_ALT: [10-15 words describing the featured image styling scene]
+SUGGESTED_HANDLE: [url-slug-format]
+SUGGESTED_TAGS: [comma-separated list of 6-8 relevant tags]
+ARTICLE_MODE: {mode['id']}
 </seometa>
 
-Output ONLY clean HTML body content and the <seometa> block.
-Do not use markdown code block fences (e.g., ```html). Start directly with HTML content.
+Output ONLY clean HTML body content then the <seometa> block. No markdown fences. Start with the first HTML tag.
 """
-    return prompt
+    return prompt, mode
 
 def _parse_seometa(raw: str) -> dict:
     meta = {"seo_title": "", "meta_desc": "", "img_alt": "", "suggested_handle": "", "suggested_tags": []}
@@ -757,10 +1006,11 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
         print(f"    Main Product: {main_product['title']}")
         print(f"    Styling Pairings: {[p['title'] for p in matching_products]}")
         
-        # Build prompt
-        prompt = _build_article_prompt(main_product, rdata, matching_products)
+        # Pick article mode & build prompt
+        prompt, chosen_mode = _build_article_prompt(main_product, rdata, matching_products)
+        print(f"    Article Mode: {chosen_mode['id']}")
         print("    Querying AI generator...")
-        raw_ai = ai_client.generate(prompt, max_tokens=2500, temperature=0.72)
+        raw_ai = ai_client.generate(prompt, max_tokens=3000, temperature=0.85)
         if not raw_ai:
             print("    [!] AI generation failed.")
             continue
@@ -830,19 +1080,69 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
         img_alt = seometa.get("img_alt") or f"{main_product['title']} styling collage"
         tags = seometa.get("suggested_tags") or ["style", "fashion", ptype.lower()]
         
-        # Route to blog
+        # ── Smart Blog Routing ─────────────────────────────────────────────
+        # Available blogs (from Shopify):
+        #   Announcements          -> store news ONLY, never used here
+        #   Cardigans & Sweaters   -> handle: cardigans-sweaters-style-guide
+        #   Coats & Jackets        -> handle: coats-jackets-style-guide
+        #   Dresses                -> handle: dresses-style-guide
+        #   Jeans                  -> handle: jeans-style-guide
+        #   Our Tips               -> handle: our-tips  (DEFAULT fallback)
+        #   Plus Size | Curvy      -> handle: plus-size-curvy-clothing
+        #   Veganism               -> handle: everything-anything-about-vegan
+        #   Women's Clothing       -> handle: womens-clothing
+        #   Women's Pants          -> handle: womens-pants-style-guide
+        #   Women's Shirts & Tops  -> handle: womens-shirts-tops-style-guide
+        #   women's skirts         -> handle: womens-skirts-style-guide
+        BLOG_ROUTING = [
+            # (ptype keywords,  article mode ids,            blog handle)
+            (["jean", "denim"],                   None,                           "jeans-style-guide"),
+            (["dress"],                            None,                           "dresses-style-guide"),
+            (["skirt"],                            None,                           "womens-skirts-style-guide"),
+            (["pant", "trouser", "legging"],       None,                           "womens-pants-style-guide"),
+            (["top", "blouse", "shirt", "tee", "t-shirt", "tunic", "tank"],
+                                                   None,                           "womens-shirts-tops-style-guide"),
+            (["cardigan", "sweater", "sweatshirt", "knit", "pullover"],
+                                                   None,                           "cardigans-sweaters-style-guide"),
+            (["coat", "jacket", "blazer", "vest", "outerwear"],
+                                                   None,                           "coats-jackets-style-guide"),
+            (["plus", "curvy"],                    ["plus_size_curvy_guide"],       "plus-size-curvy-clothing"),
+            (["vegan", "eco", "sustainable"],      None,                           "everything-anything-about-vegan"),
+            # Generic clothing/handbags/accessories -> Women's Clothing
+            (["short", "romper", "jumpsuit", "set", "loungewear", "handbag", "bag", "purse", "accessory", "bottom"],
+                                                   None,                           "womens-clothing"),
+        ]
+        OUR_TIPS_HANDLE   = "our-tips"         # default fallback
+        ANNOUNCEMENT_HANDLE = "announcements"  # NEVER post here automatically
+
         blogs = fetch_all_blogs()
-        blog = blogs[0]
-        # Route by type
+        # Build handle->blog map
+        blog_by_handle = {b["handle"]: b for b in blogs}
+        blog_by_handle_lower = {b["handle"].lower(): b for b in blogs}
+
         ptype_l = ptype.lower()
-        for b in blogs:
-            btitle = b["title"].lower()
-            if ("jean" in ptype_l or "denim" in ptype_l) and "jean" in btitle:
-                blog = b
-                break
-            elif "dress" in ptype_l and "dress" in btitle:
-                blog = b
-                break
+        mode_id = chosen_mode["id"]
+        chosen_blog = None
+
+        for kw_list, mode_ids, target_handle in BLOG_ROUTING:
+            kw_match  = any(kw in ptype_l for kw in kw_list)
+            mode_match = (mode_ids is None) or (mode_id in mode_ids)
+            if kw_match and mode_match:
+                chosen_blog = blog_by_handle_lower.get(target_handle.lower())
+                if chosen_blog:
+                    break
+
+        # Fallback to Our Tips (never Announcements)
+        if not chosen_blog:
+            chosen_blog = blog_by_handle_lower.get(OUR_TIPS_HANDLE)
+        # Final safety net
+        if not chosen_blog:
+            chosen_blog = next(
+                (b for b in blogs if b["handle"].lower() != ANNOUNCEMENT_HANDLE),
+                blogs[0]
+            )
+        blog = chosen_blog
+        print(f"    Routing to blog: '{blog['title']}' (handle: {blog['handle']})")
                 
         result = {
             "title": seo_title,
