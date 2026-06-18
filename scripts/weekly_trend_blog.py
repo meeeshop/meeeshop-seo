@@ -108,7 +108,8 @@ def _req(method: str, url: str, **kw):
         try:
             r = getattr(requests, method)(url, headers=HEADERS, timeout=30, **kw)
             if r.status_code == 429:
-                wait = int(float(r.headers.get("Retry-After", 4)))
+                # Add exponential backoff to the wait time
+                wait = int(float(r.headers.get("Retry-After", 4))) + (2 ** attempt)
                 print(f"  [Shopify] Rate limited — waiting {wait}s…")
                 time.sleep(wait)
                 continue
