@@ -100,10 +100,7 @@ jobs:
     needs: [get-total-articles]
     runs-on: ubuntu-latest
     timeout-minutes: 60 # Allow more time for full regeneration
-    strategy:
-      fail-fast: false
-      matrix:
-        batch_index: ${{ fromJson(needs.get-total-articles.outputs.batches_json) }}
+    # Removed strategy.matrix to ensure serial execution
     
     steps:
       - name: Checkout repository
@@ -121,47 +118,48 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Build CLI arguments
-        id: args
-        run: |
-          ARGS=""
-          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
-            ARGS="$ARGS --dry-run"
-          fi
-          
-          if [ "${{ github.event.inputs.force }}" == "true" ]; then
-            ARGS="$ARGS --force --batch-size ${{ github.event.inputs.batch_size }} --batch-index ${{ matrix.batch_index }}"
-          elif [ -n "${{ github.event.inputs.article_id }}" ]; then
-            ARGS="$ARGS --article-id ${{ github.event.inputs.article_id }}"
-          else
-            echo "Error: Either 'force' or 'article_id' must be provided."
-            exit 1
-          fi
-
-          if [ -n "${{ github.event.inputs.force_format }}" ]; then
-            ARGS="$ARGS --force-format ${{ github.event.inputs.force_format }}"
-          fi
-          
-          echo "cli_args=$ARGS" >> "$GITHUB_OUTPUT"
-          echo "Running with arguments: $ARGS"
-
-      - name: Debug Scripts Directory
-        run: |
-          ls -la scripts/ || echo "scripts directory not found"
-
-      - name: Run Article Regenerator
+      - name: Run Article Regenerator for all batches
         env:
           PYTHONUTF8: "1"
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+          BATCHES_JSON: ${{ needs.get-total-articles.outputs.batches_json }} # Pass batches_json as an environment variable
         run: |
-          python scripts/regenerate_articles.py ${{ steps.args.outputs.cli_args }}
+          # Install jq to parse JSON array
+          sudo apt-get update && sudo apt-get install -y jq
+
+          # Parse the JSON array into a bash array and loop through each batch index
+          BATCH_INDICES=$(echo "$BATCHES_JSON" | jq -r '.[]')
+
+          for BATCH_INDEX in $BATCH_INDICES; do
+            echo "Processing batch $BATCH_INDEX"
+            ARGS=""
+            if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+              ARGS="$ARGS --dry-run"
+            fi
+            
+            if [ "${{ github.event.inputs.force }}" == "true" ]; then
+              ARGS="$ARGS --force --batch-size ${{ github.event.inputs.batch_size }} --batch-index $BATCH_INDEX"
+            elif [ -n "${{ github.event.inputs.article_id }}" ]; then
+              ARGS="$ARGS --article-id ${{ github.event.inputs.article_id }}"
+            else
+              echo "Error: Either 'force' or 'article_id' must be provided."
+              exit 1
+            fi
+
+            if [ -n "${{ github.event.inputs.force_format }}" ]; then
+              ARGS="$ARGS --force-format ${{ github.event.inputs.force_format }}"
+            fi
+            
+            echo "Running with arguments: $ARGS"
+            python scripts/regenerate_articles.py $ARGS
+          done
 
       - name: Upload logs and backups
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: regenerated-articles-logs-${{ github.run_number }}-${{ matrix.batch_index }}
+          name: regenerated-articles-logs-${{ github.run_number }} # Removed batch_index from name
           path: |
             logs/regenerate_articles_log_*.json
             backup_articles/
