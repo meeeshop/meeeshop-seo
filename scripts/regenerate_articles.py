@@ -218,8 +218,7 @@ def _lsi_keywords(ptype: str, keyword: str) -> list[str]:
     combined = list(dict.fromkeys(extras + base_lsi))[:8]
     return combined
 
-def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, similar_products: list | None = None, matching_products: list | None = None) -> tuple[str, str]:
-def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, similar_products: list | None = None, matching_products: list | None = None, force_topic_from_handle: str | None = None) -> tuple[str, str]:
+def _build_prompt(fmt: str, product: dict, keyword: str, title_hint: str, similar_products: list | None = None, matching_products: list | None = None, force_topic_from_handle: str | None = None, original_handle: str | None = None) -> tuple[str, str]:
     display_name = get_product_display_name(product)
     clean_ptype = get_clean_product_type(product)
     price  = product["variants"][0]["price"] if product.get("variants") else "49"
@@ -1361,7 +1360,6 @@ def regenerate_single_article(
     print(f"  Matching products for collage: {[p['title'] for p in matching_products]}")
 
     # 4. Build AI prompt and generate content
-    prompt, _ = _build_prompt(fmt, selected_product, keyword, title_hint, similar_products=all_products_with_images, matching_products=matching_products)
     prompt, _ = _build_prompt(fmt, selected_product, keyword, title_hint, similar_products=all_products_with_images, matching_products=matching_products, original_handle=original_handle)
     print("  Generating new content with AI...")
     raw_ai_response = ai_client.generate(prompt, max_tokens=2000, temperature=0.75)
@@ -1414,17 +1412,6 @@ def regenerate_single_article(
     # 8. Handle comparison and redirect
     final_handle = original_handle
     if suggested_handle != original_handle:
-    # Only redirect as a last resort if the suggested handle is vastly different from the original handle
-    # (e.g. if the original handle is 'news' or something generic, and we generated a highly specific article).
-    # If the original handle is mostly contained in the new handle or vice versa, keep the original to preserve SEO.
-    if suggested_handle != original_handle and suggested_handle.replace('-', '') not in original_handle.replace('-', '') and original_handle.replace('-', '') not in suggested_handle.replace('-', ''):
-        print(f"  [HANDLE CHANGE] Suggested handle '{suggested_handle}' differs from original '{original_handle}'.")
-        old_full_url = f"{STORE_URL}/blogs/{blog_handle}/{original_handle}"
-        new_full_url = f"{STORE_URL}/blogs/{blog_handle}/{suggested_handle}" # Assuming blog_handle remains same
-        if not dry_run:
-            if create_redirect(old_full_url, new_full_url, dry_run=False):
-                final_handle = suggested_handle
-                log_entry["changes"].append({"field": "handle", "old": original_handle, "new": suggested_handle, "redirect_created": True})
         # Only redirect as a last resort if the suggested handle is vastly different from the original handle
         # (e.g. if the original handle is 'news' or something generic, and we generated a highly specific article).
         # If the original handle is mostly contained in the new handle or vice versa, keep the original to preserve SEO.
@@ -1440,19 +1427,13 @@ def regenerate_single_article(
                     print(f"    [WARN] Failed to create redirect. Keeping original handle: '{original_handle}'.")
                     log_entry["changes"].append({"field": "handle", "old": original_handle, "new": original_handle, "redirect_created": False, "message": "Redirect failed"})
             else:
-                print(f"    [WARN] Failed to create redirect. Keeping original handle: '{original_handle}'.")
-                log_entry["changes"].append({"field": "handle", "old": original_handle, "new": original_handle, "redirect_created": False, "message": "Redirect failed"})
                 print(f"    [DRY-RUN] Would change handle to '{suggested_handle}' and create redirect from '{old_full_url}' to '{new_full_url}'.")
                 final_handle = suggested_handle # For dry-run output
                 log_entry["changes"].append({"field": "handle", "old": original_handle, "new": suggested_handle, "redirect_created": True, "dry_run": True})
         else:
-            print(f"    [DRY-RUN] Would change handle to '{suggested_handle}' and create redirect from '{old_full_url}' to '{new_full_url}'.")
-            final_handle = suggested_handle # For dry-run output
-            log_entry["changes"].append({"field": "handle", "old": original_handle, "new": suggested_handle, "redirect_created": True, "dry_run": True})
             print(f"  [HANDLE] Handle differs slightly, but keeping original handle: '{original_handle}' to preserve SEO.")
     else:
         print(f"  [HANDLE] Handle remains unchanged: '{original_handle}'.")
-        print(f"  [HANDLE] Keeping original handle: '{original_handle}' to preserve SEO.")
 
     # 9. Prepare payload for article update
     payload = {
