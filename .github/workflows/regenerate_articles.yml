@@ -42,6 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       total_articles: ${{ steps.count.outputs.total_articles }}
+      batches_json: ${{ steps.count.outputs.batches_json }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -64,10 +65,24 @@ jobs:
           PYTHONUTF8: "1"
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+          BATCH_SIZE: ${{ github.event.inputs.batch_size }}
         run: |
           TOTAL_ARTICLES=$(python scripts/regenerate_articles.py --count-only --force)
           echo "total_articles=$TOTAL_ARTICLES" >> "$GITHUB_OUTPUT"
           echo "Total articles to process: $TOTAL_ARTICLES"
+
+          # Calculate batches using shell arithmetic for ceiling division
+          BATCH_SIZE_INT=${{ env.BATCH_SIZE }}
+          if [ -z "$BATCH_SIZE_INT" ] || [ "$BATCH_SIZE_INT" -le 0 ]; then
+            BATCH_SIZE_INT=20 # Default if not provided or invalid
+          fi
+
+          BATCHES=$(( (TOTAL_ARTICLES + BATCH_SIZE_INT - 1) / BATCH_SIZE_INT ))
+          [ $BATCHES -lt 1 ] && BATCHES=1
+          echo "Calculated batches: $BATCHES"
+
+          JSON="["; for (( i=0; i<BATCHES; i++ )); do [ $i -gt 0 ] && JSON+=","; JSON+="$i"; done; JSON+="]"
+          echo "batches_json=$JSON" >> "$GITHUB_OUTPUT"
 
   regenerate-articles:
     needs: [get-total-articles]
@@ -76,7 +91,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        batch_index: ${{ github.event.inputs.force == 'true' && range(0, add(div(add(needs.get-total-articles.outputs.total_articles, -1), github.event.inputs.batch_size), 1)) || range(0, 1) }}
+        batch_index: ${{ github.event.inputs.force == 'true' && fromJson(needs.get-total-articles.outputs.batches_json) || range(0, 1) }}
     
     steps:
       - name: Checkout repository
