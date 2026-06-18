@@ -778,6 +778,87 @@ def clean_article_body_html(html_str: str) -> str:
     return res.strip()
 
 
+def swap_products_in_html(body_html: str, replacement_map: dict[str, dict], product_by_handle: dict[str, dict]) -> tuple[str, int]:
+    """
+    Parse the HTML, find all product links that point to out-of-stock products,
+    and replace their product card container (if found) or the link/text inline.
+    Returns (new_html, swap_count).
+    """
+    if not body_html or not replacement_map:
+        return body_html, 0
+
+    soup = BeautifulSoup(body_html, "html.parser")
+    swaps = 0
+
+    # 1. First find and replace product card containers
+    for a in soup.find_all("a"):
+        href = a.get("href", "")
+        m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
+        if m:
+            handle = m.group(1)
+            if handle in replacement_map:
+                rep = replacement_map[handle]
+                
+                # Check for styled product card container
+                card_container = None
+                parent = a.parent
+                while parent and parent.name not in ("body", "html", "[document]"):
+                    style = parent.get("style", "") or ""
+                    style_clean = style.replace(" ", "").lower()
+                    if "background:#f8f6f3" in style_clean: # main product card
+                        card_container = parent
+                        break
+                    parent = parent.parent
+                
+                if card_container:
+                    new_card_html = make_product_card(rep)
+                    new_card_soup = BeautifulSoup(new_card_html, "html.parser")
+                    card_container.replace_with(new_card_soup)
+                    swaps += 1
+
+    # 2. Swap inline product links (href, titles, and inner images)
+    for a in soup.find_all("a"):
+        href = a.get("href", "")
+        m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
+        if m:
+            handle = m.group(1)
+            if handle in replacement_map:
+                rep = replacement_map[handle]
+                
+                # Update href
+                new_url = f"https://us.meeeshop.com/products/{rep['handle']}?utm_source=blog&utm_medium=refreshed_link&utm_campaign=meeeshop_refresh"
+                a["href"] = new_url
+                
+                # Update visible text if it contains the old title
+                old_prod = product_by_handle.get(handle)
+                if old_prod:
+                    old_title = old_prod.get("title", "")
+                    if a.string and old_title.lower() in a.string.lower():
+                        a.string = rep["title"]
+                    else:
+                        for child in list(a.descendants):
+                            if isinstance(child, str) and old_title.lower() in child.lower():
+                                child.replace_with(child.replace(old_title, rep["title"]))
+                swaps += 1
+
+    # 3. Update image references inside product links
+    for a in soup.find_all("a"):
+        href = a.get("href", "")
+        m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
+        if m:
+            handle = m.group(1)
+            prod = replacement_map.get(handle)
+            if prod:
+                img = a.find("img")
+                if img:
+                    new_src = product_img_url(prod)
+                    if new_src:
+                        img["src"] = new_src
+                    img["alt"] = f"{prod['title']} — shop at MeeeShop"
+
+    return str(soup), swaps
+
+
 # ── Main article refresh logic ────────────────────────────────────────────────
 def refresh_article(blog: dict, article: dict, all_products: list,
                     in_stock: list, out_of_stock_handles: set[str],
@@ -785,8 +866,8 @@ def refresh_article(blog: dict, article: dict, all_products: list,
                     dry_run: bool = False, no_ai: bool = False,
                     **kwargs) -> dict | None:
     """
-    Refresh one article. Returns a result dict on success, None on skip/failure.
-    Result keys: replacements (list of {old, new} dicts), featured_product (title).
+    Refresh one article by replacing out-of-stock products with in-stock ones of the same type.
+    Does NOT rewrite the article content or change the handle & title.
     """
     blog_id    = blog["id"]
     article_id = article["id"]
@@ -797,11 +878,16 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     print(f"\n  Article : '{art_title[:70]}'")
     print(f"  Handle  : {art_handle}")
 
-    # ── 0. Fix images only mode ───────────────────────────────────────────────
-    if kwargs.get("fix_images_only"):
+    # ── 1. Find out-of-stock product handles referenced in this article ───────
+    referenced = extract_product_handles(body)
+    oos_in_article = referenced & out_of_stock_handles
+    print(f"  Products referenced: {len(referenced)} | out-of-stock: {len(oos_in_article)}")
+
+    if not oos_in_article:
+        # Run fix_article_images to ensure any existing images are up-to-date
         new_body, swaps = fix_article_images(body, product_by_handle)
         if swaps > 0:
-            print(f"  [Fix Images] Fixed {swaps} broken product images.")
+            print(f"  [Fix Images] Fixed {swaps} broken/outdated product images.")
             if dry_run:
                 print(f"  [DRY-RUN] would PATCH article {article_id} with fixed images.")
                 return {"status": "images_fixed", "swaps": swaps}
@@ -814,24 +900,19 @@ def refresh_article(blog: dict, article: dict, all_products: list,
             }
             r = _req("put", f"{BASE}/blogs/{blog_id}/articles/{article_id}.json", json=payload)
             if r.status_code in (200, 201):
-                print(f"  PATCHED  : article {article_id} images fixed successfully")
+                print(f"  PATCHED  : article {article_id} images updated successfully")
                 return {"status": "images_fixed", "swaps": swaps}
             else:
                 print(f"  PATCH FAILED {r.status_code}: {r.text[:200]}")
                 return None
         else:
-            print("  [Fix Images] No broken images found to fix.")
+            print("  No out-of-stock products or outdated images found. No changes needed.")
             return {"status": "no_changes_needed", "swaps": 0}
-
-    # ── 1. Find out-of-stock product handles referenced in this article ───────
-    referenced = extract_product_handles(body)
-    oos_in_article = referenced & out_of_stock_handles
-    print(f"  Products referenced: {len(referenced)} | out-of-stock: {len(oos_in_article)}")
 
     # Build replacement map for out-of-stock handles
     replacement_map: dict[str, dict] = {}
     replacements_log: list[dict] = []
-    chosen_featured: dict | None = None
+    first_replacement: dict | None = None
 
     for handle in oos_in_article:
         old_product = product_by_handle.get(handle)
@@ -840,8 +921,8 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         replacement = find_best_replacement(old_product, in_stock)
         if replacement:
             replacement_map[handle] = replacement
-            if chosen_featured is None:
-                chosen_featured = replacement
+            if first_replacement is None:
+                first_replacement = replacement
             replacements_log.append({
                 "old_handle": handle,
                 "old_title":  old_product["title"],
@@ -852,139 +933,26 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         else:
             print(f"    No replacement found for '{handle}'")
 
-    # ── 2. If no products in article at all, pick a featured product ──────────
-    no_products_originally = not referenced
-    if no_products_originally:
-        print("  No products in post — will inject a featured product")
-        with_img = [p for p in in_stock if p.get("images")]
-        chosen_featured = random.choice(with_img) if with_img else (random.choice(in_stock) if in_stock else None)
-
-    # If we have no replacement to feature, pick any in-stock product
-    if chosen_featured is None and in_stock:
-        with_img = [p for p in in_stock if p.get("images")]
-        chosen_featured = random.choice(with_img) if with_img else random.choice(in_stock)
-
-    if not chosen_featured:
-        print("  SKIP — no in-stock products available")
+    if not replacement_map:
+        print("  SKIP — No replacements could be determined for out-of-stock products.")
         return None
 
-    # ── 3. Pick keyword for this refresh ──────────────────────────────────────
-    ptype   = (chosen_featured.get("product_type") or "women's fashion").lower()
-    keyword = random.choice(SEED_KEYWORDS)
+    # Swap product links and styled card containers in HTML
+    new_body, swaps = swap_products_in_html(body, replacement_map, product_by_handle)
+    
+    # Run image fixes on top of the swapped HTML to ensure images are fresh
+    new_body, img_swaps = fix_article_images(new_body, product_by_handle)
 
-    # ── 4. Build new body HTML ─────────────────────────────────────────
-    print(f"  Featured: '{chosen_featured['title'][:50]}' (${chosen_featured['variants'][0]['price'] if chosen_featured.get('variants') else '?'})")
-    print(f"  Keyword : {keyword}")
+    if swaps == 0 and img_swaps == 0:
+        print("  No replacements or changes made in HTML. Skipping.")
+        return {"status": "no_changes_needed", "swaps": 0}
 
-    if no_ai:
-        print("  [No-AI Mode] Performing programmatic refresh...")
-        new_body = clean_article_body_html(body)
+    print(f"  HTML Swaps made: {swaps} | Image updates: {img_swaps}")
 
-        # ── 5. Inject product card + related products ──────────────────────────────
-        card = make_product_card(chosen_featured, keyword)
-        pos  = new_body.find("</p>")
-        if pos != -1:
-            new_body = new_body[:pos+4] + "\n" + card + new_body[pos+4:]
-        else:
-            new_body = card + new_body
-
-        new_body += make_related_products_section(
-            all_products, chosen_featured.get("handle", ""), keyword
-        )
-
-        # ── 6. Generate SEO metadata programmatically ──────────────────────────────────
-        seo = {
-            "seo_title": f"{keyword.title()} — MeeeShop {YEAR}"[:60],
-            "meta_desc": (
-                f"Discover the best {ptype} for women in {YEAR}. "
-                f"Shop {chosen_featured['title']} at MeeeShop — free US shipping on orders $50+, "
-                f"easy 7-day returns, sizes XS–3X."
-            )[:155],
-            "img_alt": f"{chosen_featured['title']} — {ptype} for women, {YEAR} fashion guide at MeeeShop"
-        }
-    else:
-        print("  Generating refreshed content via AI…")
-        prompt   = _build_refresh_prompt(art_title, chosen_featured, keyword, body, article_handle=art_handle)
-        new_body = ai_client.generate(prompt, max_tokens=1800, temperature=0.75)
-
-        is_fallback_mode = False
-        seo_text = ""
-
-        if not new_body:
-            print("  [AI] All providers failed — executing local template-based fallback generator...")
-            is_fallback_mode = True
-            from blog_daily import select_styling_matches
-            matching_products = select_styling_matches(chosen_featured, in_stock, num_matches=2)
-            new_body, seo = generate_fallback_blog_post(
-                "problem_solver", chosen_featured, keyword, art_title, in_stock, matching_products
-            )
-        else:
-            # Extract <seometa> block if present
-            seo_match = re.search(r"<seometa>(.*?)</seometa>", new_body, re.DOTALL | re.IGNORECASE)
-            if seo_match:
-                seo_text = seo_match.group(1).strip()
-                # Remove the <seometa> block from body
-                new_body = new_body[:seo_match.start()] + new_body[seo_match.end():]
-            else:
-                # Inline detection fallback if tags were omitted
-                lines = new_body.splitlines()
-                cleaned_lines = []
-                seo_lines = []
-                for line in lines:
-                    l_upper = line.strip().upper()
-                    if l_upper.startswith("SEO_TITLE:") or l_upper.startswith("META_DESC:") or l_upper.startswith("IMG_ALT:"):
-                        seo_lines.append(line)
-                    elif "seometa" not in line.lower():
-                        cleaned_lines.append(line)
-                if seo_lines:
-                    seo_text = "\n".join(seo_lines)
-                    new_body = "\n".join(cleaned_lines)
-
-        new_body = _clean_html(new_body)
-
-        # ── 5. Inject product card + related products ──────────────────────────────
-        card = make_product_card(chosen_featured, keyword)
-        pos  = new_body.find("</p>")
-        if pos != -1:
-            new_body = new_body[:pos+4] + "\n" + card + new_body[pos+4:]
-        else:
-            new_body = card + new_body
-
-        new_body += make_related_products_section(
-            all_products, chosen_featured.get("handle", ""), keyword
-        )
-
-        # ── 6. Generate SEO metadata ───────────────────────────────────────────────
-        if not is_fallback_mode:
-            print("  Extracting SEO metadata…")
-            seo = parse_and_clean_seo_meta(seo_text, keyword, chosen_featured["title"], ptype)
-
-    print(f"  SEO title : {seo['seo_title']}")
-    print(f"  Meta desc : {seo['meta_desc'][:80]}…")
-
-    # ── 7. Featured image URL (1200px) ────────────────────────────────────────
-    img_url = make_featured_image_url(chosen_featured)
-    img_src = "Shopify CDN 1200x630" if chosen_featured.get("images") else "Pollinations.ai"
-    print(f"  Image     : {img_src}")
-
-    # ── 8. Build summary_html (meta description excerpt) ─────────────────────
-    summary_html = f"<p>{seo['meta_desc']}</p>"
-
-    # ── 9. Build updated tags ─────────────────────────────────────────────────
-    existing_tags = [t.strip() for t in (article.get("tags") or "").split(",") if t.strip()]
-    new_tags = list(dict.fromkeys(
-        existing_tags +
-        ["fashion", "women fashion", "MeeeShop", "USA fashion", f"fashion {YEAR}"] +
-        [w for w in keyword.split() if len(w) > 3][:3]
-    ))[:20]
-    tags_str = ", ".join(new_tags)
-
-    # ── 10. Dry-run short-circuit ─────────────────────────────────────────────
+    # ── Dry-run short-circuit ─────────────────────────────────────────────
     if dry_run:
-        preview = re.sub(r"<[^>]+>", " ", new_body)[:200].strip()
-        print(f"  [DRY-RUN] would PATCH article {article_id}")
-        print(f"  Preview  : {preview}…")
-        return {"replacements": replacements_log, "featured_product": chosen_featured["title"]}
+        print(f"  [DRY-RUN] would PATCH article {article_id} with swapped products.")
+        return {"replacements": replacements_log, "featured_product": first_replacement["title"]}
 
     # Save a backup of the original article content before we edit it
     backup_data = {
@@ -1003,25 +971,12 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     backup_file.write_text(json.dumps(backup_data, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"    [Backup] Saved original article content to backup_articles/{backup_file.name}")
 
-    # ── 11. PATCH the article (keeps same URL handle and title) ───────────────
-    author_name = article.get("author", "").strip()
-    if not author_name or any(g in author_name.lower() for g in ["meeeshop", "author", "staff", "writer", "admin"]):
-        author_name = random.choice(PEN_NAMES)
-
+    # ── PATCH the article (keeps same URL handle, title, author, tags, etc.) ──
     payload = {
         "article": {
             "id":           article_id,
             "body_html":    new_body,
-            "summary_html": summary_html,
-            "tags":         tags_str,
-            "published":    True,
-            "author":       author_name,
         }
-    }
-    # Update featured image
-    payload["article"]["image"] = {
-        "src": img_url,
-        "alt": seo["img_alt"],
     }
 
     r = _req("put", f"{BASE}/blogs/{blog_id}/articles/{article_id}.json", json=payload)
@@ -1029,12 +984,8 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         print(f"  PATCH FAILED {r.status_code}: {r.text[:200]}")
         return None
 
-    print(f"  PATCHED  : article {article_id} updated successfully")
-
-    # ── 12. Upsert SEO metafields ─────────────────────────────────────────────
-    set_article_seo_metafields(blog_id, article_id, seo["seo_title"], seo["meta_desc"])
-
-    return {"replacements": replacements_log, "featured_product": chosen_featured["title"]}
+    print(f"  PATCHED  : article {article_id} updated successfully with in-stock products.")
+    return {"replacements": replacements_log, "featured_product": first_replacement["title"]}
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
