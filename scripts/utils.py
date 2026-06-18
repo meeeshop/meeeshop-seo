@@ -16,7 +16,7 @@ from typing import List, Dict
 
 import requests
 from bs4 import BeautifulSoup
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image
 
 # ---------------------------------------------------------------------------
 # Configuration – these will be populated from the environment via the main script
@@ -91,55 +91,56 @@ def extract_keywords(text: str) -> Dict[str, List[str]]:
     return {"long_tail": long_tail, "zero_search": zero_search}
 
 # ---------------------------------------------------------------------------
-# 3. Collage generation (industry‑standard 2×2/3×3 grid with subtle glass‑morphism)
+# 3. Collage generation — horizontal landscape strip (side-by-side)
 # ---------------------------------------------------------------------------
-def generate_collage(product_images: List[bytes]) -> bytes:
-    """Create a collage from a list of image bytes.
+def generate_collage(product_images: List[bytes], strip_height: int = 400) -> bytes:
+    """Create a horizontal landscape strip collage from a list of image bytes.
 
-    The function:
-    1. Resizes each image to a square (400 px) while maintaining aspect ratio.
-    2. Arranges them in a grid – 2×2 if ≤4 images, otherwise 3×3.
-    3. Applies a light blur + semi‑transparent overlay to achieve a premium
-       glass‑morphism look.
-    4. Returns the collage as JPEG bytes (< 2 MB).
+    All product images are resized to the same height (``strip_height``) while
+    maintaining their natural aspect ratios, then placed side-by-side to form a
+    single wide banner. This keeps the resulting image compact, fast to load, and
+    consistent with standard blog featured-image proportions.
+
+    Args:
+        product_images: Raw JPEG/PNG bytes for each product photo.
+        strip_height:   The uniform height (px) for every panel. Defaults to 400.
+
+    Returns:
+        JPEG bytes of the final landscape strip image.
     """
     if not product_images:
         raise ValueError("No product images provided for collage generation")
 
-    # Determine grid size
-    count = min(len(product_images), 9)  # cap at 9 for 3×3
-    grid_dim = 2 if count <= 4 else 3
-    thumb_size = 400
+    GAP = 6          # px gap between panels
+    BG_COLOR = (245, 245, 245)   # light grey background / gap fill
 
-    # Prepare thumbnails
-    thumbs = []
-    for img_data in product_images[: count]:
-        img = Image.open(BytesIO(img_data)).convert("RGB")
-        img.thumbnail((thumb_size, thumb_size), Image.LANCZOS)
-        # Pad to exact thumb size
-        bg = Image.new("RGB", (thumb_size, thumb_size), (255, 255, 255))
-        bg.paste(img, ((thumb_size - img.width) // 2, (thumb_size - img.height) // 2))
-        thumbs.append(bg)
+    panels: List[Image.Image] = []
+    for img_data in product_images[:6]:          # cap at 6 panels
+        try:
+            img = Image.open(BytesIO(img_data)).convert("RGB")
+        except Exception:
+            continue
+        # Scale so height == strip_height, preserve aspect ratio
+        aspect = img.width / img.height
+        new_w = max(int(strip_height * aspect), 1)
+        img = img.resize((new_w, strip_height), Image.LANCZOS)
+        panels.append(img)
 
-    # Create canvas
-    collage_w = thumb_size * grid_dim
-    collage_h = thumb_size * grid_dim
-    collage = Image.new("RGB", (collage_w, collage_h), (245, 245, 245))
+    if not panels:
+        raise ValueError("Could not decode any product images for the collage")
 
-    for idx, thumb in enumerate(thumbs):
-        row = idx // grid_dim
-        col = idx % grid_dim
-        collage.paste(thumb, (col * thumb_size, row * thumb_size))
+    # Build canvas dimensions
+    total_w = sum(p.width for p in panels) + GAP * (len(panels) - 1)
+    canvas = Image.new("RGB", (total_w, strip_height), BG_COLOR)
 
-    # Add subtle glass‑morphism overlay
-    overlay = Image.new("RGBA", collage.size, (255, 255, 255, 30))
-    collage = collage.convert("RGBA")
-    collage = Image.alpha_composite(collage, overlay)
-    collage = collage.filter(ImageFilter.GaussianBlur(radius=1))
+    x_offset = 0
+    for panel in panels:
+        canvas.paste(panel, (x_offset, 0))
+        x_offset += panel.width + GAP
 
-    # Export to JPEG bytes
+    # Export — keep quality high but optimize for web
     out_buf = BytesIO()
-    collage.convert("RGB").save(out_buf, format="JPEG", quality=85, optimize=True)
+    canvas.save(out_buf, format="JPEG", quality=82, optimize=True, progressive=True)
     return out_buf.getvalue()
 
 # ---------------------------------------------------------------------------

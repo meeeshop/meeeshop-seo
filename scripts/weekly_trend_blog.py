@@ -156,10 +156,25 @@ def fetch_store_product_types() -> dict:
     print(f"  Found {len(all_products)} products across {len(type_map)} product types")
     return {"types": type_map, "all_products": all_products}
 
-# ── Phase 2: Flipboard fetching with 48-hour cutoff ────────────────────────────
-FLIPBOARD_RSS_BASE = "https://flipboard.com/topic/{topic}/feed.rss"
-FLIPBOARD_SEARCH   = "https://flipboard.com/search.json"
-CUTOFF_DAYS        = 2  # 48 hours
+# ── Phase 2: Flipboard fetching + Google News fallback (48-hour cutoff) ─────────
+FLIPBOARD_RSS_BASE  = "https://flipboard.com/topic/{topic}/feed.rss"
+FLIPBOARD_SEARCH    = "https://flipboard.com/search.json"
+GOOGLE_NEWS_RSS     = "https://news.google.com/rss/search"
+CUTOFF_DAYS         = 2  # 48 hours
+
+# --- Trusted fashion sources for Google News fallback -------------------------
+GOOGLE_NEWS_FASHION_SITES = [
+    "site:whowhatwear.com",
+    "site:refinery29.com",
+    "site:harpersbazaar.com",
+    "site:elle.com",
+    "site:instyle.com",
+    "site:glamour.com",
+    "site:cosmopolitan.com",
+    "site:popsugar.com",
+    "site:byrdie.com",
+    "site:thecut.com",
+]
 
 def _parse_rss_date(date_str: str) -> datetime | None:
     if not date_str:
@@ -265,6 +280,62 @@ def _fetch_flipboard_search(keyword: str) -> list[dict]:
         print(f"    [Flipboard Search] {keyword}: {e}")
         return []
 
+# ── Google News RSS fallback ───────────────────────────────────────────────────
+def _fetch_google_news(keyword: str, num_sites: int = 3) -> list[dict]:
+    """Query Google News RSS for fashion articles (last 48 h, USA) from trusted sites.
+
+    Uses the public Google News RSS endpoint — no API key needed. Tries a handful
+    of trusted fashion publishers (Who What Wear, Refinery29, etc.) to surface
+    relevant, high-quality trend articles.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=CUTOFF_DAYS)
+    results = []
+    site_filters = random.sample(GOOGLE_NEWS_FASHION_SITES, min(num_sites, len(GOOGLE_NEWS_FASHION_SITES)))
+
+    for site_filter in site_filters:
+        q = f"{keyword} women fashion {site_filter} when:2d"
+        try:
+            r = requests.get(
+                GOOGLE_NEWS_RSS,
+                params={"q": q, "hl": "en-US", "gl": "US", "ceid": "US:en"},
+                timeout=15,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; MeeeShop SEO bot/1.0)"},
+            )
+            if r.status_code != 200:
+                continue
+            root = ET.fromstring(r.content)
+            for item in root.iter("item"):
+                title_el = item.find("title")
+                link_el  = item.find("link")
+                pub_el   = item.find("pubDate")
+
+                title = (title_el.text or "").strip() if title_el is not None else ""
+                # Google News links are redirect URLs — grab the real URL from <link> text
+                link  = (link_el.text or "").strip() if link_el is not None else ""
+
+                if not title or len(title) < 10:
+                    continue
+
+                pub_dt = _parse_rss_date(pub_el.text if pub_el is not None else "")
+                if pub_dt and pub_dt < cutoff:
+                    continue
+
+                results.append({
+                    "title":       title,
+                    "link":        link,
+                    "summary":     "",
+                    "published":   pub_el.text if pub_el is not None else "",
+                    "topic":       keyword,
+                    "source":      f"google-news:{site_filter}",
+                    "full_content": download_article_content(link) if link else "",
+                })
+                if len(results) >= 8:
+                    break
+            time.sleep(0.4)
+        except Exception as e:
+            print(f"    [Google News] {site_filter} / {keyword}: {e}")
+    return results
+
 def research_flipboard_per_category(type_map: dict) -> dict:
     print("\n━━ PHASE 2: Researching Flipboard trends (last 48 hours) ━━")
     research: dict[str, dict] = {}
@@ -289,12 +360,13 @@ def research_flipboard_per_category(type_map: dict) -> dict:
             all_articles.extend(rss_articles)
             time.sleep(0.3)
 
-        # Search queries specifically targeting Who What Wear and Refinery29 style
+        # ── Flipboard search (Who What Wear / Refinery29 style) ──────────────
         queries = [
             f"Who What Wear {ptype_lower}",
             f"Refinery29 {ptype_lower}",
             f"women {ptype_lower} style trend"
         ]
+        flipboard_search_found = 0
         for q in queries:
             print(f"    Searching Flipboard for: '{q}'...")
             search_articles = _fetch_flipboard_search(q)
@@ -302,6 +374,15 @@ def research_flipboard_per_category(type_map: dict) -> dict:
                 if art.get("link"):
                     art["full_content"] = download_article_content(art["link"])
             all_articles.extend(search_articles)
+            flipboard_search_found += len(search_articles)
+
+        # ── Google News fallback when Flipboard search is empty ───────────────
+        if flipboard_search_found == 0:
+            print(f"    [Fallback] Flipboard search empty — trying Google News for: '{ptype_lower}'...")
+            gn_articles = _fetch_google_news(ptype_lower)
+            all_articles.extend(gn_articles)
+            if gn_articles:
+                print(f"    [Google News] Found {len(gn_articles)} articles.")
 
         # Deduplicate
         seen = set()
