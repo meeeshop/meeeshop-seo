@@ -45,6 +45,7 @@ sys.path.insert(0, str(REPO_ROOT))
 import ai_client
 from secrets_manager import inject_to_env, get_secret
 import weekly_trend_blog as wtb
+from weekly_trend_blog import generate_single_article_content
 
 inject_to_env()
 
@@ -148,18 +149,19 @@ def update_article_and_metafields_graphql(article_id: int, payload: dict, seo_ti
     
     # Map REST payload to GraphQL ArticleUpdateInput
     gql_article = {
+        "id": f"gid://shopify/Article/{article_id}",
         "title": payload.get("title"),
         "author": payload.get("author"),
-        "body": payload.get("body_html"),
-        "summary": payload.get("summary_html"),
+        "contentHtml": payload.get("body_html"),
+        "summaryHtml": payload.get("summary_html"),
         "tags": payload.get("tags"),
         "handle": payload.get("handle"),
     }
     
     if "published" in payload:
-        gql_article["isPublished"] = payload["published"]
+        gql_article["published"] = payload["published"]
     
-    if "image" in payload:
+    if "image" in payload and payload["image"].get("src"):
         gql_article["image"] = {
             "src": payload["image"]["src"],
             "altText": payload["image"]["alt"]
@@ -185,13 +187,12 @@ def update_article_and_metafields_graphql(article_id: int, payload: dict, seo_ti
     ]
 
     variables = {
-        "articleId": owner_id,
         "article": gql_article,
         "metafields": metafields
     }
 
     query = """
-    mutation updateArticleAndMetafields($articleId: ID!, $article: ArticleUpdateInput!, $metafields: [MetafieldsSetInput!]!
+    mutation updateArticleAndMetafields($article: ArticleInput!, $metafields: [MetafieldsSetInput!]!
     """
     
     if redirect_path and redirect_target:
@@ -202,7 +203,7 @@ def update_article_and_metafields_graphql(article_id: int, payload: dict, seo_ti
         }
 
     query += """) {
-      articleUpdate(id: $articleId, article: $article) {
+      articleUpdate(input: $article) {
         article {
           id
           handle
@@ -390,124 +391,44 @@ def regenerate_single_article(
 
     print(f"  Selected product for regeneration: '{selected_product['title']}' (Type: {selected_product.get('product_type')})")
 
-    # 2. Get research data via wtb
-    ptype = selected_product.get("product_type") or "Uncategorized"
-    ptype = ptype.strip()
-    
-    if ptype not in research_cache:
-        print(f"  [Research] Fetching Flipboard research for product type: '{ptype}'...")
-        sample_prods = type_map.get(ptype, [selected_product])
-        r = wtb.research_flipboard_per_category({ptype: sample_prods})
-        research_cache[ptype] = r.get(ptype, {
-            "product_type": ptype,
-            "sample_products": [{"id": selected_product["id"], "title": selected_product["title"], "handle": selected_product.get("handle", "")}],
-            "articles": [],
-            "keywords": {"long_tail": [], "zero_search": []}
-        })
-        
-    rdata = research_cache[ptype]
+    # 2. Generate content using the unified engine from weekly_trend_blog.py
+    content_assets = generate_single_article_content(
+        main_product=selected_product,
+        all_products_with_images=all_products_with_images,
+        link_map=link_map,
+        type_map=type_map,
+        research_cache=research_cache,
+        force_format=force_format,
+        dry_run=dry_run,
+        original_handle_hint=original_handle
+    )
 
-    # 3. Select styling matches for collage and prompt
-    matching_products = wtb.select_styling_matches(selected_product, all_products_with_images, num_matches=2)
-    print(f"  Styling Pairings: {[p['title'] for p in matching_products]}")
-
-    # 4. Build AI prompt and generate content using weekly_trend_blog logic
-    mode = None
-    if force_format:
-        for m in wtb.ARTICLE_MODES:
-            if m["id"] == force_format:
-                mode = m
-                break
-                
-    prompt, chosen_mode = wtb._build_article_prompt(selected_product, rdata, matching_products, mode=mode)
-    
-    # We want to encourage it to keep the same handle topic if possible
-    # We can inject a subtle hint
-    prompt += f"\n\nNOTE: The original URL handle for this article is '{original_handle}'. If appropriate, align your topic and SUGGESTED_HANDLE with it."
-
-    print(f"  Article Mode: {chosen_mode['id']}")
-    print("  Generating new content with AI...")
-    raw_ai_response = ai_client.generate(prompt, max_tokens=3000, temperature=0.85)
-
-    if not raw_ai_response:
-        print("  [ERROR] AI content generation failed. Skipping article.")
+    if not content_assets:
+        print("  [ERROR] Content generation failed. Skipping article.")
         log_entry["status"] = "error"
-        log_entry["message"] = "AI content generation failed"
+        log_entry["message"] = "Content generation via weekly_trend_blog engine failed"
         return log_entry
 
-    html_body = wtb._clean_html(raw_ai_response)
-    seometa = wtb._parse_seometa(raw_ai_response)
-    
-    # Fallbacks
-    suggested_handle = seometa.get("suggested_handle") or original_handle
-    new_title = seometa.get("seo_title") or original_title
-    meta_desc = seometa.get("meta_desc") or f"Expert styling guide and care tips for {selected_product['title']}."
-    img_alt = seometa.get("img_alt") or f"{selected_product['title']} styling collage"
-    new_tags = seometa.get("suggested_tags") or ["style", "fashion", ptype.lower()]
+    # 3. Unpack the generated assets
+    html_body = content_assets["html_body"]
+    new_title = content_assets["seo_title"]
+    meta_desc = content_assets["meta_desc"]
+    suggested_handle = content_assets["suggested_handle"]
+    new_tags = content_assets["tags"]
+    img_url = content_assets["img_url"]
+    img_alt = content_assets["img_alt"]
+    author = content_assets["author"]
 
-    # 5. Inject product cards and related products section
-    card_html = wtb.make_product_card(selected_product)
-    toc_match = re.search(r"</ul>", html_body, re.IGNORECASE)
-    if toc_match:
-        pos = toc_match.end()
-        html_body = html_body[:pos] + "\n" + card_html + html_body[pos:]
-    else:
-        p_match = re.search(r"</p>", html_body, re.IGNORECASE)
-        if p_match:
-            pos = p_match.end()
-            html_body = html_body[:pos] + "\n" + card_html + html_body[pos:]
-            
-    html_body += "\n" + wtb.make_related_products_section([selected_product] + matching_products)
-
-    # 6. Inject natural internal links
-    html_body = wtb.inject_internal_links(html_body, link_map, selected_product["title"])
-
-    # 7. Generate and upload featured image collage
-    img_url = None
-    image_bytes_list = []
-    for p in [selected_product] + matching_products:
-        if p.get("images"):
-            try:
-                r = requests.get(p["images"][0]["src"], timeout=10)
-                if r.status_code == 200:
-                    image_bytes_list.append(r.content)
-            except Exception as e:
-                print(f"      [!] Error fetching product image: {e}")
-                
-    if image_bytes_list:
-        try:
-            from utils import generate_collage
-            collage_bytes = generate_collage(image_bytes_list)
-            temp_path = Path("collage_temp.jpg")
-            with open(temp_path, "wb") as f:
-                f.write(collage_bytes)
-            
-            if not dry_run:
-                ts = int(time.time())
-                filename = f"regenerated_collage_{selected_product['id']}_{ts}.jpg"
-                img_url = wtb.upload_image_to_shopify(temp_path, filename)
-                try:
-                    temp_path.unlink()
-                except Exception:
-                    pass
-            else:
-                img_url = f"file:///{temp_path.absolute().as_posix()}"
-        except Exception as e:
-            print(f"      [!] Collage build failed: {e}")
-            
-    if not img_url:
-        print("      [!] Collage failed, fallback to main product image.")
-        img_url = selected_product["images"][0]["src"] if selected_product.get("images") else None
-
-    # 8. Merge tags
+    # 4. Merge tags
     original_tags_list = [t.strip() for t in original_tags.split(',') if t.strip()]
     final_tags = list(dict.fromkeys(new_tags + original_tags_list))[:25]
 
-    # 9. Handle comparison and redirect
+    # 5. Handle comparison and redirect
     final_handle = original_handle
     redirect_path = None
     redirect_target = None
     if suggested_handle != original_handle:
+        # Check if handles are substantially different to avoid minor punctuation/word changes
         if suggested_handle.replace('-', '') not in original_handle.replace('-', '') and original_handle.replace('-', '') not in suggested_handle.replace('-', ''):
             print(f"  [HANDLE CHANGE] Suggested handle '{suggested_handle}' differs from original '{original_handle}'.")
             old_full_url = f"{STORE_URL}/blogs/{blog_handle}/{original_handle}"
@@ -526,15 +447,15 @@ def regenerate_single_article(
     else:
         print(f"  [HANDLE] Handle remains unchanged: '{original_handle}'.")
 
-    # 10. Prepare payload for article update
+    # 6. Prepare payload for article update
     payload = {
         "title": new_title,
-        "author": random.choice(wtb.PEN_NAMES), # Assign a new E-E-A-T author
+        "author": author,
         "body_html": html_body,
         "summary_html": meta_desc,
         "tags": ", ".join(final_tags),
         "handle": final_handle,
-        "published": original_article.get("published", True), # Keep original published status
+        "published": original_article.get("published_at") is not None,
     }
     if img_url:
         payload["image"] = {
@@ -555,7 +476,7 @@ def regenerate_single_article(
     if original_article.get("author") != payload["author"]:
         log_entry["changes"].append({"field": "author", "old": original_article.get("author"), "new": payload["author"]})
 
-    # 11. Perform update
+    # 7. Perform update
     if dry_run:
         print(f"  [DRY-RUN] Would update article {article_id} with new content and metadata.")
         print(f"    New Title: {new_title}")
@@ -652,8 +573,6 @@ def main():
         articles_to_process = all_articles[start_index:end_index]
         print(f"Processing batch {args.batch_index}: articles {start_index} to {end_index-1} out of {len(all_articles)} total.")
     else:
-        # Default mode if not --force or --article-id: process a small number of oldest articles
-        # For now, let's make it explicit that --force or --article-id is required.
         sys.exit("ERROR: Please specify --force to process all articles or --article-id to process a single article.")
 
     if not articles_to_process:
@@ -661,8 +580,9 @@ def main():
         return
 
     results = []
+    all_blogs = get_all_blogs()
     for article in articles_to_process:
-        result = regenerate_single_article(article, all_products_with_images, get_all_blogs(), args.dry_run, args.force_format, type_map, research_cache, link_map)
+        result = regenerate_single_article(article, all_products_with_images, all_blogs, args.dry_run, args.force_format, type_map, research_cache, link_map)
         results.append(result)
         time.sleep(2) # Be kind to APIs
 
@@ -673,7 +593,6 @@ def main():
     print(f"Errors: {sum(1 for r in results if r['status'] == 'error')}")
     print(f"{'='*70}\n")
 
-    # Save detailed log
     log_filename = f"regenerate_articles_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     with open(LOG_DIR / log_filename, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)

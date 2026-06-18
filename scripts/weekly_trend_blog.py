@@ -917,7 +917,7 @@ def _pick_article_mode(ptype: str) -> dict:
 
 
 # ── AI Prompt Construction ──────────────────────────────────────────────────────
-def _build_article_prompt(main_product: dict, research_data: dict, matching_products: list, mode: dict | None = None) -> str:
+def _build_article_prompt(main_product: dict, research_data: dict, matching_products: list, mode: dict | None = None) -> tuple[str, dict]:
     ptype = research_data["product_type"]
     kws = research_data["keywords"]
     long_tail = kws.get("long_tail", [])
@@ -1051,6 +1051,141 @@ def _clean_html(raw: str) -> str:
     raw = re.sub(r"<seometa>.*?</seometa>", "", raw, flags=re.DOTALL | re.IGNORECASE)
     return raw.strip()
 
+# ── Unified Content Generation Engine ──────────────────────────────────────────
+def generate_single_article_content(
+    main_product: dict,
+    all_products_with_images: list,
+    link_map: LinkMap,
+    type_map: dict,
+    research_cache: dict,
+    force_format: str | None = None,
+    dry_run: bool = False,
+    original_handle_hint: str | None = None
+) -> dict | None:
+    """
+    Generates all content and assets for a single blog article.
+    This is the core content generation engine, designed to be called by other scripts.
+    """
+    print(f"  Generating content for product: '{main_product['title']}'")
+
+    # 1. Get research data
+    ptype = main_product.get("product_type") or "Uncategorized"
+    ptype = ptype.strip()
+    
+    if ptype not in research_cache:
+        print(f"  [Research] Fetching Flipboard research for product type: '{ptype}'...")
+        sample_prods = type_map.get(ptype, [main_product])
+        r = research_flipboard_per_category({ptype: sample_prods})
+        research_cache[ptype] = r.get(ptype, {
+            "product_type": ptype,
+            "sample_products": [{"id": main_product["id"], "title": main_product["title"], "handle": main_product.get("handle", "")}],
+            "articles": [],
+            "keywords": {"long_tail": [], "zero_search": []}
+        })
+        
+    rdata = research_cache[ptype]
+
+    # 2. Select styling matches
+    matching_products = select_styling_matches(main_product, all_products_with_images, num_matches=2)
+    print(f"  Styling Pairings: {[p['title'] for p in matching_products]}")
+
+    # 3. Build AI prompt and generate content
+    mode = None
+    if force_format:
+        for m in ARTICLE_MODES:
+            if m["id"] == force_format:
+                mode = m
+                break
+                
+    prompt, chosen_mode = _build_article_prompt(main_product, rdata, matching_products, mode=mode)
+    
+    if original_handle_hint:
+        prompt += f"\n\nNOTE: The original URL handle for this article is '{original_handle_hint}'. If appropriate, align your topic and SUGGESTED_HANDLE with it."
+
+    print(f"  Article Mode: {chosen_mode['id']}")
+    print("  Generating new content with AI...")
+    raw_ai_response = ai_client.generate(prompt, max_tokens=3000, temperature=0.85)
+
+    if not raw_ai_response:
+        print("  [ERROR] AI content generation failed.")
+        return None
+
+    html_body = _clean_html(raw_ai_response)
+    seometa = _parse_seometa(raw_ai_response)
+    
+    # 4. Fallbacks and assembly
+    suggested_handle = seometa.get("suggested_handle") or f"style-guide-{main_product['handle']}"
+    new_title = seometa.get("seo_title") or f"How to Wear & Style {main_product['title']}"
+    meta_desc = seometa.get("meta_desc") or f"Expert styling guide and care tips for {main_product['title']}."
+    img_alt = seometa.get("img_alt") or f"{main_product['title']} styling collage"
+    new_tags = seometa.get("suggested_tags") or ["style", "fashion", ptype.lower()]
+
+    # 5. Inject product cards and related products section
+    card_html = make_product_card(main_product)
+    toc_match = re.search(r"</ul>", html_body, re.IGNORECASE)
+    if toc_match:
+        pos = toc_match.end()
+        html_body = html_body[:pos] + "\n" + card_html + html_body[pos:]
+    else:
+        p_match = re.search(r"</p>", html_body, re.IGNORECASE)
+        if p_match:
+            pos = p_match.end()
+            html_body = html_body[:pos] + "\n" + card_html + html_body[pos:]
+            
+    html_body += "\n" + make_related_products_section([main_product] + matching_products)
+
+    # 6. Inject natural internal links
+    html_body = inject_internal_links(html_body, link_map, main_product["title"])
+
+    # 7. Generate and upload featured image collage
+    img_url = None
+    image_bytes_list = []
+    for p in [main_product] + matching_products:
+        if p.get("images"):
+            try:
+                r = requests.get(p["images"][0]["src"], timeout=10)
+                if r.status_code == 200:
+                    image_bytes_list.append(r.content)
+            except Exception as e:
+                print(f"      [!] Error fetching product image: {e}")
+                
+    if image_bytes_list:
+        try:
+            collage_bytes = generate_collage(image_bytes_list)
+            temp_path = Path("collage_temp.jpg")
+            with open(temp_path, "wb") as f:
+                f.write(collage_bytes)
+            
+            if not dry_run:
+                ts = int(time.time())
+                filename = f"content_collage_{main_product['id']}_{ts}.jpg"
+                img_url = upload_image_to_shopify(temp_path, filename)
+                try:
+                    temp_path.unlink()
+                except Exception:
+                    pass
+            else:
+                img_url = f"file:///{temp_path.absolute().as_posix()}"
+        except Exception as e:
+            print(f"      [!] Collage build failed: {e}")
+            
+    if not img_url:
+        print("      [!] Collage failed, fallback to main product image.")
+        img_url = main_product["images"][0]["src"] if main_product.get("images") else None
+
+    return {
+        "html_body": html_body,
+        "seo_title": new_title,
+        "meta_desc": meta_desc,
+        "suggested_handle": suggested_handle,
+        "tags": new_tags,
+        "img_url": img_url,
+        "img_alt": img_alt,
+        "chosen_mode": chosen_mode["id"],
+        "author": random.choice(PEN_NAMES),
+        "ptype": ptype,
+    }
+
 # ── Used Product Rotation Tracking ───────────────────────────────────────────
 def load_used_products_history() -> dict:
     history_path = REPO_ROOT / "used_products_history.json"
@@ -1089,7 +1224,6 @@ def clean_old_history(history: dict, days: int = 7) -> dict:
 def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap, count: int = 1, dry_run: bool = False, publish: bool = False):
     print(f"\n━━ PHASE 4: Generating {count} Weekly Trend Blog Article(s) ━━")
     
-    # Load product selection history for rotation
     product_history = load_used_products_history()
     product_history = clean_old_history(product_history, days=7)
     
@@ -1097,20 +1231,18 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
     random.shuffle(type_pool)
     
     results = []
+    all_products_with_images = [p for p in all_products if p.get("images")]
     
     for i in range(count):
         ptype = type_pool[i % len(type_pool)]
-        rdata = research[ptype]
         
-        # Select main product
-        prods_in_type = [p for p in all_products if p.get("product_type") == ptype and p.get("images")]
+        prods_in_type = [p for p in all_products_with_images if p.get("product_type") == ptype]
         if not prods_in_type:
-            prods_in_type = [p for p in all_products if p.get("images")]
+            prods_in_type = all_products_with_images
         if not prods_in_type:
             print(f"  [Skip] No products found with images.")
             continue
             
-        # Rotate: filter out products used in the last 7 days
         unused_prods = [p for p in prods_in_type if p.get("handle") not in product_history]
         if unused_prods:
             main_product = random.choice(unused_prods)
@@ -1119,153 +1251,71 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
             print(f"  [Rotation] All products in category '{ptype}' have been featured recently. Resetting rotation.")
             main_product = random.choice(prods_in_type)
 
-        # Record this product selection
         if not dry_run:
             product_history[main_product["handle"]] = datetime.now().strftime("%Y-%m-%d")
             save_used_products_history(product_history)
 
-        matching_products = select_styling_matches(main_product, all_products, num_matches=2)
-        
         print(f"\n  Article {i+1} details:")
         print(f"    Product Type: {ptype}")
         print(f"    Main Product: {main_product['title']}")
-        print(f"    Styling Pairings: {[p['title'] for p in matching_products]}")
-        
-        # Pick article mode & build prompt
-        prompt, chosen_mode = _build_article_prompt(main_product, rdata, matching_products)
-        print(f"    Article Mode: {chosen_mode['id']}")
-        print("    Querying AI generator...")
-        raw_ai = ai_client.generate(prompt, max_tokens=3000, temperature=0.85)
-        if not raw_ai:
-            print("    [!] AI generation failed.")
+
+        content_assets = generate_single_article_content(
+            main_product=main_product,
+            all_products_with_images=all_products_with_images,
+            link_map=link_map,
+            type_map=research,
+            research_cache=research,
+            dry_run=dry_run,
+        )
+
+        if not content_assets:
+            print("    [!] Content generation failed.")
             continue
             
-        html_body = _clean_html(raw_ai)
-        seometa = _parse_seometa(raw_ai)
+        html_body = content_assets["html_body"]
+        seo_title = content_assets["seo_title"]
+        meta_desc = content_assets["meta_desc"]
+        suggested_handle = content_assets["suggested_handle"]
+        tags = content_assets["tags"]
+        img_url = content_assets["img_url"]
+        img_alt = content_assets["img_alt"]
+        author = content_assets["author"]
+        chosen_mode_id = content_assets["chosen_mode"]
         
-        # Inject main product card
-        card_html = make_product_card(main_product)
-        # Place card after first paragraph or table of contents
-        toc_match = re.search(r"</ul>", html_body, re.IGNORECASE)
-        if toc_match:
-            pos = toc_match.end()
-            html_body = html_body[:pos] + "\n" + card_html + html_body[pos:]
-        else:
-            p_match = re.search(r"</p>", html_body, re.IGNORECASE)
-            if p_match:
-                pos = p_match.end()
-                html_body = html_body[:pos] + "\n" + card_html + html_body[pos:]
-                
-        # Inject related products grid at the bottom
-        html_body += "\n" + make_related_products_section([main_product] + matching_products)
-        
-        # Inject natural internal links
-        html_body = inject_internal_links(html_body, link_map, main_product["title"])
-        
-        # Create featured collage image
-        img_url = None
-        image_bytes_list = []
-        for p in [main_product] + matching_products:
-            if p.get("images"):
-                try:
-                    r = requests.get(p["images"][0]["src"], timeout=10)
-                    if r.status_code == 200:
-                        image_bytes_list.append(r.content)
-                except Exception as e:
-                    print(f"      [!] Error fetching product image: {e}")
-                    
-        if image_bytes_list:
-            try:
-                collage_bytes = generate_collage(image_bytes_list)
-                temp_path = Path("collage_temp.jpg")
-                with open(temp_path, "wb") as f:
-                    f.write(collage_bytes)
-                
-                if not dry_run:
-                    ts = int(time.time())
-                    filename = f"weekly_collage_{main_product['id']}_{ts}.jpg"
-                    img_url = upload_image_to_shopify(temp_path, filename)
-                    try:
-                        temp_path.unlink()
-                    except Exception:
-                        pass
-                else:
-                    img_url = f"file:///{temp_path.absolute().as_posix()}"
-            except Exception as e:
-                print(f"      [!] Collage build failed: {e}")
-                
-        if not img_url:
-            print("      [!] Collage failed, fallback to main product image.")
-            img_url = main_product["images"][0]["src"] if main_product.get("images") else None
-
-        # Format meta fallbacks
-        suggested_handle = seometa.get("suggested_handle") or f"style-guide-{main_product['handle']}"
-        seo_title = seometa.get("seo_title") or f"How to Wear & Style {main_product['title']}"
-        meta_desc = seometa.get("meta_desc") or f"Expert styling guide and care tips for {main_product['title']}. Shop now at MeeeShop!"
-        img_alt = seometa.get("img_alt") or f"{main_product['title']} styling collage"
-        tags = seometa.get("suggested_tags") or ["style", "fashion", ptype.lower()]
-        
-        # ── Smart Blog Routing ─────────────────────────────────────────────
-        # Available blogs (from Shopify):
-        #   Announcements          -> store news ONLY, never used here
-        #   Cardigans & Sweaters   -> handle: cardigans-sweaters-style-guide
-        #   Coats & Jackets        -> handle: coats-jackets-style-guide
-        #   Dresses                -> handle: dresses-style-guide
-        #   Jeans                  -> handle: jeans-style-guide
-        #   Our Tips               -> handle: our-tips  (DEFAULT fallback)
-        #   Plus Size | Curvy      -> handle: plus-size-curvy-clothing
-        #   Veganism               -> handle: everything-anything-about-vegan
-        #   Women's Clothing       -> handle: womens-clothing
-        #   Women's Pants          -> handle: womens-pants-style-guide
-        #   Women's Shirts & Tops  -> handle: womens-shirts-tops-style-guide
-        #   women's skirts         -> handle: womens-skirts-style-guide
         BLOG_ROUTING = [
-            # (ptype keywords,  article mode ids,            blog handle)
             (["jean", "denim"],                   None,                           "jeans-style-guide"),
             (["dress"],                            None,                           "dresses-style-guide"),
             (["skirt"],                            None,                           "womens-skirts-style-guide"),
             (["pant", "trouser", "legging"],       None,                           "womens-pants-style-guide"),
-            (["top", "blouse", "shirt", "tee", "t-shirt", "tunic", "tank"],
-                                                   None,                           "womens-shirts-tops-style-guide"),
-            (["cardigan", "sweater", "sweatshirt", "knit", "pullover"],
-                                                   None,                           "cardigans-sweaters-style-guide"),
-            (["coat", "jacket", "blazer", "vest", "outerwear"],
-                                                   None,                           "coats-jackets-style-guide"),
+            (["top", "blouse", "shirt", "tee", "t-shirt", "tunic", "tank"], None, "womens-shirts-tops-style-guide"),
+            (["cardigan", "sweater", "sweatshirt", "knit", "pullover"], None, "cardigans-sweaters-style-guide"),
+            (["coat", "jacket", "blazer", "vest", "outerwear"], None, "coats-jackets-style-guide"),
             (["plus", "curvy"],                    ["plus_size_curvy_guide"],       "plus-size-curvy-clothing"),
             (["vegan", "eco", "sustainable"],      None,                           "everything-anything-about-vegan"),
-            # Generic clothing/handbags/accessories -> Women's Clothing
-            (["short", "romper", "jumpsuit", "set", "loungewear", "handbag", "bag", "purse", "accessory", "bottom"],
-                                                   None,                           "womens-clothing"),
+            (["short", "romper", "jumpsuit", "set", "loungewear", "handbag", "bag", "purse", "accessory", "bottom"], None, "womens-clothing"),
         ]
-        OUR_TIPS_HANDLE   = "our-tips"         # default fallback
-        ANNOUNCEMENT_HANDLE = "announcements"  # NEVER post here automatically
+        OUR_TIPS_HANDLE   = "our-tips"
+        ANNOUNCEMENT_HANDLE = "announcements"
 
         blogs = fetch_all_blogs()
-        # Build handle->blog map
-        blog_by_handle = {b["handle"]: b for b in blogs}
         blog_by_handle_lower = {b["handle"].lower(): b for b in blogs}
 
         ptype_l = ptype.lower()
-        mode_id = chosen_mode["id"]
         chosen_blog = None
 
         for kw_list, mode_ids, target_handle in BLOG_ROUTING:
             kw_match  = any(kw in ptype_l for kw in kw_list)
-            mode_match = (mode_ids is None) or (mode_id in mode_ids)
+            mode_match = (mode_ids is None) or (chosen_mode_id in mode_ids)
             if kw_match and mode_match:
                 chosen_blog = blog_by_handle_lower.get(target_handle.lower())
                 if chosen_blog:
                     break
 
-        # Fallback to Our Tips (never Announcements)
         if not chosen_blog:
             chosen_blog = blog_by_handle_lower.get(OUR_TIPS_HANDLE)
-        # Final safety net
         if not chosen_blog:
-            chosen_blog = next(
-                (b for b in blogs if b["handle"].lower() != ANNOUNCEMENT_HANDLE),
-                blogs[0]
-            )
+            chosen_blog = next((b for b in blogs if b["handle"].lower() != ANNOUNCEMENT_HANDLE), blogs[0])
+        
         blog = chosen_blog
         print(f"    Routing to blog: '{blog['title']}' (handle: {blog['handle']})")
                 
@@ -1294,12 +1344,11 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
                 f.write("\n</body></html>")
             print(f"    [Dry Run] Saved HTML preview -> {preview_path.absolute()}")
         else:
-            # Publish/Draft payload
             published_live = publish
             article_payload = {
                 "article": {
                     "title": seo_title,
-                    "author": random.choice(PEN_NAMES),
+                    "author": author,
                     "body_html": html_body,
                     "summary_html": meta_desc,
                     "tags": ", ".join(tags),
@@ -1339,25 +1388,20 @@ def main():
     print(f" {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print("="*60)
     
-    # Step 1: Discover product types
     store_info = fetch_store_product_types()
     type_map = store_info["types"]
     all_products = store_info["all_products"]
     
-    # Optimize: only research product types we are actually going to generate blogs for.
     available_types = list(type_map.keys())
     random.shuffle(available_types)
     target_types = available_types[:args.count]
     filtered_type_map = {ptype: type_map[ptype] for ptype in target_types if ptype in type_map}
     print(f"\n[Optimization] Selected {len(filtered_type_map)} target product type(s) for generation: {list(filtered_type_map.keys())}")
     
-    # Step 2: Research Flipboard (only for targeted categories)
     research = research_flipboard_per_category(filtered_type_map)
     
-    # Step 3: Build link map for internal linking
     link_map = build_linker_map()
     
-    # Step 4: Generate articles
     generate_weekly_blogs(
         research=research,
         all_products=all_products,
