@@ -470,7 +470,7 @@ def detect_article_mode_from_handle_or_title(handle: str, title: str) -> str | N
         return "stain_odour_rescue"
         
     # 2. fabric_care_guide
-    if any(w in text for w in ["care", "maintain", "shrink", "piling", "fade", "iron", "storage"]):
+    if any(w in text for w in ["care", "maintain", "shrink", "piling", "fade", "iron", "storage", "wash", "washing", "clean", "cleaning"]):
         return "fabric_care_guide"
         
     # 3. travel_packing_guide
@@ -514,6 +514,49 @@ def detect_article_mode_from_handle_or_title(handle: str, title: str) -> str | N
         return "outfit_ideas_occasions"
         
     return None
+
+def fetch_google_search_unrestricted(query: str, num_results: int = 3) -> list[dict]:
+    """
+    Search Google News RSS for the query, irrespective of time/sites.
+    Includes a strict timeout to avoid getting stuck in loops.
+    """
+    import xml.etree.ElementTree as ET
+    results = []
+    url = "https://news.google.com/rss/search"
+    try:
+        r = requests.get(
+            url,
+            params={"q": query, "hl": "en-US", "gl": "US", "ceid": "US:en"},
+            timeout=8, # Strict 8-second timeout
+            headers={"User-Agent": "Mozilla/5.0 (compatible; MeeeShop SEO bot/1.0)"},
+        )
+        if r.status_code == 200:
+            root = ET.fromstring(r.content)
+            for item in root.iter("item"):
+                title_el = item.find("title")
+                link_el  = item.find("link")
+                pub_el   = item.find("pubDate")
+
+                title = (title_el.text or "").strip() if title_el is not None else ""
+                link  = (link_el.text or "").strip() if link_el is not None else ""
+
+                if not title or len(title) < 10:
+                    continue
+
+                results.append({
+                    "title":       title,
+                    "link":        link,
+                    "summary":     "",
+                    "published":   pub_el.text if pub_el is not None else "",
+                    "topic":       query,
+                    "source":      "google-news-unrestricted",
+                    "full_content": "",
+                })
+                if len(results) >= num_results:
+                    break
+    except Exception as e:
+        print(f"    [Google Search Unrestricted] Failed for query '{query}': {e}")
+    return results
 
 def regenerate_single_article(
     original_article: dict,
@@ -591,23 +634,34 @@ def regenerate_single_article(
     print(f"  Searching online for trend references matching: '{handle_query}'...")
     online_articles = []
     
-    # Try Google News
+    # Try unrestricted Google search first (single request, fast timeout, highly relevant)
     try:
-        gn_articles = wtb._fetch_google_news(handle_query, num_sites=3)
-        if gn_articles:
-            print(f"    Found {len(gn_articles)} articles on Google News.")
-            online_articles.extend(gn_articles)
+        unrestricted = fetch_google_search_unrestricted(handle_query, num_results=3)
+        if unrestricted:
+            print(f"    Found {len(unrestricted)} articles on unrestricted Google Search.")
+            online_articles.extend(unrestricted)
     except Exception as e:
-        print(f"    [Warning] Google News search failed: {e}")
+        print(f"    [Warning] Unrestricted Google Search failed: {e}")
         
-    # Try Flipboard Search
-    try:
-        fb_articles = wtb._fetch_flipboard_search(handle_query)
-        if fb_articles:
-            print(f"    Found {len(fb_articles)} articles on Flipboard Search.")
-            online_articles.extend(fb_articles)
-    except Exception as e:
-        print(f"    [Warning] Flipboard search failed: {e}")
+    # Only fallback to slow loop-based searches if we found nothing/little
+    if len(online_articles) < 2:
+        # Try Google News
+        try:
+            gn_articles = wtb._fetch_google_news(handle_query, num_sites=3)
+            if gn_articles:
+                print(f"    Found {len(gn_articles)} articles on Google News.")
+                online_articles.extend(gn_articles)
+        except Exception as e:
+            print(f"    [Warning] Google News search failed: {e}")
+            
+        # Try Flipboard Search
+        try:
+            fb_articles = wtb._fetch_flipboard_search(handle_query)
+            if fb_articles:
+                print(f"    Found {len(fb_articles)} articles on Flipboard Search.")
+                online_articles.extend(fb_articles)
+        except Exception as e:
+            print(f"    [Warning] Flipboard search failed: {e}")
         
     # Deduplicate
     seen_titles = set()
@@ -618,8 +672,8 @@ def regenerate_single_article(
             seen_titles.add(norm_title)
             unique_articles.append(a)
             
-    # Download content of the reference articles
-    target_articles = unique_articles[:4]
+    # Download content of the reference articles (limit to 3 for time/performance)
+    target_articles = unique_articles[:3]
     for art in target_articles:
         if art.get("link") and not art.get("full_content"):
             print(f"    [Scraper] Scraped reference: '{art['title'][:60]}...'")

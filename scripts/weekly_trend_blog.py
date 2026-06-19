@@ -1109,9 +1109,85 @@ def generate_fallback_content(
                 summary = "Exploring modern trends and versatile styles for the current season."
             ref_summaries.append((art_title, summary))
             
-    intro_p = f"When it comes to styling the perfect wardrobe, finding versatile pieces that balance comfort, durability, and high fashion is key. The {prod_title} has taken the fashion scene by storm, offering a flawless fit that transitions effortlessly from day to night. Whether you're dressing for a casual weekend outing, a busy day at the office, or a special occasion, understanding how to maximize this staple is essential for any modern closet."
+    is_care = mode.get("id") in ("fabric_care_guide", "stain_odour_rescue")
     
-    toc = f"""
+    if is_care:
+        intro_p = f"Maintaining the premium look and feel of your wardrobe staples is essential. The {prod_title} is a key foundation piece, and knowing how to properly care for and wash it ensures it remains in pristine condition for years to come. Whether you're dealing with standard laundry cycles or trying to remove tough stains and odours, this guide has you covered."
+        
+        toc = f"""
+<div style="background:#f9f9f9; border:1px solid #eaeaea; padding:15px; border-radius:8px; margin:20px 0;">
+  <p style="font-weight:bold; margin-top:0;">Table of Contents</p>
+  <ul style="margin:0; padding-left:20px; line-height:1.6;">
+    <li><a href="#trends" style="color:#111; text-decoration:underline;">Latest Care & Maintenance Insights</a></li>
+    <li><a href="#hero" style="color:#111; text-decoration:underline;">Why Proper Care Matters for the {prod_title}</a></li>
+    <li><a href="#guidelines" style="color:#111; text-decoration:underline;">Step-by-Step Washing Guidelines</a></li>
+    <li><a href="#care" style="color:#111; text-decoration:underline;">Essential Longevity & Storage Secrets</a></li>
+    <li><a href="#faq" style="color:#111; text-decoration:underline;">Frequently Asked Questions</a></li>
+  </ul>
+</div>
+"""
+        trends_content = ""
+        if ref_summaries:
+            trends_content += "<p>To give you the most relevant care advice, we analyzed the latest fabric care recommendations and expert laundry reports. Here are the key insights we've observed:</p>"
+            trends_content += '<ul style="line-height:1.6; padding-left:20px;">'
+            for art_title, summary in ref_summaries:
+                trends_content += f'  <li style="margin-bottom:12px;"><strong>{art_title}</strong>: {summary}</li>'
+            trends_content += "</ul>"
+        else:
+            trends_content += f"<p>Experts agree that the secret to garment longevity lies in minimizing washing frequency, utilizing low water temperatures, and avoiding harsh chemical detergents. This is particularly true for premium {ptype} items, which benefit from gentle handling.</p>"
+
+        trends_html = f"""
+<h2 id="trends" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">Latest Care & Maintenance Insights</h2>
+{trends_content}
+<blockquote style="border-left: 4px solid #111; padding-left: 20px; font-style: italic; margin: 30px 0; color: #555;">
+  "True garment care is not just about cleaning; it's about preserving the fibers and shape so your favorites last a lifetime."
+</blockquote>
+"""
+        hero_html = f"""
+<h2 id="hero" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">Why Proper Care Matters for the {prod_title}</h2>
+<p>The {prod_title} features high-quality fabric designed for comfort and durability. However, improper washing can lead to shrinkage, shape distortion, or fading. Following correct care guidelines helps maintain the premium texture and fit.</p>
+<div style="background: #faf5f5; border-left: 4px solid #d9534f; padding: 15px 20px; margin: 20px 0; border-radius: 4px;">
+  <strong>Care Tip:</strong> Always turn your garments inside out before washing to protect the exterior fibers from agitation and friction.
+</div>
+"""
+        pairings_html = f"""
+<h2 id="guidelines" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">Step-by-Step Washing Guidelines</h2>
+<p>Ensure your items get the gentlest clean possible by following this simple step-by-step process:</p>
+<ol style="line-height:1.6; margin-bottom:20px;">
+  <li><strong>Prep the Garment:</strong> Empty pockets, close zippers, and turn the piece inside out.</li>
+  <li><strong>Select the Right Cycle:</strong> Choose a delicate or gentle cycle on your washing machine.</li>
+  <li><strong>Use Cold Water:</strong> Hot water can weaken fibers and cause shrinking. Keep it cool.</li>
+  <li><strong>Add Gentle Detergent:</strong> Avoid bleach or harsh laundry additives.</li>
+</ol>
+"""
+        care_html = f"""
+<h2 id="care" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">Essential Longevity & Storage Secrets</h2>
+<p>Once clean, how you dry and store your clothing plays a major role in keeping it looking new:</p>
+<ul style="line-height:1.6; padding-left:20px; margin-bottom:20px;">
+  <li><strong>Air Dry:</strong> Skip the dryer to avoid heat damage and piling. Lay flat or hang to air dry.</li>
+  <li><strong>Steam Instead of Ironing:</strong> Use a fabric steamer to gently release creases without crushing fibers.</li>
+  <li><strong>Proper Storage:</strong> Fold knits to prevent stretching, and hang structured items on padded hangers.</li>
+</ul>
+"""
+        faq_html = f"""
+<h2 id="faq" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">Frequently Asked Questions</h2>
+<div style="margin-bottom: 15px;">
+  <strong>Q: How often should you wash this product?</strong>
+  <p style="margin-top:5px; margin-bottom:15px;">A: We recommend washing only after 3-5 wears unless stained, to preserve fabric integrity.</p>
+</div>
+<div style="margin-bottom: 15px;">
+  <strong>Q: Can I tumble dry this item?</strong>
+  <p style="margin-top:5px; margin-bottom:15px;">A: Air drying is strongly recommended. Tumble drying on high heat can shrink or degrade the fabric.</p>
+</div>
+<div style="margin-bottom: 15px;">
+  <strong>Q: What is the best way to treat a stain?</strong>
+  <p style="margin-top:5px; margin-bottom:15px;">A: Spot clean immediately using cold water and mild soap. Blot gently—do not rub.</p>
+</div>
+"""
+    else:
+        intro_p = f"When it comes to styling the perfect wardrobe, finding versatile pieces that balance comfort, durability, and high fashion is key. The {prod_title} has taken the fashion scene by storm, offering a flawless fit that transitions effortlessly from day to night. Whether you're dressing for a casual weekend outing, a busy day at the office, or a special occasion, understanding how to maximize this staple is essential for any modern closet."
+        
+        toc = f"""
 <div style="background:#f9f9f9; border:1px solid #eaeaea; padding:15px; border-radius:8px; margin:20px 0;">
   <p style="font-weight:bold; margin-top:0;">Table of Contents</p>
   <ul style="margin:0; padding-left:20px; line-height:1.6;">
@@ -1123,50 +1199,45 @@ def generate_fallback_content(
   </ul>
 </div>
 """
-    
-    trends_content = ""
-    if ref_summaries:
-        trends_content += "<p>To give you the most relevant style advice, we analyzed the latest fashion discourse and expert reports from across the industry. Here are the key trend movements we've observed:</p>"
-        trends_content += '<ul style="line-height:1.6; padding-left:20px;">'
-        for art_title, summary in ref_summaries:
-            trends_content += f'  <li style="margin-bottom:12px;"><strong>{art_title}</strong>: {summary}</li>'
-        trends_content += "</ul>"
-    else:
-        trends_content += f"<p>This season is all about effortless styling, smart layering, and investing in high-quality basics. Fashion editors agree that the secret to a premium look lies in how you style your core {ptype} items, prioritizing fabric texture, proportion play, and complementary color palettes.</p>"
-        
-    trends_html = f"""
+        trends_content = ""
+        if ref_summaries:
+            trends_content += "<p>To give you the most relevant style advice, we analyzed the latest fashion discourse and expert reports from across the industry. Here are the key trend movements we've observed:</p>"
+            trends_content += '<ul style="line-height:1.6; padding-left:20px;">'
+            for art_title, summary in ref_summaries:
+                trends_content += f'  <li style="margin-bottom:12px;"><strong>{art_title}</strong>: {summary}</li>'
+            trends_content += "</ul>"
+        else:
+            trends_content += f"<p>This season is all about effortless styling, smart layering, and investing in high-quality basics. Fashion editors agree that the secret to a premium look lies in how you style your core {ptype} items, prioritizing fabric texture, proportion play, and complementary color palettes.</p>"
+            
+        trends_html = f"""
 <h2 id="trends" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">Latest Fashion Trends & Insights</h2>
 {trends_content}
 <blockquote style="border-left: 4px solid #111; padding-left: 20px; font-style: italic; margin: 30px 0; color: #555;">
   "True style is not about buying a new wardrobe every season; it's about knowing how to make your core pieces speak a new language."
 </blockquote>
 """
-    
-    hero_html = f"""
+        hero_html = f"""
 <h2 id="hero" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">The Hero Piece: Styling the {prod_title}</h2>
 <p>The {prod_title} is designed to be the anchor of your wardrobe. Made with premium materials and featuring a thoughtful silhouette, it provides the perfect foundation for multiple looks.</p>
 <div style="background: #faf5f5; border-left: 4px solid #d9534f; padding: 15px 20px; margin: 20px 0; border-radius: 4px;">
   <strong>Stylist Tip:</strong> When styling the {prod_title}, pay close attention to proportions. If you are wearing a relaxed-fit silhouette, pair it with a more tailored top to keep your look balanced and polished.
 </div>
 """
-    
-    pairings_html = f"""
+        pairings_html = f"""
 <h2 id="pairings" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">Styled Lookbook: Complete Outfit Recipes</h2>
 <p>To help you integrate this piece into your daily rotation, our editors have put together two gorgeous outfit recipes using MeeeShop favorites:</p>
 """
-    
-    for idx, p in enumerate(matching_products[:2]):
-        pair_title = p["title"]
-        pair_handle = p.get("handle", "")
-        pair_url = f"{STORE_URL}/products/{pair_handle}"
-        pairings_html += f"""
+        for idx, p in enumerate(matching_products[:2]):
+            pair_title = p["title"]
+            pair_handle = p.get("handle", "")
+            pair_url = f"{STORE_URL}/products/{pair_handle}"
+            pairings_html += f"""
 <div style="border: 1px solid #eaeaea; border-radius: 8px; padding: 15px; margin-bottom: 20px; background:#fff;">
   <h3 style="margin-top:0; font-size:16px; color:#111;">Recipe {idx+1}: The {pair_title} Pairing</h3>
   <p>Create a cohesive, high-end look by pairing the <strong>{prod_title}</strong> with the <a href="{pair_url}" style="color:#111; text-decoration:underline;">{pair_title}</a>. This combination creates a beautiful balance of textures and colors, perfect for transitional weather or a smart-casual dress code.</p>
 </div>
 """
-        
-    care_html = f"""
+        care_html = f"""
 <h2 id="care" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">Essential Style & Care Secrets</h2>
 <p>Maintaining the premium look and feel of your clothing requires the right habits. Follow this checklist to ensure your wardrobe staples last for years:</p>
 <ul style="line-height:1.6; padding-left:20px; margin-bottom:20px;">
@@ -1177,8 +1248,7 @@ def generate_fallback_content(
   <li><strong>Store Properly:</strong> Fold heavy knits and sweaters to prevent stretching, and hang structured items on padded hangers.</li>
 </ul>
 """
-    
-    faq_html = f"""
+        faq_html = f"""
 <h2 id="faq" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">Frequently Asked Questions</h2>
 <div style="margin-bottom: 15px;">
   <strong>Q: How does the {prod_title} fit?</strong>
@@ -1197,6 +1267,27 @@ def generate_fallback_content(
   <p style="margin-top:5px; margin-bottom:15px;">A: Crafted from a premium blend designed for breathability, softness, and long-lasting shape retention.</p>
 </div>
 """
+    
+    long_tail = rdata.get("keywords", {}).get("long_tail", [])
+    zero_search = rdata.get("keywords", {}).get("zero_search", [])
+    suggested_tags = ["style", "fashion", ptype.lower()]
+    if long_tail:
+        suggested_tags.extend([t.lower() for t in long_tail[:3]])
+    
+    html_body = f"""<h1>{title}</h1>
+<p>{intro_p}</p>
+{toc}
+{trends_html}
+{hero_html}
+{pairings_html}
+{care_html}
+{faq_html}"""
+    
+    meta_desc = f"Get the ultimate style guide for styling the {prod_title}. Discover trending pairings, care tips, and editor-approved fashion recipes."
+    if is_care:
+        meta_desc = f"Learn how to wash and care for the {prod_title} to preserve its premium quality. Step-by-step washing, cleaning, and storage secrets."
+    meta_desc = meta_desc[:150]
+
     
     long_tail = rdata.get("keywords", {}).get("long_tail", [])
     zero_search = rdata.get("keywords", {}).get("zero_search", [])
