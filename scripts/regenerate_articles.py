@@ -70,7 +70,7 @@ def _req(method: str, url: str, **kw):
             r = getattr(requests, method)(url, headers=HEADERS, timeout=30, **kw)
             if r.status_code == 429:
                 wait = int(float(r.headers.get("Retry-After", 4)))
-                print(f"    [rate-limit] sleeping {wait}s…")
+                print(f"    [rate-limit] sleeping {wait}s…", file=sys.stderr)
                 time.sleep(wait)
                 continue
             return r
@@ -368,7 +368,7 @@ def fetch_all_articles_with_blog_info(article_id: int | None = None) -> list:
             if node:
                 return [_map_gql_article_to_rest(node)]
         except Exception as e:
-            print(f"Error fetching specific article {article_id} via GraphQL: {e}")
+            print(f"Error fetching specific article {article_id} via GraphQL: {e}", file=sys.stderr)
         return []
 
     # Fetch all articles using pagination
@@ -418,7 +418,7 @@ def fetch_all_articles_with_blog_info(article_id: int | None = None) -> list:
                 if node:
                     articles.append(_map_gql_article_to_rest(node))
             
-            print(f"  [Fetch] Page {page} fetched {len(edges)} articles (Total so far: {len(articles)})")
+            print(f"  [Fetch] Page {page} fetched {len(edges)} articles (Total so far: {len(articles)})", file=sys.stderr)
             
             page_info = articles_data.get("pageInfo", {})
             if not page_info.get("hasNextPage"):
@@ -426,7 +426,7 @@ def fetch_all_articles_with_blog_info(article_id: int | None = None) -> list:
             cursor = page_info.get("endCursor")
             page += 1
         except Exception as e:
-            print(f"Error fetching articles page {page}: {e}")
+            print(f"Error fetching articles page {page}: {e}", file=sys.stderr)
             break
             
     return articles
