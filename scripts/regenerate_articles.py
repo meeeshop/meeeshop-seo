@@ -25,7 +25,7 @@ Usage:
 """
 
 import os, sys, re, time, random, json, argparse
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote, urlparse
 from io import BytesIO
@@ -287,56 +287,179 @@ def fetch_all_products_with_images() -> list:
             break
     return products
 
+def _shopify_graphql(query: str, variables: dict = None) -> dict:
+    graphql_url = f"{BASE}/graphql.json"
+    payload = {"query": query}
+    if variables:
+        payload["variables"] = variables
+    r = _req("post", graphql_url, json=payload)
+    r.raise_for_status()
+    data = r.json()
+    if "errors" in data:
+        raise RuntimeError(f"GraphQL Errors: {data['errors']}")
+    return data
+
+def _map_gql_article_to_rest(node: dict) -> dict:
+    # gid://shopify/Article/12345
+    article_id = int(node["id"].split("/")[-1])
+    blog_id = int(node["blog"]["id"].split("/")[-1]) if node.get("blog") else 0
+    blog_handle = node["blog"]["handle"] if node.get("blog") else ""
+    
+    tags_list = node.get("tags", [])
+    tags_str = ", ".join(tags_list) if isinstance(tags_list, list) else (tags_list or "")
+    
+    img = None
+    if node.get("image"):
+        img = {
+            "src": node["image"].get("src"),
+            "alt": node["image"].get("altText")
+        }
+        
+    return {
+        "id": article_id,
+        "title": node.get("title", ""),
+        "handle": node.get("handle", ""),
+        "body_html": node.get("body", ""),
+        "summary_html": node.get("summary", ""),
+        "tags": tags_str,
+        "image": img,
+        "published_at": node.get("publishedAt"),
+        "author": node.get("author", {}).get("name", "") if node.get("author") else "",
+        "_blog_id": blog_id,
+        "_blog_handle": blog_handle
+    }
+
 def fetch_all_articles_with_blog_info(article_id: int | None = None) -> list:
     """
-    Fetches all articles from all blogs, attaching blog_id and blog_handle.
+    Fetches all articles, attaching blog_id and blog_handle using Shopify GraphQL.
     If article_id is provided, fetches only that specific article.
     """
-    all_blogs = get_all_blogs()
-    all_articles = []
+    if article_id:
+        query = """
+        query ($id: ID!) {
+          node(id: $id) {
+            ... on Article {
+              id
+              title
+              handle
+              body
+              image {
+                src
+                altText
+              }
+              tags
+              summary
+              publishedAt
+              author {
+                name
+              }
+              blog {
+                id
+                handle
+              }
+            }
+          }
+        }
+        """
+        variables = {"id": f"gid://shopify/Article/{article_id}"}
+        try:
+            data = _shopify_graphql(query, variables)
+            node = data.get("data", {}).get("node")
+            if node:
+                return [_map_gql_article_to_rest(node)]
+        except Exception as e:
+            print(f"Error fetching specific article {article_id} via GraphQL: {e}")
+        return []
 
-    for blog in all_blogs:
-        blog_id = blog["id"]
-        blog_handle = blog["handle"]
+    # Fetch all articles using pagination
+    query = """
+    query ($first: Int!, $after: String) {
+      articles(first: $first, after: $after) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        edges {
+          node {
+            id
+            title
+            handle
+            body
+            image {
+              src
+              altText
+            }
+            tags
+            summary
+            publishedAt
+            author {
+              name
+            }
+            blog {
+              id
+              handle
+            }
+          }
+        }
+      }
+    }
+    """
+    articles = []
+    cursor = None
+    page = 1
+    while True:
+        try:
+            variables = {"first": 50, "after": cursor}
+            data = _shopify_graphql(query, variables)
+            articles_data = data.get("data", {}).get("articles", {})
+            edges = articles_data.get("edges", [])
+            for edge in edges:
+                node = edge.get("node")
+                if node:
+                    articles.append(_map_gql_article_to_rest(node))
+            
+            print(f"  [Fetch] Page {page} fetched {len(edges)} articles (Total so far: {len(articles)})")
+            
+            page_info = articles_data.get("pageInfo", {})
+            if not page_info.get("hasNextPage"):
+                break
+            cursor = page_info.get("endCursor")
+            page += 1
+        except Exception as e:
+            print(f"Error fetching articles page {page}: {e}")
+            break
+            
+    return articles
+
+def load_recently_regenerated_ids(within_hours: int | None = 24) -> set:
+    """
+    Scans the logs directory for regenerate_articles_log_*.json files and returns
+    a set of article IDs that were successfully regenerated.
+    """
+    log_files = list(LOG_DIR.glob("regenerate_articles_log_*.json"))
+    
+    cutoff = None
+    if within_hours is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=within_hours)
         
-        if article_id:
-            # Fetch specific article
-            try:
-                r = _req("get", f"{BASE}/blogs/{blog_id}/articles/{article_id}.json")
-                r.raise_for_status()
-                article = r.json().get("article")
-                if article:
-                    article["_blog_id"] = blog_id
-                    article["_blog_handle"] = blog_handle
-                    all_articles.append(article)
-                    return all_articles # Found the article, return it
-            except requests.exceptions.HTTPError as e:
-                if e.response.status_code == 404:
-                    continue # Article not in this blog, try next
-                raise
-        else:
-            # Fetch all articles for this blog
-            page_info = None
-            while True:
-                params = {"limit": 250, "fields": "id,title,handle,body_html,image,tags,summary_html,published_at,author"}
-                if page_info:
-                    params["page_info"] = page_info
-                r = _req("get", f"{BASE}/blogs/{blog_id}/articles.json", params=params)
-                r.raise_for_status()
-                batch = r.json().get("articles", [])
-                if not batch:
-                    break
-                for article in batch:
-                    article["_blog_id"] = blog_id
-                    article["_blog_handle"] = blog_handle
-                    all_articles.append(article)
-                link = r.headers.get("Link", "")
-                m = re.search(r'<[^>]*page_info=([^&>]+)[^>]*>;\s*rel="next"', link)
-                if m:
-                    page_info = m.group(1)
-                else:
-                    break
-    return all_articles
+    regenerated_ids = set()
+    for lf in log_files:
+        try:
+            logs = json.loads(lf.read_text(encoding="utf-8"))
+            if not isinstance(logs, list):
+                continue
+            for entry in logs:
+                if not isinstance(entry, dict):
+                    continue
+                status = entry.get("status")
+                if status in ("success", "dry_run_success"):
+                    art_id = entry.get("article_id")
+                    if art_id:
+                        regenerated_ids.add(int(art_id))
+        except Exception as e:
+            pass
+            
+    return regenerated_ids
 
 
 def regenerate_single_article(
@@ -379,8 +502,9 @@ def regenerate_single_article(
         return log_entry
 
     selected_product = None
+    search_str = (original_handle + " " + original_title).lower()
     for ptype_keyword in ["jean", "dress", "skirt", "top", "pant", "jacket", "coat", "sweater", "cardigan", "swimwear", "activewear", "accessory"]:
-        if ptype_keyword in original_title.lower():
+        if ptype_keyword in search_str:
             matching_products_for_selection = [p for p in product_pool_for_selection if ptype_keyword in (p.get("product_type") or "").lower()]
             if matching_products_for_selection:
                 selected_product = random.choice(matching_products_for_selection)
@@ -390,6 +514,69 @@ def regenerate_single_article(
         selected_product = random.choice(product_pool_for_selection)
 
     print(f"  Selected product for regeneration: '{selected_product['title']}' (Type: {selected_product.get('product_type')})")
+
+    # 1b. Search online using the keywords from the handle
+    handle_query = original_handle.replace("-", " ")
+    print(f"  Extracted handle keywords for search: '{handle_query}'")
+    print(f"  Searching online for trend references matching: '{handle_query}'...")
+    online_articles = []
+    
+    # Try Google News
+    try:
+        gn_articles = wtb._fetch_google_news(handle_query, num_sites=3)
+        if gn_articles:
+            print(f"    Found {len(gn_articles)} articles on Google News.")
+            online_articles.extend(gn_articles)
+    except Exception as e:
+        print(f"    [Warning] Google News search failed: {e}")
+        
+    # Try Flipboard Search
+    try:
+        fb_articles = wtb._fetch_flipboard_search(handle_query)
+        if fb_articles:
+            print(f"    Found {len(fb_articles)} articles on Flipboard Search.")
+            online_articles.extend(fb_articles)
+    except Exception as e:
+        print(f"    [Warning] Flipboard search failed: {e}")
+        
+    # Deduplicate
+    seen_titles = set()
+    unique_articles = []
+    for a in online_articles:
+        norm_title = re.sub(r"\W+", "", a["title"].lower())[:40]
+        if norm_title not in seen_titles:
+            seen_titles.add(norm_title)
+            unique_articles.append(a)
+            
+    # Download content of the reference articles
+    target_articles = unique_articles[:4]
+    for art in target_articles:
+        if art.get("link") and not art.get("full_content"):
+            print(f"    [Scraper] Scraped reference: '{art['title'][:60]}...'")
+            art["full_content"] = wtb.download_article_content(art["link"])
+            
+    # Extract keywords
+    long_tail = []
+    zero_search = []
+    for a in target_articles:
+        if a.get("full_content"):
+            kws = wtb.extract_keywords(a["full_content"])
+            long_tail.extend(kws.get("long_tail", []))
+            zero_search.extend(kws.get("zero_search", []))
+            
+    ptype = selected_product.get("product_type") or "Uncategorized"
+    ptype = ptype.strip()
+    
+    # Inject research context for the specific product type
+    research_cache[ptype] = {
+        "product_type": ptype,
+        "sample_products": [{"id": selected_product["id"], "title": selected_product["title"], "handle": selected_product.get("handle", "")}],
+        "articles": target_articles,
+        "keywords": {
+            "long_tail": list(dict.fromkeys(long_tail))[:10],
+            "zero_search": list(dict.fromkeys(zero_search))[:10]
+        }
+    }
 
     # 2. Generate content using the unified engine from weekly_trend_blog.py
     content_assets = generate_single_article_content(
@@ -581,10 +768,18 @@ def main():
 
     results = []
     all_blogs = get_all_blogs()
+    skip_ids = load_recently_regenerated_ids(within_hours=24)
+    if skip_ids:
+        print(f"Loaded {len(skip_ids)} already regenerated article(s) to skip.")
+
     for article in articles_to_process:
+        art_id = article.get("id")
+        if art_id in skip_ids:
+            print(f"Skipping article {art_id} (already regenerated recently).")
+            continue
         result = regenerate_single_article(article, all_products_with_images, all_blogs, args.dry_run, args.force_format, type_map, research_cache, link_map)
         results.append(result)
-        time.sleep(2) # Be kind to APIs
+        time.sleep(0.6) # Be kind to APIs
 
     print(f"\n{'='*70}")
     print("Regeneration Summary:")

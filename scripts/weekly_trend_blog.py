@@ -917,7 +917,7 @@ def _pick_article_mode(ptype: str) -> dict:
 
 
 # ── AI Prompt Construction ──────────────────────────────────────────────────────
-def _build_article_prompt(main_product: dict, research_data: dict, matching_products: list, mode: dict | None = None) -> tuple[str, dict]:
+def _build_article_prompt(main_product: dict, research_data: dict, matching_products: list, mode: dict | None = None, original_handle_hint: str | None = None) -> tuple[str, dict]:
     ptype = research_data["product_type"]
     kws = research_data["keywords"]
     long_tail = kws.get("long_tail", [])
@@ -928,22 +928,26 @@ def _build_article_prompt(main_product: dict, research_data: dict, matching_prod
     if mode is None:
         mode = _pick_article_mode(ptype)
 
-    # Resolve dynamic placeholders in title pattern
-    season = random.choice(_SEASONS)
-    season2 = random.choice([s for s in _SEASONS if s != season])
-    occasion = random.choice(_OCCASIONS)
-    num = random.choice(_NUMS)
-    title_hint = (
-        mode["title_pattern"]
-        .replace("{ptype}", ptype)
-        .replace("{main_product}", main_product["title"])
-        .replace("{season}", season)
-        .replace("{season1}", season)
-        .replace("{season2}", season2)
-        .replace("{occasion}", occasion)
-        .replace("{num}", num)
-        .replace("{year}", str(YEAR))
-    )
+    if original_handle_hint:
+        words = original_handle_hint.split("-")
+        title_hint = " ".join(w.capitalize() for w in words if w)
+    else:
+        # Resolve dynamic placeholders in title pattern
+        season = random.choice(_SEASONS)
+        season2 = random.choice([s for s in _SEASONS if s != season])
+        occasion = random.choice(_OCCASIONS)
+        num = random.choice(_NUMS)
+        title_hint = (
+            mode["title_pattern"]
+            .replace("{ptype}", ptype)
+            .replace("{main_product}", main_product["title"])
+            .replace("{season}", season)
+            .replace("{season1}", season)
+            .replace("{season2}", season2)
+            .replace("{occasion}", occasion)
+            .replace("{num}", num)
+            .replace("{year}", str(YEAR))
+        )
 
     # Research context from trending articles
     research_context = ""
@@ -1021,6 +1025,16 @@ ARTICLE_MODE: {mode['id']}
 
 Output ONLY clean HTML body content then the <seometa> block. No markdown fences. Start with the first HTML tag.
 """
+    if original_handle_hint:
+        prompt += f"""
+
+────────── MANDATORY HANDLE & TITLE ENFORCEMENT ──────────
+1. You MUST write this article specifically about: "{title_hint}".
+2. You MUST use the exact title: "{title_hint}" as the main heading and the article title.
+3. In the <seometa> section, you MUST output:
+   SEO_TITLE: {title_hint}
+   SUGGESTED_HANDLE: {original_handle_hint}
+"""
     return prompt, mode
 
 def _parse_seometa(raw: str) -> dict:
@@ -1097,11 +1111,8 @@ def generate_single_article_content(
                 mode = m
                 break
                 
-    prompt, chosen_mode = _build_article_prompt(main_product, rdata, matching_products, mode=mode)
+    prompt, chosen_mode = _build_article_prompt(main_product, rdata, matching_products, mode=mode, original_handle_hint=original_handle_hint)
     
-    if original_handle_hint:
-        prompt += f"\n\nNOTE: The original URL handle for this article is '{original_handle_hint}'. If appropriate, align your topic and SUGGESTED_HANDLE with it."
-
     print(f"  Article Mode: {chosen_mode['id']}")
     print("  Generating new content with AI...")
     raw_ai_response = ai_client.generate(prompt, max_tokens=3000, temperature=0.85)
@@ -1114,8 +1125,13 @@ def generate_single_article_content(
     seometa = _parse_seometa(raw_ai_response)
     
     # 4. Fallbacks and assembly
-    suggested_handle = seometa.get("suggested_handle") or f"style-guide-{main_product['handle']}"
-    new_title = seometa.get("seo_title") or f"How to Wear & Style {main_product['title']}"
+    if original_handle_hint:
+        suggested_handle = original_handle_hint
+        words = original_handle_hint.split("-")
+        new_title = " ".join(w.capitalize() for w in words if w)
+    else:
+        suggested_handle = seometa.get("suggested_handle") or f"style-guide-{main_product['handle']}"
+        new_title = seometa.get("seo_title") or f"How to Wear & Style {main_product['title']}"
     meta_desc = seometa.get("meta_desc") or f"Expert styling guide and care tips for {main_product['title']}."
     img_alt = seometa.get("img_alt") or f"{main_product['title']} styling collage"
     new_tags = seometa.get("suggested_tags") or ["style", "fashion", ptype.lower()]
