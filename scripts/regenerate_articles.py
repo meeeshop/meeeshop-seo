@@ -149,21 +149,20 @@ def update_article_and_metafields_graphql(article_id: int, payload: dict, seo_ti
     
     # Map REST payload to GraphQL ArticleUpdateInput
     gql_article = {
-        "id": f"gid://shopify/Article/{article_id}",
         "title": payload.get("title"),
-        "author": payload.get("author"),
-        "contentHtml": payload.get("body_html"),
-        "summaryHtml": payload.get("summary_html"),
+        "author": {"name": payload.get("author")} if payload.get("author") else None,
+        "body": payload.get("body_html"),
+        "summary": payload.get("summary_html"),
         "tags": payload.get("tags"),
         "handle": payload.get("handle"),
     }
     
     if "published" in payload:
-        gql_article["published"] = payload["published"]
+        gql_article["isPublished"] = payload["published"]
     
     if "image" in payload and payload["image"].get("src"):
         gql_article["image"] = {
-            "src": payload["image"]["src"],
+            "url": payload["image"]["src"],
             "altText": payload["image"]["alt"]
         }
 
@@ -187,12 +186,13 @@ def update_article_and_metafields_graphql(article_id: int, payload: dict, seo_ti
     ]
 
     variables = {
+        "id": owner_id,
         "article": gql_article,
         "metafields": metafields
     }
 
     query = """
-    mutation updateArticleAndMetafields($article: ArticleInput!, $metafields: [MetafieldsSetInput!]!
+    mutation updateArticleAndMetafields($id: ID!, $article: ArticleUpdateInput!, $metafields: [MetafieldsSetInput!]!
     """
     
     if redirect_path and redirect_target:
@@ -203,7 +203,7 @@ def update_article_and_metafields_graphql(article_id: int, payload: dict, seo_ti
         }
 
     query += """) {
-      articleUpdate(input: $article) {
+      articleUpdate(id: $id, article: $article) {
         article {
           id
           handle
@@ -462,6 +462,59 @@ def load_recently_regenerated_ids(within_hours: int | None = 24) -> set:
     return regenerated_ids
 
 
+def detect_article_mode_from_handle_or_title(handle: str, title: str) -> str | None:
+    text = (handle + " " + title).lower()
+    
+    # 1. stain_odour_rescue
+    if any(w in text for w in ["smell", "stink", "odor", "odour", "stain", "sweat", "dirty", "laundry", "remove"]):
+        return "stain_odour_rescue"
+        
+    # 2. fabric_care_guide
+    if any(w in text for w in ["care", "maintain", "shrink", "piling", "fade", "iron", "storage"]):
+        return "fabric_care_guide"
+        
+    # 3. travel_packing_guide
+    if any(w in text for w in ["travel", "pack", "trip", "vacation", "flight", "suitcase"]):
+        return "travel_packing_guide"
+        
+    # 4. work_dress_code
+    if any(w in text for w in ["work", "office", "dress-code", "interview", "career", "corporate"]):
+        return "work_dress_code"
+        
+    # 5. capsule_wardrobe
+    if any(w in text for w in ["capsule", "wardrobe", "minimalist", "staples"]):
+        return "capsule_wardrobe"
+        
+    # 6. plus_size_curvy_guide
+    if any(w in text for w in ["curvy", "plus-size", "curves", "shape"]):
+        return "plus_size_curvy_guide"
+        
+    # 7. age_decade_guide
+    if any(w in text for w in ["30s", "40s", "50s", "age", "decade"]):
+        return "age_decade_guide"
+        
+    # 8. budget_style_guide
+    if any(w in text for w in ["budget", "expensive", "cheap", "save", "affordable"]):
+        return "budget_style_guide"
+        
+    # 9. splurge_vs_save
+    if any(w in text for w in ["splurge", "dupe", "alternative"]):
+        return "splurge_vs_save"
+        
+    # 10. gift_guide
+    if any(w in text for w in ["gift", "present", "gifting"]):
+        return "gift_guide"
+        
+    # 11. french_scandi_aesthetic
+    if any(w in text for w in ["french", "scandi", "parisian", "aesthetic"]):
+        return "french_scandi_aesthetic"
+        
+    # 12. outfit_ideas_occasions
+    if any(w in text for w in ["outfit", "ideas", "occasion", "wear", "styling", "ways"]):
+        return "outfit_ideas_occasions"
+        
+    return None
+
 def regenerate_single_article(
     original_article: dict,
     all_products_with_images: list,
@@ -493,6 +546,12 @@ def regenerate_single_article(
 
     print(f"\nProcessing article: '{original_title}' (ID: {article_id}, Handle: {original_handle})")
 
+    # Detect correct mode if none is forced
+    detected_mode = detect_article_mode_from_handle_or_title(original_handle, original_title)
+    if detected_mode and not force_format:
+        print(f"  [Mode Match] Detected article mode: '{detected_mode}' from handle/title")
+        force_format = detected_mode
+
     # 1. Select a relevant product for the article
     product_pool_for_selection = [p for p in all_products_with_images if p.get("images")]
     if not product_pool_for_selection:
@@ -501,8 +560,19 @@ def regenerate_single_article(
         log_entry["message"] = "No products with images for regeneration"
         return log_entry
 
+    # If the mode is about fabric/laundry/care, or handle/title suggests clothes/clothing, prioritize apparel products
+    is_apparel_themed = (
+        (force_format in ("stain_odour_rescue", "fabric_care_guide")) or
+        any(w in (original_handle + " " + original_title).lower() for w in ["clothes", "clothing", "wear", "fabric", "laundry"])
+    )
+    if is_apparel_themed:
+        apparel_types = ["jean", "denim", "dress", "skirt", "top", "pant", "jacket", "coat", "sweater", "cardigan", "shirt", "tee", "t-shirt", "legging", "short", "blouse", "swimwear", "activewear"]
+        apparel_pool = [p for p in product_pool_for_selection if any(x in (p.get("product_type") or "").lower() for x in apparel_types)]
+        if apparel_pool:
+            product_pool_for_selection = apparel_pool
+
     selected_product = None
-    search_str = (original_handle + " " + original_title).lower()
+    search_str = (original_handle + " " + original_title + " " + original_tags).lower()
     for ptype_keyword in ["jean", "dress", "skirt", "top", "pant", "jacket", "coat", "sweater", "cardigan", "swimwear", "activewear", "accessory"]:
         if ptype_keyword in search_str:
             matching_products_for_selection = [p for p in product_pool_for_selection if ptype_keyword in (p.get("product_type") or "").lower()]
@@ -774,7 +844,7 @@ def main():
 
     for article in articles_to_process:
         art_id = article.get("id")
-        if art_id in skip_ids:
+        if not args.article_id and art_id in skip_ids:
             print(f"Skipping article {art_id} (already regenerated recently).")
             continue
         result = regenerate_single_article(article, all_products_with_images, all_blogs, args.dry_run, args.force_format, type_map, research_cache, link_map)
