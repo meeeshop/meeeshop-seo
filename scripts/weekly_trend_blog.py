@@ -1058,6 +1058,176 @@ def _parse_seometa(raw: str) -> dict:
             meta["suggested_tags"] = [t.strip() for t in raw_tags.split(",") if t.strip()]
     return meta
 
+def _slugify(text: str) -> str:
+    text = text.lower()
+    text = re.sub(r"[^\w\s-]", "", text)
+    text = re.sub(r"[-\s]+", "-", text)
+    return text.strip("-")
+
+def generate_fallback_content(
+    main_product: dict,
+    matching_products: list,
+    rdata: dict,
+    mode: dict,
+    original_handle_hint: str | None = None
+) -> str:
+    ptype = rdata.get("product_type", "Fashion Staples").strip()
+    prod_title = main_product["title"]
+    
+    if original_handle_hint:
+        suggested_handle = original_handle_hint
+        words = original_handle_hint.split("-")
+        title = " ".join(w.capitalize() for w in words if w)
+    else:
+        season = random.choice(_SEASONS)
+        season2 = random.choice([s for s in _SEASONS if s != season])
+        occasion = random.choice(_OCCASIONS)
+        num = random.choice(_NUMS)
+        title = (
+            mode["title_pattern"]
+            .replace("{ptype}", ptype)
+            .replace("{main_product}", prod_title)
+            .replace("{season}", season)
+            .replace("{season1}", season)
+            .replace("{season2}", season2)
+            .replace("{occasion}", occasion)
+            .replace("{num}", num)
+            .replace("{year}", str(YEAR))
+        )
+        suggested_handle = _slugify(title)
+        
+    articles = rdata.get("articles", [])
+    ref_summaries = []
+    if articles:
+        for art in articles[:3]:
+            art_title = art.get("title", "Fashion Trends")
+            summary = art.get("summary", "") or art.get("full_content", "")
+            if summary:
+                summary = re.sub(r"<[^>]+>", "", summary)
+                summary = summary[:200] + "..." if len(summary) > 200 else summary
+            else:
+                summary = "Exploring modern trends and versatile styles for the current season."
+            ref_summaries.append((art_title, summary))
+            
+    intro_p = f"When it comes to styling the perfect wardrobe, finding versatile pieces that balance comfort, durability, and high fashion is key. The {prod_title} has taken the fashion scene by storm, offering a flawless fit that transitions effortlessly from day to night. Whether you're dressing for a casual weekend outing, a busy day at the office, or a special occasion, understanding how to maximize this staple is essential for any modern closet."
+    
+    toc = f"""
+<div style="background:#f9f9f9; border:1px solid #eaeaea; padding:15px; border-radius:8px; margin:20px 0;">
+  <p style="font-weight:bold; margin-top:0;">Table of Contents</p>
+  <ul style="margin:0; padding-left:20px; line-height:1.6;">
+    <li><a href="#trends" style="color:#111; text-decoration:underline;">Latest Fashion Trends & Insights</a></li>
+    <li><a href="#hero" style="color:#111; text-decoration:underline;">The Hero Piece: Styling the {prod_title}</a></li>
+    <li><a href="#pairings" style="color:#111; text-decoration:underline;">Styled Lookbook: Complete Outfit Recipes</a></li>
+    <li><a href="#care" style="color:#111; text-decoration:underline;">Essential Style & Care Secrets</a></li>
+    <li><a href="#faq" style="color:#111; text-decoration:underline;">Frequently Asked Questions</a></li>
+  </ul>
+</div>
+"""
+    
+    trends_content = ""
+    if ref_summaries:
+        trends_content += "<p>To give you the most relevant style advice, we analyzed the latest fashion discourse and expert reports from across the industry. Here are the key trend movements we've observed:</p>"
+        trends_content += '<ul style="line-height:1.6; padding-left:20px;">'
+        for art_title, summary in ref_summaries:
+            trends_content += f'  <li style="margin-bottom:12px;"><strong>{art_title}</strong>: {summary}</li>'
+        trends_content += "</ul>"
+    else:
+        trends_content += f"<p>This season is all about effortless styling, smart layering, and investing in high-quality basics. Fashion editors agree that the secret to a premium look lies in how you style your core {ptype} items, prioritizing fabric texture, proportion play, and complementary color palettes.</p>"
+        
+    trends_html = f"""
+<h2 id="trends" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">Latest Fashion Trends & Insights</h2>
+{trends_content}
+<blockquote style="border-left: 4px solid #111; padding-left: 20px; font-style: italic; margin: 30px 0; color: #555;">
+  "True style is not about buying a new wardrobe every season; it's about knowing how to make your core pieces speak a new language."
+</blockquote>
+"""
+    
+    hero_html = f"""
+<h2 id="hero" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">The Hero Piece: Styling the {prod_title}</h2>
+<p>The {prod_title} is designed to be the anchor of your wardrobe. Made with premium materials and featuring a thoughtful silhouette, it provides the perfect foundation for multiple looks.</p>
+<div style="background: #faf5f5; border-left: 4px solid #d9534f; padding: 15px 20px; margin: 20px 0; border-radius: 4px;">
+  <strong>Stylist Tip:</strong> When styling the {prod_title}, pay close attention to proportions. If you are wearing a relaxed-fit silhouette, pair it with a more tailored top to keep your look balanced and polished.
+</div>
+"""
+    
+    pairings_html = f"""
+<h2 id="pairings" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">Styled Lookbook: Complete Outfit Recipes</h2>
+<p>To help you integrate this piece into your daily rotation, our editors have put together two gorgeous outfit recipes using MeeeShop favorites:</p>
+"""
+    
+    for idx, p in enumerate(matching_products[:2]):
+        pair_title = p["title"]
+        pair_handle = p.get("handle", "")
+        pair_url = f"{STORE_URL}/products/{pair_handle}"
+        pairings_html += f"""
+<div style="border: 1px solid #eaeaea; border-radius: 8px; padding: 15px; margin-bottom: 20px; background:#fff;">
+  <h3 style="margin-top:0; font-size:16px; color:#111;">Recipe {idx+1}: The {pair_title} Pairing</h3>
+  <p>Create a cohesive, high-end look by pairing the <strong>{prod_title}</strong> with the <a href="{pair_url}" style="color:#111; text-decoration:underline;">{pair_title}</a>. This combination creates a beautiful balance of textures and colors, perfect for transitional weather or a smart-casual dress code.</p>
+</div>
+"""
+        
+    care_html = f"""
+<h2 id="care" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">Essential Style & Care Secrets</h2>
+<p>Maintaining the premium look and feel of your clothing requires the right habits. Follow this checklist to ensure your wardrobe staples last for years:</p>
+<ul style="line-height:1.6; padding-left:20px; margin-bottom:20px;">
+  <li><strong>Wash Less:</strong> Only wash when necessary to preserve fabric integrity and prevent fading.</li>
+  <li><strong>Use Cold Water:</strong> Always wash in cold water with a gentle detergent to avoid shrinkage.</li>
+  <li><strong>Air Dry:</strong> Whenever possible, skip the dryer and lay your items flat to dry. This prevents piling and structural damage.</li>
+  <li><strong>Steam, Don't Iron:</strong> Use a steamer to remove wrinkles gently without exposing delicate fibers to direct high heat.</li>
+  <li><strong>Store Properly:</strong> Fold heavy knits and sweaters to prevent stretching, and hang structured items on padded hangers.</li>
+</ul>
+"""
+    
+    faq_html = f"""
+<h2 id="faq" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">Frequently Asked Questions</h2>
+<div style="margin-bottom: 15px;">
+  <strong>Q: How does the {prod_title} fit?</strong>
+  <p style="margin-top:5px; margin-bottom:15px;">A: It runs true to size with a comfortable, flattering stretch. If you prefer a tighter fit, we recommend sizing down.</p>
+</div>
+<div style="margin-bottom: 15px;">
+  <strong>Q: What is the best way to wash this item?</strong>
+  <p style="margin-top:5px; margin-bottom:15px;">A: We recommend machine washing on a cold, gentle cycle inside out, and laying flat to air dry.</p>
+</div>
+<div style="margin-bottom: 15px;">
+  <strong>Q: Can this product be styled for formal events?</strong>
+  <p style="margin-top:5px; margin-bottom:15px;">A: Absolutely! Pair it with a tailored blazer and premium heels to instantly elevate it for professional or evening occasions.</p>
+</div>
+<div style="margin-bottom: 15px;">
+  <strong>Q: What fabrics are used in this product?</strong>
+  <p style="margin-top:5px; margin-bottom:15px;">A: Crafted from a premium blend designed for breathability, softness, and long-lasting shape retention.</p>
+</div>
+"""
+    
+    long_tail = rdata.get("keywords", {}).get("long_tail", [])
+    zero_search = rdata.get("keywords", {}).get("zero_search", [])
+    suggested_tags = ["style", "fashion", ptype.lower()]
+    if long_tail:
+        suggested_tags.extend([t.lower() for t in long_tail[:3]])
+    
+    html_body = f"""<h1>{title}</h1>
+<p>{intro_p}</p>
+{toc}
+{trends_html}
+{hero_html}
+{pairings_html}
+{care_html}
+{faq_html}"""
+    
+    meta_desc = f"Get the ultimate style guide for styling the {prod_title}. Discover trending pairings, care tips, and editor-approved fashion recipes."
+    meta_desc = meta_desc[:150]
+    
+    seometa = f"""
+<seometa>
+SEO_TITLE: {title[:55]}
+META_DESC: {meta_desc}
+IMG_ALT: A premium fashion collage featuring the {prod_title} and matching styling pieces from MeeeShop.
+SUGGESTED_HANDLE: {suggested_handle}
+SUGGESTED_TAGS: {", ".join(list(dict.fromkeys(suggested_tags))[:7])}
+ARTICLE_MODE: {mode['id']}
+</seometa>
+"""
+    return html_body + seometa
+
 def _clean_html(raw: str) -> str:
     raw = raw.strip()
     raw = re.sub(r"^```html?\s*", "", raw, flags=re.IGNORECASE)
@@ -1118,8 +1288,14 @@ def generate_single_article_content(
     raw_ai_response = ai_client.generate(prompt, max_tokens=3000, temperature=0.85)
 
     if not raw_ai_response:
-        print("  [ERROR] AI content generation failed.")
-        return None
+        print("  [ERROR] AI content generation failed. Running fallback content generation...")
+        raw_ai_response = generate_fallback_content(
+            main_product=main_product,
+            matching_products=matching_products,
+            rdata=rdata,
+            mode=chosen_mode,
+            original_handle_hint=original_handle_hint
+        )
 
     html_body = _clean_html(raw_ai_response)
     seometa = _parse_seometa(raw_ai_response)
