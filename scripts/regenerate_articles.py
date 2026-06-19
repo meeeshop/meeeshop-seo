@@ -778,10 +778,11 @@ def regenerate_single_article(
         log_entry["changes"].append({"field": "title", "old": original_title, "new": new_title})
     if original_article.get("body_html") != html_body:
         log_entry["changes"].append({"field": "body_html", "old_len": len(original_article.get("body_html", "")), "new_len": len(html_body)})
-    if original_article.get("image", {}).get("src") != img_url:
-        log_entry["changes"].append({"field": "image_src", "old": original_article.get("image", {}).get("src"), "new": img_url})
-    if original_article.get("image", {}).get("alt") != img_alt:
-        log_entry["changes"].append({"field": "image_alt", "old": original_article.get("image", {}).get("alt"), "new": img_alt})
+    orig_img = original_article.get("image") or {}
+    if orig_img.get("src") != img_url:
+        log_entry["changes"].append({"field": "image_src", "old": orig_img.get("src"), "new": img_url})
+    if orig_img.get("alt") != img_alt:
+        log_entry["changes"].append({"field": "image_alt", "old": orig_img.get("alt"), "new": img_alt})
     if original_article.get("tags") != payload["tags"]:
         log_entry["changes"].append({"field": "tags", "old": original_tags, "new": payload["tags"]})
     if original_article.get("author") != payload["author"]:
@@ -805,7 +806,7 @@ def regenerate_single_article(
                 "body_html": original_article.get("body_html", ""),
                 "summary_html": original_article.get("summary_html", ""),
                 "tags": original_tags,
-                "image": original_article.get("image", {}),
+                "image": original_article.get("image") or {},
                 "author": original_article.get("author", ""),
                 "published_at": original_article.get("published_at", ""),
                 "backup_timestamp": datetime.now().isoformat()
