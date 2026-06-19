@@ -338,36 +338,92 @@ def make_related_products_section(products: list, exclude_handle: str,
 
 # ── SEO metadata generation ───────────────────────────────────────────────────
 EEAT_RULES = (
-    "E-E-A-T requirements (Google trust signals):\n"
-    "1. Write from the perspective of an expert MeeeShop fashion stylist/editor.\n"
-    "2. Focus on objective product specifications (e.g., fabric blend, cut structure, weight, how the garment drapes).\n"
-    "3. Provide genuine, actionable styling advice (e.g., what shoes/accessories pair best, how to transition from casual to formal).\n"
-    "4. Address real-world questions from customer interactions (e.g., 'our customers often ask how the shoulders fit' or 'how to care for this fabric').\n"
-    "5. Highlight merchant trust elements: free US shipping on orders $50+, easy 7-day returns, size availability from XS to 3X.\n"
-    "6. Avoid fake personal anecdotes (e.g., do NOT invent stories like 'I wore this to a party last weekend'). Stick to professional analysis.\n"
-    "7. Use varied, authentic vocabulary. Keep tone warm, clean, and helpful, and cut generic filler.\n\n"
+    "EDITORIAL VOICE & E-E-A-T REQUIREMENTS (non-negotiable — Google trust signals + reader value):\n\n"
+
+    "═══ OPENING HOOK (Critical for Google Discover CTR) ═══\n"
+    "Open with a SPECIFIC, OPINIONATED hook that immediately validates the reader's real-world problem.\n"
+    "✅ GOOD: 'The single-roll cuff is everywhere right now — and after testing every variation on dark wash, barrel leg, and cigarette jeans, here is exactly what actually works.'\n"
+    "✅ GOOD: 'If your jeans still smell faintly musty after washing, you are not alone — and a second wash is rarely the answer.'\n"
+    "❌ BAD: 'Jeans are a timeless wardrobe staple that women everywhere love.'\n"
+    "❌ BAD: 'In today's world of fashion, finding the perfect pair of jeans can be challenging.'\n\n"
+
+    "═══ VOICE & TONE ═══\n"
+    "Write as a knowledgeable, trusted stylist friend — warm, direct, and specific. NOT a brand.\n"
+    "• Use second person ('your jeans', 'your body') to keep the reader central.\n"
+    "• Mix short punchy sentences with longer explanatory ones. Vary rhythm deliberately.\n"
+    "• Be opinionated where it helps: 'Skip the wide-leg for petite frames — the volume will overwhelm.'\n"
+    "• Acknowledge real trade-offs: 'Cigarette jeans are incredibly chic, but if you run curvy in the hip, size up and have them tailored at the waist.'\n\n"
+
+    "═══ SPECIFIC RECOMMENDATIONS (Required — not vague) ═══\n"
+    "All styling advice MUST name specific item categories with descriptors. MeeeShop sells clothing only — do NOT recommend specific shoes. Instead recommend clothing layers, tops, bags, belts, and jewelry with specific descriptors:\n"
+    "✅ GOOD: 'A relaxed linen button-down in ecru — untucked, one button undone at the collar — hits differently over dark wash jeans.'\n"
+    "✅ GOOD: 'A structured mini tote in chocolate brown or off-white anchors the quiet luxury aesthetic without trying too hard.'\n"
+    "✅ GOOD: 'Layer a cropped blazer in camel or ivory over the top — it balances the proportions instantly.'\n"
+    "❌ BAD: 'Pair with heels for a polished look.' (no shoe recs — MeeeShop doesn't sell shoes)\n"
+    "❌ BAD: 'Accessorize to complete the outfit.' (too vague)\n"
+    "❌ BAD: 'Add a bag to elevate the look.' (generic filler)\n\n"
+
+    "═══ 2026 TREND CONTEXT (Weave in naturally — sourced from Flipboard #Style 8.4M followers) ═══\n"
+    "Reference real trends where relevant but do NOT force every trend into every article:\n"
+    "• Quiet luxury: 'No logos, no distressing — clean dark wash denim with a tucked-in linen shirt is the 2026 quiet luxury formula.'\n"
+    "• Cigarette/stovepipe silhouette replacing wide-leg as dominant denim cut in 2026.\n"
+    "• Dark indigo clean wash over distressed/light wash — reads more expensive instantly.\n"
+    "• Linen top + dark wash jean = the heat-proof chic summer formula trending on Flipboard.\n"
+    "• All-black outfits even in summer — trending on Flipboard #Style with 8.4M followers.\n"
+    "• Oversized blazer over a simple tank + straight-leg jeans = the office-to-evening formula.\n\n"
+
+    "═══ STRUCTURE & FORMAT ═══\n"
+    "• Use H2 for major sections, H3 for sub-steps or occasions.\n"
+    "• Include at least 1 blockquote styled as a 'Stylist Tip' with specific advice.\n"
+    "• Use bullet lists for step-by-step instructions (care guides, how-tos).\n"
+    "• For outfit formulas: name EACH look with a creative occasion title (e.g., 'Look 1: Sunday Farmers Market', not 'Casual Look').\n"
+    "• Vary structure between articles — avoid formulaic repetition.\n\n"
+
+    "═══ BANNED PHRASES (never use these) ═══\n"
+    "elevate your look | effortlessly chic | perfect for any occasion | versatile wardrobe staple\n"
+    "timeless classic | fashion-forward | look and feel your best | style game\n"
+    "take your look to the next level | complete your outfit | fashion journey\n\n"
+
+    "═══ TRUST SIGNALS ═══\n"
+    "Include naturally (once, in CTA or intro): Free US shipping on orders $50+. Easy 7-day returns. Sizes XS–3X.\n\n"
 )
 
 SEED_KEYWORDS = [
-    "women's fashion 2026", "affordable women's clothing USA",
-    "summer dress outfits for women", "women's jeans styles guide",
-    "casual chic outfits women", "cute outfits under $50",
-    "stylish women's tops", "best dresses for women",
-    "women's summer wardrobe essentials", "affordable boutique fashion USA",
-    "work outfits for women", "women's spring outfit ideas 2026",
+    # 2026 Trending — sourced from Flipboard #Style (8.4M followers) & Who What Wear
+    "women's fashion 2026", "summer outfit ideas for women 2026",
+    "affordable women's clothing USA", "summer dress outfits for women",
+    "women's jeans styles guide", "casual chic outfits women",
+    "cute outfits under $50", "stylish women's tops",
+    "best dresses for women", "women's summer wardrobe essentials",
+    "affordable boutique fashion USA", "work outfits for women",
     "best tops to wear with jeans", "women's date night outfit ideas",
+    # Jeans-specific trending 2026 (Flipboard #Jeans 66K followers)
+    "how to style jeans 2026", "dark wash jeans outfits",
+    "quiet luxury jeans women", "cigarette jeans styling tips",
+    "barrel leg jeans vs wide leg", "linen top with jeans outfit",
+    "blazer with jeans outfit ideas", "how to look taller in jeans",
+    # Care & How-To (high search intent)
+    "how to wash jeans without fading", "how to remove stains from jeans",
+    "how to remove smell from clothes", "how to fix pilling on clothes",
+    # Summer 2026 (Flipboard #SummerFashion 73.9K followers)
+    "linen top with jeans outfit", "summer denim outfit ideas",
+    "all black summer outfit women", "women's capsule wardrobe 2026",
 ]
 
 
 def _lsi_keywords(ptype: str) -> list[str]:
     ptype_lsi = {
-        "dress":      ["summer dress outfits", "flattering dresses women", "midi dress", "casual dress"],
-        "jean":       ["jeans for women", "best fitting jeans", "high waist jeans", "denim styles"],
-        "top":        ["tops for women", "blouse styles", "work tops", "casual tops women"],
-        "blouse":     ["blouse outfits", "women's blouse styles", "office blouse"],
-        "skirt":      ["skirt outfits women", "midi skirt", "how to wear skirts"],
-        "pant":       ["women's pants guide", "wide leg pants", "work pants women"],
-        "jacket":     ["women's jacket outfits", "blazer women", "casual jacket"],
+        "dress":      ["summer dress outfits", "flattering dresses women", "midi dress",
+                       "linen dresses 2026", "casual dress outfit ideas"],
+        "jean":       ["jeans for women 2026", "best fitting jeans", "high waist jeans",
+                       "dark wash jeans outfits", "cigarette jeans styling", "quiet luxury denim",
+                       "barrel leg jeans", "linen top with jeans outfit", "denim trends 2026"],
+        "top":        ["tops for women", "blouse styles", "work tops", "casual tops women",
+                       "linen tops summer 2026"],
+        "blouse":     ["blouse outfits", "women's blouse styles", "office blouse", "summer blouse ideas"],
+        "skirt":      ["skirt outfits women", "midi skirt", "how to wear skirts", "asymmetric skirt 2026"],
+        "pant":       ["women's pants guide", "wide leg pants", "work pants women", "trouser trends 2026"],
+        "jacket":     ["women's jacket outfits", "blazer women", "casual jacket", "blazer jeans combo"],
         "coat":       ["women's coat styles", "trench coat women", "coat outfit ideas"],
         "sweater":    ["cozy sweater outfits", "sweater styles", "fall fashion women"],
         "cardigan":   ["cardigan outfits", "layering cardigan", "cozy fashion"],
@@ -381,11 +437,90 @@ def _lsi_keywords(ptype: str) -> list[str]:
         if k in ptype.lower():
             extras = v
             break
-    return list(dict.fromkeys(extras + base))[:6]
+    return list(dict.fromkeys(extras + base))[:8]
+
+
+# ── Handle-aware content blueprint map ───────────────────────────────────────
+# Maps URL handle keywords → required article structure so content matches URL.
+# Sourced from Flipboard trending topics & Who What Wear 2026 editorial standards.
+HANDLE_CONTENT_RULES: dict[str, dict] = {
+    "how-to-cuff":         {"topic": "how to cuff jeans",
+                            "required_sections": ["Why Cuffing Works (proportion + ankle visibility + outfit balance)",
+                                                  "The Single Roll Cuff", "The Double Roll Cuff",
+                                                  "The Pin Roll Cuff",
+                                                  "What Tops Work Best With Each Cuff Style (tuck in or crop?)",
+                                                  "2026 Styling Tip: Cigarette Jeans + Cropped Linen Top — The Cuffed Look"],
+                            "tone": "step-by-step how-to, practical"},
+    "sizing-guide":        {"topic": "jeans sizing guide for women",
+                            "required_sections": ["How to Measure Yourself for Jeans",
+                                                  "US Jeans Size Chart",
+                                                  "Fit Guide by Body Shape (petite, hourglass, curvy, tall)",
+                                                  "High Waist vs Mid Rise vs Low Rise — Which Fits Best?",
+                                                  "How to Choose Size XS–3X Online"],
+                            "tone": "helpful, inclusive, size-positive"},
+    "how-to-look-taller":  {"topic": "how to look taller with clothing",
+                            "required_sections": ["The Leg-Lengthening Formula: Rise + Tuck-In Trick",
+                                                  "High-Waisted Jeans and Why They Work",
+                                                  "The Tuck-In Effect: How a Cropped or Tucked Top Creates Leg Length",
+                                                  "Monochrome Dressing for Height Illusion",
+                                                  "Vertical Stripes and Elongating Details on Tops",
+                                                  "2026 Pro Tip: Cigarette Jeans + Fitted Ribbed Top = Longest-Looking Legs"],
+                            "tone": "empowering, styling expert"},
+    "how-to-pair":         {"topic": "how to pair jeans with outfits",
+                            "required_sections": ["The Foundation: Choosing the Right Jeans Wash for the Vibe",
+                                                  "Casual Formula: Linen Top + Dark Wash Jean + Crossbody Bag",
+                                                  "Office Formula: Blazer + Fitted Top + Straight-Leg Jeans",
+                                                  "Evening Formula: Silk Blouse + Cigarette Jeans + Statement Earrings",
+                                                  "Weekend Formula: Oversized Tee + Barrel Leg + Tote Bag",
+                                                  "The Quiet Luxury Jeans Look for 2026"],
+                            "tone": "outfit formula, editorial"},
+    "what-to-pair":        {"topic": "what to pair with jeans",
+                            "required_sections": ["Tops That Always Work With Jeans (tuck-in vs untucked vs knotted)",
+                                                  "Layering Pieces: Blazers, Cardigans, and Jackets That Elevate Denim",
+                                                  "Accessories: Belts, Bags, and Jewelry That Complete the Look",
+                                                  "The Top + Bottom Proportion Rule for Different Jeans Silhouettes",
+                                                  "Complete Outfit Formulas for 5 Occasions"],
+                            "tone": "practical, shoppable, style guide"},
+    "how-to-clean-pilling": {"topic": "how to remove pilling from clothes",
+                             "required_sections": ["What Causes Pilling (and Which Fabrics Are Most Vulnerable)",
+                                                   "The Sweater Stone Method",
+                                                   "The Fabric Shaver Method",
+                                                   "The Razor Trick",
+                                                   "How to Prevent Pilling: Washing Tips",
+                                                   "Care Instructions by Fabric Type"],
+                             "tone": "practical, care expert"},
+    "stinky-smell":        {"topic": "how to remove smell from clothes without washing",
+                            "required_sections": ["Why Clothes Smell (bacteria, sweat, detergent buildup)",
+                                                  "The Freezer Method",
+                                                  "White Vinegar Spray",
+                                                  "Baking Soda Treatment",
+                                                  "Vodka Spritz Hack",
+                                                  "Steam vs Dry Air Out",
+                                                  "Prevention: The Wash-Less Denim Movement 2026"],
+                            "tone": "practical, problem-solver"},
+    "remove-stain":        {"topic": "how to remove stains from jeans and clothes",
+                            "required_sections": ["Act Fast: The First 60 Seconds Rule",
+                                                  "Oil and Grease Stains",
+                                                  "Wine and Berry Stains",
+                                                  "Grass and Mud Stains",
+                                                  "Dye Transfer Stains",
+                                                  "What NOT To Do (common mistakes)",
+                                                  "Care After Stain Removal"],
+                            "tone": "practical, urgent, step-by-step"},
+}
+
+
+def _get_handle_rules(article_handle: str) -> dict | None:
+    """Return handle-specific content rules if the handle matches a known pattern."""
+    handle_lower = (article_handle or "").lower()
+    for pattern, rules in HANDLE_CONTENT_RULES.items():
+        if pattern in handle_lower:
+            return rules
+    return None
 
 
 def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
-                          existing_body: str) -> str:
+                          existing_body: str, article_handle: str = "") -> str:
     title  = product["title"]
     ptype  = (product.get("product_type") or "women's fashion").lower()
     price  = product["variants"][0]["price"] if product.get("variants") else "49"
@@ -395,13 +530,48 @@ def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
     # Summarise existing content briefly to steer the rewrite
     existing_text = re.sub(r"<[^>]+>", " ", existing_body or "")[:600].strip()
 
+    # ── Handle-aware content blueprint ────────────────────────────────────────
+    # If the article handle matches a known how-to/guide pattern, inject
+    # explicit structural requirements so the content MATCHES the URL handle.
+    # This fixes the handle/content mismatch reported after daily/weekly refreshes.
+    handle_rules = _get_handle_rules(article_handle)
+    handle_section = ""
+    if handle_rules:
+        sections_list = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(handle_rules["required_sections"]))
+        handle_section = (
+            f"\n\n⚠️  CRITICAL — HANDLE/CONTENT ALIGNMENT (SEO REQUIREMENT):\n"
+            f"The URL handle for this article is: '{article_handle}'\n"
+            f"This URL handle tells Google and readers the article is about: '{handle_rules['topic']}'\n"
+            f"The article body MUST deliver exactly this promised content or Google will downrank it.\n"
+            f"Tone for this article: {handle_rules['tone']}\n"
+            f"REQUIRED H2 sections (cover ALL of these, in a logical order):\n{sections_list}\n"
+            f"The featured product ({title}) should be woven in as a RECOMMENDATION within this guide, "
+            f"NOT as the primary focus. The guide topic is the primary focus.\n"
+            f"2026 FRESHNESS ANGLES to include naturally:\n"
+            f"  - Reference 'quiet luxury' denim aesthetic: dark wash + tucked linen top, no logos, clean lines\n"
+            f"  - Mention cigarette/stovepipe jeans as the 2026 trending silhouette\n"
+            f"  - Reference linen tops + jeans as the trending summer formula (heat-proof + chic)\n"
+            f"  - Mention dark indigo/clean wash denim as the elevated 2026 choice\n"
+        )
+    else:
+        # For articles without a specific handle match, add general 2026 freshness
+        handle_section = (
+            f"\n\n2026 TREND FRESHNESS (weave in naturally, 1-2 references):\n"
+            f"  - Quiet luxury styling: clean lines, no logos, elevated basics\n"
+            f"  - Summer 2026 colour palette: dark indigo denim, linen textures, earth tones\n"
+            f"  - The office-to-evening formula: oversized blazer + fitted top + straight-leg jeans\n"
+            f"  - Heat-proof summer styling: linen tops, breathable fabrics, cropped layers\n"
+        )
+
     return (
         f"You are a fashion editor at MeeeShop, a USA women's clothing boutique.\n"
         f"TASK: Completely rewrite the body of this existing blog post for {MONTH}.\n"
         f"Keep the title EXACTLY as-is: \"{article_title}\"\n"
         f"Featured product (in-stock): {title} — ${price}\n"
-        f"Product type: {ptype}\n\n"
-        f"Existing content summary (do NOT copy, use as context only):\n{existing_text}\n\n"
+        f"Product type: {ptype}\n"
+        f"Article URL handle: {article_handle or '(unknown)'}\n\n"
+        f"Existing content summary (do NOT copy, use as context only):\n{existing_text}\n"
+        f"{handle_section}\n\n"
         f"{EEAT_RULES}"
         f"SEO rules:\n"
         f"- Target keyword '{keyword}': use 3-4 times — in first paragraph, H2 subheadings, body, conclusion\n"
@@ -410,17 +580,20 @@ def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
         f"- Limit mentions of the product title '{title}' to a maximum of 2 times in the entire body. When referring to the product subsequent times, use pronouns or generic terms (e.g., 'this dress', 'the top', 'it', 'this piece') instead of repeating the full product name.\n"
         f"- Do NOT include the <h1> tag — that is the article title already, start with <p>\n"
         f"- Use <h2>, <h3>, <p>, <ul>, <li> for structure\n"
-        f"- Include sizing notes, styling tips, outfit ideas specific to this product\n"
+        f"- Include sizing notes, styling tips, outfit ideas specific to the article topic and product\n"
         f"- End with a warm CTA recommendation and price (do NOT include HTML links)\n"
-        f"- Answer a real problem women face when shopping for {ptype}\n"
-        f"- To avoid programmatic footprints, vary your structure. Occasionally include a <blockquote style='border-left: 3px solid #ccc; padding-left: 10px; margin: 15px 0; font-style: italic;'> for a 'Stylist Tip', or distinct visual callouts. Make the flow feel like a hand-written editorial, not a template.\n\n"
+        f"- Answer a real problem women face: '{handle_rules['topic'] if handle_rules else f'shopping for {ptype}'}' \n"
+        f"- To avoid programmatic footprints, vary your structure. Occasionally include a "
+        f"<blockquote style='border-left: 3px solid #ccc; padding-left: 10px; margin: 15px 0; font-style: italic;'> "
+        f"for a 'Stylist Tip', or a styled callout box. Make the flow feel like a hand-written editorial, not a template.\n\n"
         f"Store info: Free US shipping on orders $50+. 7-day returns. Sizes XS-3X.\n\n"
-        f"Target: 750-900 words. Output ONLY clean HTML — no markdown, no code fences.\n"
-        f"\n\nAt the very end of your response, after the HTML content, you MUST append a `<seometa>` section containing the SEO metadata. The format MUST be exactly like this (use these exact keys):\n"
+        f"Target: 800-950 words. Output ONLY clean HTML — no markdown, no code fences.\n"
+        f"\n\nAt the very end of your response, after the HTML content, you MUST append a `<seometa>` section "
+        f"containing the SEO metadata. The format MUST be exactly like this (use these exact keys):\n"
         f"<seometa>\n"
-        f"SEO_TITLE: [50-60 chars, keyword near start, year or 'for Women', compelling]\n"
-        f"META_DESC: [140-155 chars, action-oriented, includes keyword, free shipping mention, ends with CTA]\n"
-        f"IMG_ALT: [descriptive ALT text for featured image, 10-15 words, includes keyword + 'women' + product type, no quotes]\n"
+        f"SEO_TITLE: [50-60 chars, handle topic keyword near start, year or 'for Women', compelling]\n"
+        f"META_DESC: [140-155 chars, action-oriented, includes handle topic keyword, free shipping mention, ends with CTA]\n"
+        f"IMG_ALT: [descriptive ALT text for featured image, 10-15 words, includes topic keyword + 'women' + product type, no quotes]\n"
         f"</seometa>\n"
         f"Make sure there are no other text or markdown code fences enclosing the <seometa> block."
     )
@@ -605,6 +778,87 @@ def clean_article_body_html(html_str: str) -> str:
     return res.strip()
 
 
+def swap_products_in_html(body_html: str, replacement_map: dict[str, dict], product_by_handle: dict[str, dict]) -> tuple[str, int]:
+    """
+    Parse the HTML, find all product links that point to out-of-stock products,
+    and replace their product card container (if found) or the link/text inline.
+    Returns (new_html, swap_count).
+    """
+    if not body_html or not replacement_map:
+        return body_html, 0
+
+    soup = BeautifulSoup(body_html, "html.parser")
+    swaps = 0
+
+    # 1. First find and replace product card containers
+    for a in soup.find_all("a"):
+        href = a.get("href", "")
+        m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
+        if m:
+            handle = m.group(1)
+            if handle in replacement_map:
+                rep = replacement_map[handle]
+                
+                # Check for styled product card container
+                card_container = None
+                parent = a.parent
+                while parent and parent.name not in ("body", "html", "[document]"):
+                    style = parent.get("style", "") or ""
+                    style_clean = style.replace(" ", "").lower()
+                    if "background:#f8f6f3" in style_clean: # main product card
+                        card_container = parent
+                        break
+                    parent = parent.parent
+                
+                if card_container:
+                    new_card_html = make_product_card(rep)
+                    new_card_soup = BeautifulSoup(new_card_html, "html.parser")
+                    card_container.replace_with(new_card_soup)
+                    swaps += 1
+
+    # 2. Swap inline product links (href, titles, and inner images)
+    for a in soup.find_all("a"):
+        href = a.get("href", "")
+        m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
+        if m:
+            handle = m.group(1)
+            if handle in replacement_map:
+                rep = replacement_map[handle]
+                
+                # Update href
+                new_url = f"https://us.meeeshop.com/products/{rep['handle']}?utm_source=blog&utm_medium=refreshed_link&utm_campaign=meeeshop_refresh"
+                a["href"] = new_url
+                
+                # Update visible text if it contains the old title
+                old_prod = product_by_handle.get(handle)
+                if old_prod:
+                    old_title = old_prod.get("title", "")
+                    if a.string and old_title.lower() in a.string.lower():
+                        a.string = rep["title"]
+                    else:
+                        for child in list(a.descendants):
+                            if isinstance(child, str) and old_title.lower() in child.lower():
+                                child.replace_with(child.replace(old_title, rep["title"]))
+                swaps += 1
+
+    # 3. Update image references inside product links
+    for a in soup.find_all("a"):
+        href = a.get("href", "")
+        m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
+        if m:
+            handle = m.group(1)
+            prod = replacement_map.get(handle)
+            if prod:
+                img = a.find("img")
+                if img:
+                    new_src = product_img_url(prod)
+                    if new_src:
+                        img["src"] = new_src
+                    img["alt"] = f"{prod['title']} — shop at MeeeShop"
+
+    return str(soup), swaps
+
+
 # ── Main article refresh logic ────────────────────────────────────────────────
 def refresh_article(blog: dict, article: dict, all_products: list,
                     in_stock: list, out_of_stock_handles: set[str],
@@ -612,8 +866,8 @@ def refresh_article(blog: dict, article: dict, all_products: list,
                     dry_run: bool = False, no_ai: bool = False,
                     **kwargs) -> dict | None:
     """
-    Refresh one article. Returns a result dict on success, None on skip/failure.
-    Result keys: replacements (list of {old, new} dicts), featured_product (title).
+    Refresh one article by replacing out-of-stock products with in-stock ones of the same type.
+    Does NOT rewrite the article content or change the handle & title.
     """
     blog_id    = blog["id"]
     article_id = article["id"]
@@ -624,11 +878,16 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     print(f"\n  Article : '{art_title[:70]}'")
     print(f"  Handle  : {art_handle}")
 
-    # ── 0. Fix images only mode ───────────────────────────────────────────────
-    if kwargs.get("fix_images_only"):
+    # ── 1. Find out-of-stock product handles referenced in this article ───────
+    referenced = extract_product_handles(body)
+    oos_in_article = referenced & out_of_stock_handles
+    print(f"  Products referenced: {len(referenced)} | out-of-stock: {len(oos_in_article)}")
+
+    if not oos_in_article:
+        # Run fix_article_images to ensure any existing images are up-to-date
         new_body, swaps = fix_article_images(body, product_by_handle)
         if swaps > 0:
-            print(f"  [Fix Images] Fixed {swaps} broken product images.")
+            print(f"  [Fix Images] Fixed {swaps} broken/outdated product images.")
             if dry_run:
                 print(f"  [DRY-RUN] would PATCH article {article_id} with fixed images.")
                 return {"status": "images_fixed", "swaps": swaps}
@@ -641,24 +900,19 @@ def refresh_article(blog: dict, article: dict, all_products: list,
             }
             r = _req("put", f"{BASE}/blogs/{blog_id}/articles/{article_id}.json", json=payload)
             if r.status_code in (200, 201):
-                print(f"  PATCHED  : article {article_id} images fixed successfully")
+                print(f"  PATCHED  : article {article_id} images updated successfully")
                 return {"status": "images_fixed", "swaps": swaps}
             else:
                 print(f"  PATCH FAILED {r.status_code}: {r.text[:200]}")
                 return None
         else:
-            print("  [Fix Images] No broken images found to fix.")
+            print("  No out-of-stock products or outdated images found. No changes needed.")
             return {"status": "no_changes_needed", "swaps": 0}
-
-    # ── 1. Find out-of-stock product handles referenced in this article ───────
-    referenced = extract_product_handles(body)
-    oos_in_article = referenced & out_of_stock_handles
-    print(f"  Products referenced: {len(referenced)} | out-of-stock: {len(oos_in_article)}")
 
     # Build replacement map for out-of-stock handles
     replacement_map: dict[str, dict] = {}
     replacements_log: list[dict] = []
-    chosen_featured: dict | None = None
+    first_replacement: dict | None = None
 
     for handle in oos_in_article:
         old_product = product_by_handle.get(handle)
@@ -667,8 +921,8 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         replacement = find_best_replacement(old_product, in_stock)
         if replacement:
             replacement_map[handle] = replacement
-            if chosen_featured is None:
-                chosen_featured = replacement
+            if first_replacement is None:
+                first_replacement = replacement
             replacements_log.append({
                 "old_handle": handle,
                 "old_title":  old_product["title"],
@@ -679,139 +933,26 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         else:
             print(f"    No replacement found for '{handle}'")
 
-    # ── 2. If no products in article at all, pick a featured product ──────────
-    no_products_originally = not referenced
-    if no_products_originally:
-        print("  No products in post — will inject a featured product")
-        with_img = [p for p in in_stock if p.get("images")]
-        chosen_featured = random.choice(with_img) if with_img else (random.choice(in_stock) if in_stock else None)
-
-    # If we have no replacement to feature, pick any in-stock product
-    if chosen_featured is None and in_stock:
-        with_img = [p for p in in_stock if p.get("images")]
-        chosen_featured = random.choice(with_img) if with_img else random.choice(in_stock)
-
-    if not chosen_featured:
-        print("  SKIP — no in-stock products available")
+    if not replacement_map:
+        print("  SKIP — No replacements could be determined for out-of-stock products.")
         return None
 
-    # ── 3. Pick keyword for this refresh ──────────────────────────────────────
-    ptype   = (chosen_featured.get("product_type") or "women's fashion").lower()
-    keyword = random.choice(SEED_KEYWORDS)
+    # Swap product links and styled card containers in HTML
+    new_body, swaps = swap_products_in_html(body, replacement_map, product_by_handle)
+    
+    # Run image fixes on top of the swapped HTML to ensure images are fresh
+    new_body, img_swaps = fix_article_images(new_body, product_by_handle)
 
-    # ── 4. Build new body HTML ─────────────────────────────────────────
-    print(f"  Featured: '{chosen_featured['title'][:50]}' (${chosen_featured['variants'][0]['price'] if chosen_featured.get('variants') else '?'})")
-    print(f"  Keyword : {keyword}")
+    if swaps == 0 and img_swaps == 0:
+        print("  No replacements or changes made in HTML. Skipping.")
+        return {"status": "no_changes_needed", "swaps": 0}
 
-    if no_ai:
-        print("  [No-AI Mode] Performing programmatic refresh...")
-        new_body = clean_article_body_html(body)
+    print(f"  HTML Swaps made: {swaps} | Image updates: {img_swaps}")
 
-        # ── 5. Inject product card + related products ──────────────────────────────
-        card = make_product_card(chosen_featured, keyword)
-        pos  = new_body.find("</p>")
-        if pos != -1:
-            new_body = new_body[:pos+4] + "\n" + card + new_body[pos+4:]
-        else:
-            new_body = card + new_body
-
-        new_body += make_related_products_section(
-            all_products, chosen_featured.get("handle", ""), keyword
-        )
-
-        # ── 6. Generate SEO metadata programmatically ──────────────────────────────────
-        seo = {
-            "seo_title": f"{keyword.title()} — MeeeShop {YEAR}"[:60],
-            "meta_desc": (
-                f"Discover the best {ptype} for women in {YEAR}. "
-                f"Shop {chosen_featured['title']} at MeeeShop — free US shipping on orders $50+, "
-                f"easy 7-day returns, sizes XS–3X."
-            )[:155],
-            "img_alt": f"{chosen_featured['title']} — {ptype} for women, {YEAR} fashion guide at MeeeShop"
-        }
-    else:
-        print("  Generating refreshed content via AI…")
-        prompt   = _build_refresh_prompt(art_title, chosen_featured, keyword, body)
-        new_body = ai_client.generate(prompt, max_tokens=1800, temperature=0.75)
-
-        is_fallback_mode = False
-        seo_text = ""
-
-        if not new_body:
-            print("  [AI] All providers failed — executing local template-based fallback generator...")
-            is_fallback_mode = True
-            from blog_daily import select_styling_matches
-            matching_products = select_styling_matches(chosen_featured, in_stock, num_matches=2)
-            new_body, seo = generate_fallback_blog_post(
-                "problem_solver", chosen_featured, keyword, art_title, in_stock, matching_products
-            )
-        else:
-            # Extract <seometa> block if present
-            seo_match = re.search(r"<seometa>(.*?)</seometa>", new_body, re.DOTALL | re.IGNORECASE)
-            if seo_match:
-                seo_text = seo_match.group(1).strip()
-                # Remove the <seometa> block from body
-                new_body = new_body[:seo_match.start()] + new_body[seo_match.end():]
-            else:
-                # Inline detection fallback if tags were omitted
-                lines = new_body.splitlines()
-                cleaned_lines = []
-                seo_lines = []
-                for line in lines:
-                    l_upper = line.strip().upper()
-                    if l_upper.startswith("SEO_TITLE:") or l_upper.startswith("META_DESC:") or l_upper.startswith("IMG_ALT:"):
-                        seo_lines.append(line)
-                    elif "seometa" not in line.lower():
-                        cleaned_lines.append(line)
-                if seo_lines:
-                    seo_text = "\n".join(seo_lines)
-                    new_body = "\n".join(cleaned_lines)
-
-        new_body = _clean_html(new_body)
-
-        # ── 5. Inject product card + related products ──────────────────────────────
-        card = make_product_card(chosen_featured, keyword)
-        pos  = new_body.find("</p>")
-        if pos != -1:
-            new_body = new_body[:pos+4] + "\n" + card + new_body[pos+4:]
-        else:
-            new_body = card + new_body
-
-        new_body += make_related_products_section(
-            all_products, chosen_featured.get("handle", ""), keyword
-        )
-
-        # ── 6. Generate SEO metadata ───────────────────────────────────────────────
-        if not is_fallback_mode:
-            print("  Extracting SEO metadata…")
-            seo = parse_and_clean_seo_meta(seo_text, keyword, chosen_featured["title"], ptype)
-
-    print(f"  SEO title : {seo['seo_title']}")
-    print(f"  Meta desc : {seo['meta_desc'][:80]}…")
-
-    # ── 7. Featured image URL (1200px) ────────────────────────────────────────
-    img_url = make_featured_image_url(chosen_featured)
-    img_src = "Shopify CDN 1200x630" if chosen_featured.get("images") else "Pollinations.ai"
-    print(f"  Image     : {img_src}")
-
-    # ── 8. Build summary_html (meta description excerpt) ─────────────────────
-    summary_html = f"<p>{seo['meta_desc']}</p>"
-
-    # ── 9. Build updated tags ─────────────────────────────────────────────────
-    existing_tags = [t.strip() for t in (article.get("tags") or "").split(",") if t.strip()]
-    new_tags = list(dict.fromkeys(
-        existing_tags +
-        ["fashion", "women fashion", "MeeeShop", "USA fashion", f"fashion {YEAR}"] +
-        [w for w in keyword.split() if len(w) > 3][:3]
-    ))[:20]
-    tags_str = ", ".join(new_tags)
-
-    # ── 10. Dry-run short-circuit ─────────────────────────────────────────────
+    # ── Dry-run short-circuit ─────────────────────────────────────────────
     if dry_run:
-        preview = re.sub(r"<[^>]+>", " ", new_body)[:200].strip()
-        print(f"  [DRY-RUN] would PATCH article {article_id}")
-        print(f"  Preview  : {preview}…")
-        return {"replacements": replacements_log, "featured_product": chosen_featured["title"]}
+        print(f"  [DRY-RUN] would PATCH article {article_id} with swapped products.")
+        return {"replacements": replacements_log, "featured_product": first_replacement["title"]}
 
     # Save a backup of the original article content before we edit it
     backup_data = {
@@ -830,25 +971,12 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     backup_file.write_text(json.dumps(backup_data, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"    [Backup] Saved original article content to backup_articles/{backup_file.name}")
 
-    # ── 11. PATCH the article (keeps same URL handle and title) ───────────────
-    author_name = article.get("author", "").strip()
-    if not author_name or any(g in author_name.lower() for g in ["meeeshop", "author", "staff", "writer", "admin"]):
-        author_name = random.choice(PEN_NAMES)
-
+    # ── PATCH the article (keeps same URL handle, title, author, tags, etc.) ──
     payload = {
         "article": {
             "id":           article_id,
             "body_html":    new_body,
-            "summary_html": summary_html,
-            "tags":         tags_str,
-            "published":    True,
-            "author":       author_name,
         }
-    }
-    # Update featured image
-    payload["article"]["image"] = {
-        "src": img_url,
-        "alt": seo["img_alt"],
     }
 
     r = _req("put", f"{BASE}/blogs/{blog_id}/articles/{article_id}.json", json=payload)
@@ -856,12 +984,8 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         print(f"  PATCH FAILED {r.status_code}: {r.text[:200]}")
         return None
 
-    print(f"  PATCHED  : article {article_id} updated successfully")
-
-    # ── 12. Upsert SEO metafields ─────────────────────────────────────────────
-    set_article_seo_metafields(blog_id, article_id, seo["seo_title"], seo["meta_desc"])
-
-    return {"replacements": replacements_log, "featured_product": chosen_featured["title"]}
+    print(f"  PATCHED  : article {article_id} updated successfully with in-stock products.")
+    return {"replacements": replacements_log, "featured_product": first_replacement["title"]}
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────

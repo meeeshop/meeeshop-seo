@@ -1,0 +1,161 @@
+name: Regenerate Existing Blog Articles
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Process ALL existing articles (true/false)'
+        required: true
+        default: 'false'
+        type: boolean
+      article_id:
+        description: 'Specific article ID to regenerate (optional)'
+        required: false
+        type: string
+      batch_size:
+        description: 'Number of articles per batch (for force mode)'
+        required: false
+        default: '20'
+        type: string
+      dry_run:
+        description: 'Perform a dry run (no Shopify writes)'
+        required: true
+        default: 'true'
+        type: boolean
+      force_format:
+        description: 'Force a specific article format (e.g., outfit_formula, buying_guide)'
+        required: false
+        type: choice
+        options:
+          - '' # No forced format
+          - sizing_guide
+          - outfit_formula
+          - buying_guide
+          - comparison
+          - problem_solver
+          - trend_report
+          - care_guide
+
+jobs:
+  get-total-articles:
+    runs-on: ubuntu-latest
+    outputs:
+      total_articles: ${{ steps.count.outputs.total_articles }}
+      batches_json: ${{ steps.set_batches.outputs.batches_json }}
+    steps:
+      - name: Checkout repository
+        if: github.event.inputs.force == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        if: github.event.inputs.force == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        if: github.event.inputs.force == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Get total article count
+        id: count
+        if: github.event.inputs.force == 'true'
+        env:
+          PYTHONUTF8: "1"
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+          BATCH_SIZE: ${{ github.event.inputs.batch_size }}
+        run: |
+          TOTAL_ARTICLES=$(python scripts/regenerate_articles.py --count-only --force)
+          echo "total_articles=$TOTAL_ARTICLES" >> "$GITHUB_OUTPUT"
+          echo "Total articles to process: $TOTAL_ARTICLES"
+
+          # Calculate batches using shell arithmetic for ceiling division
+          BATCH_SIZE_INT=${{ env.BATCH_SIZE }}
+          if [ -z "$BATCH_SIZE_INT" ] || [ "$BATCH_SIZE_INT" -le 0 ]; then
+            BATCH_SIZE_INT=20 # Default if not provided or invalid
+          fi
+
+          BATCHES=$(( (TOTAL_ARTICLES + BATCH_SIZE_INT - 1) / BATCH_SIZE_INT ))
+          [ $BATCHES -lt 1 ] && BATCHES=1
+          echo "Calculated batches: $BATCHES"
+
+          JSON="["; for (( i=0; i<BATCHES; i++ )); do [ $i -gt 0 ] && JSON+=","; JSON+="$i"; done; JSON+="]"
+          echo "batches_json=$JSON" >> "$GITHUB_OUTPUT"
+
+      - name: Set batches array
+        id: set_batches
+        run: |
+          if [ "${{ github.event.inputs.force }}" == "true" ]; then
+            echo "batches_json=${{ steps.count.outputs.batches_json }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "batches_json=[0]" >> "$GITHUB_OUTPUT"
+          fi
+
+  regenerate-articles:
+    needs: [get-total-articles]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60 # Allow more time for full regeneration
+    strategy:
+      fail-fast: false
+      max-parallel: 1 # Sequential execution to avoid Shopify API rate limits
+      matrix:
+        batch_index: ${{ fromJson(needs.get-total-articles.outputs.batches_json) }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Article Regenerator for batch
+        env:
+          PYTHONUTF8: "1"
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          
+          if [ "${{ github.event.inputs.force }}" == "true" ]; then
+            ARGS="$ARGS --force --batch-size ${{ github.event.inputs.batch_size }} --batch-index ${{ matrix.batch_index }}"
+          elif [ -n "${{ github.event.inputs.article_id }}" ]; then
+            ARGS="$ARGS --article-id ${{ github.event.inputs.article_id }}"
+          else
+            echo "Error: Either 'force' or 'article_id' must be provided."
+            exit 1
+          fi
+
+          if [ -n "${{ github.event.inputs.force_format }}" ]; then
+            ARGS="$ARGS --force-format ${{ github.event.inputs.force_format }}"
+          fi
+          
+          echo "Running with arguments: $ARGS"
+          python scripts/regenerate_articles.py $ARGS
+
+      - name: Upload logs and backups
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regenerated-articles-logs-${{ matrix.batch_index }}-run${{ github.run_number }}
+          path: |
+            logs/regenerate_articles_log_*.json
+            backup_articles/
+          if-no-files-found: ignore
+          retention-days: 30

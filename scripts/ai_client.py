@@ -177,9 +177,9 @@ def generate(prompt: str, max_tokens: int = 400, temperature: float = 0.8, categ
                     print(f"  [AI:{_last_success_provider} (sticky)] OK")
                     return text
             except Exception as e:
-                print(f"  [AI:{_last_success_provider} (sticky)] {e} - failed")
-        print("  [AI] sticky provider failed - returning None")
-        return None
+                print(f"  [AI:{_last_success_provider} (sticky)] {e} - failed. Resetting sticky provider and trying others...", flush=True)
+                _last_success_provider = None
+
 
     # Try providers in default order on first call/success search
     for name, fn in _PROVIDERS:

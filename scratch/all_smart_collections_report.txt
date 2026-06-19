@@ -1,0 +1,770 @@
+Total Smart Collections: 128
+================================================================================
+Title: 25 PERCENT OFF
+Handle: 25-percent-off
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'BFCM - Up to 25 Percent Off'}]
+--------------------------------------------------------------------------------
+Title: ADORA WOMEN'S CLOTHING
+Handle: adora-womens-clothing
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'ADORA'}]
+--------------------------------------------------------------------------------
+Title: AMERICAN BAZI
+Handle: american-bazi
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'American Bazi'}]
+--------------------------------------------------------------------------------
+Title: AND THE WHY
+Handle: andthewhy-clothing
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'And The Why'}]
+--------------------------------------------------------------------------------
+Title: ANNIEWEAR WOMENS CLOTHING
+Handle: anniewear-womens-clothing
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Annie Wear'}]
+--------------------------------------------------------------------------------
+Title: Acting Pro
+Handle: acting-pro-womens-clothing-collection-us-meeeshop
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'Acting Pro'}]
+--------------------------------------------------------------------------------
+Title: Active Bottoms
+Handle: womens-active-bottoms
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Active Bottoms'}]
+--------------------------------------------------------------------------------
+Title: Active Tops
+Handle: womens-active-tops
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Active Tops'}]
+--------------------------------------------------------------------------------
+Title: Activewear
+Handle: womens-activewear
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'type', 'relation': 'equals', 'condition': 'Activewear'}, {'column': 'tag', 'relation': 'equals', 'condition': 'activewear'}]
+--------------------------------------------------------------------------------
+Title: Aemi + Co
+Handle: aemi-co
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Aemi + Co'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Aemi+Co'}]
+--------------------------------------------------------------------------------
+Title: All Products_Do_NOT_DELETE
+Handle: all-products_do_not_delete
+Product Count: 1464
+Disjunctive: False
+Rules: [{'column': 'variant_inventory', 'relation': 'greater_than', 'condition': '0'}]
+--------------------------------------------------------------------------------
+Title: Amoli
+Handle: amoli
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Amoli'}]
+--------------------------------------------------------------------------------
+Title: Artemis Vintage Jeans
+Handle: artemis-vintage-womens-jeans
+Product Count: 92
+Disjunctive: False
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'Artemis Vintage'}]
+--------------------------------------------------------------------------------
+Title: Artini Accessories
+Handle: artini-accessories
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'Artini Accessories'}]
+--------------------------------------------------------------------------------
+Title: BOMBOM USA
+Handle: bombom-usa
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'BOMBOM'}]
+--------------------------------------------------------------------------------
+Title: Beauty Essentials
+Handle: beauty-essentials
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'BeautyBoss'}, {'column': 'vendor', 'relation': 'equals', 'condition': 'Blanka'}, {'column': 'vendor', 'relation': 'equals', 'condition': 'BeNat'}]
+--------------------------------------------------------------------------------
+Title: Best selling products
+Handle: womens-best-selling-collection
+Product Count: 1069
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Best selling products'}, {'column': 'vendor', 'relation': 'not_equals', 'condition': 'Trendsi'}]
+--------------------------------------------------------------------------------
+Title: Bibi Clothing
+Handle: bibi-womens-clothing
+Product Count: 10
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'BiBi'}, {'column': 'vendor', 'relation': 'equals', 'condition': 'BiBi'}]
+--------------------------------------------------------------------------------
+Title: Black Friday Chic: Trendy Women's Fashion Deals & Discounts
+Handle: black-friday-chic-trendy-womens-fashion-deals-discounts
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'BFCM-Deep Inventory'}, {'column': 'tag', 'relation': 'equals', 'condition': 'BFCM - Up to 25 Percent Off'}, {'column': 'tag', 'relation': 'equals', 'condition': 'BFCM - Up to 50 Percent Off'}, {'column': 'tag', 'relation': 'equals', 'condition': 'BFCM - Up to 70 Percent Off'}]
+--------------------------------------------------------------------------------
+Title: Blazers, Vests & Jackets
+Handle: womens-blazers-vests-jackets
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Jackets & Blazers'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Vests'}, {'column': 'title', 'relation': 'contains', 'condition': 'Blazer"'}, {'column': 'title', 'relation': 'contains', 'condition': 'Vest"'}, {'column': 'title', 'relation': 'contains', 'condition': 'Jacket"'}]
+--------------------------------------------------------------------------------
+Title: Blouses
+Handle: womens-blouses
+Product Count: 39
+Disjunctive: False
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'Blouse'}, {'column': 'type', 'relation': 'equals', 'condition': 'Shirts & Tops'}]
+--------------------------------------------------------------------------------
+Title: Bodysuits
+Handle: womens-bodysuits
+Product Count: 3
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Bodysuits'}, {'column': 'title', 'relation': 'contains', 'condition': 'Bodysuit'}]
+--------------------------------------------------------------------------------
+Title: CELESTE Clothing
+Handle: celeste-clothing
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Celeste'}]
+--------------------------------------------------------------------------------
+Title: CHRISTMAS GIFT COLLECTION
+Handle: christmas-gift-collection
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'gift'}]
+--------------------------------------------------------------------------------
+Title: Culture Code
+Handle: culture-code-womens-clothing
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Culture Code'}]
+--------------------------------------------------------------------------------
+Title: Curvy & Plus Size Clothing
+Handle: womens-curvy-plus-size-clothing
+Product Count: 59
+Disjunctive: True
+Rules: [{'column': 'variant_title', 'relation': 'contains', 'condition': 'XXL'}, {'column': 'variant_title', 'relation': 'contains', 'condition': 'XXXL'}, {'column': 'variant_title', 'relation': 'contains', 'condition': '2XL'}, {'column': 'variant_title', 'relation': 'contains', 'condition': '3XL'}, {'column': 'variant_title', 'relation': 'contains', 'condition': '4XL'}, {'column': 'variant_title', 'relation': 'contains', 'condition': 'Plus'}]
+--------------------------------------------------------------------------------
+Title: DAVI & DANI
+Handle: davi-dani-womens-apparel
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'DAVI & DANI'}, {'column': 'vendor', 'relation': 'equals', 'condition': 'Davi & Dani'}, {'column': 'title', 'relation': 'contains', 'condition': 'Davi & Dani'}]
+--------------------------------------------------------------------------------
+Title: Emory Park Women's Clothing
+Handle: emory-park-womens-clothing
+Product Count: 242
+Disjunctive: False
+Rules: [{'column': 'vendor', 'relation': 'contains', 'condition': 'Emory Park'}]
+--------------------------------------------------------------------------------
+Title: FAME Accessories
+Handle: fame-accessories
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Fame'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Fame Accessories'}]
+--------------------------------------------------------------------------------
+Title: FLARE JEANS
+Handle: flare-jeans
+Product Count: 22
+Disjunctive: False
+Rules: [{'column': 'type', 'relation': 'equals', 'condition': 'Pants'}, {'column': 'title', 'relation': 'contains', 'condition': 'flare'}, {'column': 'title', 'relation': 'contains', 'condition': 'jean'}]
+--------------------------------------------------------------------------------
+Title: Fall Clothing for Women
+Handle: fall-clothing-for-women
+Product Count: 4
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Sweaters'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Cardigans'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Jackets & Blazers'}, {'column': 'tag', 'relation': 'equals', 'condition': 'OUTERWEAR'}, {'column': 'tag', 'relation': 'equals', 'condition': 'SHOES'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Handbags'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Jeans'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Long Sleeve'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Midi Dress'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Maxi Dress'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Maxi Skirt'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Long Skirt'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Loungewear Sets'}]
+--------------------------------------------------------------------------------
+Title: Flying Monkey
+Handle: flying-monkey-womens-jeans-collection
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'Flying Monkey'}, {'column': 'title', 'relation': 'contains', 'condition': 'Flying Monkey'}]
+--------------------------------------------------------------------------------
+Title: Formal & Evening Dresses
+Handle: womens-formal-evening-dresses
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Formal & Evening Dresses'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Evening Dresses'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Formal Dresses'}]
+--------------------------------------------------------------------------------
+Title: Gilli
+Handle: gilli-womens-clothing-collection
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'Gilli'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Gilli'}, {'column': 'title', 'relation': 'contains', 'condition': 'Gilli'}]
+--------------------------------------------------------------------------------
+Title: HEIMISH
+Handle: heimish-usa-womens-clothing
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Heimish'}, {'column': 'title', 'relation': 'contains', 'condition': 'Heimish'}]
+--------------------------------------------------------------------------------
+Title: HEYSON Clothing
+Handle: heyson-clothing
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'HEYSON'}]
+--------------------------------------------------------------------------------
+Title: HIMAWARI Backpacks
+Handle: himawari-backpacks
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Himawari'}]
+--------------------------------------------------------------------------------
+Title: HOLIDAY OUTFIT IDEAS
+Handle: holiday-outfit-ideas
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'hoideas'}]
+--------------------------------------------------------------------------------
+Title: Hailey & Co
+Handle: hailey-co
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Hailey & Co'}, {'column': 'variant_inventory', 'relation': 'greater_than', 'condition': '0'}]
+--------------------------------------------------------------------------------
+Title: Hats
+Handle: womens-hats-scarves
+Product Count: 8
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Hats'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Scarves'}, {'column': 'title', 'relation': 'contains', 'condition': 'Hat'}, {'column': 'title', 'relation': 'contains', 'condition': 'Scarf'}]
+--------------------------------------------------------------------------------
+Title: Hyfve Women's Clothing
+Handle: hyfve-womens-clothing
+Product Count: 18
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'HYFVE'}, {'column': 'vendor', 'relation': 'equals', 'condition': 'HYFVE'}, {'column': 'title', 'relation': 'contains', 'condition': 'Hyfve'}]
+--------------------------------------------------------------------------------
+Title: Insane Gene
+Handle: insane-gene-womens-denim
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'Insane Gene'}]
+--------------------------------------------------------------------------------
+Title: JADE BY JANE
+Handle: jade-by-jane-womens-clothing
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'Jade By Jane'}, {'column': 'title', 'relation': 'contains', 'condition': 'Jade by Jane'}]
+--------------------------------------------------------------------------------
+Title: Jean Shorts
+Handle: womens-jean-shorts
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Jean Shorts'}]
+--------------------------------------------------------------------------------
+Title: Judy Blue Jeans
+Handle: judy-blue-womens-jeans
+Product Count: 15
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Judy Blue'}, {'column': 'title', 'relation': 'contains', 'condition': 'Judy Blue'}]
+--------------------------------------------------------------------------------
+Title: Justin & Taylor : Apparel & Accessories
+Handle: justin-taylor-apparel-accessories
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Justin Taylor'}]
+--------------------------------------------------------------------------------
+Title: KANCAN
+Handle: kancan-usa-womens-jeans
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Kancan'}, {'column': 'vendor', 'relation': 'equals', 'condition': 'Kan Can USA'}, {'column': 'title', 'relation': 'contains', 'condition': 'Kancan'}]
+--------------------------------------------------------------------------------
+Title: Kimberly C
+Handle: kimberly-c
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Kimberly C'}, {'column': 'variant_inventory', 'relation': 'greater_than', 'condition': '0'}]
+--------------------------------------------------------------------------------
+Title: LA MIEL
+Handle: la-miel-womens-clothing-collection
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'La Miel'}, {'column': 'vendor', 'relation': 'equals', 'condition': 'La Miel'}, {'column': 'title', 'relation': 'contains', 'condition': 'La miel'}]
+--------------------------------------------------------------------------------
+Title: LE LIS
+Handle: le-lis-womens-clothing
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'LE LIS'}, {'column': 'title', 'relation': 'contains', 'condition': 'Le lis'}]
+--------------------------------------------------------------------------------
+Title: Lilou
+Handle: lilou-womens-clothing-collection
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'Lilou'}, {'column': 'variant_inventory', 'relation': 'greater_than', 'condition': '0'}]
+--------------------------------------------------------------------------------
+Title: Long Sleeve Dresses
+Handle: long-sleeve-dresses
+Product Count: 3
+Disjunctive: False
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'Long'}, {'column': 'title', 'relation': 'contains', 'condition': 'Sleeve'}, {'column': 'type', 'relation': 'equals', 'condition': 'Dresses'}]
+--------------------------------------------------------------------------------
+Title: Long Sleeve Tops
+Handle: long-sleeve-tops
+Product Count: 12
+Disjunctive: False
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'Long Sleeve'}, {'column': 'type', 'relation': 'equals', 'condition': 'Shirts & Tops'}]
+--------------------------------------------------------------------------------
+Title: Lounge Set
+Handle: womens-lounge-set
+Product Count: 1
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Lounge Set'}, {'column': 'type', 'relation': 'equals', 'condition': 'Loungewear'}]
+--------------------------------------------------------------------------------
+Title: Luxe Apparel
+Handle: womens-luxe-apparel
+Product Count: 395
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Luxe'}, {'column': 'vendor', 'relation': 'equals', 'condition': 'Trendsi'}]
+--------------------------------------------------------------------------------
+Title: MITTOSHOP Clothing
+Handle: mittoshop-clothing
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Mittoshop'}]
+--------------------------------------------------------------------------------
+Title: MUSTARD SEED
+Handle: mustard-seed-womens-clothing
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'Mustard Seed'}, {'column': 'title', 'relation': 'contains', 'condition': 'Mustard Seed'}]
+--------------------------------------------------------------------------------
+Title: Made in USA Clothing
+Handle: made-in-usa
+Product Count: 395
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Ship from USA'}]
+--------------------------------------------------------------------------------
+Title: Midi Dresses
+Handle: midi-dresses
+Product Count: 138
+Disjunctive: True
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'Midi Dress'}, {'column': 'title', 'relation': 'contains', 'condition': 'Midi Dresses'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Midi Dress'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Midi Dresses'}]
+--------------------------------------------------------------------------------
+Title: Mini Dresses
+Handle: mini-dresses
+Product Count: 81
+Disjunctive: True
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'Mini Dress'}, {'column': 'title', 'relation': 'contains', 'condition': 'Mini Dresses'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Mini Dress'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Mini Dresses'}]
+--------------------------------------------------------------------------------
+Title: Mock Neck Tops
+Handle: mock-neck-tops
+Product Count: 2
+Disjunctive: False
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'mock neck'}, {'column': 'type', 'relation': 'contains', 'condition': 'Shirts & Tops'}]
+--------------------------------------------------------------------------------
+Title: NINEXIS
+Handle: ninexis-womens-clothing-collection
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'Ninexis'}, {'column': 'title', 'relation': 'contains', 'condition': 'Ninexis'}]
+--------------------------------------------------------------------------------
+Title: New Arrivals Denim & Jeans
+Handle: womens-new-denim
+Product Count: 62
+Disjunctive: True
+Rules: [{'column': 'type', 'relation': 'equals', 'condition': 'DENIM (NEW)'}, {'column': 'type', 'relation': 'equals', 'condition': 'DENIM JEANS'}, {'column': 'title', 'relation': 'contains', 'condition': 'denim'}]
+--------------------------------------------------------------------------------
+Title: New products
+Handle: womens-new-collection
+Product Count: 1235
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'NEW ARRIVALS'}]
+--------------------------------------------------------------------------------
+Title: ODDI
+Handle: oddi
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'ODDI'}, {'column': 'variant_inventory', 'relation': 'greater_than', 'condition': '0'}]
+--------------------------------------------------------------------------------
+Title: ONE AND ONLY COLLECTIVE INC
+Handle: one-and-only-collective-inc-womens-clothing
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'One and Only Collective Inc'}, {'column': 'variant_inventory', 'relation': 'greater_than', 'condition': '0'}]
+--------------------------------------------------------------------------------
+Title: Orange Farm Clothing
+Handle: orange-farm-womens-clothing
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'Orange Farm Clothing'}]
+--------------------------------------------------------------------------------
+Title: P & Rose
+Handle: p-rose
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'P & Rose'}]
+--------------------------------------------------------------------------------
+Title: POL Clothing Collection
+Handle: pol-womens-clothing-collection
+Product Count: 32
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'POL'}, {'column': 'vendor', 'relation': 'equals', 'condition': 'POL'}, {'column': 'title', 'relation': 'starts_with', 'condition': 'POL"'}]
+--------------------------------------------------------------------------------
+Title: Petal Dew
+Handle: petal-dew
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Petal Dew'}]
+--------------------------------------------------------------------------------
+Title: Puff Sleeve Tops
+Handle: puff-sleeve-tops
+Product Count: 28
+Disjunctive: False
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'puff'}, {'column': 'type', 'relation': 'contains', 'condition': 'Shirts & Tops'}, {'column': 'title', 'relation': 'contains', 'condition': 'sleeve'}]
+--------------------------------------------------------------------------------
+Title: Recycled Karma
+Handle: recycled-karma-womens-graphic-tees
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'Recycled Karma'}]
+--------------------------------------------------------------------------------
+Title: Risen Jeans Collection
+Handle: risen-womens-jeans-collection
+Product Count: 44
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'RISEN'}, {'column': 'title', 'relation': 'contains', 'condition': 'Risen'}]
+--------------------------------------------------------------------------------
+Title: Rompers
+Handle: womens-rompers
+Product Count: 4
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Rompers'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Romper'}, {'column': 'title', 'relation': 'contains', 'condition': 'Romper'}, {'column': 'title', 'relation': 'contains', 'condition': 'Shortall'}]
+--------------------------------------------------------------------------------
+Title: STRAIGHT LEG JEANS
+Handle: straight-leg-jeans
+Product Count: 24
+Disjunctive: False
+Rules: [{'column': 'type', 'relation': 'equals', 'condition': 'Pants'}, {'column': 'title', 'relation': 'contains', 'condition': 'Straight'}, {'column': 'title', 'relation': 'contains', 'condition': 'Jean'}]
+--------------------------------------------------------------------------------
+Title: Sale Plus Size Apparel
+Handle: sale-plus-size-apparel
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'SALE PLUS SIZE'}]
+--------------------------------------------------------------------------------
+Title: Selected USA Styles
+Handle: selected-usa-styles
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'us.meeeshop'}, {'column': 'variant_inventory', 'relation': 'greater_than', 'condition': '0'}]
+--------------------------------------------------------------------------------
+Title: Sets
+Handle: womens-outfit-sets
+Product Count: 34
+Disjunctive: True
+Rules: [{'column': 'type', 'relation': 'equals', 'condition': 'Outfit Sets'}]
+--------------------------------------------------------------------------------
+Title: Shoes
+Handle: womens-shoes
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Shoes'}]
+--------------------------------------------------------------------------------
+Title: Short Sleeve Tops
+Handle: short-sleeve-tops
+Product Count: 12
+Disjunctive: False
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'short sleeve'}, {'column': 'type', 'relation': 'equals', 'condition': 'Shirts & Tops'}]
+--------------------------------------------------------------------------------
+Title: Sleepwear
+Handle: womens-sleepwear
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'SLEEPWEAR'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Pajama Sets'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Loungewear'}]
+--------------------------------------------------------------------------------
+Title: Sweater Pullover
+Handle: sweater-pullover
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Sweater Pullover'}]
+--------------------------------------------------------------------------------
+Title: Trending Product Pins
+Handle: trending-product-pins
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'pin'}]
+--------------------------------------------------------------------------------
+Title: USA SALE
+Handle: usa-sale
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'USA SALE'}, {'column': 'tag', 'relation': 'equals', 'condition': 'SALE APPAREL'}, {'column': 'tag', 'relation': 'equals', 'condition': 'SALE'}]
+--------------------------------------------------------------------------------
+Title: Umgee USA Clothing
+Handle: umgee-usa-womens-clothing
+Product Count: 269
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Umgee USA'}]
+--------------------------------------------------------------------------------
+Title: Under $40
+Handle: under-40
+Product Count: 72
+Disjunctive: False
+Rules: [{'column': 'variant_price', 'relation': 'less_than', 'condition': '40'}]
+--------------------------------------------------------------------------------
+Title: Under $50
+Handle: under-50
+Product Count: 97
+Disjunctive: False
+Rules: [{'column': 'variant_price', 'relation': 'less_than', 'condition': '50'}]
+--------------------------------------------------------------------------------
+Title: V-Neck Tops
+Handle: v-neck-tops
+Product Count: 8
+Disjunctive: False
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'v-neck'}, {'column': 'type', 'relation': 'contains', 'condition': 'Shirts & Tops'}]
+--------------------------------------------------------------------------------
+Title: VERVET by Flying Monkey
+Handle: vervet-by-flying-monkey-womens-jeans
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'VERVET by Flying Monkey'}, {'column': 'tag', 'relation': 'equals', 'condition': 'VERVET'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Vervet by Flying Monkey'}, {'column': 'title', 'relation': 'contains', 'condition': 'Vervet'}]
+--------------------------------------------------------------------------------
+Title: VERY J Women's Clothing
+Handle: very-j-womens-clothing
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'VERY J'}]
+--------------------------------------------------------------------------------
+Title: Vibrant M.i.U
+Handle: vibrant-miu-womens-jeans
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'Vibrant M.i.U'}, {'column': 'title', 'relation': 'contains', 'condition': 'Vibrant MIU'}]
+--------------------------------------------------------------------------------
+Title: WIDE LEG JEANS
+Handle: wide-leg-jeans
+Product Count: 33
+Disjunctive: False
+Rules: [{'column': 'type', 'relation': 'equals', 'condition': 'Pants'}, {'column': 'title', 'relation': 'contains', 'condition': 'wide'}, {'column': 'title', 'relation': 'contains', 'condition': 'jean'}]
+--------------------------------------------------------------------------------
+Title: White Birch
+Handle: white-birch-womens-clothing
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'White Birch'}, {'column': 'vendor', 'relation': 'equals', 'condition': 'White Birch'}]
+--------------------------------------------------------------------------------
+Title: Women's Bottoms
+Handle: womens-bottoms
+Product Count: 122
+Disjunctive: True
+Rules: [{'column': 'type', 'relation': 'equals', 'condition': 'Bottoms'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Bottoms'}, {'column': 'title', 'relation': 'contains', 'condition': 'Shorts'}, {'column': 'title', 'relation': 'contains', 'condition': 'Pants'}, {'column': 'title', 'relation': 'contains', 'condition': 'Skirts'}, {'column': 'title', 'relation': 'contains', 'condition': 'Leggings'}, {'column': 'title', 'relation': 'contains', 'condition': 'Skorts'}]
+--------------------------------------------------------------------------------
+Title: Women's Camis & Tanks
+Handle: womens-camis-tanks-tops
+Product Count: 33
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Camis & Tanks'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Tanks & Camis'}, {'column': 'title', 'relation': 'contains', 'condition': 'Cami Top'}, {'column': 'title', 'relation': 'contains', 'condition': 'Tank Top'}, {'column': 'title', 'relation': 'ends_with', 'condition': 'Tank'}, {'column': 'title', 'relation': 'ends_with', 'condition': 'Cami'}]
+--------------------------------------------------------------------------------
+Title: Women's Cardigans
+Handle: womens-cardigans
+Product Count: 9
+Disjunctive: True
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'Cardigan'}, {'column': 'type', 'relation': 'equals', 'condition': 'Cardigans'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Cardigans'}]
+--------------------------------------------------------------------------------
+Title: Women's Casual Dresses
+Handle: womens-casual-dresses
+Product Count: 219
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Casual Dresses'}, {'column': 'title', 'relation': 'contains', 'condition': 'Mini Dress'}, {'column': 'title', 'relation': 'contains', 'condition': 'Midi Dress'}]
+--------------------------------------------------------------------------------
+Title: Women's Coats & Jackets
+Handle: womens-coats-jackets
+Product Count: 20
+Disjunctive: True
+Rules: [{'column': 'type', 'relation': 'equals', 'condition': 'Coats & Jackets'}, {'column': 'type', 'relation': 'equals', 'condition': 'Jacket'}, {'column': 'title', 'relation': 'contains', 'condition': 'jacket'}, {'column': 'title', 'relation': 'contains', 'condition': 'coat'}]
+--------------------------------------------------------------------------------
+Title: Women's Cocktail Dresses
+Handle: womens-cocktail-dresses
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'Cocktail'}, {'column': 'title', 'relation': 'contains', 'condition': 'Party Dress'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Cocktail Dresses'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Club & Night Out'}]
+--------------------------------------------------------------------------------
+Title: Women's Denim Tops & Jackets
+Handle: womens-denim-tops-jackets
+Product Count: 9
+Disjunctive: True
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'Denim jacket'}, {'column': 'title', 'relation': 'contains', 'condition': 'Denim Top'}]
+--------------------------------------------------------------------------------
+Title: Women's Dresses
+Handle: womens-dresses
+Product Count: 413
+Disjunctive: False
+Rules: [{'column': 'type', 'relation': 'equals', 'condition': 'Dresses'}]
+--------------------------------------------------------------------------------
+Title: Women's Graphic T-Shirts & Tees
+Handle: womens-graphic-tees
+Product Count: 47
+Disjunctive: True
+Rules: [{'column': 'type', 'relation': 'equals', 'condition': "Graphic T's"}, {'column': 'title', 'relation': 'contains', 'condition': 'graphic'}]
+--------------------------------------------------------------------------------
+Title: Women's Handbags & Accessories
+Handle: womens-handbags-accessories
+Product Count: 67
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'accessories'}, {'column': 'type', 'relation': 'equals', 'condition': 'Handbags'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Bags'}]
+--------------------------------------------------------------------------------
+Title: Women's Hoodies
+Handle: womens-hoodies
+Product Count: 15
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Hoodies'}, {'column': 'title', 'relation': 'contains', 'condition': 'Hoodie'}]
+--------------------------------------------------------------------------------
+Title: Women's Jeans
+Handle: womens-jeans
+Product Count: 137
+Disjunctive: True
+Rules: [{'column': 'type', 'relation': 'equals', 'condition': 'Jeans'}, {'column': 'type', 'relation': 'equals', 'condition': 'DENIM JEANS'}, {'column': 'type', 'relation': 'equals', 'condition': 'DENIM (NEW)'}, {'column': 'title', 'relation': 'contains', 'condition': 'Jean'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Jeans'}]
+--------------------------------------------------------------------------------
+Title: Women's Knit Tops
+Handle: womens-knit-tops
+Product Count: 15
+Disjunctive: False
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'Knit'}, {'column': 'type', 'relation': 'equals', 'condition': 'Shirts & Tops'}]
+--------------------------------------------------------------------------------
+Title: Women's Loungewear & Basics
+Handle: womens-loungewear
+Product Count: 2
+Disjunctive: True
+Rules: [{'column': 'type', 'relation': 'equals', 'condition': 'LOUNGEWEAR'}, {'column': 'title', 'relation': 'contains', 'condition': 'lounge'}]
+--------------------------------------------------------------------------------
+Title: Women's Maxi Dresses
+Handle: womens-maxi-dresses
+Product Count: 31
+Disjunctive: True
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'Maxi Dress'}, {'column': 'title', 'relation': 'contains', 'condition': 'Maxi Dresses'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Maxi Dress'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Maxi Dresses'}]
+--------------------------------------------------------------------------------
+Title: Women's Outerwear
+Handle: womens-outerwear
+Product Count: 62
+Disjunctive: True
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'Jacket'}, {'column': 'type', 'relation': 'equals', 'condition': 'Coats & Jackets'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Outerwear'}, {'column': 'title', 'relation': 'contains', 'condition': 'Coat'}, {'column': 'title', 'relation': 'contains', 'condition': 'Sweater'}, {'column': 'title', 'relation': 'contains', 'condition': 'Hoodie'}]
+--------------------------------------------------------------------------------
+Title: Women's Pants & Leggings
+Handle: womens-pants-leggings
+Product Count: 236
+Disjunctive: True
+Rules: [{'column': 'type', 'relation': 'equals', 'condition': 'Pants'}, {'column': 'type', 'relation': 'equals', 'condition': 'PANTS'}, {'column': 'type', 'relation': 'equals', 'condition': 'Leggings'}, {'column': 'title', 'relation': 'contains', 'condition': 'Pant'}, {'column': 'title', 'relation': 'contains', 'condition': 'Legging'}, {'column': 'title', 'relation': 'contains', 'condition': 'Jogger'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Pants & Leggings'}]
+--------------------------------------------------------------------------------
+Title: Women's Rompers & Jumpsuits
+Handle: womens-rompers-jumpsuit-sets
+Product Count: 20
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Rompers'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Jumpsuit & Sets'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Jumpsuits'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Jumpsuits & Sets'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Jumpsuit'}, {'column': 'title', 'relation': 'contains', 'condition': 'Romper'}, {'column': 'title', 'relation': 'contains', 'condition': 'Jumpsuit'}, {'column': 'title', 'relation': 'contains', 'condition': 'Overall'}]
+--------------------------------------------------------------------------------
+Title: Women's Shirts & Blouses
+Handle: womens-shirts
+Product Count: 21
+Disjunctive: False
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'shirt'}, {'column': 'type', 'relation': 'equals', 'condition': 'Shirts & Tops'}, {'column': 'title', 'relation': 'not_contains', 'condition': 'sweat'}, {'column': 'title', 'relation': 'not_contains', 'condition': 'T-shirt'}]
+--------------------------------------------------------------------------------
+Title: Women's Shorts
+Handle: womens-shorts
+Product Count: 51
+Disjunctive: False
+Rules: [{'column': 'type', 'relation': 'equals', 'condition': 'Shorts'}]
+--------------------------------------------------------------------------------
+Title: Women's Skirts
+Handle: womens-skirts
+Product Count: 91
+Disjunctive: True
+Rules: [{'column': 'type', 'relation': 'equals', 'condition': 'Skirts'}, {'column': 'type', 'relation': 'equals', 'condition': 'SKIRTS'}, {'column': 'type', 'relation': 'equals', 'condition': 'SKIRT'}, {'column': 'title', 'relation': 'contains', 'condition': 'Skirt'}, {'column': 'title', 'relation': 'contains', 'condition': 'Skort'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Skirts'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Skort'}]
+--------------------------------------------------------------------------------
+Title: Women's Sweaters
+Handle: womens-sweaters
+Product Count: 31
+Disjunctive: True
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'Sweater'}, {'column': 'type', 'relation': 'equals', 'condition': 'Sweaters'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Sweaters'}]
+--------------------------------------------------------------------------------
+Title: Women's Sweatshirts
+Handle: womens-sweatshirts
+Product Count: 49
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Sweatshirts'}, {'column': 'title', 'relation': 'contains', 'condition': 'SweatShirt'}]
+--------------------------------------------------------------------------------
+Title: Women's Sweatshirts & Hoodies
+Handle: womens-sweatshirts-hoodies
+Product Count: 64
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Sweatshirts & Hoodies'}, {'column': 'title', 'relation': 'contains', 'condition': 'SweatShirt'}, {'column': 'title', 'relation': 'contains', 'condition': 'Hoodie'}]
+--------------------------------------------------------------------------------
+Title: Women's T-Shirts
+Handle: womens-t-shirts
+Product Count: 101
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'T-Shirts'}, {'column': 'tag', 'relation': 'equals', 'condition': 'T-Shirts & Polos'}, {'column': 'tag', 'relation': 'equals', 'condition': 'Graphic T-shirts'}, {'column': 'title', 'relation': 'contains', 'condition': 'T-Shirt'}, {'column': 'title', 'relation': 'contains', 'condition': 'tee'}]
+--------------------------------------------------------------------------------
+Title: Women's Tops
+Handle: womens-tops
+Product Count: 200
+Disjunctive: False
+Rules: [{'column': 'title', 'relation': 'ends_with', 'condition': 'top'}, {'column': 'type', 'relation': 'equals', 'condition': 'Shirts & Tops'}]
+--------------------------------------------------------------------------------
+Title: Women's Tunics & Flowy Tops
+Handle: womens-tunics
+Product Count: 5
+Disjunctive: True
+Rules: [{'column': 'type', 'relation': 'equals', 'condition': 'Tunic'}, {'column': 'title', 'relation': 'contains', 'condition': 'tunic'}]
+--------------------------------------------------------------------------------
+Title: Yelete
+Handle: yelete-womens-clothing
+Product Count: 0
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Yelete'}, {'column': 'vendor', 'relation': 'equals', 'condition': 'Yelete'}, {'column': 'title', 'relation': 'contains', 'condition': 'Yelete'}]
+--------------------------------------------------------------------------------
+Title: ZENANA Dresses
+Handle: zenana-dresses
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'zenana'}, {'column': 'type', 'relation': 'equals', 'condition': 'Dresses'}]
+--------------------------------------------------------------------------------
+Title: ZENANA Sweaters
+Handle: zenana-sweaters
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'zenana'}, {'column': 'title', 'relation': 'contains', 'condition': 'sweater'}]
+--------------------------------------------------------------------------------
+Title: ZENANA Sweatshirts
+Handle: zenana-sweatshirts
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'zenana'}, {'column': 'title', 'relation': 'contains', 'condition': 'sweatshirt'}]
+--------------------------------------------------------------------------------
+Title: ZENANA Tops
+Handle: zenana-tops
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'zenana'}, {'column': 'type', 'relation': 'equals', 'condition': 'Shirts & Tops'}, {'column': 'title', 'relation': 'not_contains', 'condition': 'Sweater'}, {'column': 'title', 'relation': 'not_contains', 'condition': 'cardigan'}, {'column': 'title', 'relation': 'not_contains', 'condition': 'Hoodie'}, {'column': 'title', 'relation': 'not_contains', 'condition': 'Sweatshirt'}]
+--------------------------------------------------------------------------------
+Title: ZENANA shorts
+Handle: zenana-shorts
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'title', 'relation': 'contains', 'condition': 'zenana'}, {'column': 'type', 'relation': 'equals', 'condition': 'Shorts'}]
+--------------------------------------------------------------------------------
+Title: Zenana Women's Clothing
+Handle: zenana-womens-clothing
+Product Count: 6
+Disjunctive: True
+Rules: [{'column': 'tag', 'relation': 'equals', 'condition': 'Zenana'}, {'column': 'vendor', 'relation': 'equals', 'condition': 'Zenana'}, {'column': 'title', 'relation': 'contains', 'condition': 'Zenana'}]
+--------------------------------------------------------------------------------
+Title: e Luna Clothing
+Handle: e-luna-womens-clothing
+Product Count: 0
+Disjunctive: False
+Rules: [{'column': 'vendor', 'relation': 'equals', 'condition': 'e Luna'}]
+--------------------------------------------------------------------------------

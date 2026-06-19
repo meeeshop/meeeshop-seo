@@ -1,0 +1,101 @@
+{
+  "products": 0,
+  "pages": 0,
+  "collections": 0,
+  "articles": 0,
+  "titles": 0,
+  "descriptions": 0,
+  "meta_titles": 0,
+  "meta_descs": 0,
+  "handles": 0,
+  "redirects": 0,
+  "alts": 11,
+  "run_at": "2026-06-12T11:04:00.617966+00:00",
+  "mode": "daily",
+  "batch_index": null,
+  "batch_size": null,
+  "products_fixed": [
+    {
+      "product": "Umgee Chevron Stripe Sleeveless Midi Dress",
+      "url": "https://us.meeeshop.com/products/umgee-chevron-stripe-sleeveless-midi-dress",
+      "missing": [
+        "img[0] alt (missing)",
+        "img[1] alt (missing)",
+        "img[2] alt (missing)",
+        "img[3] alt (missing)",
+        "img[4] alt (missing)"
+      ],
+      "fixed": [
+        {
+          "field": "img_alt[0]",
+          "before": "",
+          "after": "umgee chevron stripe Umgee Chevron Stripe Sleevele"
+        },
+        {
+          "field": "img_alt[1]",
+          "before": "",
+          "after": "umgee chevron stripe Umgee Chevron Stripe Sleevele"
+        },
+        {
+          "field": "img_alt[2]",
+          "before": "",
+          "after": "umgee chevron stripe Umgee Chevron Stripe Sleevele"
+        },
+        {
+          "field": "img_alt[3]",
+          "before": "",
+          "after": "umgee chevron stripe Umgee Chevron Stripe Sleevele"
+        },
+        {
+          "field": "img_alt[4]",
+          "before": "",
+          "after": "umgee chevron stripe Umgee Chevron Stripe Sleevele"
+        }
+      ]
+    },
+    {
+      "product": "Umgee Floral Contrast Trim Ruffle Hem Mini Dress",
+      "url": "https://us.meeeshop.com/products/umgee-floral-contrast-trim-ruffle-hem-mini-dress",
+      "missing": [
+        "img[0] alt (missing)",
+        "img[1] alt (missing)",
+        "img[2] alt (missing)",
+        "img[3] alt (missing)",
+        "img[4] alt (missing)",
+        "img[5] alt (missing)"
+      ],
+      "fixed": [
+        {
+          "field": "img_alt[0]",
+          "before": "",
+          "after": "umgee floral contrast Umgee Floral Contrast Trim R"
+        },
+        {
+          "field": "img_alt[1]",
+          "before": "",
+          "after": "umgee floral contrast Umgee Floral Contrast Trim R"
+        },
+        {
+          "field": "img_alt[2]",
+          "before": "",
+          "after": "umgee floral contrast Umgee Floral Contrast Trim R"
+        },
+        {
+          "field": "img_alt[3]",
+          "before": "",
+          "after": "umgee floral contrast Umgee Floral Contrast Trim R"
+        },
+        {
+          "field": "img_alt[4]",
+          "before": "",
+          "after": "umgee floral contrast Umgee Floral Contrast Trim R"
+        },
+        {
+          "field": "img_alt[5]",
+          "before": "",
+          "after": "umgee floral contrast Umgee Floral Contrast Trim R"
+        }
+      ]
+    }
+  ]
+}

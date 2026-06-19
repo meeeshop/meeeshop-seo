@@ -1,0 +1,137 @@
+[
+  {
+    "name": "Sleeve length type",
+    "namespace": "shopify",
+    "key": "sleeve-length-type",
+    "type": {
+      "name": "list.metaobject_reference"
+    },
+    "description": "Specifies the style of sleeves on clothing items, such as short or sleeveless"
+  },
+  {
+    "name": "Neckline",
+    "namespace": "shopify",
+    "key": "neckline",
+    "type": {
+      "name": "list.metaobject_reference"
+    },
+    "description": "Used to describe the neck shape of a garment, such as V-neck or boat"
+  },
+  {
+    "name": "Pants length type",
+    "namespace": "shopify",
+    "key": "pants-length-type",
+    "type": {
+      "name": "list.metaobject_reference"
+    },
+    "description": "Used to defines the length of pants, such as cropped or long"
+  },
+  {
+    "name": "Skirt/Dress length type",
+    "namespace": "shopify",
+    "key": "skirt-dress-length-type",
+    "type": {
+      "name": "list.metaobject_reference"
+    },
+    "description": "Defines the length of skirts or dresses, such as mini or maxi"
+  },
+  {
+    "name": "Top length type",
+    "namespace": "shopify",
+    "key": "top-length-type",
+    "type": {
+      "name": "list.metaobject_reference"
+    },
+    "description": "Defines the length of tops or shirts, like crop top or long"
+  },
+  {
+    "name": "Occasion style",
+    "namespace": "shopify",
+    "key": "occasion-style",
+    "type": {
+      "name": "list.metaobject_reference"
+    },
+    "description": "Helps categorize products based on occasion, e.g. casual, dress"
+  },
+  {
+    "name": "Occasion",
+    "namespace": "shopify",
+    "key": "occasion",
+    "type": {
+      "name": "list.metaobject_reference"
+    },
+    "description": "Specifies the suitable event or setting for a product, e.g. casual, formal"
+  },
+  {
+    "name": "Stem length",
+    "namespace": "shopify",
+    "key": "stem-length",
+    "type": {
+      "name": "list.metaobject_reference"
+    },
+    "description": "Indicates the length of a flower's stem, such as short, medium, or long"
+  },
+  {
+    "name": "Award occasion",
+    "namespace": "shopify",
+    "key": "award-occasion",
+    "type": {
+      "name": "list.metaobject_reference"
+    },
+    "description": "Specifies the purpose of an award, like employee recognition or academic achievement"
+  },
+  {
+    "name": "Dress occasion",
+    "namespace": "shopify",
+    "key": "dress-occasion",
+    "type": {
+      "name": "list.metaobject_reference"
+    },
+    "description": "Specifies the intended occasion for a dress, e.g. holiday, everyday"
+  },
+  {
+    "name": "M.2 drive length supported",
+    "namespace": "shopify",
+    "key": "m-2-drive-length-supported",
+    "type": {
+      "name": "list.metaobject_reference"
+    },
+    "description": "Specifies which M.2 card lengths the enclosure or adapter can accept"
+  },
+  {
+    "name": "Insole length type",
+    "namespace": "shopify",
+    "key": "insole-length-type",
+    "type": {
+      "name": "list.metaobject_reference"
+    },
+    "description": "Defines the coverage or length style of the insert"
+  },
+  {
+    "name": "Orthotic coverage length",
+    "namespace": "shopify",
+    "key": "orthotic-coverage-length",
+    "type": {
+      "name": "list.metaobject_reference"
+    },
+    "description": "Defines how much of the footbed the arch support covers (e.g., full-length, 3/4 length, heel cup)"
+  },
+  {
+    "name": "Length adjustability",
+    "namespace": "shopify",
+    "key": "length-adjustability",
+    "type": {
+      "name": "list.metaobject_reference"
+    },
+    "description": "Indicates whether the strap or chain length can be altered by the user or is fixed"
+  },
+  {
+    "name": "Handle length adjustability",
+    "namespace": "shopify",
+    "key": "handle-length-adjustability",
+    "type": {
+      "name": "list.metaobject_reference"
+    },
+    "description": "Describes whether and how the handle length can be adjusted, enabling shoppers to filter between fixed and telescopic options."
+  }
+]
