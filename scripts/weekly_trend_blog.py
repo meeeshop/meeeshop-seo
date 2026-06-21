@@ -1504,7 +1504,7 @@ def clean_old_history(history: dict, days: int = 7) -> dict:
     return cleaned
 
 # ── Phase 4: Generate + Publish ───────────────────────────────────────────────
-def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap, count: int = 1, dry_run: bool = False, publish: bool = False):
+def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap, count: int = 1, dry_run: bool = False, publish: bool = True):
     print(f"\n━━ PHASE 4: Generating {count} Weekly Trend Blog Article(s) ━━")
     
     product_history = load_used_products_history()
@@ -1663,7 +1663,8 @@ def main():
     ap = argparse.ArgumentParser(description="MeeeShop Weekly Trend Blog Generator")
     ap.add_argument("--count", type=int, default=1, help="Number of articles to generate")
     ap.add_argument("--dry-run", action="store_true", help="Generate but do not publish to Shopify")
-    ap.add_argument("--publish", action="store_true", help="Publish immediately (default: draft)")
+    ap.add_argument("--draft", action="store_true", help="Save article as draft (default: publish)")
+    ap.add_argument("--publish", action="store_true", help="Publish immediately (default behavior)")
     args = ap.parse_args()
     
     print("="*60)
@@ -1691,7 +1692,7 @@ def main():
         link_map=link_map,
         count=args.count,
         dry_run=args.dry_run,
-        publish=args.publish
+        publish=not args.draft
     )
     
     print("\n✅ Execution Finished.")
