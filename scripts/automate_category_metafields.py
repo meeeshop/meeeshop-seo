@@ -1544,7 +1544,7 @@ def save_update_log(processed_ids: set, stats: dict, filepath: str = "category_m
         except Exception:
             pass
 
-    logs.sort(key=lambda entry: entry.get("timestamp", ""))
+    logs.sort(key=lambda entry: entry.get("timestamp") or "")
 
     logs.append({
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

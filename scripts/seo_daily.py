@@ -1590,7 +1590,7 @@ def save_update_log(processed_ids: set, stats: dict, mode: str, args, filepath: 
         except Exception:
             pass
 
-    logs.sort(key=lambda entry: entry.get("timestamp", ""))
+    logs.sort(key=lambda entry: entry.get("timestamp") or "")
 
     logs.append({
         "timestamp": datetime.now(timezone.utc).isoformat(),

@@ -81,7 +81,7 @@ def fetch_articles(days: int, limit: int, force: bool) -> list:
             all_articles.append(art)
             
     # Sort newest first initially
-    all_articles.sort(key=lambda x: x.get("published_at", ""), reverse=True)
+    all_articles.sort(key=lambda x: x.get("published_at") or "", reverse=True)
     
     if force:
         # If forced, bypass the recent/old logic and just grab the newest unsynced articles
