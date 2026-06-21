@@ -30,7 +30,7 @@ if sys.stderr.encoding != 'utf-8':
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from secrets_manager import inject_to_env, get_secret
 inject_to_env()
-from shopify_graphql import run_graphql
+from shopify_graphql import run_graphql, parse_gid
 
 STORE  = get_secret("SHOPIFY_STORE")
 TOKEN  = get_secret("SHOPIFY_ACCESS_TOKEN")
