@@ -172,9 +172,16 @@ def upload_to_shopify_files(filepath):
 
     # 3. Upload file to staging target
     with open(filepath, "rb") as f:
-        files = {"file": ("google_merchant_feed.txt", f, "text/plain")}
-        params = {p["name"]: p["value"] for p in target["parameters"]}
-        upload_resp = requests.post(target["url"], data=params, files=files)
+        form_data = []
+        for p in target["parameters"]:
+            form_data.append((p["name"], p["value"]))
+        # Google Cloud Storage requires the file parameter to be the last field in the form
+        form_data.append(("file", (os.path.basename(filepath), f, "text/plain")))
+        
+        upload_resp = requests.post(target["url"], files=form_data)
+        if upload_resp.status_code not in (200, 201):
+            print(f"❌ Staged upload failed with status {upload_resp.status_code}. Response body:")
+            print(upload_resp.text)
         upload_resp.raise_for_status()
         
     # 4. Create file in Shopify
@@ -440,6 +447,8 @@ def generate_feed():
         
         # Extract Base Product details
         prod_desc = clean_html(product.get("body_html", ""))
+        if len(prod_desc) > 500:
+            prod_desc = prod_desc[:497] + "..."
         # Force the store brand for all products to build brand equity and prevent price shopping
         brand = DEFAULT_BRAND
         item_group_id = str(product.get("id"))
@@ -545,4 +554,9 @@ def generate_feed():
     upload_to_shopify_files(OUTPUT_FILE)
 
 if __name__ == "__main__":
+    import sys
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
     generate_feed()
