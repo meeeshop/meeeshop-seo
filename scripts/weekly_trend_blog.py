@@ -995,7 +995,7 @@ Zero-Search-Volume: {', '.join(zero_search[:5])}
 ────────── MANDATORY EDITORIAL & VISUAL STYLING RULES ──────────
 1. Target audience: Women in the USA, ages 25-55. Speak directly to her.
 2. Open with a STRONG hook — surprising stat, relatable pain point, bold statement, or intriguing question. NO generic 'In today's world...' openers.
-3. Include a Table of Contents (HTML anchor links) after the intro.
+3. Include a Table of Contents (HTML anchor links) after the intro. The Table of Contents MUST be formatted as a structured bulleted list (using `<ul>` and `<li>`) or numbered list (using `<ol>` and `<li>`), wrapped in a styled container (e.g. `<div style="background:#f9f9f9; border:1px solid #eaeaea; padding:15px; border-radius:8px; margin:20px 0;"><p style="font-weight:bold; margin-top:0;">Table of Contents</p><ul style="margin:0; padding-left:20px; line-height:1.6;">...</ul></div>`). Never output it as a single paragraph or plain text.
 4. Use H2 and H3 headers. Every section must provide REAL, actionable value.
 5. Include at least one numbered list OR bullet-point checklist with 5+ items.
 6. Mention the hero product AND at least one complementary product NATURALLY within the article body (not just in promotional sections).
