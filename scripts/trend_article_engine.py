@@ -1277,9 +1277,15 @@ def upload_image_to_shopify(filepath: Path, filename: str) -> str | None:
         
         # Upload the file to staging
         with open(filepath, "rb") as f:
-            files = {"file": (filename, f, "image/jpeg")}
-            params = {p["name"]: p["value"] for p in target["parameters"]}
-            upload_resp = requests.post(target["url"], data=params, files=files, timeout=30)
+            form_data = []
+            for p in target["parameters"]:
+                form_data.append((p["name"], p["value"]))
+            form_data.append(("file", (filename, f, "image/jpeg")))
+            
+            upload_resp = requests.post(target["url"], files=form_data, timeout=30)
+            if upload_resp.status_code not in (200, 201):
+                print(f"  [!] Staged upload failed with status {upload_resp.status_code}. Response body:")
+                print(upload_resp.text)
             upload_resp.raise_for_status()
             
         # Create file reference in Shopify

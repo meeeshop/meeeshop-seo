@@ -537,9 +537,15 @@ def upload_image_to_shopify(filepath: Path, filename: str) -> str | None:
         target = r.json()["data"]["stagedUploadsCreate"]["stagedTargets"][0]
         
         with open(filepath, "rb") as f:
-            files = {"file": (filename, f, "image/jpeg")}
-            params = {p["name"]: p["value"] for p in target["parameters"]}
-            upload_resp = requests.post(target["url"], data=params, files=files, timeout=30)
+            form_data = []
+            for p in target["parameters"]:
+                form_data.append((p["name"], p["value"]))
+            form_data.append(("file", (filename, f, "image/jpeg")))
+            
+            upload_resp = requests.post(target["url"], files=form_data, timeout=30)
+            if upload_resp.status_code not in (200, 201):
+                print(f"  [!] Staged upload failed with status {upload_resp.status_code}. Response body:")
+                print(upload_resp.text)
             upload_resp.raise_for_status()
             
         create_mut = """
@@ -995,7 +1001,7 @@ Zero-Search-Volume: {', '.join(zero_search[:5])}
 ────────── MANDATORY EDITORIAL & VISUAL STYLING RULES ──────────
 1. Target audience: Women in the USA, ages 25-55. Speak directly to her.
 2. Open with a STRONG hook — surprising stat, relatable pain point, bold statement, or intriguing question. NO generic 'In today's world...' openers.
-3. Include a Table of Contents (HTML anchor links) after the intro.
+3. Include a Table of Contents (HTML anchor links) after the intro. The Table of Contents MUST be formatted as a structured bulleted list (using `<ul>` and `<li>`) or numbered list (using `<ol>` and `<li>`), wrapped in a styled container (e.g. `<div style="background:#f9f9f9; border:1px solid #eaeaea; padding:15px; border-radius:8px; margin:20px 0;"><p style="font-weight:bold; margin-top:0;">Table of Contents</p><ul style="margin:0; padding-left:20px; line-height:1.6;">...</ul></div>`). Never output it as a single paragraph or plain text.
 4. Use H2 and H3 headers. Every section must provide REAL, actionable value.
 5. Include at least one numbered list OR bullet-point checklist with 5+ items.
 6. Mention the hero product AND at least one complementary product NATURALLY within the article body (not just in promotional sections).
@@ -1504,7 +1510,7 @@ def clean_old_history(history: dict, days: int = 7) -> dict:
     return cleaned
 
 # ── Phase 4: Generate + Publish ───────────────────────────────────────────────
-def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap, count: int = 1, dry_run: bool = False, publish: bool = False):
+def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap, count: int = 1, dry_run: bool = False, publish: bool = True):
     print(f"\n━━ PHASE 4: Generating {count} Weekly Trend Blog Article(s) ━━")
     
     product_history = load_used_products_history()
@@ -1663,7 +1669,8 @@ def main():
     ap = argparse.ArgumentParser(description="MeeeShop Weekly Trend Blog Generator")
     ap.add_argument("--count", type=int, default=1, help="Number of articles to generate")
     ap.add_argument("--dry-run", action="store_true", help="Generate but do not publish to Shopify")
-    ap.add_argument("--publish", action="store_true", help="Publish immediately (default: draft)")
+    ap.add_argument("--draft", action="store_true", help="Save article as draft (default: publish)")
+    ap.add_argument("--publish", action="store_true", help="Publish immediately (default behavior)")
     args = ap.parse_args()
     
     print("="*60)
@@ -1691,7 +1698,7 @@ def main():
         link_map=link_map,
         count=args.count,
         dry_run=args.dry_run,
-        publish=args.publish
+        publish=not args.draft
     )
     
     print("\n✅ Execution Finished.")

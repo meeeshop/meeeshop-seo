@@ -121,9 +121,15 @@ def verify_and_register_key():
 
         # 2. Upload file
         with open(local_key_path, "rb") as f:
-            files = {"file": (KEY_FILE_NAME, f, "text/plain")}
-            params = {p["name"]: p["value"] for p in target["parameters"]}
-            upload_resp = requests.post(target["url"], data=params, files=files)
+            form_data = []
+            for p in target["parameters"]:
+                form_data.append((p["name"], p["value"]))
+            form_data.append(("file", (KEY_FILE_NAME, f, "text/plain")))
+            
+            upload_resp = requests.post(target["url"], files=form_data)
+            if upload_resp.status_code not in (200, 201):
+                print(f"❌ Staged upload failed with status {upload_resp.status_code}. Response body:")
+                print(upload_resp.text)
             upload_resp.raise_for_status()
 
         # 3. Create generic file

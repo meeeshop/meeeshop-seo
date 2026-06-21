@@ -17,12 +17,12 @@ on:
       mode:
         description: 'Run mode'
         required: true
-        default: 'draft'
+        default: 'publish'
         type: choice
         options:
-          - dry-run
-          - draft
           - publish
+          - draft
+          - dry-run
 
 jobs:
   generate-blog:
@@ -48,19 +48,19 @@ jobs:
       - name: Build CLI arguments
         id: args
         run: |
-          MODE="${{ github.event.inputs.mode || 'draft' }}"
+          MODE="${{ github.event.inputs.mode || 'publish' }}"
           COUNT="${{ github.event.inputs.count || '1' }}"
           
-          # On scheduled runs, default to draft mode
+          # On scheduled runs, default to publish mode
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            MODE="draft"
+            MODE="publish"
           fi
           
           ARGS="--count $COUNT"
           if [ "$MODE" = "dry-run" ]; then
             ARGS="$ARGS --dry-run"
-          elif [ "$MODE" = "publish" ]; then
-            ARGS="$ARGS --publish"
+          elif [ "$MODE" = "draft" ]; then
+            ARGS="$ARGS --draft"
           fi
           
           echo "cli_args=$ARGS" >> "$GITHUB_OUTPUT"

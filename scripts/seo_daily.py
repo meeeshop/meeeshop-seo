@@ -115,17 +115,20 @@ CATEGORIES = {
     ('shoe','boot','heel','sandal','sneaker','flat'):    ('Shoes',     'shoe'),
 }
 
-def detect_cat(title):
+def detect_cat(title, product_type='', tags=''):
     t = title.lower()
+    pt = (product_type or '').lower()
+    tg = (tags or '').lower()
+    search_str = f"{t} {pt} {tg}"
     for keys, (cat, word) in CATEGORIES.items():
-        if any(k in t for k in keys):
+        if any(k in search_str for k in keys):
             return cat, word
     return 'Women\'s Fashion', 'piece'
 
 
 # ── Meta title (Google standard: ≤60 chars) ───────────────────────────────────
-def build_meta_title(title):
-    cat, _ = detect_cat(title)
+def build_meta_title(title, product_type='', tags=''):
+    cat, _ = detect_cat(title, product_type, tags)
     # Format: Product Title | Category | Brand (with .com for SEO)
     full  = f"{title} | {cat} | {BRAND}"
     if len(full) <= 60:
@@ -155,9 +158,9 @@ META_DESC_TEMPLATES = [
     "Premium {keywords_str} {word} from {brand}: quality women's fashion with free shipping & 7-day returns. Shop now!",
 ]
 
-def build_meta_desc(title):
+def build_meta_desc(title, product_type='', tags=''):
     """Deterministic meta description: same title always produces same output (so validation can use exact match)."""
-    _, word = detect_cat(title)
+    _, word = detect_cat(title, product_type, tags)
     keywords = extract_keywords(title)
     keywords_str = ' '.join(keywords) if keywords else (title.split()[0] if title.split() else "women's")
     # Deterministic template selection: pick by hash of title (no randomness)
@@ -168,8 +171,8 @@ def build_meta_desc(title):
 
 
 # ── Image alt text (Google standard: descriptive, ≤125 chars) ─────────────────
-def build_alt(title, variant_hint='', idx=0):
-    cat, word = detect_cat(title)
+def build_alt(title, variant_hint='', idx=0, product_type='', tags=''):
+    cat, word = detect_cat(title, product_type, tags)
     keywords = extract_keywords(title)
     keywords_str = ' '.join(keywords) if keywords else ''
     # Include product type keyword naturally in ALT text
@@ -267,6 +270,102 @@ def build_size_chart(word):
     return size_chart
 
 
+# ── Build category-specific Q&As ──────────────────────────────────────────────
+def build_templated_qa(title, cat, word):
+    """Generate 3 high-quality deterministic Q&As for the product page."""
+    # Define category-specific Q&A templates
+    qa_templates = {
+        'Dresses': [
+            ("What is the fit and sizing of the {title}?", 
+             "The {title} runs true to size. Please refer to our detailed size chart above (S/M/L) to find your perfect measurements."),
+            ("What occasions are suitable for this {word}?", 
+             "The {title} is designed for versatile everyday styling. Depending on the occasion, it can easily be dressed up with layers or worn as a relaxed statement piece."),
+            ("What is the return policy for the {title}?", 
+             "We offer a 7-day return policy for the {title} to ensure you are completely satisfied with your purchase.")
+        ],
+        'Tops': [
+            ("How does the {title} fit?", 
+             "The {title} is designed for a comfortable, regular fit. We recommend checking the bust and waist measurements in our size guide before ordering."),
+            ("How should I wash and care for this {word}?", 
+             "To maintain the fabric quality, we recommend hand washing or machine washing on a delicate cycle with cold water, then hanging or lying flat to dry."),
+            ("What is the shipping cost and return policy?", 
+             "We offer free US shipping on orders over $50 and a hassle-free 7-day return policy on all eligible purchases.")
+        ],
+        'Bottoms': [
+            ("What is the rise and length of the {title}?", 
+             "The {title} features a mid-to-high rise cut designed to sit comfortably at your waist. Check our sizing table for specific waist and hip measurements."),
+            ("Is the fabric of this {word} stretchy?", 
+             "The {title} is crafted with high-quality materials designed for both durability and comfort, providing a natural shape and comfortable wear throughout the day."),
+            ("Can I return the {title} if it doesn't fit?", 
+             "Yes! We accept returns within 7 days of delivery. Please ensure the {word} is in its original, unworn condition with tags attached.")
+        ],
+        'Outerwear': [
+            ("How heavy is the {title}?", 
+             "The {title} is a premium medium-weight {word} designed for easy layering. It provides the perfect balance of warmth and breathability for transitional weather."),
+            ("Does this {word} fit true to size?", 
+             "Yes, the {title} fits true to size for standard layering. If you prefer an oversized fit, we suggest ordering one size up."),
+            ("What returns and shipping options are available?", 
+             "This item qualifies for free US shipping (orders $50+) and is backed by our standard 7-day return policy.")
+        ],
+        'Skirts': [
+            ("What is the length of the {title}?", 
+             "The {title} is cut to a classic silhouette. Detailed waist and hip measurements are available in our sizing guide to ensure an accurate fit."),
+            ("How do I style this skirt?", 
+             "This skirt pairs beautifully with tucked-in tees, blouses, or cardigans for an elevated office or weekend look."),
+            ("What is the return policy for the {title}?", 
+             "We offer an easy 7-day return window. Contact us within 7 days of receiving your item to start a return.")
+        ],
+        'One-Pieces': [
+            ("What is the fit profile of the {title}?", 
+             "The {title} is cut for a modern, contoured fit that flatters your natural silhouette. Refer to our size guide for bust, waist, and hip details."),
+            ("How do I care for this {word}?", 
+             "We suggest washing the {title} inside out in cold water on a gentle cycle, then hang drying to preserve the fabric and fit."),
+            ("Is shipping free for this item?", 
+             "Yes, free US shipping is automatically applied to all orders over $50, and returns are accepted within 7 days.")
+        ],
+        'Bags': [
+            ("What are the dimensions of the {title}?", 
+             "The {title} is a spacious, daily-use bag designed to carry your essentials. It features durable construction and secure closures."),
+            ("Are there interior pockets in this {word}?", 
+             "Yes, the {title} includes convenient compartments to keep your small items organized and easy to access on the go."),
+            ("What is MeeeShop's return policy?", 
+             "We offer a 7-day return policy. If you're not completely in love with your {title}, simply contact support within 7 days of delivery.")
+        ],
+        'Shoes': [
+            ("Is the {title} comfortable for all-day wear?", 
+             "The {title} is crafted with cushioned footbeds and premium support, making it comfortable for daily walking and extended wear."),
+            ("Does this shoe run narrow or wide?", 
+             "The {title} fits true to size for standard widths. If you typically wear a half-size, we recommend sizing up to the nearest whole size."),
+            ("What is the return policy for footwear?", 
+             "Footwear must be in unworn condition and in their original packaging to qualify for our standard 7-day return window.")
+        ],
+        'default': [
+            ("What is the sizing fit for the {title}?", 
+             "The {title} runs true to standard US fashion sizing. Please check the measurements in our size guide to find your perfect fit."),
+            ("What are the care instructions for this {word}?", 
+             "We recommend washing in cold water with similar colors and hang drying or laying flat to preserve the color and texture of the fabric."),
+            ("What shipping and return policies apply?", 
+             "All orders over $50 qualify for free shipping. We also provide a standard 7-day return policy on all unworn items.")
+        ]
+    }
+    
+    selected_qa = qa_templates.get(cat, qa_templates['default'])
+    formatted_qa = []
+    for q, a in selected_qa:
+        formatted_qa.append((q.format(title=title, word=word), a.format(title=title, word=word)))
+    return formatted_qa
+
+
+def build_qa_html(qa_list):
+    """Build the HTML representation of the Q&A section."""
+    html = "<h3>Frequently Asked Questions</h3>"
+    html += "<div class='meeeshop-qa-section' style='margin-top: 15px;'>"
+    for q, a in qa_list:
+        html += f"<p><strong>Q: {q}</strong><br/>A: {a}</p>"
+    html += "</div>"
+    return html
+
+
 # ── SEO description with keywords + size chart ───────────────────────────────
 def build_description(product, force=False):
     title    = product['title']
@@ -283,12 +382,19 @@ def build_description(product, force=False):
         # Preserve the custom description, clean return policies
         cleaned_body = clean_return_policy(html_body)
         if cat == 'Bags':
-            return cleaned_body.strip()
-            
-        if not has_size_table(cleaned_body):
-            size_chart = build_size_chart(word)
-            return cleaned_body.strip() + "\n\n" + size_chart
-        return cleaned_body
+            final_body = cleaned_body.strip()
+        else:
+            if not has_size_table(cleaned_body):
+                size_chart = build_size_chart(word)
+                final_body = cleaned_body.strip() + "\n\n" + size_chart
+            else:
+                final_body = cleaned_body
+
+        if "Frequently Asked Questions" not in final_body:
+            qa_list = build_templated_qa(title, cat, word)
+            qa_html = build_qa_html(qa_list)
+            final_body = final_body.strip() + "\n\n" + qa_html
+        return final_body
 
     keywords = extract_keywords(title)
     keywords_str = ' '.join(keywords) if keywords else ''
@@ -331,9 +437,17 @@ def build_description(product, force=False):
             size_chart = build_size_chart(word)
 
     if not force and len(existing) >= 500:
-        return html_body
+        final_body = html_body
+    else:
+        final_body = intro + features + why_choose + size_chart
 
-    return intro + features + why_choose + size_chart
+    if "Frequently Asked Questions" not in final_body:
+        qa_list = build_templated_qa(title, cat, word)
+        qa_html = build_qa_html(qa_list)
+        final_body = final_body.strip() + "\n\n" + qa_html
+
+    return final_body
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -744,6 +858,260 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not 
         {%- endfor -%}
       ]
     }
+    {%- if product.description contains 'Frequently Asked Questions' -%}
+    ,{
+      "@type": "FAQPage",
+      "@id": "{{ shop.url }}/products/{{ product.handle }}#faq",
+      "mainEntity": [
+        {%- assign word = 'piece' -%}
+        {%- assign cat = 'default' -%}
+        {%- assign title_lower = product.title | downcase -%}
+        {%- if title_lower contains 'dress' or title_lower contains 'gown' or title_lower contains 'midi' or title_lower contains 'maxi' or title_lower contains 'sundress' or title_lower contains 'shift' -%}
+          {%- assign cat = 'Dresses' -%}{%- assign word = 'dress' -%}
+        {%- elsif title_lower contains 'top' or title_lower contains 'blouse' or title_lower contains 'shirt' or title_lower contains 'tee' or title_lower contains 'tank' or title_lower contains 'cami' or title_lower contains 'tunic' -%}
+          {%- assign cat = 'Tops' -%}{%- assign word = 'top' -%}
+        {%- elsif title_lower contains 'jean' or title_lower contains 'pant' or title_lower contains 'short' or title_lower contains 'legging' or title_lower contains 'jogger' or title_lower contains 'trouser' -%}
+          {%- assign cat = 'Bottoms' -%}{%- assign word = 'bottom' -%}
+        {%- elsif title_lower contains 'jacket' or title_lower contains 'coat' or title_lower contains 'blazer' or title_lower contains 'sweater' or title_lower contains 'hoodie' or title_lower contains 'cardigan' or title_lower contains 'pullover' -%}
+          {%- assign cat = 'Outerwear' -%}{%- assign word = 'layer' -%}
+        {%- elsif title_lower contains 'skirt' -%}
+          {%- assign cat = 'Skirts' -%}{%- assign word = 'skirt' -%}
+        {%- elsif title_lower contains 'romper' or title_lower contains 'jumpsuit' or title_lower contains 'bodysuit' or title_lower contains 'playsuit' -%}
+          {%- assign cat = 'One-Pieces' -%}{%- assign word = 'one-piece' -%}
+        {%- elsif title_lower contains 'bag' or title_lower contains 'purse' or title_lower contains 'handbag' or title_lower contains 'tote' or title_lower contains 'crossbody' or title_lower contains 'sling' -%}
+          {%- assign cat = 'Bags' -%}{%- assign word = 'bag' -%}
+        {%- elsif title_lower contains 'shoe' or title_lower contains 'boot' or title_lower contains 'heel' or title_lower contains 'sandal' or title_lower contains 'sneaker' or title_lower contains 'flat' -%}
+          {%- assign cat = 'Shoes' -%}{%- assign word = 'shoe' -%}
+        {%- endif -%}
+        {%- if cat == 'Dresses' -%}
+          {
+            "@type": "Question",
+            "name": "What is the fit and sizing of the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} runs true to size. Please refer to our detailed size chart above (S/M/L) to find your perfect measurements."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What occasions are suitable for this dress?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is designed for versatile everyday styling. Depending on the occasion, it can easily be dressed up with layers or worn as a relaxed statement piece."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is the return policy for the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We offer a 7-day return policy for the {{ product.title | escape }} to ensure you are completely satisfied with your purchase."
+            }
+          }
+        {%- elsif cat == 'Tops' -%}
+          {
+            "@type": "Question",
+            "name": "How does the {{ product.title | escape }} fit?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is designed for a comfortable, regular fit. We recommend checking the bust and waist measurements in our size guide before ordering."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How should I wash and care for this top?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "To maintain the fabric quality, we recommend hand washing or machine washing on a delicate cycle with cold water, then hanging or lying flat to dry."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is the shipping cost and return policy?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We offer free US shipping on orders over $50 and a hassle-free 7-day return policy on all eligible purchases."
+            }
+          }
+        {%- elsif cat == 'Bottoms' -%}
+          {
+            "@type": "Question",
+            "name": "What is the rise and length of the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} features a mid-to-high rise cut designed to sit comfortably at your waist. Check our sizing table for specific waist and hip measurements."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is the fabric of this bottom stretchy?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is crafted with high-quality materials designed for both durability and comfort, providing a natural shape and comfortable wear throughout the day."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Can I return the {{ product.title | escape }} if it doesn't fit?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes! We accept returns within 7 days of delivery. Please ensure the bottom is in its original, unworn condition with tags attached."
+            }
+          }
+        {%- elsif cat == 'Outerwear' -%}
+          {
+            "@type": "Question",
+            "name": "How heavy is the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is a premium medium-weight layer designed for easy layering. It provides the perfect balance of warmth and breathability for transitional weather."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does this layer fit true to size?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes, the {{ product.title | escape }} fits true to size for standard layering. If you prefer an oversized fit, we suggest ordering one size up."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What returns and shipping options are available?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "This item qualifies for free US shipping (orders $50+) and is backed by our standard 7-day return policy."
+            }
+          }
+        {%- elsif cat == 'Skirts' -%}
+          {
+            "@type": "Question",
+            "name": "What is the length of the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is cut to a classic silhouette. Detailed waist and hip measurements are available in our sizing guide to ensure an accurate fit."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How do I style this skirt?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "This skirt pairs beautifully with tucked-in tees, blouses, or cardigans for an elevated office or weekend look."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is the return policy for the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We offer an easy 7-day return window. Contact us within 7 days of receiving your item to start a return."
+            }
+          }
+        {%- elsif cat == 'One-Pieces' -%}
+          {
+            "@type": "Question",
+            "name": "What is the fit profile of the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is cut for a modern, contoured fit that flatters your natural silhouette. Refer to our size guide for bust, waist, and hip details."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How do I care for this one-piece?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We suggest washing the {{ product.title | escape }} inside out in cold water on a gentle cycle, then hang drying to preserve the fabric and fit."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is shipping free for this item?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes, free US shipping is automatically applied to all orders over $50, and returns are accepted within 7 days."
+            }
+          }
+        {%- elsif cat == 'Bags' -%}
+          {
+            "@type": "Question",
+            "name": "What are the dimensions of the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is a spacious, daily-use bag designed to carry your essentials. It features durable construction and secure closures."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Are there interior pockets in this bag?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes, the {{ product.title | escape }} includes convenient compartments to keep your small items organized and easy to access on the go."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is MeeeShop's return policy?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We offer a 7-day return policy. If you're not completely in love with your {{ product.title | escape }}, simply contact support within 7 days of delivery."
+            }
+          }
+        {%- elsif cat == 'Shoes' -%}
+          {
+            "@type": "Question",
+            "name": "Is the {{ product.title | escape }} comfortable for all-day wear?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is crafted with cushioned footbeds and premium support, making it comfortable for daily walking and extended wear."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does this shoe run narrow or wide?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} fits true to size for standard widths. If you typically wear a half-size, we recommend sizing up to the nearest whole size."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is the return policy for footwear?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Footwear must be in unworn condition and in their original packaging to qualify for our standard 7-day return window."
+            }
+          }
+        {%- else -%}
+          {
+            "@type": "Question",
+            "name": "What is the sizing fit for the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} runs true to standard US fashion sizing. Please check the measurements in our size guide to find your perfect fit."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What are the care instructions for this piece?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We recommend washing in cold water with similar colors and hang drying or laying flat to preserve the color and texture of the fabric."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What shipping and return policies apply?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "All orders over $50 qualify for free shipping. We also provide a standard 7-day return policy on all unworn items."
+            }
+          }
+        {%- endif -%}
+      ]
+    }
+    {%- endif -%}
     ,{
       "@type": "BreadcrumbList",
       "itemListElement": [
@@ -923,8 +1291,15 @@ def validate_seo(item, item_type, existing_mfs):
     mismatches = []
     title = item.get('title', '')
 
+    if item_type == "product":
+        ptype = item.get('product_type', '')
+        tags = item.get('tags', '')
+    else:
+        ptype = ''
+        tags = ''
+
     # ── Meta title (exact match) ──────────────────────────────────────────────
-    expected_meta_title = build_meta_title(title)
+    expected_meta_title = build_meta_title(title, ptype, tags)
     cur_meta_title = existing_mfs.get('global.title_tag', {}).get('value', '')
     if cur_meta_title != expected_meta_title:
         mismatches.append({"field": "meta_title", "before": cur_meta_title, "after": expected_meta_title})
@@ -939,7 +1314,7 @@ def validate_seo(item, item_type, existing_mfs):
         and not has_stale_return_policy(cur_meta_desc)
     )
     if not desc_ok:
-        new_meta_desc = build_meta_desc(title)
+        new_meta_desc = build_meta_desc(title, ptype, tags)
         mismatches.append({"field": "meta_desc", "before": cur_meta_desc, "after": new_meta_desc})
 
     # ── Product-only: body_html + image ALTs ──────────────────────────────────
@@ -985,7 +1360,7 @@ def validate_seo(item, item_type, existing_mfs):
                 hint = matching_var.get('option1')
             else:
                 hint = colors[i] if i < len(colors) else ''
-            expected_alt = build_alt(title, hint, i)
+            expected_alt = build_alt(title, hint, i, ptype, tags)
             cur_alt = img.get('alt', '') or ''
             if cur_alt != expected_alt:
                 mismatches.append({
@@ -1076,8 +1451,8 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
     mismatches = validate_seo(product_with_new_title, "product", existing_mfs)
 
     meta_fix_needed = False
-    new_meta_title = build_meta_title(display_title)
-    new_meta_desc = build_meta_desc(display_title)
+    new_meta_title = build_meta_title(display_title, product.get('product_type', ''), product.get('tags', ''))
+    new_meta_desc = build_meta_desc(display_title, product.get('product_type', ''), product.get('tags', ''))
 
     for m in mismatches:
         if m['field'] == 'meta_title':
@@ -1215,7 +1590,7 @@ def save_update_log(processed_ids: set, stats: dict, mode: str, args, filepath: 
         except Exception:
             pass
 
-    logs.sort(key=lambda entry: entry.get("timestamp", ""))
+    logs.sort(key=lambda entry: entry.get("timestamp") or "")
 
     logs.append({
         "timestamp": datetime.now(timezone.utc).isoformat(),

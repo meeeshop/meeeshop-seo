@@ -134,7 +134,7 @@ def fetch_articles(days: int, limit: int) -> list:
             art["_blog_id"] = blog_id
             all_articles.append(art)
             
-    all_articles.sort(key=lambda x: x.get("published_at", ""), reverse=True)
+    all_articles.sort(key=lambda x: x.get("published_at") or "", reverse=True)
     
     # Filter out already synced
     pending = []

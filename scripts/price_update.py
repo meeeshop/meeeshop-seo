@@ -488,7 +488,7 @@ def save_update_log(stats: Dict, filepath: str = "price_update_log.json"):
 
     # Sort logs chronologically by timestamp
     def get_ts(entry):
-        return entry.get("timestamp", "")
+        return entry.get("timestamp") or ""
     logs.sort(key=get_ts)
 
     logs.append({
