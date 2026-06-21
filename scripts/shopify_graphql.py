@@ -221,6 +221,11 @@ def fetch_collections_graphql(hours: int = 0) -> List[Dict]:
             handle
             updatedAt
             descriptionHtml
+            image {
+              id
+              altText
+              url
+            }
             metafield(namespace: "json_ld_schema", key: "collectionpage") {
               id
               namespace
@@ -287,7 +292,8 @@ def fetch_collections_graphql(hours: int = 0) -> List[Dict]:
                 "handle": node["handle"],
                 "body_html": node["descriptionHtml"] or "",
                 "updated_at": node["updatedAt"],
-                "metafields": metafields_list
+                "metafields": metafields_list,
+                "image": node.get("image")
             })
             
         page_info = data.get("pageInfo", {})
@@ -418,7 +424,7 @@ def fetch_articles_graphql(hours: int = 0) -> List[Dict]:
                 summary
                 body
                 author { name }
-                image { url }
+                image { id altText url }
                 metafield(namespace: "json_ld_schema", key: "blogposting") {
                   id
                   namespace
@@ -493,7 +499,7 @@ def fetch_articles_graphql(hours: int = 0) -> List[Dict]:
                         })
                 
                 author_name = node.get("author", {}).get("name", "MeeeShop") if node.get("author") else "MeeeShop"
-                image_src = node.get("image", {}).get("url", "") if node.get("image") else ""
+                image_node = node.get("image")
                 
                 all_articles.append({
                     "id": parse_gid(node["id"]),
@@ -504,7 +510,11 @@ def fetch_articles_graphql(hours: int = 0) -> List[Dict]:
                     "published_at": node["publishedAt"] or "",
                     "updated_at": node["updatedAt"] or "",
                     "author": author_name,
-                    "image": {"src": image_src} if image_src else None,
+                    "image": {
+                        "id": image_node.get("id") if image_node else None,
+                        "altText": image_node.get("altText") if image_node else "",
+                        "src": image_node.get("url") if image_node else ""
+                    } if image_node else None,
                     "blog_handle": blog_handle,
                     "blog_id": parse_gid(blog_id),
                     "metafields": metafields_list

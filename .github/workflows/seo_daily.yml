@@ -33,6 +33,17 @@ on:
         required: false
         default: false
         type: boolean
+      resource:
+        description: 'Resource type to optimize'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - products
+          - collections
+          - pages
+          - blogs
 
 env:
   PYTHONUTF8: "1"
@@ -83,30 +94,54 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           MODE="${{ steps.detect.outputs.mode }}"
+          RESOURCE="${{ github.event.inputs.resource || 'all' }}"
+          
           if [ "$MODE" = "force" ]; then
-            TOTAL=$(python scripts/count_products.py)
-            if [ -z "$TOTAL" ]; then
-              echo "Error: Failed to retrieve product count"
-              exit 1
-            fi
-            echo "Active products: $TOTAL"
-            BATCHES=$(( (TOTAL + ${{ env.BATCH_SIZE }} - 1) / ${{ env.BATCH_SIZE }} ))
-            echo "Batches needed: $BATCHES"
-            
             JSON="["
-            # Add collections, pages, blogs
-            JSON+="{\"resource\":\"collections\",\"batch_index\":0},"
-            JSON+="{\"resource\":\"pages\",\"batch_index\":0},"
-            JSON+="{\"resource\":\"blogs\",\"batch_index\":0}"
+            FIRST=true
             
-            # Add products
-            for (( i=0; i<BATCHES; i++ )); do
-              JSON+=",{\"resource\":\"products\",\"batch_index\":$i}"
-            done
+            # Add collections if requested/all
+            if [ "$RESOURCE" = "all" ] || [ "$RESOURCE" = "collections" ]; then
+              JSON+="{\"resource\":\"collections\",\"batch_index\":0}"
+              FIRST=false
+            fi
+            
+            # Add pages if requested/all
+            if [ "$RESOURCE" = "all" ] || [ "$RESOURCE" = "pages" ]; then
+              if [ "$FIRST" = "false" ]; then JSON+=","; fi
+              JSON+="{\"resource\":\"pages\",\"batch_index\":0}"
+              FIRST=false
+            fi
+            
+            # Add blogs if requested/all
+            if [ "$RESOURCE" = "all" ] || [ "$RESOURCE" = "blogs" ]; then
+              if [ "$FIRST" = "false" ]; then JSON+=","; fi
+              JSON+="{\"resource\":\"blogs\",\"batch_index\":0}"
+              FIRST=false
+            fi
+            
+            # Add products if requested/all
+            if [ "$RESOURCE" = "all" ] || [ "$RESOURCE" = "products" ]; then
+              TOTAL=$(python scripts/count_products.py)
+              if [ -z "$TOTAL" ]; then
+                echo "Error: Failed to retrieve product count"
+                exit 1
+              fi
+              echo "Active products: $TOTAL"
+              BATCHES=$(( (TOTAL + ${{ env.BATCH_SIZE }} - 1) / ${{ env.BATCH_SIZE }} ))
+              echo "Batches needed: $BATCHES"
+              
+              for (( i=0; i<BATCHES; i++ )); do
+                if [ "$FIRST" = "false" ]; then JSON+=","; fi
+                JSON+="{\"resource\":\"products\",\"batch_index\":$i}"
+                FIRST=false
+              done
+            fi
+            
             JSON+="]"
             echo "batches_json=$JSON" >> "$GITHUB_OUTPUT"
           else
-            echo 'batches_json=[{"resource":"all","batch_index":0}]' >> "$GITHUB_OUTPUT"
+            echo "batches_json=[{\"resource\":\"$RESOURCE\",\"batch_index\":0}]" >> "$GITHUB_OUTPUT"
           fi
 
   seo_optimize:

@@ -30,6 +30,7 @@ if sys.stderr.encoding != 'utf-8':
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from secrets_manager import inject_to_env, get_secret
 inject_to_env()
+from shopify_graphql import run_graphql, parse_gid
 
 STORE  = get_secret("SHOPIFY_STORE")
 TOKEN  = get_secret("SHOPIFY_ACCESS_TOKEN")
@@ -183,6 +184,64 @@ def build_alt(title, variant_hint='', idx=0, product_type='', tags=''):
     if idx > 0:
         alt = f"{keywords_str} {title} view {idx + 1} ({word}) - shop at {DISPLAY_BRAND}" if keywords_str else f"{title} view {idx + 1} ({word}) - shop at {DISPLAY_BRAND}"
     return alt[:125].strip()
+
+
+def build_collection_alt(title):
+    alt = f"{title} collection - shop at {DISPLAY_BRAND}"
+    return alt[:125].strip()
+
+
+def build_article_alt(title):
+    alt = f"{title} - fashion tips & styling guides at {DISPLAY_BRAND}"
+    return alt[:125].strip()
+
+
+def find_file_id_by_filename(filename):
+    """Search Shopify files to find the corresponding GID (MediaImage or GenericFile)."""
+    from shopify_graphql import run_graphql
+    clean_name = filename.split('?')[0].split('/')[-1]
+    query = """
+    query($queryStr: String) {
+      files(first: 5, query: $queryStr) {
+        edges {
+          node {
+            id
+          }
+        }
+      }
+    }
+    """
+    try:
+        res = run_graphql(query, {"queryStr": f"filename:{clean_name}"})
+        edges = res.get("data", {}).get("files", {}).get("edges", [])
+        if edges:
+            return edges[0]["node"]["id"]
+    except Exception as e:
+        print(f"Warning: Failed to search file '{clean_name}': {e}", file=sys.stderr)
+    return None
+
+
+def rename_shopify_file(file_id, new_filename):
+    """Rename a Shopify file via fileUpdate mutation."""
+    from shopify_graphql import run_graphql
+    query = """
+    mutation fileUpdate($files: [FileUpdateInput!]!) {
+      fileUpdate(files: $files) {
+        files { id }
+        userErrors { field message }
+      }
+    }
+    """
+    try:
+        res = run_graphql(query, {"files": [{"id": file_id, "filename": new_filename}]})
+        errors = res.get("data", {}).get("fileUpdate", {}).get("userErrors", [])
+        if errors:
+            print(f"[GraphQL] Errors updating filename for {file_id}: {errors}", file=sys.stderr)
+            return False
+        return True
+    except Exception as e:
+        print(f"[GraphQL] Exception updating filename for {file_id}: {e}", file=sys.stderr)
+        return False
 
 
 # ── Detect existing size table in HTML ────────────────────────────────────────
@@ -1706,14 +1765,14 @@ def main():
         print(f"  Found {len(pages)} pages\n")
 
     collections = []
-    if args.resource in ('all', 'collections') and not args.only_images:
+    if args.resource in ('all', 'collections'):
         print("Fetching collections...")
         from shopify_graphql import fetch_collections_graphql
         collections = fetch_collections_graphql(hours)
         print(f"  Found {len(collections)} collections\n")
 
     articles = []
-    if args.resource in ('all', 'blogs') and not args.only_images:
+    if args.resource in ('all', 'blogs'):
         print("Fetching articles...")
         from shopify_graphql import fetch_articles_graphql
         articles = fetch_articles_graphql(hours)
@@ -1829,35 +1888,108 @@ def main():
                 and not has_stale_return_policy(cur_mdesc)
             )
             mt_ok = (cur_mtitle == expected_mt)
-            needs_seo = not mt_ok or not desc_ok
+
+            # Collection image processing
+            coll_image = coll.get('image')
+            image_ok = True
+            expected_img_alt = None
+            if coll_image:
+                expected_img_alt = build_collection_alt(title)
+                cur_img_alt = coll_image.get('altText') or ''
+                if cur_img_alt != expected_img_alt:
+                    image_ok = False
+
+            if args.only_images:
+                needs_seo = not image_ok if coll_image else False
+            else:
+                needs_seo = not mt_ok or not desc_ok or (not image_ok if coll_image else False)
+
             if not needs_seo and mode not in ('force', 'weekly'):
                 print(f"  [{i}/{len(collections)}] OK  {title[:55]}")
                 processed_ids.add(coll['id'])
                 continue
 
             print(f"  [{i}/{len(collections)}] FIX {title[:55]}")
-            new_meta_title = expected_mt
-            new_meta_desc = truncate(
-                f"Shop {title} at {DISPLAY_BRAND}. Premium women's fashion with free US shipping & 7-day returns.",
-                155
-            )
-            try:
-                set_seo_metafields(coll_type, coll['id'], new_meta_title, new_meta_desc, mfs)
-                stats['meta_titles'] += 1
-                stats['meta_descs'] += 1
-                stats['collections'] += 1
+            coll_changes = []
+
+            # Update meta fields if not only_images
+            if not args.only_images:
+                new_meta_title = expected_mt
+                new_meta_desc = truncate(
+                    f"Shop {title} at {DISPLAY_BRAND}. Premium women's fashion with free US shipping & 7-day returns.",
+                    155
+                )
+                try:
+                    set_seo_metafields(coll_type, coll['id'], new_meta_title, new_meta_desc, mfs)
+                    stats['meta_titles'] += 1
+                    stats['meta_descs'] += 1
+                    stats['collections'] += 1
+                    coll_changes.extend([
+                        {"field": "meta_title", "before": cur_mtitle, "after": new_meta_title},
+                        {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]}
+                    ])
+                except Exception as e:
+                    print(f"    ! Error processing collection metafields: {e}")
+
+            # Update collection image alt and filename
+            if coll_image and (not image_ok or mode in ('force', 'weekly')):
+                try:
+                    # 1. Update Alt text via collectionUpdate mutation
+                    q_update_coll = """
+                    mutation collectionUpdate($input: CollectionInput!) {
+                      collectionUpdate(input: $input) {
+                        collection { id }
+                        userErrors { field message }
+                      }
+                    }
+                    """
+                    variables = {
+                        "input": {
+                            "id": f"gid://shopify/Collection/{coll['id']}",
+                            "image": {
+                                "altText": expected_img_alt
+                            }
+                        }
+                    }
+                    res = run_graphql(q_update_coll, variables)
+                    errs = res.get("data", {}).get("collectionUpdate", {}).get("userErrors", [])
+                    if errs:
+                        print(f"    ! Error updating collection image alt: {errs}")
+                    else:
+                        stats['alts'] += 1
+                        coll_changes.append({"field": "image_alt", "before": coll_image.get('altText') or '', "after": expected_img_alt})
+                        print(f"  + image_alt: '{coll_image.get('altText') or ''}' -> '{expected_img_alt}'")
+
+                    # 2. Try to rename image filename if possible
+                    src = coll_image.get('url')
+                    if src:
+                        clean_url = src.split('?')[0]
+                        base = clean_url.split('/')[-1]
+                        if '.' in base:
+                            ext = base.rsplit('.', 1)[1].lower()
+                            slug = slugify(expected_img_alt)
+                            img_id = parse_gid(coll_image.get('id'))
+                            media_suffix = str(img_id)[-6:] if img_id else str(int(time.time() * 1000))[-6:]
+                            new_filename = f"{slug[:50].strip('-')}-{media_suffix}.{ext}"
+                            if slug[:30] not in base.lower():
+                                # Search standard files to find GenericFile/MediaImage ID
+                                file_id = find_file_id_by_filename(base)
+                                if file_id:
+                                    if rename_shopify_file(file_id, new_filename):
+                                        print(f"  + Filename updated: '{base}' -> '{new_filename}'")
+                                else:
+                                    print(f"  (Note: collection image '{base}' not found in standard files for renaming)")
+                except Exception as e:
+                    print(f"    ! Error updating collection image: {e}")
+
+            if coll_changes:
                 log.append({
                     'type': 'collection',
                     'title': title,
                     'url': f"{SITE}/collections/{coll['handle']}",
-                    'fixed': [
-                        {"field": "meta_title", "before": cur_mtitle, "after": new_meta_title},
-                        {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]},
-                    ]
+                    'fixed': coll_changes
                 })
-                processed_ids.add(coll['id'])
-            except Exception as e:
-                print(f"    ! Error processing collection: {e}")
+            processed_ids.add(coll['id'])
 
     # ── Process articles ──────────────────────────────────────────────────────
     if articles:
@@ -1890,35 +2022,108 @@ def main():
                 and not has_stale_return_policy(cur_mdesc)
             )
             mt_ok = (cur_mtitle == expected_mt)
-            needs_seo = not mt_ok or not desc_ok
+
+            # Article image processing
+            art_image = article.get('image')
+            image_ok = True
+            expected_img_alt = None
+            if art_image:
+                expected_img_alt = build_article_alt(title)
+                cur_img_alt = art_image.get('altText') or ''
+                if cur_img_alt != expected_img_alt:
+                    image_ok = False
+
+            if args.only_images:
+                needs_seo = not image_ok if art_image else False
+            else:
+                needs_seo = not mt_ok or not desc_ok or (not image_ok if art_image else False)
+
             if not needs_seo and mode not in ('force', 'weekly'):
                 print(f"  [{i}/{len(articles)}] OK  {title[:55]}")
                 processed_ids.add(article['id'])
                 continue
 
             print(f"  [{i}/{len(articles)}] FIX {title[:55]}")
-            new_meta_title = expected_mt
-            new_meta_desc = truncate(
-                f"{title} - {DISPLAY_BRAND} Blog. Women's fashion tips & styling guides with free shipping & 7-day returns.",
-                155
-            )
-            try:
-                set_seo_metafields(f"blogs/{blog_id}/articles", art_id, new_meta_title, new_meta_desc, mfs)
-                stats['meta_titles'] += 1
-                stats['meta_descs'] += 1
-                stats['articles'] += 1
+            art_changes = []
+
+            # Update meta fields if not only_images
+            if not args.only_images:
+                new_meta_title = expected_mt
+                new_meta_desc = truncate(
+                    f"{title} - {DISPLAY_BRAND} Blog. Women's fashion tips & styling guides with free shipping & 7-day returns.",
+                    155
+                )
+                try:
+                    set_seo_metafields(f"blogs/{blog_id}/articles", art_id, new_meta_title, new_meta_desc, mfs)
+                    stats['meta_titles'] += 1
+                    stats['meta_descs'] += 1
+                    stats['articles'] += 1
+                    art_changes.extend([
+                        {"field": "meta_title", "before": cur_mtitle, "after": new_meta_title},
+                        {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]}
+                    ])
+                except Exception as e:
+                    print(f"    ! Error processing article metafields: {e}")
+
+            # Update article image alt and filename
+            if art_image and (not image_ok or mode in ('force', 'weekly')):
+                try:
+                    # 1. Update Alt text via articleUpdate mutation
+                    q_update_art = """
+                    mutation articleUpdate($id: ID!, $article: ArticleUpdateInput!) {
+                      articleUpdate(id: $id, article: $article) {
+                        article { id }
+                        userErrors { field message }
+                      }
+                    }
+                    """
+                    variables = {
+                        "id": f"gid://shopify/Article/{art_id}",
+                        "article": {
+                            "image": {
+                                "altText": expected_img_alt
+                            }
+                        }
+                    }
+                    res = run_graphql(q_update_art, variables)
+                    errs = res.get("data", {}).get("articleUpdate", {}).get("userErrors", [])
+                    if errs:
+                        print(f"    ! Error updating article image alt: {errs}")
+                    else:
+                        stats['alts'] += 1
+                        art_changes.append({"field": "image_alt", "before": art_image.get('altText') or '', "after": expected_img_alt})
+                        print(f"  + image_alt: '{art_image.get('altText') or ''}' -> '{expected_img_alt}'")
+
+                    # 2. Try to rename image filename if possible
+                    src = art_image.get('src')
+                    if src:
+                        clean_url = src.split('?')[0]
+                        base = clean_url.split('/')[-1]
+                        if '.' in base:
+                            ext = base.rsplit('.', 1)[1].lower()
+                            slug = slugify(expected_img_alt)
+                            img_id = parse_gid(art_image.get('id'))
+                            media_suffix = str(img_id)[-6:] if img_id else str(int(time.time() * 1000))[-6:]
+                            new_filename = f"{slug[:50].strip('-')}-{media_suffix}.{ext}"
+                            if slug[:30] not in base.lower():
+                                # Search standard files to find GenericFile/MediaImage ID
+                                file_id = find_file_id_by_filename(base)
+                                if file_id:
+                                    if rename_shopify_file(file_id, new_filename):
+                                        print(f"  + Filename updated: '{base}' -> '{new_filename}'")
+                                else:
+                                    print(f"  (Note: article image '{base}' not found in standard files for renaming)")
+                except Exception as e:
+                    print(f"    ! Error updating article image: {e}")
+
+            if art_changes:
                 log.append({
                     'type': 'article',
                     'title': title,
                     'url': f"{SITE}/blogs/{blog_handle}/{article['handle']}",
-                    'fixed': [
-                        {"field": "meta_title", "before": cur_mtitle, "after": new_meta_title},
-                        {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]},
-                    ]
+                    'fixed': art_changes
                 })
-                processed_ids.add(article['id'])
-            except Exception as e:
-                print(f"    ! Error processing article: {e}")
+            processed_ids.add(article['id'])
 
     # ── Report ────────────────────────────────────────────────────────────────
     print("\n" + "-"*60)
