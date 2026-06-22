@@ -45,7 +45,7 @@ MEDIUM_HEADERS = {
     "Accept": "application/json"
 }
 
-STORE_URL = get_secret("STORE_BASE_URL") or "https://us.meeeshop.com"
+STORE_URL = get_secret("STORE_BASE_URL") or (f"https://{SHOP}" if SHOP else "")
 
 if not SHOP_TOKEN or not MEDIUM_TOKEN:
     sys.exit("ERROR: Missing SHOPIFY_ACCESS_TOKEN or MEDIUM_INTEGRATION_TOKEN.")
