@@ -92,7 +92,7 @@ Checks for:
 Go to GitHub repo → Settings → Secrets and variables → Actions
 
 Ensure these are set:
-- `SHOPIFY_STORE` = `us-meeeshop.myshopify.com`
+- `SHOPIFY_STORE` = `your-store.myshopify.com`
 - `SHOPIFY_ACCESS_TOKEN` = Your Shopify API token
 - `SLACK_WEBHOOK` = (optional) Slack notification webhook
 

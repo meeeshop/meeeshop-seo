@@ -26,33 +26,19 @@ _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 _OPENROUTER_FREE_MODELS = [
-    "poolside/laguna-m1:free",
-    "inclusionai/ring-2.6-1t:free",
-    "openai/gpt-oss-120b:free",
-    "qwen/qwen3-coder-480b-a35b:free",
-    "nvidia/nemotron-3-nano-30b-a3b:free",
-    "openai/gpt-oss-20b:free",
-    "poolside/laguna-xs2:free",
-    "baidu/qianfan-cobuddy:free",
-    "minimax/minimax-m2.5:free",
-    "z-ai/glm-4.5-air:free",
-    "liquidai/lfm2.5-1.2b-thinking:free",
-    "nous/hermes-3-405b-instruct:free",
-    "nvidia/nemotron-3-nano-omni:free",
-    "google/gemma-4-31b:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "qwen/qwen3-next-80b-a3b-instruct:free",
     "openrouter/free",
 ]
 
 _OPENROUTER_MODEL_CATEGORIES = {
     "pricing": [
-        "nous/hermes-3-405b-instruct:free",
-        "openai/gpt-oss-120b:free",
-        "meta-llama/llama-3.3-70b-instruct:free",
+        "openrouter/free",
     ],
     "general": _OPENROUTER_FREE_MODELS,
 }
+
+# Persistent session and last successful provider tracking
+_session = requests.Session()
+_last_success_provider = None
 
 
 def _get_openrouter_models(category: Optional[str] = None) -> List[str]:
@@ -64,7 +50,7 @@ def _get_openrouter_models(category: Optional[str] = None) -> List[str]:
 def _call_gemini(prompt: str, max_tokens: int, temperature: float) -> str:
     if not GEMINI_KEY:
         raise RuntimeError("GEMINI_API_KEY not set")
-    r = requests.post(
+    r = _session.post(
         _GEMINI_URL,
         params={"key": GEMINI_KEY},
         json={
@@ -82,7 +68,7 @@ def _call_gemini(prompt: str, max_tokens: int, temperature: float) -> str:
 def _call_groq(prompt: str, max_tokens: int, temperature: float) -> str:
     if not GROQ_KEY:
         raise RuntimeError("GROQ_API_KEY not set")
-    r = requests.post(
+    r = _session.post(
         _GROQ_URL,
         headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
         json={
@@ -108,7 +94,8 @@ def _call_openrouter(prompt: str, max_tokens: int, temperature: float, category:
 
     for model in models:
         try:
-            r = requests.post(
+            print(f"    [OpenRouter] Trying model: {model}...", flush=True)
+            r = _session.post(
                 _OPENROUTER_URL,
                 headers={
                     "Authorization": f"Bearer {OPENROUTER_KEY}",
@@ -126,6 +113,7 @@ def _call_openrouter(prompt: str, max_tokens: int, temperature: float, category:
             )
 
             if r.status_code == 429:
+                print(f"      [OpenRouter] {model}: rate-limited (HTTP 429)", flush=True)
                 attempt_logs.append(f"{model}: rate-limited (HTTP 429)")
                 continue
 
@@ -137,15 +125,19 @@ def _call_openrouter(prompt: str, max_tokens: int, temperature: float, category:
                     err_msg = r.text
 
                 if "context_length_exceeded" in err_msg.lower() or "token" in err_msg.lower():
+                    print(f"      [OpenRouter] {model}: token limit - {err_msg[:120]}", flush=True)
                     attempt_logs.append(f"{model}: token limit - {err_msg}")
                     continue
 
+                print(f"      [OpenRouter] {model}: error {r.status_code} - {err_msg[:120]}", flush=True)
                 attempt_logs.append(f"{model}: error {r.status_code} - {err_msg}")
                 continue
 
+            print(f"      [OpenRouter] {model}: success", flush=True)
             attempt_logs.append(f"{model}: OK")
             return r.json()["choices"][0]["message"]["content"].strip()
         except Exception as e:
+            print(f"      [OpenRouter] {model}: exception - {e}", flush=True)
             attempt_logs.append(f"{model}: exception - {e}")
             continue
 
@@ -162,6 +154,7 @@ _PROVIDERS = [
 
 def generate(prompt: str, max_tokens: int = 400, temperature: float = 0.8, category: str = None) -> str | None:
     """Try Gemini → Groq → OpenRouter. Returns text on first success, None if all fail."""
+    global _last_success_provider
     if category == "pricing":
         try:
             text = _call_openrouter(prompt, max_tokens, temperature, category="pricing")
@@ -170,8 +163,25 @@ def generate(prompt: str, max_tokens: int = 400, temperature: float = 0.8, categ
                 return text
         except Exception as e:
             print(f"  [AI:OpenRouter-Pricing] {e} - falling back...")
-            time.sleep(0.5)
 
+    # If we already have a successful provider, try ONLY that provider to avoid rate-limit loops
+    if _last_success_provider:
+        provider_fn = next((fn for name, fn in _PROVIDERS if name == _last_success_provider), None)
+        if provider_fn:
+            try:
+                if category == "pricing":
+                    text = _call_openrouter(prompt, max_tokens, temperature, category="pricing")
+                else:
+                    text = provider_fn(prompt, max_tokens, temperature)
+                if text:
+                    print(f"  [AI:{_last_success_provider} (sticky)] OK")
+                    return text
+            except Exception as e:
+                print(f"  [AI:{_last_success_provider} (sticky)] {e} - failed. Resetting sticky provider and trying others...", flush=True)
+                _last_success_provider = None
+
+
+    # Try providers in default order on first call/success search
     for name, fn in _PROVIDERS:
         try:
             if category == "pricing":
@@ -180,11 +190,12 @@ def generate(prompt: str, max_tokens: int = 400, temperature: float = 0.8, categ
                 text = fn(prompt, max_tokens, temperature)
             if text:
                 print(f"  [AI:{name}] OK")
+                _last_success_provider = name
                 return text
         except Exception as e:
             print(f"  [AI:{name}] {e} - trying next...")
-            time.sleep(0.5)
-    print("  [AI] all providers failed - using fallback")
+
+    print("  [AI] all providers failed - returning None")
     return None
 
 

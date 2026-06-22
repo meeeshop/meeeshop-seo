@@ -85,7 +85,7 @@ def make_request_with_retry(method: str, url: str, max_retries: int = MAX_RETRIE
 
             # Handle rate limiting (429)
             if resp.status_code == 429:
-                retry_after = int(resp.headers.get('Retry-After', backoff))
+                retry_after = float(resp.headers.get('Retry-After', backoff))
                 logger.warning(f"Rate limited (429). Waiting {retry_after}s before retry {attempt + 1}/{max_retries}")
                 validation_health["total_errors"] += 1
                 time.sleep(retry_after)
@@ -117,9 +117,28 @@ def make_request_with_retry(method: str, url: str, max_retries: int = MAX_RETRIE
 # ══════════════════════════════════════════════════════════════════════════════
 
 def product_schema(product: Dict) -> Dict:
-    """Generate complete Product schema with all required fields"""
+    """Generate complete Product schema with all Merchant Listings required fields.
+
+    Required for GSC Merchant Listings (distinct from Product Snippets):
+      - shippingDetails  (OfferShippingDetails)
+      - hasMerchantReturnPolicy (MerchantReturnPolicy)
+      - priceValidUntil
+      - gtin / mpn  (per-variant identifiers)
+    """
     vendor = product.get('vendor', 'Unknown')
     description = product.get('body_html', '').replace('<p>', '').replace('</p>', '').strip()[:160]
+
+    # Extract variant-level identifiers from the first variant
+    first_variant = product.get('variants', [{}])[0]
+    barcode = first_variant.get('barcode', '') or ''
+    sku     = first_variant.get('sku', '') or ''
+    price   = str(first_variant.get('price', '0'))
+
+    # Validate GTIN — must be 8, 12, 13, or 14 numeric digits
+    gtin = barcode if (barcode.isdigit() and len(barcode) in (8, 12, 13, 14)) else ''
+
+    # priceValidUntil: set to Dec 31 of next calendar year
+    price_valid_until = f"{datetime.now().year + 1}-12-31"
 
     schema = {
         "@context": "https://schema.org/",
@@ -139,16 +158,59 @@ def product_schema(product: Dict) -> Dict:
             "@type": "Offer",
             "url": f"{SITE}/products/{product.get('handle', '')}",
             "priceCurrency": "USD",
-            "price": str(product.get('variants', [{}])[0].get('price', '0')),
+            "price": price,
+            "priceValidUntil": price_valid_until,
             "availability": f"https://schema.org/{'InStock' if product.get('available') else 'OutOfStock'}",
             "seller": {
                 "@type": "Organization",
                 "name": BRAND
+            },
+            # ── Merchant Listings required fields ──────────────────────────────
+            "shippingDetails": {
+                "@type": "OfferShippingDetails",
+                "shippingDestination": {
+                    "@type": "DefinedRegion",
+                    "addressCountry": "US"
+                },
+                "shippingRate": {
+                    "@type": "MonetaryAmount",
+                    "value": "0.00",
+                    "currency": "USD"
+                },
+                "deliveryTime": {
+                    "@type": "ShippingDeliveryTime",
+                    "handlingTime": {
+                        "@type": "QuantitativeValue",
+                        "minValue": 0,
+                        "maxValue": 1,
+                        "unitCode": "DAY"
+                    },
+                    "transitTime": {
+                        "@type": "QuantitativeValue",
+                        "minValue": 2,
+                        "maxValue": 5,
+                        "unitCode": "DAY"
+                    }
+                }
+            },
+            "hasMerchantReturnPolicy": {
+                "@type": "MerchantReturnPolicy",
+                "applicableCountry": "US",
+                "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+                "merchantReturnDays": 7,
+                "returnMethod": "https://schema.org/ReturnByMail",
+                "returnFees": "https://schema.org/FreeReturn"
             }
         },
         "sku": str(product.get('id', '')),
         "url": f"{SITE}/products/{product.get('handle', '')}"
     }
+
+    # Add variant-level identifiers if available
+    if gtin:
+        schema["offers"]["gtin"] = gtin
+    if sku:
+        schema["offers"]["mpn"] = sku
 
     # Add rating if reviews exist
     if product.get('rating_count', 0) > 0:
@@ -288,9 +350,24 @@ def validate_schema(schema: Dict, resource_type: str) -> Tuple[bool, List[str]]:
     if schema_type == "Product":
         if "offers" in schema:
             offer = schema["offers"]
-            for req in ["priceCurrency", "price", "availability"]:
-                if req not in offer:
-                    errors.append(f"Offer missing: {req}")
+            offers_list = offer if isinstance(offer, list) else [offer]
+            for idx, off in enumerate(offers_list):
+                if not isinstance(off, dict):
+                    errors.append(f"Offer[{idx}] is not a dict")
+                    continue
+                for req in ["priceCurrency", "price", "availability"]:
+                    if req not in off or not off[req]:
+                        errors.append(f"Offer[{idx}] missing: {req}")
+                if "shippingDetails" not in off:
+                    errors.append(f"Offer[{idx}] missing: shippingDetails")
+                else:
+                    sd = off["shippingDetails"]
+                    if not isinstance(sd, dict):
+                        errors.append(f"Offer[{idx}].shippingDetails is not a dict")
+                    elif "deliveryTime" not in sd:
+                        errors.append(f"Offer[{idx}].shippingDetails missing: deliveryTime")
+                if "hasMerchantReturnPolicy" not in off:
+                    errors.append(f"Offer[{idx}] missing: hasMerchantReturnPolicy")
 
     return len(errors) == 0, errors
 
@@ -309,185 +386,57 @@ def schema_exists(metafields: List[Dict], namespace: str, key: str) -> bool:
 
 def get_products(hours: int = 0) -> List[Dict]:
     """Fetch products created since cutoff (last N hours). 0 = all products."""
-    url = f"{BASE}/products.json"
-    params = {"limit": 250, "status": "active"}
-
-    # Add time filter if hours specified
-    if hours > 0:
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        params["created_at_min"] = cutoff
-        logger.debug(f"Filtering products created since {cutoff}")
-
-    all_products = []
-    page_count = 0
-
-    while True:
-        page_count += 1
-        resp = make_request_with_retry("get", url, params=params)
-
-        if resp is None:
-            logger.error(f"Failed to fetch products page {page_count}")
-            if page_count == 1:
-                validation_health["fatal_error"] = True
-            break
-
-        try:
-            data = resp.json()
-            products = data.get("products", [])
-
-            if not products:
-                break
-
-            all_products.extend(products)
-            logger.debug(f"Fetched {len(products)} products on page {page_count}")
-
-            # Parse Link header for next page
-            link_header = resp.headers.get("Link", "")
-            if not link_header:
-                break
-
-            next_url = None
-            for link in link_header.split(","):
-                if 'rel="next"' in link:
-                    next_url = link.split(";")[0].strip().strip("<>")
-                    break
-
-            if next_url:
-                url = next_url
-                params = {}  # URL already contains all params
-            else:
-                break
-
-        except Exception as e:
-            logger.error(f"Error parsing products page {page_count}: {e}")
-            validation_health["critical_errors"] += 1
-            break
-
-    cutoff_desc = f"(created in last {hours}h)" if hours > 0 else "(all products)"
-    logger.info(f"Fetched {len(all_products)} products across {page_count} pages {cutoff_desc}")
-    return all_products
+    from shopify_graphql import fetch_products_graphql
+    products = fetch_products_graphql(hours)
+    logger.info(f"Fetched {len(products)} products (GraphQL)")
+    return products
 
 
 def get_collections(hours: int = 0) -> List[Dict]:
-    """Fetch collections created since cutoff. 0 = all collections."""
-    url = f"{BASE}/custom_collections.json"
-    params = {"limit": 250}
-
-    # Add time filter if hours specified
-    if hours > 0:
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        params["created_at_min"] = cutoff
-        logger.debug(f"Filtering collections created since {cutoff}")
-
-    resp = make_request_with_retry("get", url, params=params)
-    if resp is None:
-        logger.error("Failed to fetch collections")
-        validation_health["critical_errors"] += 1
-        return []
-    try:
-        collections = resp.json().get("custom_collections", [])
-        cutoff_desc = f"(created in last {hours}h)" if hours > 0 else "(all collections)"
-        logger.info(f"Fetched {len(collections)} collections {cutoff_desc}")
-        return collections
-    except Exception as e:
-        logger.error(f"Error parsing collections: {e}")
-        validation_health["critical_errors"] += 1
-        return []
+    """Fetch both custom and smart collections created since cutoff. 0 = all collections."""
+    from shopify_graphql import fetch_collections_graphql
+    collections = fetch_collections_graphql(hours)
+    logger.info(f"Fetched {len(collections)} collections (GraphQL)")
+    return collections
 
 
 def get_pages(hours: int = 0) -> List[Dict]:
     """Fetch pages created since cutoff. 0 = all pages."""
-    url = f"{BASE}/pages.json"
-    params = {"limit": 250}
+    from shopify_graphql import fetch_pages_graphql
+    pages = fetch_pages_graphql(hours)
+    logger.info(f"Fetched {len(pages)} pages (GraphQL)")
+    return pages
 
-    # Add time filter if hours specified
-    if hours > 0:
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        params["created_at_min"] = cutoff
-        logger.debug(f"Filtering pages created since {cutoff}")
 
-    resp = make_request_with_retry("get", url, params=params)
-    if resp is None:
-        logger.error("Failed to fetch pages")
-        validation_health["critical_errors"] += 1
-        return []
-    try:
-        pages = resp.json().get("pages", [])
-        cutoff_desc = f"(created in last {hours}h)" if hours > 0 else "(all pages)"
-        logger.info(f"Fetched {len(pages)} pages {cutoff_desc}")
-        return pages
-    except Exception as e:
-        logger.error(f"Error parsing pages: {e}")
-        validation_health["critical_errors"] += 1
-        return []
-
+_cached_articles = {}
 
 def get_blog_articles(blog_id: str, hours: int = 0) -> List[Dict]:
     """Fetch articles from a blog created since cutoff. 0 = all articles."""
-    url = f"{BASE}/blogs/{blog_id}/articles.json"
-    params = {"limit": 250}
-
-    # Add time filter if hours specified
-    if hours > 0:
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        params["created_at_min"] = cutoff
-        logger.debug(f"Filtering articles created since {cutoff}")
-
-    resp = make_request_with_retry("get", url, params=params)
-    if resp is None:
-        logger.error(f"Failed to fetch articles from blog {blog_id}")
-        validation_health["critical_errors"] += 1
-        return []
-    try:
-        articles = resp.json().get("articles", [])
-        cutoff_desc = f"(created in last {hours}h)" if hours > 0 else "(all articles)"
-        logger.info(f"Fetched {len(articles)} articles {cutoff_desc}")
-        return articles
-    except Exception as e:
-        logger.error(f"Error parsing articles from blog {blog_id}: {e}")
-        validation_health["critical_errors"] += 1
-        return []
+    from shopify_graphql import fetch_articles_graphql
+    cache_key = (hours,)
+    if cache_key not in _cached_articles:
+        _cached_articles[cache_key] = fetch_articles_graphql(hours)
+    filtered = [a for a in _cached_articles[cache_key] if a.get("blog_id") == int(blog_id)]
+    logger.info(f"Fetched {len(filtered)} articles for blog {blog_id} (GraphQL)")
+    return filtered
 
 
 def set_metafield(resource_type: str, resource_id: str, schema: Dict) -> bool:
-    """Add/update schema as metafield with retry logic"""
-    url = f"{BASE}/{resource_type.lower()}s/{resource_id}/metafields.json"
-
-    metafield = {
-        "metafield": {
-            "namespace": "json_ld_schema",
-            "key": f"{schema.get('@type', 'unknown').lower()}",
-            "type": "json",
-            "value": json.dumps(schema)
-        }
-    }
-
-    resp = make_request_with_retry("post", url, json=metafield)
-
-    if resp is None:
-        logger.error(f"Failed to set metafield for {resource_type} {resource_id} after retries")
+    """Add/update schema as metafield using GraphQL"""
+    from shopify_graphql import set_metafield_graphql
+    key = f"{schema.get('@type', 'unknown').lower()}"
+    success = set_metafield_graphql(resource_type, int(resource_id), key, schema)
+    if not success:
+        logger.error(f"Failed to set metafield for {resource_type} {resource_id}")
         validation_health["critical_errors"] += 1
-        return False
-
-    if resp.status_code >= 400:
-        logger.error(f"Failed to set metafield for {resource_type} {resource_id}: {resp.status_code} {resp.reason}")
-        validation_health["critical_errors"] += 1
-        return False
-
-    try:
-        resp.raise_for_status()
-        return True
-    except Exception as e:
-        logger.error(f"Failed to set metafield for {resource_type} {resource_id}: {e}")
-        validation_health["critical_errors"] += 1
-        return False
+    return success
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN VALIDATION & ADDITION
 # ══════════════════════════════════════════════════════════════════════════════
 
-def validate_and_add_schemas(mode: str = "daily"):
+def validate_and_add_schemas(mode: str = "daily", batch_size: int = 0, batch_index: int = 0, resource: str = "all"):
     """Main validation and schema addition loop"""
 
     report = {
@@ -511,192 +460,203 @@ def validate_and_add_schemas(mode: str = "daily"):
     logger.info(f"Starting schema validation in {mode} mode (hours={hours if hours > 0 else 'all'})")
 
     # ─── Products ───────────────────────────────────────────────────────────
-    logger.info("=" * 60)
-    logger.info("VALIDATING PRODUCTS")
-    logger.info("=" * 60)
+    if resource in ("all", "products"):
+        logger.info("=" * 60)
+        logger.info("VALIDATING PRODUCTS")
+        logger.info("=" * 60)
 
-    try:
-        products = get_products(hours)
-        for product in products:
-            report["products"]["checked"] += 1
-            product_id = product.get("id")
-            title = product.get("title", "Unknown")
+        try:
+            products = get_products(hours)
+            if mode in ('force', 'weekly') and batch_size > 0:
+                start = batch_index * batch_size
+                end = start + batch_size
+                total_fetched = len(products)
+                products = products[start:end]
+                logger.info(f"Batch {batch_index}: validating products {start} to {min(end, total_fetched)} of {total_fetched}")
 
-            # Check if schema exists
-            metafields = product.get("metafields", [])
-            has_schema = schema_exists(metafields, "json_ld_schema", "product")
+            for product in products:
+                report["products"]["checked"] += 1
+                product_id = product.get("id")
+                title = product.get("title", "Unknown")
 
-            if not has_schema:
-                report["products"]["missing_schemas"] += 1
-                schema = product_schema(product)
-                is_valid, errors = validate_schema(schema, "Product")
-
-                if is_valid:
-                    if set_metafield("product", product_id, schema):
-                        report["products"]["added"] += 1
-                        logger.info(f"[OK] Added Product schema: {title}")
-                        report["details"].append({
-                            "type": "product",
-                            "id": product_id,
-                            "title": title,
-                            "action": "added"
-                        })
-                    else:
-                        report["products"]["errors"] += 1
-                        logger.error(f"✗ Failed to add schema: {title}")
-                else:
-                    report["products"]["errors"] += 1
-                    logger.warning(f"Schema validation failed for {title}: {errors}")
-            else:
-                logger.debug(f"Schema already exists: {title}")
-
-    except Exception as e:
-        logger.error(f"Products validation error: {e}")
-        report["products"]["errors"] += 1
-
-    # ─── Collections ────────────────────────────────────────────────────────
-    logger.info("=" * 60)
-    logger.info("VALIDATING COLLECTIONS")
-    logger.info("=" * 60)
-
-    try:
-        collections = get_collections(hours)
-        for collection in collections:
-            report["collections"]["checked"] += 1
-            coll_id = collection.get("id")
-            title = collection.get("title", "Unknown")
-
-            metafields = collection.get("metafields", [])
-            has_schema = schema_exists(metafields, "json_ld_schema", "collectionpage")
-
-            if not has_schema:
-                report["collections"]["missing_schemas"] += 1
-                schema = collection_schema(collection)
-                is_valid, errors = validate_schema(schema, "CollectionPage")
-
-                if is_valid:
-                    if set_metafield("collection", coll_id, schema):
-                        report["collections"]["added"] += 1
-                        logger.info(f"[OK] Added CollectionPage schema: {title}")
-                        report["details"].append({
-                            "type": "collection",
-                            "id": coll_id,
-                            "title": title,
-                            "action": "added"
-                        })
-                    else:
-                        report["collections"]["errors"] += 1
-                else:
-                    report["collections"]["errors"] += 1
-                    logger.warning(f"Schema validation failed for {title}: {errors}")
-            else:
-                logger.debug(f"Schema already exists: {title}")
-
-    except Exception as e:
-        logger.error(f"Collections validation error: {e}")
-        report["collections"]["errors"] += 1
-
-    # ─── Pages ──────────────────────────────────────────────────────────────
-    logger.info("=" * 60)
-    logger.info("VALIDATING PAGES")
-    logger.info("=" * 60)
-
-    try:
-        pages = get_pages(hours)
-        for page in pages:
-            report["pages"]["checked"] += 1
-            page_id = page.get("id")
-            title = page.get("title", "Unknown")
-
-            metafields = page.get("metafields", [])
-            has_schema = schema_exists(metafields, "json_ld_schema", "webpage")
-
-            if not has_schema:
-                report["pages"]["missing_schemas"] += 1
-                schema = page_schema(page)
-                is_valid, errors = validate_schema(schema, "WebPage")
-
-                if is_valid:
-                    if set_metafield("page", page_id, schema):
-                        report["pages"]["added"] += 1
-                        logger.info(f"[OK] Added WebPage schema: {title}")
-                        report["details"].append({
-                            "type": "page",
-                            "id": page_id,
-                            "title": title,
-                            "action": "added"
-                        })
-                    else:
-                        report["pages"]["errors"] += 1
-                else:
-                    report["pages"]["errors"] += 1
-                    logger.warning(f"Schema validation failed for {title}: {errors}")
-            else:
-                logger.debug(f"Schema already exists: {title}")
-
-    except Exception as e:
-        logger.error(f"Pages validation error: {e}")
-        report["pages"]["errors"] += 1
-
-    # ─── Blog Articles ──────────────────────────────────────────────────────
-    logger.info("=" * 60)
-    logger.info("VALIDATING BLOG ARTICLES")
-    logger.info("=" * 60)
-
-    try:
-        # Get all blogs first
-        blogs_url = f"{BASE}/blogs.json"
-        blogs_resp = make_request_with_retry("get", blogs_url, params={"limit": 50})
-        if blogs_resp is None:
-            logger.error("Failed to fetch blogs")
-            blogs = []
-        else:
-            try:
-                blogs = blogs_resp.json().get("blogs", [])
-            except Exception as e:
-                logger.error(f"Error parsing blogs: {e}")
-                validation_health["critical_errors"] += 1
-                blogs = []
-
-        for blog in blogs:
-            blog_id = blog.get("id")
-            blog_handle = blog.get("handle")
-            articles = get_blog_articles(str(blog_id), hours)
-
-            for article in articles:
-                report["blog_articles"]["checked"] += 1
-                article_id = article.get("id")
-                title = article.get("title", "Unknown")
-
-                metafields = article.get("metafields", [])
-                has_schema = schema_exists(metafields, "json_ld_schema", "blogposting")
+                # Check if schema exists
+                metafields = product.get("metafields", [])
+                has_schema = schema_exists(metafields, "json_ld_schema", "product")
 
                 if not has_schema:
-                    report["blog_articles"]["missing_schemas"] += 1
-                    schema = blog_schema(article, blog_handle)
-                    is_valid, errors = validate_schema(schema, "BlogPosting")
+                    report["products"]["missing_schemas"] += 1
+                    schema = product_schema(product)
+                    is_valid, errors = validate_schema(schema, "Product")
 
                     if is_valid:
-                        if set_metafield("article", article_id, schema):
-                            report["blog_articles"]["added"] += 1
-                            logger.info(f"[OK] Added BlogPosting schema: {title}")
+                        if set_metafield("product", product_id, schema):
+                            report["products"]["added"] += 1
+                            logger.info(f"[OK] Added Product schema: {title}")
                             report["details"].append({
-                                "type": "blog_article",
-                                "id": article_id,
+                                "type": "product",
+                                "id": product_id,
                                 "title": title,
                                 "action": "added"
                             })
                         else:
-                            report["blog_articles"]["errors"] += 1
+                            report["products"]["errors"] += 1
+                            logger.error(f"✗ Failed to add schema: {title}")
                     else:
-                        report["blog_articles"]["errors"] += 1
+                        report["products"]["errors"] += 1
                         logger.warning(f"Schema validation failed for {title}: {errors}")
                 else:
                     logger.debug(f"Schema already exists: {title}")
 
-    except Exception as e:
-        logger.error(f"Blog articles validation error: {e}")
-        report["blog_articles"]["errors"] += 1
+        except Exception as e:
+            logger.error(f"Products validation error: {e}")
+            report["products"]["errors"] += 1
+
+    # ─── Collections ────────────────────────────────────────────────────────
+    if resource in ("all", "collections"):
+        logger.info("=" * 60)
+        logger.info("VALIDATING COLLECTIONS")
+        logger.info("=" * 60)
+
+        try:
+            collections = get_collections(hours)
+            for collection in collections:
+                report["collections"]["checked"] += 1
+                coll_id = collection.get("id")
+                title = collection.get("title", "Unknown")
+
+                metafields = collection.get("metafields", [])
+                has_schema = schema_exists(metafields, "json_ld_schema", "collectionpage")
+
+                if not has_schema:
+                    report["collections"]["missing_schemas"] += 1
+                    schema = collection_schema(collection)
+                    is_valid, errors = validate_schema(schema, "CollectionPage")
+
+                    if is_valid:
+                        if set_metafield("collection", coll_id, schema):
+                            report["collections"]["added"] += 1
+                            logger.info(f"[OK] Added CollectionPage schema: {title}")
+                            report["details"].append({
+                                "type": "collection",
+                                "id": coll_id,
+                                "title": title,
+                                "action": "added"
+                            })
+                        else:
+                            report["collections"]["errors"] += 1
+                    else:
+                        report["collections"]["errors"] += 1
+                        logger.warning(f"Schema validation failed for {title}: {errors}")
+                else:
+                    logger.debug(f"Schema already exists: {title}")
+
+        except Exception as e:
+            logger.error(f"Collections validation error: {e}")
+            report["collections"]["errors"] += 1
+
+    # ─── Pages ──────────────────────────────────────────────────────────────
+    if resource in ("all", "pages"):
+        logger.info("=" * 60)
+        logger.info("VALIDATING PAGES")
+        logger.info("=" * 60)
+
+        try:
+            pages = get_pages(hours)
+            for page in pages:
+                report["pages"]["checked"] += 1
+                page_id = page.get("id")
+                title = page.get("title", "Unknown")
+
+                metafields = page.get("metafields", [])
+                has_schema = schema_exists(metafields, "json_ld_schema", "webpage")
+
+                if not has_schema:
+                    report["pages"]["missing_schemas"] += 1
+                    schema = page_schema(page)
+                    is_valid, errors = validate_schema(schema, "WebPage")
+
+                    if is_valid:
+                        if set_metafield("page", page_id, schema):
+                            report["pages"]["added"] += 1
+                            logger.info(f"[OK] Added WebPage schema: {title}")
+                            report["details"].append({
+                                "type": "page",
+                                "id": page_id,
+                                "title": title,
+                                "action": "added"
+                            })
+                        else:
+                            report["pages"]["errors"] += 1
+                    else:
+                        report["pages"]["errors"] += 1
+                        logger.warning(f"Schema validation failed for {title}: {errors}")
+                else:
+                    logger.debug(f"Schema already exists: {title}")
+
+        except Exception as e:
+            logger.error(f"Pages validation error: {e}")
+            report["pages"]["errors"] += 1
+
+    # ─── Blog Articles ──────────────────────────────────────────────────────
+    if resource in ("all", "blogs"):
+        logger.info("=" * 60)
+        logger.info("VALIDATING BLOG ARTICLES")
+        logger.info("=" * 60)
+
+        try:
+            # Get all blogs first
+            blogs_url = f"{BASE}/blogs.json"
+            blogs_resp = make_request_with_retry("get", blogs_url, params={"limit": 50})
+            if blogs_resp is None:
+                logger.error("Failed to fetch blogs")
+                blogs = []
+            else:
+                try:
+                    blogs = blogs_resp.json().get("blogs", [])
+                except Exception as e:
+                    logger.error(f"Error parsing blogs: {e}")
+                    validation_health["critical_errors"] += 1
+                    blogs = []
+
+            for blog in blogs:
+                blog_id = blog.get("id")
+                blog_handle = blog.get("handle")
+                articles = get_blog_articles(str(blog_id), hours)
+
+                for article in articles:
+                    report["blog_articles"]["checked"] += 1
+                    article_id = article.get("id")
+                    title = article.get("title", "Unknown")
+
+                    metafields = article.get("metafields", [])
+                    has_schema = schema_exists(metafields, "json_ld_schema", "blogposting")
+
+                    if not has_schema:
+                        report["blog_articles"]["missing_schemas"] += 1
+                        schema = blog_schema(article, blog_handle)
+                        is_valid, errors = validate_schema(schema, "BlogPosting")
+
+                        if is_valid:
+                            if set_metafield("article", article_id, schema):
+                                report["blog_articles"]["added"] += 1
+                                logger.info(f"[OK] Added BlogPosting schema: {title}")
+                                report["details"].append({
+                                    "type": "blog_article",
+                                    "id": article_id,
+                                    "title": title,
+                                    "action": "added"
+                                })
+                            else:
+                                report["blog_articles"]["errors"] += 1
+                        else:
+                            report["blog_articles"]["errors"] += 1
+                            logger.warning(f"Schema validation failed for {title}: {errors}")
+                    else:
+                        logger.debug(f"Schema already exists: {title}")
+
+        except Exception as e:
+            logger.error(f"Blog articles validation error: {e}")
+            report["blog_articles"]["errors"] += 1
 
     # ─── Summary ────────────────────────────────────────────────────────────
     logger.info("=" * 60)
@@ -764,6 +724,9 @@ if __name__ == "__main__":
     parser.add_argument("--daily", action="store_true", help="Daily mode (48h)")
     parser.add_argument("--weekly", action="store_true", help="Weekly mode (7d)")
     parser.add_argument("--force", action="store_true", help="Force all resources")
+    parser.add_argument("--batch-size", type=int, default=0, help="Batch size for force mode")
+    parser.add_argument("--batch-index", type=int, default=0, help="Batch index for force mode")
+    parser.add_argument("--resource", type=str, default="all", choices=["all", "products", "collections", "pages", "blogs"], help="Resource type to validate")
 
     args = parser.parse_args()
 
@@ -773,4 +736,4 @@ if __name__ == "__main__":
     elif args.force:
         mode = "force"
 
-    validate_and_add_schemas(mode)
+    validate_and_add_schemas(mode, batch_size=args.batch_size, batch_index=args.batch_index, resource=args.resource)

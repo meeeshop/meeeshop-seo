@@ -1,0 +1,142 @@
+name: IndexNow Submission
+
+on:
+  # 1. Chain trigger — fires after blog_daily.yml completes successfully
+  workflow_run:
+    workflows: ["Blog Daily Generator"]
+    types: [completed]
+
+  # 2. Scheduled — daily at 8:30 AM EST (13:30 UTC)
+  schedule:
+    - cron: '30 13 * * *'
+
+  # 3. Manual dispatch with full control
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Blog lookback window in days'
+        default: '1'
+        required: false
+        type: string
+      include_products:
+        description: 'Submit recently updated product pages'
+        default: 'false'
+        required: false
+        type: choice
+        options: ['false', 'true']
+      include_collections:
+        description: 'Submit recently updated collection pages'
+        default: 'false'
+        required: false
+        type: choice
+        options: ['false', 'true']
+      force:
+        description: 'Force resubmit ALL URLs ignoring history'
+        default: 'false'
+        required: false
+        type: choice
+        options: ['false', 'true']
+      dry_run:
+        description: 'Dry run — log only, no API calls'
+        default: 'false'
+        required: false
+        type: choice
+        options: ['false', 'true']
+
+jobs:
+  indexnow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # Only run if triggered manually/cron, OR if blog workflow succeeded
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      # ── Restore history from previous run artifact ────────────────────────
+      - name: Download IndexNow history
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          name: indexnow-history
+          path: .
+          if_no_artifact_found: warn
+          workflow_conclusion: ""
+          search_artifacts: true
+        continue-on-error: true
+
+      - name: Log run context
+        run: |
+          echo "=========================================="
+          echo "  IndexNow Submission — Run Context"
+          echo "=========================================="
+          echo "  Triggered by : ${{ github.event_name }}"
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "  Parent workflow : ${{ github.event.workflow_run.name }}"
+            echo "  Parent status   : ${{ github.event.workflow_run.conclusion }}"
+          fi
+          echo "  Days lookback   : ${{ github.event.inputs.days || '1' }}"
+          echo "  Products        : ${{ github.event.inputs.include_products || 'false' }}"
+          echo "  Collections     : ${{ github.event.inputs.include_collections || 'false' }}"
+          echo "  Dry run         : ${{ github.event.inputs.dry_run || 'false' }}"
+          echo "  Force           : ${{ github.event.inputs.force || 'false' }}"
+          echo "  Run number      : ${{ github.run_number }}"
+          echo "=========================================="
+
+      - name: Run IndexNow Submission
+        env:
+          ENCRYPTION_KEY_PRIMARY:  ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          DAYS="${{ github.event.inputs.days || '1' }}"
+          PRODUCTS="${{ github.event.inputs.include_products || 'false' }}"
+          COLLECTIONS="${{ github.event.inputs.include_collections || 'false' }}"
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          FORCE="${{ github.event.inputs.force || 'false' }}"
+
+          # On Sunday, index products and collections as well
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$(date +%w)" = "0" ]; then
+            PRODUCTS="true"
+            COLLECTIONS="true"
+            DAYS="7"
+          fi
+
+          # On chain trigger, index articles only
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            PRODUCTS="false"
+            COLLECTIONS="false"
+          fi
+
+          ARGS="--days $DAYS"
+          [ "$PRODUCTS" = "true" ]     && ARGS="$ARGS --products"
+          [ "$COLLECTIONS" = "true" ]   && ARGS="$ARGS --collections"
+          [ "$DRY_RUN" = "true" ]      && ARGS="$ARGS --dry-run"
+          [ "$FORCE" = "true" ]        && ARGS="$ARGS --force"
+
+          echo "Command: python scripts/indexnow.py $ARGS"
+          python scripts/indexnow.py $ARGS
+
+      # ── Persist history for next run ─────────────────────────────────
+      - name: Upload IndexNow history (persist for next run)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: indexnow-history
+          path: indexnow_history.json
+          if-no-files-found: warn
+          retention-days: 90
+          overwrite: true

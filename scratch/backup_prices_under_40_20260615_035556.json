@@ -1,0 +1,2899 @@
+{
+  "timestamp": "2026-06-15T03:56:16.402860+00:00",
+  "total_products": 85,
+  "total_variants": 397,
+  "products": [
+    {
+      "id": "gid://shopify/Product/8782620459179",
+      "title": "Leaves Bow Top",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103335235755",
+          "sku": "5061-XS",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103335268523",
+          "sku": "5061-S",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47125227405483",
+          "sku": "5061-M",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103335334059",
+          "sku": "5061-L",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103335366827",
+          "sku": "5061-XL",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103335399595",
+          "sku": "5061-1X",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103335432363",
+          "sku": "5061-2X",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103335465131",
+          "sku": "5061-3X",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103335497899",
+          "sku": "5061-4X",
+          "price": "39.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782620590251",
+      "title": "Pink Dot Bow Top",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103333826731",
+          "sku": "5273-S",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103333859499",
+          "sku": "5273-M",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103333892267",
+          "sku": "5273-L",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103333925035",
+          "sku": "5273-XL",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103333957803",
+          "sku": "5273-1X",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103333990571",
+          "sku": "5273-2X",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103334023339",
+          "sku": "5273-3X",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103334056107",
+          "sku": "5273-4X",
+          "price": "39.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782620754091",
+      "title": "Pretty in Pink Bow Top",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103336644779",
+          "sku": "5310-XS",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103336677547",
+          "sku": "5310-S",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103336710315",
+          "sku": "5310-M",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103336743083",
+          "sku": "5310-L",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103336775851",
+          "sku": "5310-XL",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103336808619",
+          "sku": "5310-1X",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103336841387",
+          "sku": "5310-2X",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103336874155",
+          "sku": "5310-3X",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103336906923",
+          "sku": "5310-4X",
+          "price": "39.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782621442219",
+      "title": "Isabel Top in Blush",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103341625515",
+          "sku": "5425-XS",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103341658283",
+          "sku": "5425-S",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103341691051",
+          "sku": "5425-M",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103341723819",
+          "sku": "5425-L",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103341756587",
+          "sku": "5425-XL",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103341789355",
+          "sku": "5425-1X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103341822123",
+          "sku": "5425-2X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103341854891",
+          "sku": "5425-3X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103341887659",
+          "sku": "5425-4X",
+          "price": "24.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782621737131",
+      "title": "Isabel Top in Peacock Blue",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103343460523",
+          "sku": "4383-XS",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103343493291",
+          "sku": "4383-S",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103343526059",
+          "sku": "4383-M",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103343558827",
+          "sku": "4383-L",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103343591595",
+          "sku": "4383-XL",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103343624363",
+          "sku": "4383-1X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103343657131",
+          "sku": "4383-2X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103343689899",
+          "sku": "4383-3X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103343722667",
+          "sku": "4383-4X",
+          "price": "24.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782621802667",
+      "title": "Retro Boat Neck Top in Mustard",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103344017579",
+          "sku": "4764-XS",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344050347",
+          "sku": "4764-S",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344083115",
+          "sku": "4764-M",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344115883",
+          "sku": "4764-L",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344148651",
+          "sku": "4764-XL",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344181419",
+          "sku": "4764-1X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344214187",
+          "sku": "4764-2X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344246955",
+          "sku": "4764-3X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344279723",
+          "sku": "4764-4X",
+          "price": "24.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782621868203",
+      "title": "Isabel Top in Plum",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103344312491",
+          "sku": "4944-XS",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344345259",
+          "sku": "4944-S",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344378027",
+          "sku": "4944-M",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344410795",
+          "sku": "4944-L",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344443563",
+          "sku": "4944-XL",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344476331",
+          "sku": "4944-1X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344509099",
+          "sku": "4944-2X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344541867",
+          "sku": "4944-3X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344574635",
+          "sku": "4944-4X",
+          "price": "24.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782621900971",
+      "title": "Retro Boat Neck Top in Red",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103344902315",
+          "sku": "4943-XS",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344935083",
+          "sku": "4943-S",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103344967851",
+          "sku": "4943-M",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103345000619",
+          "sku": "4943-L",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103345033387",
+          "sku": "4943-XL",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103345066155",
+          "sku": "4943-1X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103345098923",
+          "sku": "4943-2X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103345131691",
+          "sku": "4943-3X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103345164459",
+          "sku": "4943-4X",
+          "price": "24.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782622621867",
+      "title": "Xoxo Bow Top",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103348015275",
+          "sku": "5049-XS",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103348048043",
+          "sku": "5049-S",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103348080811",
+          "sku": "5049-M",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103348113579",
+          "sku": "5049-L",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103348146347",
+          "sku": "5049-XL",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103348179115",
+          "sku": "5049-1X",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103348211883",
+          "sku": "5049-2X",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103348244651",
+          "sku": "5049-3X",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103348277419",
+          "sku": "5049-4X",
+          "price": "29.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782622720171",
+      "title": "Isabel Top in Leopard",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103348605099",
+          "sku": "3712-XS",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103348637867",
+          "sku": "3712-S",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103348670635",
+          "sku": "3712-M",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103348703403",
+          "sku": "3712-L",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47175477526699",
+          "sku": "3712-XL",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47175477559467",
+          "sku": "3712-1X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103348801707",
+          "sku": "3712-2X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103348834475",
+          "sku": "3712-3X",
+          "price": "24.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103348867243",
+          "sku": "3712-4X",
+          "price": "24.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782625636523",
+      "title": "Camping Bow Top",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103360336043",
+          "sku": "5562-XS",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103360368811",
+          "sku": "5562-S",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103360401579",
+          "sku": "5562-M",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103360434347",
+          "sku": "5562-L",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103360467115",
+          "sku": "5562-XL",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103360499883",
+          "sku": "5562-1X",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103360532651",
+          "sku": "5562-2X",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103360565419",
+          "sku": "5562-3X",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103360598187",
+          "sku": "5562-4X",
+          "price": "39.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782626029739",
+      "title": "Hedgehog Bow Top",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103364399275",
+          "sku": "5600-S",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103364432043",
+          "sku": "5600-M",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103364464811",
+          "sku": "5600-L",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103364497579",
+          "sku": "5600-XL",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103364530347",
+          "sku": "5600-1X",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103364563115",
+          "sku": "5600-2X",
+          "price": "39.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103364595883",
+          "sku": "5600-3X",
+          "price": "39.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782677606571",
+      "title": "Sheer Floral Lace Top - Black",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103573393579",
+          "sku": "SW25133071-P2-L",
+          "price": "24.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103573426347",
+          "sku": "SW25133071-P2-M",
+          "price": "24.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103573459115",
+          "sku": "SW25133071-P2-S",
+          "price": "24.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103573491883",
+          "sku": "SW25133071-P2-XL",
+          "price": "24.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782678163627",
+      "title": "Short Sleeve Checkered Mesh Crew T Shirt - Purple",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103575654571",
+          "sku": "SW25230621-P820-L",
+          "price": "24.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103575687339",
+          "sku": "SW25230621-P820-M",
+          "price": "24.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103575720107",
+          "sku": "SW25230621-P820-S",
+          "price": "24.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103575752875",
+          "sku": "SW25230621-P820-XL",
+          "price": "24.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782678229163",
+      "title": "Striped Knitted Sweater Tee - Pink",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103575785643",
+          "sku": "SW277222-P106-L",
+          "price": "36.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103575818411",
+          "sku": "SW277222-P106-M",
+          "price": "36.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103575851179",
+          "sku": "SW277222-P106-S",
+          "price": "36.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103575883947",
+          "sku": "SW277222-P106-XL",
+          "price": "36.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103575916715",
+          "sku": "SW277222-P106-XS",
+          "price": "36.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103575949483",
+          "sku": "SW277222-P106-XXL",
+          "price": "36.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782678524075",
+      "title": "Short Sleeve Checkered Mesh Crew T Shirt - Khaki",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103577489579",
+          "sku": "SW25230621-P1620-L",
+          "price": "24.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103577522347",
+          "sku": "SW25230621-P1620-M",
+          "price": "24.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103577555115",
+          "sku": "SW25230621-P1620-S",
+          "price": "24.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103577587883",
+          "sku": "SW25230621-P1620-XL",
+          "price": "24.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782678687915",
+      "title": "Serena Stripe Ribbed Round Neck Trim Loose Tank Top - Red",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103578308779",
+          "sku": "SW25613603-P319-L",
+          "price": "28.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103578341547",
+          "sku": "SW25613603-P319-M",
+          "price": "28.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103578374315",
+          "sku": "SW25613603-P319-S",
+          "price": "28.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103578407083",
+          "sku": "SW25613603-P319-XL",
+          "price": "28.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782678786219",
+      "title": "Serenity Bow Print Long Sleeve Mesh Top",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103578570923",
+          "sku": "SW25130855-P220-L",
+          "price": "34.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103578603691",
+          "sku": "SW25130855-P220-M",
+          "price": "34.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103578636459",
+          "sku": "SW25130855-P220-S",
+          "price": "34.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103578669227",
+          "sku": "SW25130855-P220-XL",
+          "price": "34.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782678818987",
+      "title": "Serena Stripe Ribbed Round Neck Trim Loose Tank Top - Brown",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103578701995",
+          "sku": "SW25613603-P1719-L",
+          "price": "28.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103578734763",
+          "sku": "SW25613603-P1719-M",
+          "price": "28.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103578767531",
+          "sku": "SW25613603-P1719-S",
+          "price": "28.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103578800299",
+          "sku": "SW25613603-P1719-XL",
+          "price": "28.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782678884523",
+      "title": "Preorder Summer Slim Fit Floral Mesh Long Sleeve Mock Neck Top - Rose",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47152417702059",
+          "sku": "SW25135326-P620-L",
+          "price": "24.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103579127979",
+          "sku": "SW25135326-P620-M",
+          "price": "24.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103579160747",
+          "sku": "SW25135326-P620-S",
+          "price": "24.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103579193515",
+          "sku": "SW25135326-P620-XL",
+          "price": "24.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8782679441579",
+      "title": "Vera Ditsy Floral Mesh Thumbhole Sleeve Slim Fit Top",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47103581782187",
+          "sku": "SW25229995-P220-L",
+          "price": "24.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103581814955",
+          "sku": "SW25229995-P220-M",
+          "price": "24.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103581847723",
+          "sku": "SW25229995-P220-S",
+          "price": "24.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47103581880491",
+          "sku": "SW25229995-P220-XL",
+          "price": "24.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744246443",
+      "title": "Straw Foldover Convertible Clutch",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121536680107",
+          "sku": "CSFC-MOCHA",
+          "price": "23.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121536712875",
+          "sku": "CSFC-KHAKI",
+          "price": "23.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121536745643",
+          "sku": "CSFC-STRAW",
+          "price": "23.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744311979",
+      "title": "Macrame Tassel Clutch",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121536778411",
+          "sku": "CMT-BLACK",
+          "price": "23.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121536811179",
+          "sku": "CMT-KHAKI",
+          "price": "23.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744344747",
+      "title": "Oversized Straw Tote",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121536843947",
+          "sku": "BAOST-KHAKI",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121536876715",
+          "sku": "BAOST-STRAW",
+          "price": "32.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744377515",
+      "title": "Metallic Puffer Tote",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121537237163",
+          "sku": "BAMPT-BLACK",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537269931",
+          "sku": "BAMPT-ICE_BLUE",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537302699",
+          "sku": "BAMPT-LAVENDER",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537335467",
+          "sku": "BAMPT-MAUVE",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537368235",
+          "sku": "BAMPT-SILVER",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537401003",
+          "sku": "BAMPT-ICE_SAGE",
+          "price": "32.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744443051",
+      "title": "Elle Convertible Plush Top Handle Crossbody",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121536909483",
+          "sku": "BACB11-BLACK",
+          "price": "28.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121536942251",
+          "sku": "BACB11-CAMEL",
+          "price": "28.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121536975019",
+          "sku": "BACB11-GRAY",
+          "price": "28.79",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744475819",
+      "title": "Romy Foldover Puffer Crossbody",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121537630379",
+          "sku": "BACB01-ALMOND",
+          "price": "39.59",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537663147",
+          "sku": "BACB01-BLACK",
+          "price": "39.59",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744508587",
+      "title": "Straw Circle Tote",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121537073323",
+          "sku": "BASCT-NAVY",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537106091",
+          "sku": "BASCT-STRAW_BLUE",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537138859",
+          "sku": "BASCT-KHAKI_BLUE",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47175364640939",
+          "sku": "BASCT-STRAW",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47164991307947",
+          "sku": "BASCT-KHAKI",
+          "price": "32.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744541355",
+      "title": "Liv Convertible Compact Crossbody",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121537433771",
+          "sku": "BACB09-BLACK",
+          "price": "31.19",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537466539",
+          "sku": "BACB09-COGNAC",
+          "price": "31.19",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744606891",
+      "title": "London Oversized Canvas Crescent Sling",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121537499307",
+          "sku": "BASL11-BLACK",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537532075",
+          "sku": "BASL11-CAMEL",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537564843",
+          "sku": "BASL11-CREAM",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537597611",
+          "sku": "BASL11-OLIVE",
+          "price": "29.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744639659",
+      "title": "Quilted Tote",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121537695915",
+          "sku": "BAQT-BEIGE",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537728683",
+          "sku": "BAQT-BLACK",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537761451",
+          "sku": "BAQT-GRAY",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537794219",
+          "sku": "BAQT-OLIVE",
+          "price": "29.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744672427",
+      "title": "Elsie Quilted Crossbody",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121538285739",
+          "sku": "BACB04-BLACK",
+          "price": "28.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538318507",
+          "sku": "BACB04-GRAY",
+          "price": "28.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538351275",
+          "sku": "BACB04-TAUPE",
+          "price": "28.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538384043",
+          "sku": "BACB04-WHITE",
+          "price": "28.79",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744705195",
+      "title": "Indy Convertible Quilted Puffer Crossbody",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121537826987",
+          "sku": "BACB05-BLACK",
+          "price": "26.39",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537859755",
+          "sku": "BACB05-GRAY",
+          "price": "26.39",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537892523",
+          "sku": "BACB05-IVORY",
+          "price": "26.39",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537925291",
+          "sku": "BACB05-TAUPE",
+          "price": "26.39",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537958059",
+          "sku": "BACB05-BLUSH",
+          "price": "26.39",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121537990827",
+          "sku": "BACB05-DENIM_BLUE",
+          "price": "26.39",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538023595",
+          "sku": "BACB05-LILAC",
+          "price": "26.39",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538056363",
+          "sku": "BACB05-MAUVE",
+          "price": "26.39",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744737963",
+      "title": "Taylor Quilted Puffer Tote",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121538089131",
+          "sku": "BAT06-ALMOND",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538121899",
+          "sku": "BAT06-BLACK",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538154667",
+          "sku": "BAT06-CITRINE",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538187435",
+          "sku": "BAT06-SLATE_BLUE",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538220203",
+          "sku": "BAT06-WHITE",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538252971",
+          "sku": "BAT06-EMERALD",
+          "price": "32.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744770731",
+      "title": "Stevie Quilted Puffer Backpack",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121538416811",
+          "sku": "BP04-BLACK",
+          "price": "39.59",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538449579",
+          "sku": "BP04-CITRINE",
+          "price": "39.59",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538482347",
+          "sku": "BP04-IVORY",
+          "price": "39.59",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538515115",
+          "sku": "BP04-MAUVE",
+          "price": "39.59",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538547883",
+          "sku": "BP04-PEBBLE",
+          "price": "39.59",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538580651",
+          "sku": "BP04-SLATE_BLUE",
+          "price": "39.59",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744803499",
+      "title": "Genevive Sling Crossbody",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121538613419",
+          "sku": "BASL33-BLACK",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538646187",
+          "sku": "BASL33-BONE",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538678955",
+          "sku": "BASL33-COGNAC",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538711723",
+          "sku": "BASL33-GRAY",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538744491",
+          "sku": "BASL33-SMOKE_GRAY",
+          "price": "31.79",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744869035",
+      "title": "Jordan Mixed Media Tote",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121538842795",
+          "sku": "BAT12-BLACK",
+          "price": "35.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538875563",
+          "sku": "BAT12-BLACK_CHECK",
+          "price": "35.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538908331",
+          "sku": "BAT12-COGNAC",
+          "price": "35.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121538941099",
+          "sku": "BAT12-COGNAC_CHECK",
+          "price": "35.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744934571",
+      "title": "Olivia Nylon Check Foldover Crossbody",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121538973867",
+          "sku": "BACB36-ALMOND",
+          "price": "31.19",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121539006635",
+          "sku": "BACB36-BLACK",
+          "price": "31.19",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121539039403",
+          "sku": "BACB36-EUCALYPTUS",
+          "price": "31.19",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121539072171",
+          "sku": "BACB36-MOCHA",
+          "price": "31.19",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786744967339",
+      "title": "Sienna Sling Crossbody",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121539104939",
+          "sku": "BASL43-BLACK",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121539137707",
+          "sku": "BASL43-BONE",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121539170475",
+          "sku": "BASL43-COGNAC",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121539203243",
+          "sku": "BASL43-LIGHT_GRAY",
+          "price": "32.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745065643",
+      "title": "Jessie Mixed Media Camera Crossbody Bag",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121539334315",
+          "sku": "BACB39-COGNAC_CHECK",
+          "price": "25.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121539367083",
+          "sku": "BACB39-BLACK_CHECK",
+          "price": "25.79",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745131179",
+      "title": "Dallas Checkered Tote",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121539432619",
+          "sku": "BAT13-ALMOND_CHECK",
+          "price": "35.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121539465387",
+          "sku": "BAT13-BLACK_CHECK",
+          "price": "35.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745196715",
+      "title": "Celine Mixed Media Hobo Bag",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121539498155",
+          "sku": "BASH06-BLACK_CHECK",
+          "price": "25.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121539530923",
+          "sku": "BASH06-COGNAC_CHECK",
+          "price": "25.79",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745262251",
+      "title": "Layla Woven Checkered Crossbody Sling Bag",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121539694763",
+          "sku": "BASL45-BLACK_CHECK",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121539727531",
+          "sku": "BASL45-ALMOND_CHECK",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121539760299",
+          "sku": "BASL45-COGNAC_COFFEE_CHECK",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121539793067",
+          "sku": "BASL45-EUCALYPTUS_CHECK",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47147538088107",
+          "sku": "BASL45-MOCHA_CHECK",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121539858603",
+          "sku": "BASL45-SKY_BLUE_CHECK",
+          "price": "29.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745295019",
+      "title": "Sabrina Double Zip Leather Crescent Sling",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121539891371",
+          "sku": "BASL37-BLACK",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121539924139",
+          "sku": "BASL37-BONE",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121539956907",
+          "sku": "BASL37-COGNAC",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121539989675",
+          "sku": "BASL37-FAWN",
+          "price": "31.79",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745360555",
+      "title": "Danica Crossbody Purse",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121540087979",
+          "sku": "BACB21-COGNAC",
+          "price": "25.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121540120747",
+          "sku": "BACB21-COGNAC_BONE",
+          "price": "25.79",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745426091",
+      "title": "Myra Quilted Crescent Sling",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121540186283",
+          "sku": "BASL20-BLACK",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121540219051",
+          "sku": "BASL20-BONE",
+          "price": "32.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745458859",
+      "title": "Eliza Crochet Straw Crossbody",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121540251819",
+          "sku": "BACB25-MOCHA",
+          "price": "22.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121540284587",
+          "sku": "BACB25-OLIVE",
+          "price": "22.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121540317355",
+          "sku": "BACB25-NAVY",
+          "price": "22.79",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745491627",
+      "title": "Maya Basket Weave Puffer Tote",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121540350123",
+          "sku": "BAT10-ALMOND",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121540382891",
+          "sku": "BAT10-BLACK",
+          "price": "29.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745524395",
+      "title": "Raquel Crochet Hobo Shoulder Bag",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121540415659",
+          "sku": "BASH05-KHAKI",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121540448427",
+          "sku": "BASH05-STRAW",
+          "price": "29.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745589931",
+      "title": "Sylvie Foldover Crochet Woven Crossbody",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121540513963",
+          "sku": "BACB26-KHAKI",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121540546731",
+          "sku": "BACB26-STRAW",
+          "price": "29.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745622699",
+      "title": "Dylan Oversize Leopard Double Zip Crescent Sling",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121540579499",
+          "sku": "BASL41-BLACK_LEOPARD",
+          "price": "31.79",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745655467",
+      "title": "Mericela Mixed Media Straw Tote",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121540612267",
+          "sku": "BAT15-BLACK",
+          "price": "35.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121540645035",
+          "sku": "BAT15-COGNAC",
+          "price": "35.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745688235",
+      "title": "Frankie Oversize Double Zip Print Crescent Sling",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121540677803",
+          "sku": "BASL35-ALMOND_CHECK",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121540710571",
+          "sku": "BASL35-BLACK_CHECK",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121540743339",
+          "sku": "BASL35-BLACKTAN_CHECK",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121540776107",
+          "sku": "BASL35-EUCALYPTUS_CHECK",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121540808875",
+          "sku": "BASL35-MOCHA_CHECK",
+          "price": "31.79",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745753771",
+      "title": "Izola Carry All Tassel Tote",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121540874411",
+          "sku": "BAT05-KHAKI",
+          "price": "31.19",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121540907179",
+          "sku": "BAT05-STRAW",
+          "price": "31.19",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745819307",
+      "title": "Valeria Two-tone Straw Tote",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121540972715",
+          "sku": "BAT04-KHAKI",
+          "price": "31.19",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121541005483",
+          "sku": "BAT04-STRAW",
+          "price": "31.19",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745884843",
+      "title": "Daphne Puffer Tote",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121541071019",
+          "sku": "BAT07-ALMOND",
+          "price": "28.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121541103787",
+          "sku": "BAT07-BLACK",
+          "price": "28.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121541136555",
+          "sku": "BAT07-GRAY",
+          "price": "28.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121541169323",
+          "sku": "BAT07-POWDER_BLUE",
+          "price": "28.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121541202091",
+          "sku": "BAT07-RUSSET",
+          "price": "28.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121541234859",
+          "sku": "BAT07-WHITE",
+          "price": "28.79",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786745950379",
+      "title": "Jade Metallic Puffer Backpack",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121541300395",
+          "sku": "BP02-BLACK",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121541333163",
+          "sku": "BP02-GOLD",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121541365931",
+          "sku": "BP02-PEWTER",
+          "price": "29.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786746015915",
+      "title": "Kendall Leopard Stadium Camera Crossbody",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121541431467",
+          "sku": "BACB29-BLACK",
+          "price": "22.19",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121541464235",
+          "sku": "BACB29-CHAMPAGNE",
+          "price": "22.19",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121541497003",
+          "sku": "BACB29-WHITE",
+          "price": "22.19",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786746048683",
+      "title": "Gia Double Zip Nylon Crescent Sling",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121541529771",
+          "sku": "BASL15-ALMOND",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121541562539",
+          "sku": "BASL15-BLACK",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121541595307",
+          "sku": "BASL15-GRAY",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121541628075",
+          "sku": "BASL15-OLIVE",
+          "price": "31.79",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786746081451",
+      "title": "Mila Quilted Traveler Tote with Mini Clutch",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121541660843",
+          "sku": "BAT09-BLACK",
+          "price": "35.59",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121541693611",
+          "sku": "BAT09-SOFT_WHITE",
+          "price": "35.59",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121541726379",
+          "sku": "BAT09-MOCHA",
+          "price": "35.59",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786783666347",
+      "title": "Canvas Stripe Tote",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121596186795",
+          "sku": "BACS-BLACK",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47175636418731",
+          "sku": "BACS-BLUE",
+          "price": "29.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786783699115",
+      "title": "Woven Straw Backpack",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121596383403",
+          "sku": "BPWS-KHAKI",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121596416171",
+          "sku": "BPWS-STRAW",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121596448939",
+          "sku": "BPWS-DK_TAUPE",
+          "price": "32.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786783731883",
+      "title": "Blair Foldover Buckle Crossbody",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121596317867",
+          "sku": "BACB08-BLACK",
+          "price": "38.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121596350635",
+          "sku": "BACB08-COGNAC",
+          "price": "38.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786783764651",
+      "title": "Alice Crescent Crossbody",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121596580011",
+          "sku": "BACB20-BLACK",
+          "price": "29.39",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121596612779",
+          "sku": "BACB20-BONE",
+          "price": "29.39",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121596645547",
+          "sku": "BACB20-COGNAC",
+          "price": "29.39",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121596678315",
+          "sku": "BACB20-FAWN",
+          "price": "29.39",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786783797419",
+      "title": "Bryce Chunky Chain Sling",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121596481707",
+          "sku": "BASL21-BLACK",
+          "price": "29.39",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47176024981675",
+          "sku": "BASL21-CHESTNUT",
+          "price": "29.39",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121596547243",
+          "sku": "BASL21-COGNAC",
+          "price": "29.39",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786783830187",
+      "title": "Alba Convertible Backpack Sling",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121596940459",
+          "sku": "BP01-COGNAC",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121596973227",
+          "sku": "BP01-MAUVE",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121597005995",
+          "sku": "BP01-BLACK",
+          "price": "32.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121597038763",
+          "sku": "BP01-GRAY",
+          "price": "32.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786783862955",
+      "title": "Whitney Foldover Compact Crossbody",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121596711083",
+          "sku": "BACB31-BLACK",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121596743851",
+          "sku": "BACB31-COGNAC",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121596776619",
+          "sku": "BACB31-STONE",
+          "price": "31.79",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786783895723",
+      "title": "Callie Fold over Leather Crossbody Sling Bag",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121596809387",
+          "sku": "BASL40-BLACK",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121596842155",
+          "sku": "BASL40-BONE",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121596874923",
+          "sku": "BASL40-COGNAC",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121596907691",
+          "sku": "BASL40-GRAY",
+          "price": "31.79",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786783928491",
+      "title": "Aria Leather Compact Crossbody",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121596219563",
+          "sku": "BACB10-BLACK",
+          "price": "31.19",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121596252331",
+          "sku": "BACB10-COGNAC",
+          "price": "31.19",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121596285099",
+          "sku": "BACB10-GRAY",
+          "price": "31.19",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786783961259",
+      "title": "Evie Vegan Leather Crossbody Sling Bag",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121597071531",
+          "sku": "BASL04-BONE",
+          "price": "38.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121597104299",
+          "sku": "BASL04-BLACK",
+          "price": "38.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121597137067",
+          "sku": "BASL04-COGNAC",
+          "price": "38.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121597169835",
+          "sku": "BASL04-GRAY",
+          "price": "38.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8786783994027",
+      "title": "Ashley Mixed Media Crossbody",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47121597202603",
+          "sku": "BACB33-BLACK_CHECK",
+          "price": "31.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47121597235371",
+          "sku": "BACB33-COGNAC_CHECK",
+          "price": "31.79",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8818148278443",
+      "title": "Tori Maxi Skirt",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47206742851755",
+          "sku": "sku-47715654009083",
+          "price": "37.80",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47206742884523",
+          "sku": "sku-47715654041851",
+          "price": "37.80",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47206742917291",
+          "sku": "sku-47715654074619",
+          "price": "37.80",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47206742950059",
+          "sku": "sku-47715654107387",
+          "price": "37.80",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47206742982827",
+          "sku": "sku-47715654140155",
+          "price": "37.80",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47206743015595",
+          "sku": "sku-47715654172923",
+          "price": "37.80",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47206743048363",
+          "sku": "sku-47715654205691",
+          "price": "37.80",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47206743081131",
+          "sku": "sku-47715654238459",
+          "price": "37.80",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47206743113899",
+          "sku": "sku-47715654271227",
+          "price": "37.80",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8818148409515",
+      "title": "Tori Halter Top",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47206743539883",
+          "sku": "sku-47714229911803",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47206743572651",
+          "sku": "sku-47714229944571",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47206743605419",
+          "sku": "sku-47714229977339",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47206743638187",
+          "sku": "sku-47714229813499",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47206743670955",
+          "sku": "sku-47714229846267",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47206743703723",
+          "sku": "sku-47714229879035",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47206743736491",
+          "sku": "sku-47714230010107",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47206743769259",
+          "sku": "sku-47714230042875",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47206743802027",
+          "sku": "sku-47714230075643",
+          "price": "35.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8819278020779",
+      "title": "On Repeat Pullover",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47210132799659",
+          "sku": "DA2606K00900",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210132832427",
+          "sku": "DA2606K00901",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210132865195",
+          "sku": "DA2606K00902",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210132897963",
+          "sku": "DA2606K00903",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210132930731",
+          "sku": "DA2606K00904",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210132963499",
+          "sku": "DA2606K00905",
+          "price": "35.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8819278053547",
+      "title": "Heart to Heart Ringer Tee",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47210133782699",
+          "sku": "DA2606K01400",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210133815467",
+          "sku": "DA2606K01401",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210133848235",
+          "sku": "DA2606K01402",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210133881003",
+          "sku": "DA2606K01403",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210133913771",
+          "sku": "DA2606K01404",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210133946539",
+          "sku": "DA2606K01405",
+          "price": "35.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8819278119083",
+      "title": "Portside Chambray Popover",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47210133586091",
+          "sku": "DA2606W01600",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210133618859",
+          "sku": "DA2606W01601",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210133651627",
+          "sku": "DA2606W01602",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210133684395",
+          "sku": "DA2606W01603",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210133717163",
+          "sku": "DA2606W01604",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210133749931",
+          "sku": "DA2606W01605",
+          "price": "35.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8819278151851",
+      "title": "Artistic Tee",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47210134175915",
+          "sku": "DA2606K00700",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210134208683",
+          "sku": "DA2606K00701",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210134241451",
+          "sku": "DA2606K00702",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210134274219",
+          "sku": "DA2606K00703",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210134306987",
+          "sku": "DA2606K00704",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210134339755",
+          "sku": "DA2606K00705",
+          "price": "35.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8819278217387",
+      "title": "Sun Kissed Tee",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47210133979307",
+          "sku": "DA2606K01500",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210134012075",
+          "sku": "DA2606K01501",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210134044843",
+          "sku": "DA2606K01502",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210134077611",
+          "sku": "DA2606K01503",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210134110379",
+          "sku": "DA2606K01504",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210134143147",
+          "sku": "DA2606K01505",
+          "price": "35.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8819278315691",
+      "title": "Charisma Tee",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47210134765739",
+          "sku": "DA2606K00300",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210134798507",
+          "sku": "DA2606K00301",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210134831275",
+          "sku": "DA2606K00302",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210134864043",
+          "sku": "DA2606K00303",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210134896811",
+          "sku": "DA2606K00304",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210134929579",
+          "sku": "DA2606K00305",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210134962347",
+          "sku": "DA2606K00200",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210134995115",
+          "sku": "DA2606K00201",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210135027883",
+          "sku": "DA2606K00202",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210135060651",
+          "sku": "DA2606K00203",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210135093419",
+          "sku": "DA2606K00204",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210135126187",
+          "sku": "DA2606K00205",
+          "price": "35.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8819278381227",
+      "title": "Trés Belle Top",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47210135355563",
+          "sku": "DA2606K01100",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210135388331",
+          "sku": "DA2606K01101",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210135421099",
+          "sku": "DA2606K01102",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210135453867",
+          "sku": "DA2606K01103",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210135486635",
+          "sku": "DA2606K01104",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210135519403",
+          "sku": "DA2606K01105",
+          "price": "35.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8819278577835",
+      "title": "Pretty Sporty Tee",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47210136535211",
+          "sku": "DA2606K00800",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210136567979",
+          "sku": "DA2606K00801",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210136600747",
+          "sku": "DA2606K00802",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210136633515",
+          "sku": "DA2606K00803",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210136666283",
+          "sku": "DA2606K00804",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210136699051",
+          "sku": "DA2606K00805",
+          "price": "35.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8819278643371",
+      "title": "Cherry Cute Button Down",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47210136928427",
+          "sku": "DA2606W01800",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210136961195",
+          "sku": "DA2606W01801",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210136993963",
+          "sku": "DA2606W01802",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210137026731",
+          "sku": "DA2606W01803",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210137059499",
+          "sku": "DA2606W01804",
+          "price": "35.00",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47210137092267",
+          "sku": "DA2606W01805",
+          "price": "35.00",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8820880638123",
+      "title": "Demi Nylon Hobo Crossbody",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47217348083883",
+          "sku": "BACB35-BLACK",
+          "price": "37.79",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47217348116651",
+          "sku": "BACB35-BLACK_OVERLAY",
+          "price": "37.79",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8820881031339",
+      "title": "Tassel O Ring Tote",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47217350181035",
+          "sku": "BASTOR-KHAKI",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47217350213803",
+          "sku": "BASTOR-STRAW",
+          "price": "29.99",
+          "compareAtPrice": null
+        }
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/8820881064107",
+      "title": "Oversize Canvas Sling Bag",
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/47217350246571",
+          "sku": "BAOCS-BLACK",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47217350279339",
+          "sku": "BAOCS-CAMEL",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47217350312107",
+          "sku": "BAOCS-CREAM",
+          "price": "29.99",
+          "compareAtPrice": null
+        },
+        {
+          "id": "gid://shopify/ProductVariant/47217350344875",
+          "sku": "BAOCS-OLIVE",
+          "price": "29.99",
+          "compareAtPrice": null
+        }
+      ]
+    }
+  ]
+}

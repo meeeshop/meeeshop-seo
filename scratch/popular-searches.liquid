@@ -1,0 +1,110 @@
+{%- comment -%}
+  Popular Searches Block for SEO internal linking
+  Auto-rotates links based on the page ID to distribute link density.
+{%- endcomment -%}
+
+{%- assign raw_keywords = "Made in USA|Cardigans|EMORY PARK|Fall Clothing for Women|Sweatshirts|ZENANA|ARTEMIS VINTAGE|JUDY BLUE|Sweaters|Camis & Tanks|Short Sleeve Tops|Curvy|Dresses|Hoodies|Casual Dresses|Rompers|Outerwear|Maxi Dresses|STRAIGHT LEG JEANS|Rompers, Jumpsuit & Sets|RISEN JEANS|POL|Cocktail Dresses|Long Sleeve Tops|Luxe Apparel|V-Neck Tops|Sweatshirts & Hoodies|HYFVE|Sets|Tops|Shirts|Knit Tops|T-Shirts|Bottoms|Handbags|Umgee USA|New products|Jeans|Mini Dresses|BIBI|Skirts|Midi Dresses|Blouses|Pants & Leggings|Denim Tops & Jackets|Best selling products|FLARE JEANS|WIDE LEG JEANS|Shorts|Puff Sleeve Tops" | split: "|" -%}
+
+{%- assign raw_handles = "made-in-usa|womens-cardigans|emory-park-womens-clothing|fall-clothing-for-women|womens-sweatshirts|zenana-womens-clothing|artemis-vintage-womens-jeans|judy-blue-womens-jeans|womens-sweaters|womens-camis-tanks-tops|short-sleeve-tops|womens-curvy-plus-size-clothing|womens-dresses|womens-hoodies|womens-casual-dresses|womens-rompers|womens-outerwear|womens-maxi-dresses|straight-leg-jeans|womens-rompers-jumpsuit-sets|risen-womens-jeans-collection|pol-womens-clothing-collection|womens-cocktail-dresses|long-sleeve-tops|womens-luxe-apparel|v-neck-tops|womens-sweatshirts-hoodies|hyfve-womens-clothing|womens-outfit-sets|womens-tops|womens-shirts|womens-knit-tops|womens-t-shirts|womens-bottoms|womens-handbags-accessories|umgee-usa-womens-clothing|womens-new-collection|womens-jeans|mini-dresses|bibi-womens-clothing|womens-skirts|midi-dresses|womens-blouses|womens-pants-leggings|womens-denim-tops-jackets|womens-best-selling-collection|flare-jeans|wide-leg-jeans|womens-shorts|puff-sleeve-tops" | split: "|" -%}
+
+{%- assign resource_id = 0 -%}
+{%- if template contains 'product' and product -%}
+  {%- assign resource_id = product.id | plus: product.title.size -%}
+{%- elsif template contains 'collection' and collection -%}
+  {%- assign resource_id = collection.id | plus: collection.title.size -%}
+{%- elsif template contains 'article' and article -%}
+  {%- assign resource_id = article.id | plus: article.title.size -%}
+{%- elsif template contains 'page' and page -%}
+  {%- assign resource_id = page.id | plus: page.title.size -%}
+{%- endif -%}
+
+{%- if resource_id == 0 or resource_id == nil -%}
+  {%- assign resource_id = request.path.size | default: 7 -%}
+{%- endif -%}
+
+{%- assign offset = resource_id | modulo: 50 -%}
+<style>
+  .popular-searches-section {
+    padding: 40px 20px;
+    margin-top: 40px;
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    background-color: #fafafa;
+  }
+  .popular-searches-container {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .popular-searches-title {
+    font-size: 20px;
+    font-weight: bold;
+    color: #121212;
+    margin-bottom: 24px;
+    font-family: var(--font-heading-family), sans-serif;
+  }
+  .popular-searches-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px 24px;
+  }
+  .popular-searches-link {
+    font-size: 14px;
+    color: #4a4a4a;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    transition: color 0.2s ease, text-decoration-color 0.2s ease;
+    display: inline-block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: var(--font-body-family), sans-serif;
+  }
+  .popular-searches-link:hover {
+    color: #000;
+    text-decoration-color: #000;
+  }
+  @media screen and (max-width: 990px) {
+    .popular-searches-grid {
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px 20px;
+    }
+  }
+  @media screen and (max-width: 749px) {
+    .popular-searches-section {
+      padding: 24px 15px;
+      margin-top: 24px;
+    }
+    .popular-searches-title {
+      font-size: 18px;
+      margin-bottom: 16px;
+    }
+    .popular-searches-link {
+      font-size: 13px;
+      white-space: normal;
+    }
+  }
+  @media screen and (max-width: 480px) {
+    .popular-searches-grid {
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px 12px;
+    }
+  }
+</style>
+
+<div class="popular-searches-section">
+  <div class="popular-searches-container">
+    <h2 class="popular-searches-title">Popular Searches:</h2>
+    <div class="popular-searches-grid">
+      {%- for i in (0..15) -%}
+        {%- assign current_idx = i | plus: offset | modulo: 50 -%}
+        {%- assign kw = raw_keywords[current_idx] -%}
+        {%- assign handle = raw_handles[current_idx] -%}
+        
+        {%- if template contains 'collection' and collection and collection.handle == handle -%}
+          {%- continue -%}
+        {%- endif -%}
+        
+        <a href="/collections/{{ handle }}" class="popular-searches-link" title="{{ kw }}">{{ kw }}</a>
+      {%- endfor -%}
+    </div>
+  </div>
+</div>

@@ -206,7 +206,7 @@ def publish_article(blog: dict, data: dict) -> dict:
             "body_html": data["body_html"],
             "published": True,
             "published_at": datetime.utcnow().isoformat() + "Z",
-            "author": "AI Fashion Writer",
+            "author": "Meeeshop",
         }
     }
     url = (

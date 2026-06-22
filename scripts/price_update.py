@@ -81,7 +81,7 @@ def _shopify_request(method: str, endpoint: str, data: Optional[Dict] = None,
                 raise ValueError(f"Unsupported method: {method}")
 
             if r.status_code == 429:
-                retry_after = int(r.headers.get("Retry-After", 4))
+                retry_after = int(float(r.headers.get("Retry-After", 4)))
                 _log.warning("[RateLimit] 429 received, sleeping %ds", retry_after)
                 time.sleep(retry_after)
                 continue
@@ -111,7 +111,7 @@ def _shopify_graphql(query: str, variables: Optional[Dict] = None) -> Dict:
         try:
             r = requests.post(url, headers=headers, json=payload, timeout=30)
             if r.status_code == 429:
-                retry_after = int(r.headers.get("Retry-After", 4))
+                retry_after = int(float(r.headers.get("Retry-After", 4)))
                 _log.warning("[RateLimit] 429 on GraphQL, sleeping %ds", retry_after)
                 time.sleep(retry_after)
                 continue
@@ -158,7 +158,7 @@ def get_products(mode: str, window_hours: Optional[int] = None) -> List[Dict]:
     Fetch active products filtered by creation date.
 
     daily              -> last 48 hours (or --window override)
-    weekly             -> last 7 days
+    weekly             -> last 168 hours / 7 days (or --window override)
     force              -> all active products (no date filter)
     --window <hours>   -> override fetch window for daily/weekly
     """
@@ -169,7 +169,7 @@ def get_products(mode: str, window_hours: Optional[int] = None) -> List[Dict]:
         date_filter = f" AND created_at:>={since.strftime('%Y-%m-%dT%H:%M:%SZ')}"
         window_label = f"last {hours} hours"
     elif mode == "weekly":
-        hours = window_hours * 24 if window_hours is not None else 7 * 24
+        hours = window_hours if window_hours is not None else 168
         since = now - timedelta(hours=hours)
         date_filter = f" AND created_at:>={since.strftime('%Y-%m-%dT%H:%M:%SZ')}"
         window_label = f"last {hours} hours"
@@ -269,18 +269,33 @@ def is_already_correct(price: float) -> bool:
 # Price update
 # ---------------------------------------------------------------------------
 
-def update_variant_price(variant_id: str, new_price: float) -> bool:
-    numeric_id = variant_id.split("/")[-1]
+def bulk_update_variants(product_id: str, variant_updates: List[Dict]) -> bool:
+    """Update multiple variant prices for a product in bulk via GraphQL."""
+    query = """
+    mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+        product { id }
+        productVariants { id price }
+        userErrors { field message }
+      }
+    }
+    """
+    variables = {
+        "productId": product_id,
+        "variants": [
+            {"id": vu["id"], "price": f"{vu['price']:.2f}"}
+            for vu in variant_updates
+        ]
+    }
     try:
-        _shopify_request(
-            "PUT",
-            f"variants/{numeric_id}",
-            {"variant": {"id": numeric_id, "price": f"{new_price:.2f}"}},
-        )
-        time.sleep(API_DELAY_SECONDS)
+        res = _shopify_graphql(query, variables)
+        errors = res.get("data", {}).get("productVariantsBulkUpdate", {}).get("userErrors", [])
+        if errors:
+            _log.error("[GraphQL] Errors bulk updating variants for %s: %s", product_id, errors)
+            return False
         return True
     except Exception as e:
-        print(f"    ERROR updating variant {numeric_id}: {e}")
+        _log.error("[GraphQL] Exception bulk updating variants for %s: %s", product_id, e)
         return False
 
 
@@ -321,7 +336,9 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
 
     for i, product in enumerate(slice_, 1):
         title = product.get("title", "Unknown")[:33]
+        product_id = product.get("id")
 
+        to_update = []
         for variant in product.get("variants", []):
             variant_id = variant.get("id", "")
             sku = variant.get("sku", "N/A")
@@ -356,20 +373,29 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
                 })
                 continue
 
-            success = update_variant_price(variant_id, new_price)
-            label = "UPDATED" if success else "ERROR"
-            print(f"{i:<5} | {title:<36} | ${current_price:>9.2f} | ${new_price:>9.2f} | {label}")
+            to_update.append({
+                "id": variant_id,
+                "price": new_price,
+                "sku": sku,
+                "old_price": current_price
+            })
 
-            entry = {
-                "sku": sku, "title": title, "variant_gid": variant_id,
-                "old_price": current_price, "new_price": new_price,
-                "status": "updated" if success else "error",
-            }
-            if success:
-                stats["updated"] += 1
-            else:
-                stats["errors"] += 1
-            stats["products"].append(entry)
+        if to_update:
+            success = bulk_update_variants(product_id, to_update)
+            label = "UPDATED" if success else "ERROR"
+
+            for item in to_update:
+                print(f"{i:<5} | {title:<36} | ${item['old_price']:>9.2f} | ${item['price']:>9.2f} | {label}")
+                entry = {
+                    "sku": item["sku"], "title": title, "variant_gid": item["id"],
+                    "old_price": item["old_price"], "new_price": item["price"],
+                    "status": "updated" if success else "error",
+                }
+                if success:
+                    stats["updated"] += 1
+                else:
+                    stats["errors"] += 1
+                stats["products"].append(entry)
 
     print("-" * len(col))
     print(f"\n[Done] {stats['updated']} updated, {stats['skipped']} skipped, {stats['errors']} errors")
@@ -381,35 +407,55 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
 # ---------------------------------------------------------------------------
 
 def load_recently_updated_ids(filepath: str = "price_update_log.json",
-                               within_hours: int = 23) -> set:
+                              within_hours: Optional[int] = None) -> set:
     """
-    Return a set of variant IDs (GID strings) that were successfully updated
-    within the last `within_hours` hours.  Used to skip re-updating on the
-    next daily run that overlaps the same 48-hour product window.
+    Return a set of variant IDs (GID strings) that were successfully updated.
+    If within_hours is provided, only retrieves those updated within the last
+    `within_hours` hours. Otherwise, retrieves ALL previously updated variant IDs.
+    
+    This function searches recursively for all `price_update_log.json` files in the
+    workspace to merge logs from previous runs and matrix batch runs.
     """
-    log_path = Path(filepath)
-    if not log_path.exists():
-        return set()
-    try:
-        logs = json.loads(log_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, IOError):
-        return set()
+    log_files = []
+    # If the root/specified filepath exists, add it
+    if os.path.exists(filepath):
+        log_files.append(Path(filepath))
 
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=within_hours)
+    # Search current directory and all subdirectories for other price_update_log.json files
+    # to support downloaded logs from previous matrix jobs
+    for p in Path(".").glob("**/price_update_log.json"):
+        if p.resolve() not in [lf.resolve() for lf in log_files]:
+            log_files.append(p)
+
+    cutoff = None
+    if within_hours is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=within_hours)
+
     updated_ids: set = set()
-    for entry in logs:
-        ts_str = entry.get("timestamp", "")
+    for lf in log_files:
         try:
-            ts = datetime.fromisoformat(ts_str)
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
-        if ts < cutoff:
-            continue
-        for p in entry.get("products", []):
-            if p.get("status") == "updated" and p.get("variant_gid"):
-                updated_ids.add(p["variant_gid"])
+            logs = json.loads(lf.read_text(encoding="utf-8"))
+            if not isinstance(logs, list):
+                continue
+            for entry in logs:
+                if not isinstance(entry, dict):
+                    continue
+                ts_str = entry.get("timestamp", "")
+                if cutoff is not None:
+                    try:
+                        ts = datetime.fromisoformat(ts_str)
+                        if ts.tzinfo is None:
+                            ts = ts.replace(tzinfo=timezone.utc)
+                    except ValueError:
+                        continue
+                    if ts < cutoff:
+                        continue
+                for p in entry.get("products", []):
+                    if p.get("status") == "updated" and p.get("variant_gid"):
+                        updated_ids.add(p["variant_gid"])
+        except Exception as e:
+            _log.warning("Failed to parse log file %s: %s", lf, e)
+            
     return updated_ids
 
 
@@ -421,6 +467,29 @@ def save_update_log(stats: Dict, filepath: str = "price_update_log.json"):
             logs = json.loads(log_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, IOError):
             logs = []
+
+    existing_timestamps = {entry.get("timestamp") for entry in logs if isinstance(entry, dict)}
+
+    # Search and merge entries from other price_update_log.json files
+    for p in Path(".").glob("**/price_update_log.json"):
+        if p.resolve() == log_path.resolve():
+            continue
+        try:
+            sub_logs = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(sub_logs, list):
+                for entry in sub_logs:
+                    if isinstance(entry, dict):
+                        ts = entry.get("timestamp")
+                        if ts not in existing_timestamps:
+                            logs.append(entry)
+                            existing_timestamps.add(ts)
+        except Exception as e:
+            _log.warning("Failed to parse sub-log file %s: %s", p, e)
+
+    # Sort logs chronologically by timestamp
+    def get_ts(entry):
+        return entry.get("timestamp") or ""
+    logs.sort(key=get_ts)
 
     logs.append({
         "timestamp": stats["timestamp"],
@@ -437,7 +506,7 @@ def save_update_log(stats: Dict, filepath: str = "price_update_log.json"):
     })
 
     log_path.write_text(json.dumps(logs, indent=2), encoding="utf-8")
-    print(f"[Log] Saved to {filepath}")
+    print(f"[Log] Saved consolidated log to {filepath}")
 
 
 # ---------------------------------------------------------------------------
@@ -495,13 +564,12 @@ if __name__ == "__main__":
             print("[Done] No products to process.")
             sys.exit(0)
 
-        # For daily runs, skip variants already updated in the last 23h so we
-        # don't re-update products that fall in the overlapping 48h window.
-        skip_ids: set = set()
-        if args.mode == "daily":
-            skip_ids = load_recently_updated_ids(within_hours=23)
+        # Skip variants already updated in any previous run (unless force mode is used)
+        skip_ids = set()
+        if args.mode != "force":
+            skip_ids = load_recently_updated_ids()
             if skip_ids:
-                print(f"[Skip] {len(skip_ids)} variant(s) already updated in last 23h — will skip\n")
+                print(f"[Skip] {len(skip_ids)} variant(s) already updated in previous runs — will skip\n")
 
         stats = update_product_prices(
             products,
