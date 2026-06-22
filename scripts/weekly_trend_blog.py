@@ -67,6 +67,7 @@ API_VER = "2024-10"
 BASE    = f"https://{SHOP}/admin/api/{API_VER}"
 HEADERS = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 STORE_URL = get_secret("STORE_BASE_URL") or f"https://{SHOP}"
+BRAND_NAME = os.getenv("BRAND_NAME", "your-brand")
 
 if not TOKEN:
     sys.exit("ERROR: SHOPIFY_ACCESS_TOKEN not set.")
@@ -77,12 +78,12 @@ TODAY = datetime.now().strftime("%Y-%m-%d")
 
 # ── Pen names ──────────────────────────────────────────────────────────────────
 PEN_NAMES = [
-    "Elena Vance, MeeeShop Lead Stylist",
-    "Seraphina Croft, MeeeShop Fashion Editor",
-    "Audrey Sterling, MeeeShop Style Director",
-    "Maya Devereaux, MeeeShop Fashion Consultant",
-    "Vivienne Vance, MeeeShop Senior Stylist",
-    "Genevieve Thorne, MeeeShop Trend Forecaster",
+    f"Elena Vance, {BRAND_NAME} Lead Stylist",
+    f"Seraphina Croft, {BRAND_NAME} Fashion Editor",
+    f"Audrey Sterling, {BRAND_NAME} Style Director",
+    f"Maya Devereaux, {BRAND_NAME} Fashion Consultant",
+    f"Vivienne Vance, {BRAND_NAME} Senior Stylist",
+    f"Genevieve Thorne, {BRAND_NAME} Trend Forecaster",
 ]
 
 # ── Flipboard topic map per product category ───────────────────────────────────
@@ -200,7 +201,7 @@ def _fetch_flipboard_rss(topic: str) -> list[dict]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=CUTOFF_DAYS)
     try:
         r = requests.get(url, timeout=15, headers={
-            "User-Agent": "Mozilla/5.0 (compatible; MeeeShop SEO bot/1.0)"
+            "User-Agent": f"Mozilla/5.0 (compatible; {BRAND_NAME} SEO bot/1.0)"
         })
         if r.status_code != 200:
             return []
@@ -246,7 +247,7 @@ def _fetch_flipboard_search(keyword: str) -> list[dict]:
             FLIPBOARD_SEARCH,
             params={"q": keyword, "locale": "en_US"},
             timeout=15,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; MeeeShop SEO bot/1.0)"}
+            headers={"User-Agent": f"Mozilla/5.0 (compatible; {BRAND_NAME} SEO bot/1.0)"}
         )
         if r.status_code != 200:
             return []
@@ -300,7 +301,7 @@ def _fetch_google_news(keyword: str, num_sites: int = 3) -> list[dict]:
                 GOOGLE_NEWS_RSS,
                 params={"q": q, "hl": "en-US", "gl": "US", "ceid": "US:en"},
                 timeout=15,
-                headers={"User-Agent": "Mozilla/5.0 (compatible; MeeeShop SEO bot/1.0)"},
+                headers={"User-Agent": f"Mozilla/5.0 (compatible; {BRAND_NAME} SEO bot/1.0)"},
             )
             if r.status_code != 200:
                 continue
@@ -966,9 +967,9 @@ def _build_article_prompt(main_product: dict, research_data: dict, matching_prod
             src = art.get("source", "")
             research_context += f"Ref #{idx+1} [{src}]:\n  Title: {title}\n  Summary: {summary}\n  Snippet: {snippet}\n\n"
 
-    prompt = f"""You are {random.choice(PEN_NAMES)}, an expert fashion editor writing for MeeeShop — a premium women's clothing boutique based in the USA.
+    prompt = f"""You are {random.choice(PEN_NAMES)}, an expert fashion editor writing for {BRAND_NAME} — a premium women's clothing boutique based in the USA.
 
-Your mission today: Write a **100% original, highly engaging** blog article in the style of Who What Wear & Refinery29, adapted for MeeeShop's audience.
+Your mission today: Write a **100% original, highly engaging** blog article in the style of Who What Wear & Refinery29, adapted for {BRAND_NAME}'s audience.
 
 ────────── LEARNING & SYNTHESIZING FROM SOURCES ──────────
 You MUST review the "TRENDING ARTICLE REFERENCES" below. Do NOT copy their text or commit plagiarism. Instead:
@@ -1382,6 +1383,7 @@ def generate_single_article_content(
     
     print(f"  Article Mode: {chosen_mode['id']}")
     print("  Generating new content with AI...")
+    prompt = prompt.replace("MeeeShop", BRAND_NAME)
     raw_ai_response = ai_client.generate(prompt, max_tokens=3000, temperature=0.85)
 
     if not raw_ai_response:

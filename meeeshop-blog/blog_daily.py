@@ -43,7 +43,7 @@ HEADERS = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 if not TOKEN:
     sys.exit("ERROR: SHOPIFY_ACCESS_TOKEN not set.")
 
-STORE_URL = "https://us.meeeshop.com"
+STORE_URL = f"https://{os.getenv('STORE_DOMAIN', 'your-store.com')}"
 
 # ── Shopify helpers ────────────────────────────────────────────────────────────
 def _req(method, url, **kw):
