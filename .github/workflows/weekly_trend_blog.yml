@@ -1,0 +1,85 @@
+name: Weekly Trend Blog Generator
+
+on:
+  # Scheduled: Tuesday, Thursday, Saturday at 9 AM EST (14:00 UTC)
+  schedule:
+    - cron: '0 14 * * 2'  # Tuesday
+    - cron: '0 14 * * 4'  # Thursday
+    - cron: '0 14 * * 6'  # Saturday
+
+  # Manual dispatch for full control
+  workflow_dispatch:
+    inputs:
+      count:
+        description: 'Number of articles to generate'
+        default: '1'
+        required: false
+      mode:
+        description: 'Run mode'
+        required: true
+        default: 'publish'
+        type: choice
+        options:
+          - publish
+          - draft
+          - dry-run
+
+jobs:
+  generate-blog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build CLI arguments
+        id: args
+        run: |
+          MODE="${{ github.event.inputs.mode || 'publish' }}"
+          COUNT="${{ github.event.inputs.count || '1' }}"
+          
+          # On scheduled runs, default to publish mode
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            MODE="publish"
+          fi
+          
+          ARGS="--count $COUNT"
+          if [ "$MODE" = "dry-run" ]; then
+            ARGS="$ARGS --dry-run"
+          elif [ "$MODE" = "draft" ]; then
+            ARGS="$ARGS --draft"
+          fi
+          
+          echo "cli_args=$ARGS" >> "$GITHUB_OUTPUT"
+
+      - name: Run Weekly Trend Blog Generator
+        env:
+          PYTHONUTF8: "1"
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          python scripts/weekly_trend_blog.py ${{ steps.args.outputs.cli_args }}
+
+      - name: Upload previews and collages
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-blog-logs-${{ github.run_number }}
+          path: |
+            logs/weekly_preview_*.html
+            collage_temp*.jpg
+          if-no-files-found: ignore
+          retention-days: 14

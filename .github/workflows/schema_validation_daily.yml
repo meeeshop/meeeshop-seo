@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       mode: ${{ steps.detect.outputs.mode }}
-      batches_json: ${{ steps.build_matrix.outputs.batches_json }}
+      batches_json: ${{ steps.build_matrix_force.outputs.batches_json || steps.build_matrix_non_force.outputs.batches_json }}
     steps:
       - name: Detect mode
         id: detect
@@ -57,7 +57,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Count products and build batch matrix
-        id: build_matrix
+        id: build_matrix_force
         if: steps.detect.outputs.mode == 'force'
         env:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
@@ -83,6 +83,7 @@ jobs:
           echo "batches_json=$JSON" >> "$GITHUB_OUTPUT"
 
       - name: Set dummy batches (non-force)
+        id: build_matrix_non_force
         if: steps.detect.outputs.mode != 'force'
         run: echo 'batches_json=[{"resource":"all","batch_index":0}]' >> "$GITHUB_OUTPUT"
 
@@ -97,7 +98,7 @@ jobs:
       fail-fast: false
       max-parallel: 1  # Sequential execution to avoid Shopify API rate limits
       matrix:
-        include: ${{ fromJson(needs.setup.outputs.batches_json) }}
+        include: ${{ fromJson(needs.setup.outputs.batches_json || '[{"resource":"all","batch_index":0}]') }}
 
     steps:
       - uses: actions/checkout@v4

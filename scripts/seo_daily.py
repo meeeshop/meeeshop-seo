@@ -21,9 +21,16 @@ import os, re, json, time, argparse, sys
 import requests
 from datetime import datetime, timedelta, timezone
 
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
+if sys.stderr.encoding != 'utf-8':
+    sys.stderr.reconfigure(encoding='utf-8')
+
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from secrets_manager import inject_to_env, get_secret
 inject_to_env()
+from shopify_graphql import run_graphql, parse_gid
 
 STORE  = get_secret("SHOPIFY_STORE")
 TOKEN  = get_secret("SHOPIFY_ACCESS_TOKEN")
@@ -109,17 +116,20 @@ CATEGORIES = {
     ('shoe','boot','heel','sandal','sneaker','flat'):    ('Shoes',     'shoe'),
 }
 
-def detect_cat(title):
+def detect_cat(title, product_type='', tags=''):
     t = title.lower()
+    pt = (product_type or '').lower()
+    tg = (tags or '').lower()
+    search_str = f"{t} {pt} {tg}"
     for keys, (cat, word) in CATEGORIES.items():
-        if any(k in t for k in keys):
+        if any(k in search_str for k in keys):
             return cat, word
     return 'Women\'s Fashion', 'piece'
 
 
 # ── Meta title (Google standard: ≤60 chars) ───────────────────────────────────
-def build_meta_title(title):
-    cat, _ = detect_cat(title)
+def build_meta_title(title, product_type='', tags=''):
+    cat, _ = detect_cat(title, product_type, tags)
     # Format: Product Title | Category | Brand (with .com for SEO)
     full  = f"{title} | {cat} | {BRAND}"
     if len(full) <= 60:
@@ -149,9 +159,9 @@ META_DESC_TEMPLATES = [
     "Premium {keywords_str} {word} from {brand}: quality women's fashion with free shipping & 7-day returns. Shop now!",
 ]
 
-def build_meta_desc(title):
+def build_meta_desc(title, product_type='', tags=''):
     """Deterministic meta description: same title always produces same output (so validation can use exact match)."""
-    _, word = detect_cat(title)
+    _, word = detect_cat(title, product_type, tags)
     keywords = extract_keywords(title)
     keywords_str = ' '.join(keywords) if keywords else (title.split()[0] if title.split() else "women's")
     # Deterministic template selection: pick by hash of title (no randomness)
@@ -162,8 +172,8 @@ def build_meta_desc(title):
 
 
 # ── Image alt text (Google standard: descriptive, ≤125 chars) ─────────────────
-def build_alt(title, variant_hint='', idx=0):
-    cat, word = detect_cat(title)
+def build_alt(title, variant_hint='', idx=0, product_type='', tags=''):
+    cat, word = detect_cat(title, product_type, tags)
     keywords = extract_keywords(title)
     keywords_str = ' '.join(keywords) if keywords else ''
     # Include product type keyword naturally in ALT text
@@ -174,6 +184,64 @@ def build_alt(title, variant_hint='', idx=0):
     if idx > 0:
         alt = f"{keywords_str} {title} view {idx + 1} ({word}) - shop at {DISPLAY_BRAND}" if keywords_str else f"{title} view {idx + 1} ({word}) - shop at {DISPLAY_BRAND}"
     return alt[:125].strip()
+
+
+def build_collection_alt(title):
+    alt = f"{title} collection - shop at {DISPLAY_BRAND}"
+    return alt[:125].strip()
+
+
+def build_article_alt(title):
+    alt = f"{title} - fashion tips & styling guides at {DISPLAY_BRAND}"
+    return alt[:125].strip()
+
+
+def find_file_id_by_filename(filename):
+    """Search Shopify files to find the corresponding GID (MediaImage or GenericFile)."""
+    from shopify_graphql import run_graphql
+    clean_name = filename.split('?')[0].split('/')[-1]
+    query = """
+    query($queryStr: String) {
+      files(first: 5, query: $queryStr) {
+        edges {
+          node {
+            id
+          }
+        }
+      }
+    }
+    """
+    try:
+        res = run_graphql(query, {"queryStr": f"filename:{clean_name}"})
+        edges = res.get("data", {}).get("files", {}).get("edges", [])
+        if edges:
+            return edges[0]["node"]["id"]
+    except Exception as e:
+        print(f"Warning: Failed to search file '{clean_name}': {e}", file=sys.stderr)
+    return None
+
+
+def rename_shopify_file(file_id, new_filename):
+    """Rename a Shopify file via fileUpdate mutation."""
+    from shopify_graphql import run_graphql
+    query = """
+    mutation fileUpdate($files: [FileUpdateInput!]!) {
+      fileUpdate(files: $files) {
+        files { id }
+        userErrors { field message }
+      }
+    }
+    """
+    try:
+        res = run_graphql(query, {"files": [{"id": file_id, "filename": new_filename}]})
+        errors = res.get("data", {}).get("fileUpdate", {}).get("userErrors", [])
+        if errors:
+            print(f"[GraphQL] Errors updating filename for {file_id}: {errors}", file=sys.stderr)
+            return False
+        return True
+    except Exception as e:
+        print(f"[GraphQL] Exception updating filename for {file_id}: {e}", file=sys.stderr)
+        return False
 
 
 # ── Detect existing size table in HTML ────────────────────────────────────────
@@ -198,6 +266,32 @@ def extract_size_table(html):
     if not has_size_table(block):
         return ''
     return block
+
+
+def remove_clothing_size_table(html):
+    """Remove any clothing size table (containing bust, waist, hip, etc.) and its heading."""
+    if not html:
+        return ""
+    
+    # 1. Match clothing-specific terms inside tables
+    clothing_terms = re.compile(r'\b(bust|waist|hip|sleeve|inseam|rise|underwire|chest)\b', re.IGNORECASE)
+    
+    def replacement(match):
+        table_html = match.group(0)
+        if clothing_terms.search(table_html):
+            return ""
+        return table_html
+        
+    cleaned = re.sub(r'<table[\s\S]*?</table>', replacement, html)
+    
+    # 2. Clean up orphaned headings like <h3>Size Chart</h3> immediately followed by another heading/tag or end of string
+    cleaned = re.sub(
+        r'(<h[1-6][^>]*>[^<]*size[^<]*</h[1-6]>\s*|<p[^>]*>\s*<strong>\s*size[^<]*chart[^<]*</strong>\s*</p>\s*)'
+        r'(?=<h|<p|<ul>|<li>|<div>|<!--|$)',
+        '', cleaned, flags=re.IGNORECASE
+    )
+    return cleaned.strip()
+
 
 # ── Build size chart based on product type ────────────────────────────────────
 def build_size_chart(word):
@@ -234,21 +328,132 @@ def build_size_chart(word):
     )
     return size_chart
 
+
+# ── Build category-specific Q&As ──────────────────────────────────────────────
+def build_templated_qa(title, cat, word):
+    """Generate 3 high-quality deterministic Q&As for the product page."""
+    # Define category-specific Q&A templates
+    qa_templates = {
+        'Dresses': [
+            ("What is the fit and sizing of the {title}?", 
+             "The {title} runs true to size. Please refer to our detailed size chart above (S/M/L) to find your perfect measurements."),
+            ("What occasions are suitable for this {word}?", 
+             "The {title} is designed for versatile everyday styling. Depending on the occasion, it can easily be dressed up with layers or worn as a relaxed statement piece."),
+            ("What is the return policy for the {title}?", 
+             "We offer a 7-day return policy for the {title} to ensure you are completely satisfied with your purchase.")
+        ],
+        'Tops': [
+            ("How does the {title} fit?", 
+             "The {title} is designed for a comfortable, regular fit. We recommend checking the bust and waist measurements in our size guide before ordering."),
+            ("How should I wash and care for this {word}?", 
+             "To maintain the fabric quality, we recommend hand washing or machine washing on a delicate cycle with cold water, then hanging or lying flat to dry."),
+            ("What is the shipping cost and return policy?", 
+             "We offer free US shipping on orders over $50 and a hassle-free 7-day return policy on all eligible purchases.")
+        ],
+        'Bottoms': [
+            ("What is the rise and length of the {title}?", 
+             "The {title} features a mid-to-high rise cut designed to sit comfortably at your waist. Check our sizing table for specific waist and hip measurements."),
+            ("Is the fabric of this {word} stretchy?", 
+             "The {title} is crafted with high-quality materials designed for both durability and comfort, providing a natural shape and comfortable wear throughout the day."),
+            ("Can I return the {title} if it doesn't fit?", 
+             "Yes! We accept returns within 7 days of delivery. Please ensure the {word} is in its original, unworn condition with tags attached.")
+        ],
+        'Outerwear': [
+            ("How heavy is the {title}?", 
+             "The {title} is a premium medium-weight {word} designed for easy layering. It provides the perfect balance of warmth and breathability for transitional weather."),
+            ("Does this {word} fit true to size?", 
+             "Yes, the {title} fits true to size for standard layering. If you prefer an oversized fit, we suggest ordering one size up."),
+            ("What returns and shipping options are available?", 
+             "This item qualifies for free US shipping (orders $50+) and is backed by our standard 7-day return policy.")
+        ],
+        'Skirts': [
+            ("What is the length of the {title}?", 
+             "The {title} is cut to a classic silhouette. Detailed waist and hip measurements are available in our sizing guide to ensure an accurate fit."),
+            ("How do I style this skirt?", 
+             "This skirt pairs beautifully with tucked-in tees, blouses, or cardigans for an elevated office or weekend look."),
+            ("What is the return policy for the {title}?", 
+             "We offer an easy 7-day return window. Contact us within 7 days of receiving your item to start a return.")
+        ],
+        'One-Pieces': [
+            ("What is the fit profile of the {title}?", 
+             "The {title} is cut for a modern, contoured fit that flatters your natural silhouette. Refer to our size guide for bust, waist, and hip details."),
+            ("How do I care for this {word}?", 
+             "We suggest washing the {title} inside out in cold water on a gentle cycle, then hang drying to preserve the fabric and fit."),
+            ("Is shipping free for this item?", 
+             "Yes, free US shipping is automatically applied to all orders over $50, and returns are accepted within 7 days.")
+        ],
+        'Bags': [
+            ("What are the dimensions of the {title}?", 
+             "The {title} is a spacious, daily-use bag designed to carry your essentials. It features durable construction and secure closures."),
+            ("Are there interior pockets in this {word}?", 
+             "Yes, the {title} includes convenient compartments to keep your small items organized and easy to access on the go."),
+            ("What is MeeeShop's return policy?", 
+             "We offer a 7-day return policy. If you're not completely in love with your {title}, simply contact support within 7 days of delivery.")
+        ],
+        'Shoes': [
+            ("Is the {title} comfortable for all-day wear?", 
+             "The {title} is crafted with cushioned footbeds and premium support, making it comfortable for daily walking and extended wear."),
+            ("Does this shoe run narrow or wide?", 
+             "The {title} fits true to size for standard widths. If you typically wear a half-size, we recommend sizing up to the nearest whole size."),
+            ("What is the return policy for footwear?", 
+             "Footwear must be in unworn condition and in their original packaging to qualify for our standard 7-day return window.")
+        ],
+        'default': [
+            ("What is the sizing fit for the {title}?", 
+             "The {title} runs true to standard US fashion sizing. Please check the measurements in our size guide to find your perfect fit."),
+            ("What are the care instructions for this {word}?", 
+             "We recommend washing in cold water with similar colors and hang drying or laying flat to preserve the color and texture of the fabric."),
+            ("What shipping and return policies apply?", 
+             "All orders over $50 qualify for free shipping. We also provide a standard 7-day return policy on all unworn items.")
+        ]
+    }
+    
+    selected_qa = qa_templates.get(cat, qa_templates['default'])
+    formatted_qa = []
+    for q, a in selected_qa:
+        formatted_qa.append((q.format(title=title, word=word), a.format(title=title, word=word)))
+    return formatted_qa
+
+
+def build_qa_html(qa_list):
+    """Build the HTML representation of the Q&A section."""
+    html = "<h3>Frequently Asked Questions</h3>"
+    html += "<div class='meeeshop-qa-section' style='margin-top: 15px;'>"
+    for q, a in qa_list:
+        html += f"<p><strong>Q: {q}</strong><br/>A: {a}</p>"
+    html += "</div>"
+    return html
+
+
 # ── SEO description with keywords + size chart ───────────────────────────────
 def build_description(product, force=False):
     title    = product['title']
     html_body = product.get('body_html', '') or ''
-    existing = strip_html(html_body)
     cat, word = detect_cat(title)
+    
+    if cat == 'Bags':
+        html_body = remove_clothing_size_table(html_body)
+        
+    existing = strip_html(html_body)
 
     # Detect if product already has a custom/storytelling description
     if len(existing) >= 200 and not ("Discover the" in html_body and "Why Choose" in html_body):
-        # Preserve the custom description, clean return policies, and append size table if missing
+        # Preserve the custom description, clean return policies
         cleaned_body = clean_return_policy(html_body)
-        if not has_size_table(cleaned_body):
-            size_chart = build_size_chart(word)
-            return cleaned_body.strip() + "\n\n" + size_chart
-        return cleaned_body
+        if cat == 'Bags':
+            final_body = cleaned_body.strip()
+        else:
+            if not has_size_table(cleaned_body):
+                size_chart = build_size_chart(word)
+                final_body = cleaned_body.strip() + "\n\n" + size_chart
+            else:
+                final_body = cleaned_body
+
+        if "Frequently Asked Questions" not in final_body:
+            qa_list = build_templated_qa(title, cat, word)
+            qa_html = build_qa_html(qa_list)
+            final_body = final_body.strip() + "\n\n" + qa_html
+        return final_body
 
     keywords = extract_keywords(title)
     keywords_str = ' '.join(keywords) if keywords else ''
@@ -282,15 +487,26 @@ def build_description(product, force=False):
 
     # Preserve existing size table verbatim; otherwise build the standard one
     existing_table = extract_size_table(html_body)
-    if existing_table:
-        size_chart = existing_table
+    if cat == 'Bags':
+        size_chart = existing_table if existing_table else ''
     else:
-        size_chart = build_size_chart(word)
+        if existing_table:
+            size_chart = existing_table
+        else:
+            size_chart = build_size_chart(word)
 
     if not force and len(existing) >= 500:
-        return html_body
+        final_body = html_body
+    else:
+        final_body = intro + features + why_choose + size_chart
 
-    return intro + features + why_choose + size_chart
+    if "Frequently Asked Questions" not in final_body:
+        qa_list = build_templated_qa(title, cat, word)
+        qa_html = build_qa_html(qa_list)
+        final_body = final_body.strip() + "\n\n" + qa_html
+
+    return final_body
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -437,38 +653,152 @@ def fetch_articles(published_since=None):
 
 
 # ── Metafields (meta title + meta description) ────────────────────────────────
-def get_metafields(resource_path, rid):
-    """Get metafields for any resource (products, pages, custom_collections, blogs/{id}/articles)."""
-    data = api_get(f"/{resource_path}/{rid}/metafields.json")
-    return {f"{m['namespace']}.{m['key']}": m for m in data.get('metafields', [])}
-
-
-def upsert_metafield(resource_path, rid, namespace, key, value, mf_type, existing_mfs):
-    """Upsert metafield for any resource."""
-    full_key = f"{namespace}.{key}"
-    if full_key in existing_mfs:
-        mid = existing_mfs[full_key]['id']
-        api_put(f"/metafields/{mid}.json",
-                {"metafield": {"id": mid, "value": value, "type": mf_type}})
+def set_seo_metafields_graphql(resource_type: str, resource_id: int, meta_title: str, meta_desc: str) -> bool:
+    """Set SEO metafields (title + desc) in a single GraphQL mutation."""
+    from shopify_graphql import make_gid, run_graphql
+    
+    # Normalize resource type for GraphQL make_gid
+    if "collection" in resource_type.lower():
+        gql_type = "collection"
+    elif "blog" in resource_type.lower() or "article" in resource_type.lower():
+        gql_type = "article"
+    elif "page" in resource_type.lower():
+        gql_type = "page"
+    elif "product" in resource_type.lower():
+        gql_type = "product"
     else:
-        api_post(f"/{resource_path}/{rid}/metafields.json",
-                 {"metafield": {"namespace": namespace, "key": key,
-                                "value": value, "type": mf_type}})
+        gql_type = resource_type
+
+    owner_id = make_gid(gql_type, resource_id)
+    
+    query = """
+    mutation metafieldsSet($metafields: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $metafields) {
+        metafields { id }
+        userErrors { field message }
+      }
+    }
+    """
+    variables = {
+      "metafields": [
+        {
+          "ownerId": owner_id,
+          "namespace": "global",
+          "key": "title_tag",
+          "type": "single_line_text_field",
+          "value": meta_title
+        },
+        {
+          "ownerId": owner_id,
+          "namespace": "global",
+          "key": "description_tag",
+          "type": "multi_line_text_field",
+          "value": meta_desc
+        }
+      ]
+    }
+    try:
+        res = run_graphql(query, variables)
+        errors = res.get("data", {}).get("metafieldsSet", {}).get("userErrors", [])
+        if errors:
+            print(f"[GraphQL] Errors setting SEO metafields for {owner_id}: {errors}", file=sys.stderr)
+            return False
+        return True
+    except Exception as e:
+        print(f"[GraphQL] Exception setting SEO metafields for {owner_id}: {e}", file=sys.stderr)
+        return False
 
 
-def set_seo_metafields(resource_path, rid, meta_title, meta_desc, existing_mfs):
-    """Set SEO metafields (title + desc) for any resource."""
-    upsert_metafield(resource_path, rid, "global", "title_tag",       meta_title, "single_line_text_field", existing_mfs)
-    upsert_metafield(resource_path, rid, "global", "description_tag", meta_desc,  "multi_line_text_field",  existing_mfs)
+def set_seo_metafields(resource_path, rid, meta_title, meta_desc, existing_mfs=None):
+    """Bridge function to set SEO metafields (title + desc) for any resource via GraphQL."""
+    success = set_seo_metafields_graphql(resource_path, rid, meta_title, meta_desc)
+    if not success:
+        raise RuntimeError(f"Failed to set SEO metafields for {resource_path} {rid}")
 
 
 # ── Image alt text ────────────────────────────────────────────────────────────
-def update_image_alt(pid, iid, alt):
+def update_image_alt(pid, iid, alt, src=None, idx=0):
+    """Update product image alt text and filename via GraphQL."""
+    from shopify_graphql import make_gid, run_graphql
+    product_gid = make_gid("product", pid)
+    media_gid = f"gid://shopify/MediaImage/{iid}"
+    
+    # 1. Update Alt Text via productUpdateMedia
+    query = """
+    mutation productUpdateMedia($productId: ID!, $media: [UpdateMediaInput!]!) {
+      productUpdateMedia(productId: $productId, media: $media) {
+        media { id alt }
+        userErrors { field message }
+      }
+    }
+    """
+    variables = {
+        "productId": product_gid,
+        "media": [
+            {
+                "id": media_gid,
+                "alt": alt
+            }
+        ]
+    }
+    success = True
     try:
-        r = api_request("PUT", f"/products/{pid}/images/{iid}.json", json={"image": {"id": iid, "alt": alt}})
-        return r.status_code == 200
-    except Exception:
-        return False
+        res = run_graphql(query, variables)
+        errors = res.get("data", {}).get("productUpdateMedia", {}).get("userErrors", [])
+        if errors:
+            print(f"[GraphQL] Errors updating image alt for {media_gid}: {errors}", file=sys.stderr)
+            success = False
+    except Exception as e:
+        print(f"[GraphQL] Exception updating image alt for {media_gid}: {e}", file=sys.stderr)
+        success = False
+
+    # 2. Update Filename via fileUpdate if src (CDN URL) is provided
+    if src and success:
+        # Extract original filename and extension
+        clean_url = src.split('?')[0]
+        base = clean_url.split('/')[-1]
+        if '.' in base:
+            ext = base.rsplit('.', 1)[1].lower()
+            # Generate optimized filename slug from the new alt text
+            slug = slugify(alt)
+            # Ensure unique filename by appending a portion of the media image ID
+            media_suffix = str(iid)[-6:] if iid else str(int(time.time() * 1000))[-6:]
+            if idx > 0:
+                slug = f"{slug[:50].strip('-')}-view-{idx+1}-{media_suffix}"
+            else:
+                slug = f"{slug[:50].strip('-')}-{media_suffix}"
+            new_filename = f"{slug}.{ext}"
+            
+            # Skip if the current filename already contains the first 30 chars of the new slug
+            current_name = base.rsplit('.', 1)[0].lower()
+            if slug[:30] not in current_name:
+                query_file = """
+                mutation fileUpdate($files: [FileUpdateInput!]!) {
+                  fileUpdate(files: $files) {
+                    files { id }
+                    userErrors { field message }
+                  }
+                }
+                """
+                variables_file = {
+                    "files": [
+                        {
+                            "id": media_gid,
+                            "filename": new_filename
+                        }
+                    ]
+                }
+                try:
+                    res_file = run_graphql(query_file, variables_file)
+                    errors_file = res_file.get("data", {}).get("fileUpdate", {}).get("userErrors", [])
+                    if errors_file:
+                        print(f"[GraphQL] Errors updating filename for {media_gid}: {errors_file}", file=sys.stderr)
+                    else:
+                        print(f"  + Filename updated: '{base}' -> '{new_filename}'")
+                except Exception as e:
+                    print(f"[GraphQL] Exception updating filename for {media_gid}: {e}", file=sys.stderr)
+
+    return success
 
 
 # ── Redirects ─────────────────────────────────────────────────────────────────
@@ -587,6 +917,260 @@ JSONLD_SNIPPET = r"""{% comment %}meeeshop-jsonld v3 — auto-generated, do not 
         {%- endfor -%}
       ]
     }
+    {%- if product.description contains 'Frequently Asked Questions' -%}
+    ,{
+      "@type": "FAQPage",
+      "@id": "{{ shop.url }}/products/{{ product.handle }}#faq",
+      "mainEntity": [
+        {%- assign word = 'piece' -%}
+        {%- assign cat = 'default' -%}
+        {%- assign title_lower = product.title | downcase -%}
+        {%- if title_lower contains 'dress' or title_lower contains 'gown' or title_lower contains 'midi' or title_lower contains 'maxi' or title_lower contains 'sundress' or title_lower contains 'shift' -%}
+          {%- assign cat = 'Dresses' -%}{%- assign word = 'dress' -%}
+        {%- elsif title_lower contains 'top' or title_lower contains 'blouse' or title_lower contains 'shirt' or title_lower contains 'tee' or title_lower contains 'tank' or title_lower contains 'cami' or title_lower contains 'tunic' -%}
+          {%- assign cat = 'Tops' -%}{%- assign word = 'top' -%}
+        {%- elsif title_lower contains 'jean' or title_lower contains 'pant' or title_lower contains 'short' or title_lower contains 'legging' or title_lower contains 'jogger' or title_lower contains 'trouser' -%}
+          {%- assign cat = 'Bottoms' -%}{%- assign word = 'bottom' -%}
+        {%- elsif title_lower contains 'jacket' or title_lower contains 'coat' or title_lower contains 'blazer' or title_lower contains 'sweater' or title_lower contains 'hoodie' or title_lower contains 'cardigan' or title_lower contains 'pullover' -%}
+          {%- assign cat = 'Outerwear' -%}{%- assign word = 'layer' -%}
+        {%- elsif title_lower contains 'skirt' -%}
+          {%- assign cat = 'Skirts' -%}{%- assign word = 'skirt' -%}
+        {%- elsif title_lower contains 'romper' or title_lower contains 'jumpsuit' or title_lower contains 'bodysuit' or title_lower contains 'playsuit' -%}
+          {%- assign cat = 'One-Pieces' -%}{%- assign word = 'one-piece' -%}
+        {%- elsif title_lower contains 'bag' or title_lower contains 'purse' or title_lower contains 'handbag' or title_lower contains 'tote' or title_lower contains 'crossbody' or title_lower contains 'sling' -%}
+          {%- assign cat = 'Bags' -%}{%- assign word = 'bag' -%}
+        {%- elsif title_lower contains 'shoe' or title_lower contains 'boot' or title_lower contains 'heel' or title_lower contains 'sandal' or title_lower contains 'sneaker' or title_lower contains 'flat' -%}
+          {%- assign cat = 'Shoes' -%}{%- assign word = 'shoe' -%}
+        {%- endif -%}
+        {%- if cat == 'Dresses' -%}
+          {
+            "@type": "Question",
+            "name": "What is the fit and sizing of the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} runs true to size. Please refer to our detailed size chart above (S/M/L) to find your perfect measurements."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What occasions are suitable for this dress?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is designed for versatile everyday styling. Depending on the occasion, it can easily be dressed up with layers or worn as a relaxed statement piece."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is the return policy for the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We offer a 7-day return policy for the {{ product.title | escape }} to ensure you are completely satisfied with your purchase."
+            }
+          }
+        {%- elsif cat == 'Tops' -%}
+          {
+            "@type": "Question",
+            "name": "How does the {{ product.title | escape }} fit?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is designed for a comfortable, regular fit. We recommend checking the bust and waist measurements in our size guide before ordering."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How should I wash and care for this top?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "To maintain the fabric quality, we recommend hand washing or machine washing on a delicate cycle with cold water, then hanging or lying flat to dry."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is the shipping cost and return policy?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We offer free US shipping on orders over $50 and a hassle-free 7-day return policy on all eligible purchases."
+            }
+          }
+        {%- elsif cat == 'Bottoms' -%}
+          {
+            "@type": "Question",
+            "name": "What is the rise and length of the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} features a mid-to-high rise cut designed to sit comfortably at your waist. Check our sizing table for specific waist and hip measurements."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is the fabric of this bottom stretchy?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is crafted with high-quality materials designed for both durability and comfort, providing a natural shape and comfortable wear throughout the day."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Can I return the {{ product.title | escape }} if it doesn't fit?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes! We accept returns within 7 days of delivery. Please ensure the bottom is in its original, unworn condition with tags attached."
+            }
+          }
+        {%- elsif cat == 'Outerwear' -%}
+          {
+            "@type": "Question",
+            "name": "How heavy is the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is a premium medium-weight layer designed for easy layering. It provides the perfect balance of warmth and breathability for transitional weather."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does this layer fit true to size?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes, the {{ product.title | escape }} fits true to size for standard layering. If you prefer an oversized fit, we suggest ordering one size up."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What returns and shipping options are available?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "This item qualifies for free US shipping (orders $50+) and is backed by our standard 7-day return policy."
+            }
+          }
+        {%- elsif cat == 'Skirts' -%}
+          {
+            "@type": "Question",
+            "name": "What is the length of the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is cut to a classic silhouette. Detailed waist and hip measurements are available in our sizing guide to ensure an accurate fit."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How do I style this skirt?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "This skirt pairs beautifully with tucked-in tees, blouses, or cardigans for an elevated office or weekend look."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is the return policy for the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We offer an easy 7-day return window. Contact us within 7 days of receiving your item to start a return."
+            }
+          }
+        {%- elsif cat == 'One-Pieces' -%}
+          {
+            "@type": "Question",
+            "name": "What is the fit profile of the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is cut for a modern, contoured fit that flatters your natural silhouette. Refer to our size guide for bust, waist, and hip details."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How do I care for this one-piece?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We suggest washing the {{ product.title | escape }} inside out in cold water on a gentle cycle, then hang drying to preserve the fabric and fit."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is shipping free for this item?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes, free US shipping is automatically applied to all orders over $50, and returns are accepted within 7 days."
+            }
+          }
+        {%- elsif cat == 'Bags' -%}
+          {
+            "@type": "Question",
+            "name": "What are the dimensions of the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is a spacious, daily-use bag designed to carry your essentials. It features durable construction and secure closures."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Are there interior pockets in this bag?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes, the {{ product.title | escape }} includes convenient compartments to keep your small items organized and easy to access on the go."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is MeeeShop's return policy?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We offer a 7-day return policy. If you're not completely in love with your {{ product.title | escape }}, simply contact support within 7 days of delivery."
+            }
+          }
+        {%- elsif cat == 'Shoes' -%}
+          {
+            "@type": "Question",
+            "name": "Is the {{ product.title | escape }} comfortable for all-day wear?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is crafted with cushioned footbeds and premium support, making it comfortable for daily walking and extended wear."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does this shoe run narrow or wide?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} fits true to size for standard widths. If you typically wear a half-size, we recommend sizing up to the nearest whole size."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is the return policy for footwear?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Footwear must be in unworn condition and in their original packaging to qualify for our standard 7-day return window."
+            }
+          }
+        {%- else -%}
+          {
+            "@type": "Question",
+            "name": "What is the sizing fit for the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} runs true to standard US fashion sizing. Please check the measurements in our size guide to find your perfect fit."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What are the care instructions for this piece?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We recommend washing in cold water with similar colors and hang drying or laying flat to preserve the color and texture of the fabric."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What shipping and return policies apply?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "All orders over $50 qualify for free shipping. We also provide a standard 7-day return policy on all unworn items."
+            }
+          }
+        {%- endif -%}
+      ]
+    }
+    {%- endif -%}
     ,{
       "@type": "BreadcrumbList",
       "itemListElement": [
@@ -766,8 +1350,15 @@ def validate_seo(item, item_type, existing_mfs):
     mismatches = []
     title = item.get('title', '')
 
+    if item_type == "product":
+        ptype = item.get('product_type', '')
+        tags = item.get('tags', '')
+    else:
+        ptype = ''
+        tags = ''
+
     # ── Meta title (exact match) ──────────────────────────────────────────────
-    expected_meta_title = build_meta_title(title)
+    expected_meta_title = build_meta_title(title, ptype, tags)
     cur_meta_title = existing_mfs.get('global.title_tag', {}).get('value', '')
     if cur_meta_title != expected_meta_title:
         mismatches.append({"field": "meta_title", "before": cur_meta_title, "after": expected_meta_title})
@@ -782,7 +1373,7 @@ def validate_seo(item, item_type, existing_mfs):
         and not has_stale_return_policy(cur_meta_desc)
     )
     if not desc_ok:
-        new_meta_desc = build_meta_desc(title)
+        new_meta_desc = build_meta_desc(title, ptype, tags)
         mismatches.append({"field": "meta_desc", "before": cur_meta_desc, "after": new_meta_desc})
 
     # ── Product-only: body_html + image ALTs ──────────────────────────────────
@@ -823,8 +1414,12 @@ def validate_seo(item, item_type, existing_mfs):
             if opt and opt.lower() not in ('default title', 'default', ''):
                 colors.append(opt)
         for i, img in enumerate(item.get('images', [])):
-            hint = colors[i] if i < len(colors) else ''
-            expected_alt = build_alt(title, hint, i)
+            matching_var = next((v for v in item.get('variants', []) if v.get('image_id') == img.get('id')), None)
+            if matching_var and matching_var.get('option1') and matching_var.get('option1').lower() not in ('default title', 'default', ''):
+                hint = matching_var.get('option1')
+            else:
+                hint = colors[i] if i < len(colors) else ''
+            expected_alt = build_alt(title, hint, i, ptype, tags)
             cur_alt = img.get('alt', '') or ''
             if cur_alt != expected_alt:
                 mismatches.append({
@@ -842,58 +1437,59 @@ def validate_seo(item, item_type, existing_mfs):
 # CORE PRODUCT PROCESSOR
 # ══════════════════════════════════════════════════════════════════════════════
 
-def process(product, stats, log, existing_mfs=None, force=False):
+def process(product, stats, log, existing_mfs=None, force=False, only_images=False):
     pid        = product['id']
     old_title  = product['title']
     old_handle = product['handle']
     changes    = []
     missing    = []
 
-    # ── 1. Title Case ─────────────────────────────────────────────────────────
-    new_title    = title_case(old_title)
     prod_updates = {}
-    if new_title != old_title:
-        prod_updates['title'] = new_title
-        stats['titles'] += 1
-        changes.append({"field": "title", "before": old_title, "after": new_title})
+    if not only_images:
+        # ── 1. Title Case ─────────────────────────────────────────────────────────
+        new_title    = title_case(old_title)
+        if new_title != old_title:
+            prod_updates['title'] = new_title
+            stats['titles'] += 1
+            changes.append({"field": "title", "before": old_title, "after": new_title})
 
-    # ── 2. Body description: rewrite in force/weekly mode OR if stale/missing template ─────
-    body_html = product.get('body_html', '') or ''
-    plain_len = len(strip_html(body_html))
-    has_table = has_size_table(body_html)
-    required_markers = ['Discover the', 'Product Features', 'Premium quality materials',
-                        'Why Choose', RETURN_POLICY]
-    has_all_markers = all(m in body_html for m in required_markers)
-    has_stale_body  = has_stale_return_policy(body_html)
+        # ── 2. Body description: rewrite in force/weekly mode OR if stale/missing template ─────
+        body_html = product.get('body_html', '') or ''
+        plain_len = len(strip_html(body_html))
+        has_table = has_size_table(body_html)
+        required_markers = ['Discover the', 'Product Features', 'Premium quality materials',
+                            'Why Choose', RETURN_POLICY]
+        has_all_markers = all(m in body_html for m in required_markers)
+        has_stale_body  = has_stale_return_policy(body_html)
 
-    # Allow custom descriptions to bypass complete overwrite, only rewriting if force or missing table/stale return
-    is_custom = len(strip_html(body_html)) >= 200 and not ("Discover the" in body_html and "Why Choose" in body_html)
-    if is_custom:
-        needs_body_rewrite = force or not has_table or has_stale_body
-    else:
-        needs_body_rewrite = force or plain_len < 500 or not has_table or has_stale_body or not has_all_markers
+        # Allow custom descriptions to bypass complete overwrite, only rewriting if force or missing table/stale return
+        is_custom = len(strip_html(body_html)) >= 200 and not ("Discover the" in body_html and "Why Choose" in body_html)
+        if is_custom:
+            needs_body_rewrite = force or not has_table or has_stale_body
+        else:
+            needs_body_rewrite = force or plain_len < 500 or not has_table or has_stale_body or not has_all_markers
 
-    if needs_body_rewrite:
-        missing.append(f"body_html ({plain_len} chars, table={has_table}, stale={has_stale_body}, markers={has_all_markers}, custom={is_custom})")
-        new_body = build_description(product, force=True)
-        prod_updates['body_html'] = new_body
-        stats['descriptions'] += 1
-        changes.append({
-            "field": "body_html",
-            "before": f"{plain_len} chars",
-            "after": f"{len(strip_html(new_body))} chars + table"
-        })
+        if needs_body_rewrite:
+            missing.append(f"body_html ({plain_len} chars, table={has_table}, stale={has_stale_body}, markers={has_all_markers}, custom={is_custom})")
+            new_body = build_description(product, force=True)
+            prod_updates['body_html'] = new_body
+            stats['descriptions'] += 1
+            changes.append({
+                "field": "body_html",
+                "before": f"{plain_len} chars",
+                "after": f"{len(strip_html(new_body))} chars + table"
+            })
 
-    # ── 3. URL handle + redirect ──────────────────────────────────────────────
-    final_title  = prod_updates.get('title', old_title)
-    ideal_handle = slugify(final_title)
-    if ideal_handle and ideal_handle != old_handle and len(ideal_handle) > 4:
-        missing.append(f"handle (was '{old_handle}')")
-        prod_updates['handle'] = ideal_handle
-        if create_redirect(old_handle, ideal_handle):
-            stats['redirects'] += 1
-        stats['handles'] += 1
-        changes.append({"field": "handle", "before": old_handle, "after": ideal_handle})
+        # ── 3. URL handle + redirect ──────────────────────────────────────────────
+        final_title  = prod_updates.get('title', old_title)
+        ideal_handle = slugify(final_title)
+        if ideal_handle and ideal_handle != old_handle and len(ideal_handle) > 4:
+            missing.append(f"handle (was '{old_handle}')")
+            prod_updates['handle'] = ideal_handle
+            if create_redirect(old_handle, ideal_handle):
+                stats['redirects'] += 1
+            stats['handles'] += 1
+            changes.append({"field": "handle", "before": old_handle, "after": ideal_handle})
 
     # Apply product updates
     if prod_updates:
@@ -906,11 +1502,7 @@ def process(product, stats, log, existing_mfs=None, force=False):
 
     # ── 4. Fetch metafields if not provided ───────────────────────────────────
     if existing_mfs is None:
-        try:
-            existing_mfs = get_metafields("products", pid)
-        except Exception as e:
-            print(f"    ! Metafields fetch error: {e}")
-            existing_mfs = {}
+        existing_mfs = {}
 
     # ── 5. Strict validation + fix ────────────────────────────────────────────
     display_title = prod_updates.get('title', old_title)
@@ -918,24 +1510,26 @@ def process(product, stats, log, existing_mfs=None, force=False):
     mismatches = validate_seo(product_with_new_title, "product", existing_mfs)
 
     meta_fix_needed = False
-    new_meta_title = build_meta_title(display_title)
-    new_meta_desc = build_meta_desc(display_title)
+    new_meta_title = build_meta_title(display_title, product.get('product_type', ''), product.get('tags', ''))
+    new_meta_desc = build_meta_desc(display_title, product.get('product_type', ''), product.get('tags', ''))
 
     for m in mismatches:
         if m['field'] == 'meta_title':
-            missing.append("meta_title mismatch")
-            meta_fix_needed = True
-            stats['meta_titles'] += 1
-            changes.append({"field": "meta_title", "before": m['before'], "after": m['after']})
+            if not only_images:
+                missing.append("meta_title mismatch")
+                meta_fix_needed = True
+                stats['meta_titles'] += 1
+                changes.append({"field": "meta_title", "before": m['before'], "after": m['after']})
         elif m['field'] == 'meta_desc':
-            missing.append("meta_desc mismatch")
-            if not meta_fix_needed:
-                stats['meta_descs'] += 1
-            changes.append({
-                "field": "meta_desc",
-                "before": m['before'][:80] + "..." if len(m['before']) > 80 else m['before'],
-                "after": m['after'][:80] + "..."
-            })
+            if not only_images:
+                missing.append("meta_desc mismatch")
+                if not meta_fix_needed:
+                    stats['meta_descs'] += 1
+                changes.append({
+                    "field": "meta_desc",
+                    "before": m['before'][:80] + "..." if len(m['before']) > 80 else m['before'],
+                    "after": m['after'][:80] + "..."
+                })
         elif m['field'] == 'body_html':
             # Already handled above
             pass
@@ -944,12 +1538,13 @@ def process(product, stats, log, existing_mfs=None, force=False):
             iid = m['_img_id']
             if not m['before']:
                 missing.append(f"img[{i}] alt (missing)")
-            if update_image_alt(pid, iid, m['after']):
+            img_src = next((img['src'] for img in product.get('images', []) if img.get('id') == iid), None)
+            if update_image_alt(pid, iid, m['after'], img_src, idx=i):
                 stats['alts'] += 1
                 changes.append({"field": f"img_alt[{i}]", "before": m['before'][:50], "after": m['after'][:50]})
 
     # In force mode, always rewrite both meta fields even if they already pass validation
-    if force and not meta_fix_needed:
+    if force and not only_images and not meta_fix_needed:
         cur_mt = existing_mfs.get('global.title_tag', {}).get('value', '')
         cur_md = existing_mfs.get('global.description_tag', {}).get('value', '')
         if cur_mt != new_meta_title or cur_md != new_meta_desc:
@@ -960,17 +1555,17 @@ def process(product, stats, log, existing_mfs=None, force=False):
             changes.append({"field": "meta_desc", "before": cur_md[:80], "after": new_meta_desc[:80]})
 
     # Fix meta fields if needed
-    if meta_fix_needed:
-        try:
-            set_seo_metafields("products", pid, new_meta_title, new_meta_desc, existing_mfs)
-        except Exception as e:
-            print(f"    ! Meta update error: {e}")
-    elif any(m['field'] == 'meta_desc' for m in mismatches):
-        try:
-            upsert_metafield("products", pid, "global", "description_tag", new_meta_desc,
-                             "multi_line_text_field", existing_mfs)
-        except Exception as e:
-            print(f"    ! Meta desc update error: {e}")
+    if not only_images:
+        if meta_fix_needed:
+            try:
+                set_seo_metafields("products", pid, new_meta_title, new_meta_desc, existing_mfs)
+            except Exception as e:
+                print(f"    ! Meta update error: {e}")
+        elif any(m['field'] == 'meta_desc' for m in mismatches):
+            try:
+                set_seo_metafields("products", pid, new_meta_title, new_meta_desc)
+            except Exception as e:
+                print(f"    ! Meta desc update error: {e}")
 
     # ── Log entry ─────────────────────────────────────────────────────────────
     entry = {
@@ -991,6 +1586,83 @@ def process(product, stats, log, existing_mfs=None, force=False):
         if len(changes) > 3:
             print(f"  + ...and {len(changes)-3} more")
 
+# ══════════════════════════════════════════════════════════════════════════════
+# LOG HELPERS FOR SKIP HISTORY
+# ══════════════════════════════════════════════════════════════════════════════
+
+def load_recently_updated_ids(filepath: str = "seo_update_log.json") -> set:
+    """
+    Return a set of resource IDs (integers) that were successfully processed/updated.
+    Searches recursively for all seo_update_log.json files in the workspace.
+    """
+    from pathlib import Path
+    log_files = []
+    if os.path.exists(filepath):
+        log_files.append(Path(filepath))
+
+    for p in Path(".").glob("**/seo_update_log.json"):
+        if p.resolve() not in [lf.resolve() for lf in log_files]:
+            log_files.append(p)
+
+    processed_ids = set()
+    for lf in log_files:
+        try:
+            logs = json.loads(lf.read_text(encoding="utf-8"))
+            if not isinstance(logs, list):
+                continue
+            for entry in logs:
+                if not isinstance(entry, dict):
+                    continue
+                ids = entry.get("processed_ids", [])
+                for item_id in ids:
+                    processed_ids.add(int(item_id))
+        except Exception:
+            pass
+    return processed_ids
+
+
+def save_update_log(processed_ids: set, stats: dict, mode: str, args, filepath: str = "seo_update_log.json"):
+    from pathlib import Path
+    log_path = Path(filepath)
+    logs = []
+    if log_path.exists():
+        try:
+            logs = json.loads(log_path.read_text(encoding="utf-8"))
+        except Exception:
+            logs = []
+
+    existing_timestamps = {entry.get("timestamp") for entry in logs if isinstance(entry, dict)}
+
+    # Merge logs from other files
+    for p in Path(".").glob("**/seo_update_log.json"):
+        if p.resolve() == log_path.resolve():
+            continue
+        try:
+            sub_logs = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(sub_logs, list):
+                for entry in sub_logs:
+                    if isinstance(entry, dict):
+                        ts = entry.get("timestamp")
+                        if ts not in existing_timestamps:
+                            logs.append(entry)
+                            existing_timestamps.add(ts)
+        except Exception:
+            pass
+
+    logs.sort(key=lambda entry: entry.get("timestamp") or "")
+
+    logs.append({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "mode": mode,
+        "batch_index": args.batch_index if mode == 'force' else None,
+        "batch_size": args.batch_size if mode == 'force' else None,
+        "summary": stats,
+        "processed_ids": sorted(list(processed_ids))
+    })
+
+    log_path.write_text(json.dumps(logs, indent=2), encoding="utf-8")
+    print(f"[Log] Saved consolidated log to {filepath}")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN
@@ -1007,6 +1679,7 @@ def main():
     ap.add_argument('--batch-index', type=int, default=0,  help='For force mode: which batch to process (0-based)')
     ap.add_argument('--resource',    type=str, default='all', choices=['all', 'products', 'collections', 'pages', 'blogs'], help='Resource type to validate/optimize')
     ap.add_argument('--skip-jsonld', action='store_true', help='Skip JSON-LD injection')
+    ap.add_argument('--only-images', action='store_true', help='Only update image ALTs and filenames, skip descriptions/meta/handles')
     args = ap.parse_args()
 
     print("=== MeeeShop SEO Automation v2.0 ===\n")
@@ -1037,6 +1710,19 @@ def main():
 
     print(f"Cutoff: {since or 'none (all resources)'}\n")
 
+    # ── Load recently processed/updated GIDs to skip ──────────────────────────
+    skip_ids = set()
+    if not args.force:
+        try:
+            skip_ids = load_recently_updated_ids()
+            if skip_ids:
+                print(f"[Skip] {len(skip_ids)} item(s) already processed in previous runs — will skip\n")
+        except Exception as e:
+            print(f"Warning: Failed to load skip history: {e}")
+
+    # Track successfully processed/validated IDs in this run
+    processed_ids = set()
+
     # ── JSON-LD theme injection (idempotent) ──────────────────────────────────
     if not args.skip_jsonld:
         print("Injecting JSON-LD structured data...")
@@ -1047,14 +1733,20 @@ def main():
             print("  ! Could not find live theme")
         print()
 
-    # ── Fetch all resources (products, pages, collections, articles) ──────────
-    # Products: created_at_min — catches new dropship imports (Trendsi, Cemi Cari, etc.)
-    # Pages/Collections: created_at_min — new pages/collections published since cutoff
-    # Articles: published_at_min — new blog posts published since cutoff
+    # Calculate lookback hours for GraphQL
+    hours = 0
+    if args.hours:
+        hours = args.hours
+    elif mode == 'daily':
+        hours = 48
+    elif mode == 'weekly':
+        hours = 168
+
     products = []
     if args.resource in ('all', 'products'):
         print("Fetching products...")
-        products = fetch_products(since)
+        from shopify_graphql import fetch_products_graphql
+        products = fetch_products_graphql(hours, query_by_updated=False)
         total_fetched = len(products)
         if mode == 'force' and args.batch_size > 0:
             start = args.batch_index * args.batch_size
@@ -1066,21 +1758,24 @@ def main():
         print(f"  Found {len(products)} products\n")
 
     pages = []
-    if args.resource in ('all', 'pages'):
+    if args.resource in ('all', 'pages') and not args.only_images:
         print("Fetching pages...")
-        pages = fetch_pages(since)
+        from shopify_graphql import fetch_pages_graphql
+        pages = fetch_pages_graphql(hours)
         print(f"  Found {len(pages)} pages\n")
 
     collections = []
     if args.resource in ('all', 'collections'):
         print("Fetching collections...")
-        collections = fetch_collections(since)
+        from shopify_graphql import fetch_collections_graphql
+        collections = fetch_collections_graphql(hours)
         print(f"  Found {len(collections)} collections\n")
 
     articles = []
     if args.resource in ('all', 'blogs'):
         print("Fetching articles...")
-        articles = fetch_articles(since)
+        from shopify_graphql import fetch_articles_graphql
+        articles = fetch_articles_graphql(hours)
         print(f"  Found {len(articles)} articles\n")
 
     total_items = len(products) + len(pages) + len(collections) + len(articles)
@@ -1097,22 +1792,35 @@ def main():
     # ── Process products ──────────────────────────────────────────────────────
     print("Processing products...")
     for i, p in enumerate(products, 1):
-        mfs        = get_metafields("products", p['id'])
+        if p['id'] in skip_ids:
+            print(f"  [{i}/{len(products)}] SKIP (recent) {p['title'][:55]}")
+            continue
+
+        mfs        = {f"{m['namespace']}.{m['key']}": m for m in p.get('metafields', [])}
         mismatches = validate_seo(p, "product", mfs)
         title_wrong = title_case(p['title']) != p['title']
-        needs_seo   = bool(mismatches) or title_wrong
+        if args.only_images:
+            needs_seo = any(m['field'].startswith('img_alt') for m in mismatches)
+        else:
+            needs_seo = bool(mismatches) or title_wrong
         if not needs_seo and mode not in ('force', 'weekly'):
             print(f"  [{i}/{len(products)}] OK  {p['title'][:55]}")
+            processed_ids.add(p['id'])
             continue
         print(f"  [{i}/{len(products)}] FIX {p['title'][:55]}")
-        process(p, stats, log, existing_mfs=mfs, force=(mode in ('force', 'weekly')))
+        process(p, stats, log, existing_mfs=mfs, force=(mode in ('force', 'weekly')), only_images=args.only_images)
+        processed_ids.add(p['id'])
 
     # ── Process pages ─────────────────────────────────────────────────────────
     if pages:
         print("\nProcessing pages...")
         for i, page in enumerate(pages, 1):
+            if page['id'] in skip_ids:
+                print(f"  [{i}/{len(pages)}] SKIP (recent) {page['title'][:55]}")
+                continue
+
             title = page['title']
-            mfs = get_metafields("pages", page['id'])
+            mfs        = {f"{m['namespace']}.{m['key']}": m for m in page.get('metafields', [])}
 
             # Strict validation
             cur_mtitle = mfs.get('global.title_tag', {}).get('value', '')
@@ -1129,6 +1837,7 @@ def main():
             needs_seo = not mt_ok or not desc_ok
             if not needs_seo and mode not in ('force', 'weekly'):
                 print(f"  [{i}/{len(pages)}] OK  {title[:55]}")
+                processed_ids.add(page['id'])
                 continue
 
             print(f"  [{i}/{len(pages)}] FIX {title[:55]}")
@@ -1151,6 +1860,7 @@ def main():
                         {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]},
                     ]
                 })
+                processed_ids.add(page['id'])
             except Exception as e:
                 print(f"    ! Error processing page: {e}")
 
@@ -1158,9 +1868,13 @@ def main():
     if collections:
         print("\nProcessing collections...")
         for i, coll in enumerate(collections, 1):
+            if coll['id'] in skip_ids:
+                print(f"  [{i}/{len(collections)}] SKIP (recent) {coll['title'][:55]}")
+                continue
+
             title = coll['title']
             coll_type = coll.get('_type', 'custom_collections')
-            mfs = get_metafields(coll_type, coll['id'])
+            mfs        = {f"{m['namespace']}.{m['key']}": m for m in coll.get('metafields', [])}
 
             # Strict validation
             cur_mtitle = mfs.get('global.title_tag', {}).get('value', '')
@@ -1174,38 +1888,117 @@ def main():
                 and not has_stale_return_policy(cur_mdesc)
             )
             mt_ok = (cur_mtitle == expected_mt)
-            needs_seo = not mt_ok or not desc_ok
+
+            # Collection image processing
+            coll_image = coll.get('image')
+            image_ok = True
+            expected_img_alt = None
+            if coll_image:
+                expected_img_alt = build_collection_alt(title)
+                cur_img_alt = coll_image.get('altText') or ''
+                if cur_img_alt != expected_img_alt:
+                    image_ok = False
+
+            if args.only_images:
+                needs_seo = not image_ok if coll_image else False
+            else:
+                needs_seo = not mt_ok or not desc_ok or (not image_ok if coll_image else False)
+
             if not needs_seo and mode not in ('force', 'weekly'):
                 print(f"  [{i}/{len(collections)}] OK  {title[:55]}")
+                processed_ids.add(coll['id'])
                 continue
 
             print(f"  [{i}/{len(collections)}] FIX {title[:55]}")
-            new_meta_title = expected_mt
-            new_meta_desc = truncate(
-                f"Shop {title} at {DISPLAY_BRAND}. Premium women's fashion with free US shipping & 7-day returns.",
-                155
-            )
-            try:
-                set_seo_metafields(coll_type, coll['id'], new_meta_title, new_meta_desc, mfs)
-                stats['meta_titles'] += 1
-                stats['meta_descs'] += 1
-                stats['collections'] += 1
+            coll_changes = []
+
+            # Update meta fields if not only_images
+            if not args.only_images:
+                new_meta_title = expected_mt
+                new_meta_desc = truncate(
+                    f"Shop {title} at {DISPLAY_BRAND}. Premium women's fashion with free US shipping & 7-day returns.",
+                    155
+                )
+                try:
+                    set_seo_metafields(coll_type, coll['id'], new_meta_title, new_meta_desc, mfs)
+                    stats['meta_titles'] += 1
+                    stats['meta_descs'] += 1
+                    stats['collections'] += 1
+                    coll_changes.extend([
+                        {"field": "meta_title", "before": cur_mtitle, "after": new_meta_title},
+                        {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]}
+                    ])
+                except Exception as e:
+                    print(f"    ! Error processing collection metafields: {e}")
+
+            # Update collection image alt and filename
+            if coll_image and (not image_ok or mode in ('force', 'weekly')):
+                try:
+                    # 1. Update Alt text via collectionUpdate mutation
+                    q_update_coll = """
+                    mutation collectionUpdate($input: CollectionInput!) {
+                      collectionUpdate(input: $input) {
+                        collection { id }
+                        userErrors { field message }
+                      }
+                    }
+                    """
+                    variables = {
+                        "input": {
+                            "id": f"gid://shopify/Collection/{coll['id']}",
+                            "image": {
+                                "altText": expected_img_alt
+                            }
+                        }
+                    }
+                    res = run_graphql(q_update_coll, variables)
+                    errs = res.get("data", {}).get("collectionUpdate", {}).get("userErrors", [])
+                    if errs:
+                        print(f"    ! Error updating collection image alt: {errs}")
+                    else:
+                        stats['alts'] += 1
+                        coll_changes.append({"field": "image_alt", "before": coll_image.get('altText') or '', "after": expected_img_alt})
+                        print(f"  + image_alt: '{coll_image.get('altText') or ''}' -> '{expected_img_alt}'")
+
+                    # 2. Try to rename image filename if possible
+                    src = coll_image.get('url')
+                    if src:
+                        clean_url = src.split('?')[0]
+                        base = clean_url.split('/')[-1]
+                        if '.' in base:
+                            ext = base.rsplit('.', 1)[1].lower()
+                            slug = slugify(expected_img_alt)
+                            img_id = parse_gid(coll_image.get('id'))
+                            media_suffix = str(img_id)[-6:] if img_id else str(int(time.time() * 1000))[-6:]
+                            new_filename = f"{slug[:50].strip('-')}-{media_suffix}.{ext}"
+                            if slug[:30] not in base.lower():
+                                # Search standard files to find GenericFile/MediaImage ID
+                                file_id = find_file_id_by_filename(base)
+                                if file_id:
+                                    if rename_shopify_file(file_id, new_filename):
+                                        print(f"  + Filename updated: '{base}' -> '{new_filename}'")
+                                else:
+                                    print(f"  (Note: collection image '{base}' not found in standard files for renaming)")
+                except Exception as e:
+                    print(f"    ! Error updating collection image: {e}")
+
+            if coll_changes:
                 log.append({
                     'type': 'collection',
                     'title': title,
                     'url': f"{SITE}/collections/{coll['handle']}",
-                    'fixed': [
-                        {"field": "meta_title", "before": cur_mtitle, "after": new_meta_title},
-                        {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]},
-                    ]
+                    'fixed': coll_changes
                 })
-            except Exception as e:
-                print(f"    ! Error processing collection: {e}")
+            processed_ids.add(coll['id'])
 
     # ── Process articles ──────────────────────────────────────────────────────
     if articles:
         print("\nProcessing articles...")
         for i, article in enumerate(articles, 1):
+            if article['id'] in skip_ids:
+                print(f"  [{i}/{len(articles)}] SKIP (recent) {article['title'][:55]}")
+                continue
+
             title = article['title']
             blog_id = article.get('blog_id')
             blog_handle = article.get('blog_handle')
@@ -1215,11 +2008,7 @@ def main():
                 print(f"  [{i}/{len(articles)}] SKIP {title[:55]} (no blog_id or blog_handle)")
                 continue
 
-            try:
-                mfs = get_metafields(f"blogs/{blog_id}/articles", art_id)
-            except Exception as e:
-                print(f"  ! Could not fetch metafields for article {title}: {e}")
-                continue
+            mfs        = {f"{m['namespace']}.{m['key']}": m for m in article.get('metafields', [])}
 
             # Strict validation
             cur_mtitle = mfs.get('global.title_tag', {}).get('value', '')
@@ -1233,33 +2022,108 @@ def main():
                 and not has_stale_return_policy(cur_mdesc)
             )
             mt_ok = (cur_mtitle == expected_mt)
-            needs_seo = not mt_ok or not desc_ok
+
+            # Article image processing
+            art_image = article.get('image')
+            image_ok = True
+            expected_img_alt = None
+            if art_image:
+                expected_img_alt = build_article_alt(title)
+                cur_img_alt = art_image.get('altText') or ''
+                if cur_img_alt != expected_img_alt:
+                    image_ok = False
+
+            if args.only_images:
+                needs_seo = not image_ok if art_image else False
+            else:
+                needs_seo = not mt_ok or not desc_ok or (not image_ok if art_image else False)
+
             if not needs_seo and mode not in ('force', 'weekly'):
                 print(f"  [{i}/{len(articles)}] OK  {title[:55]}")
+                processed_ids.add(article['id'])
                 continue
 
             print(f"  [{i}/{len(articles)}] FIX {title[:55]}")
-            new_meta_title = expected_mt
-            new_meta_desc = truncate(
-                f"{title} - {DISPLAY_BRAND} Blog. Women's fashion tips & styling guides with free shipping & 7-day returns.",
-                155
-            )
-            try:
-                set_seo_metafields(f"blogs/{blog_id}/articles", art_id, new_meta_title, new_meta_desc, mfs)
-                stats['meta_titles'] += 1
-                stats['meta_descs'] += 1
-                stats['articles'] += 1
+            art_changes = []
+
+            # Update meta fields if not only_images
+            if not args.only_images:
+                new_meta_title = expected_mt
+                new_meta_desc = truncate(
+                    f"{title} - {DISPLAY_BRAND} Blog. Women's fashion tips & styling guides with free shipping & 7-day returns.",
+                    155
+                )
+                try:
+                    set_seo_metafields(f"blogs/{blog_id}/articles", art_id, new_meta_title, new_meta_desc, mfs)
+                    stats['meta_titles'] += 1
+                    stats['meta_descs'] += 1
+                    stats['articles'] += 1
+                    art_changes.extend([
+                        {"field": "meta_title", "before": cur_mtitle, "after": new_meta_title},
+                        {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]}
+                    ])
+                except Exception as e:
+                    print(f"    ! Error processing article metafields: {e}")
+
+            # Update article image alt and filename
+            if art_image and (not image_ok or mode in ('force', 'weekly')):
+                try:
+                    # 1. Update Alt text via articleUpdate mutation
+                    q_update_art = """
+                    mutation articleUpdate($id: ID!, $article: ArticleUpdateInput!) {
+                      articleUpdate(id: $id, article: $article) {
+                        article { id }
+                        userErrors { field message }
+                      }
+                    }
+                    """
+                    variables = {
+                        "id": f"gid://shopify/Article/{art_id}",
+                        "article": {
+                            "image": {
+                                "altText": expected_img_alt
+                            }
+                        }
+                    }
+                    res = run_graphql(q_update_art, variables)
+                    errs = res.get("data", {}).get("articleUpdate", {}).get("userErrors", [])
+                    if errs:
+                        print(f"    ! Error updating article image alt: {errs}")
+                    else:
+                        stats['alts'] += 1
+                        art_changes.append({"field": "image_alt", "before": art_image.get('altText') or '', "after": expected_img_alt})
+                        print(f"  + image_alt: '{art_image.get('altText') or ''}' -> '{expected_img_alt}'")
+
+                    # 2. Try to rename image filename if possible
+                    src = art_image.get('src')
+                    if src:
+                        clean_url = src.split('?')[0]
+                        base = clean_url.split('/')[-1]
+                        if '.' in base:
+                            ext = base.rsplit('.', 1)[1].lower()
+                            slug = slugify(expected_img_alt)
+                            img_id = parse_gid(art_image.get('id'))
+                            media_suffix = str(img_id)[-6:] if img_id else str(int(time.time() * 1000))[-6:]
+                            new_filename = f"{slug[:50].strip('-')}-{media_suffix}.{ext}"
+                            if slug[:30] not in base.lower():
+                                # Search standard files to find GenericFile/MediaImage ID
+                                file_id = find_file_id_by_filename(base)
+                                if file_id:
+                                    if rename_shopify_file(file_id, new_filename):
+                                        print(f"  + Filename updated: '{base}' -> '{new_filename}'")
+                                else:
+                                    print(f"  (Note: article image '{base}' not found in standard files for renaming)")
+                except Exception as e:
+                    print(f"    ! Error updating article image: {e}")
+
+            if art_changes:
                 log.append({
                     'type': 'article',
                     'title': title,
                     'url': f"{SITE}/blogs/{blog_handle}/{article['handle']}",
-                    'fixed': [
-                        {"field": "meta_title", "before": cur_mtitle, "after": new_meta_title},
-                        {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]},
-                    ]
+                    'fixed': art_changes
                 })
-            except Exception as e:
-                print(f"    ! Error processing article: {e}")
+            processed_ids.add(article['id'])
 
     # ── Report ────────────────────────────────────────────────────────────────
     print("\n" + "-"*60)
@@ -1314,6 +2178,14 @@ def main():
     with open(fname, 'w') as f:
         json.dump(report, f, indent=2)
     print(f"\nFull report saved: {fname}")
+
+    # Save processed GIDs log
+    if not args.force:
+        try:
+            save_update_log(processed_ids, stats, mode, args)
+        except Exception as e:
+            print(f"Warning: Failed to save skip history: {e}")
+
 
 
 if __name__ == "__main__":

@@ -121,9 +121,15 @@ def verify_and_register_key():
 
         # 2. Upload file
         with open(local_key_path, "rb") as f:
-            files = {"file": (KEY_FILE_NAME, f, "text/plain")}
-            params = {p["name"]: p["value"] for p in target["parameters"]}
-            upload_resp = requests.post(target["url"], data=params, files=files)
+            form_data = []
+            for p in target["parameters"]:
+                form_data.append((p["name"], p["value"]))
+            form_data.append(("file", (KEY_FILE_NAME, f, "text/plain")))
+            
+            upload_resp = requests.post(target["url"], files=form_data)
+            if upload_resp.status_code not in (200, 201):
+                print(f"❌ Staged upload failed with status {upload_resp.status_code}. Response body:")
+                print(upload_resp.text)
             upload_resp.raise_for_status()
 
         # 3. Create generic file
@@ -202,6 +208,141 @@ def verify_and_register_key():
             local_key_path.unlink()
 
 # ── URL Discovery ──────────────────────────────────────────────────────────────
+def fetch_all_products_graphql() -> list[str]:
+    print("Fetching all product handles via GraphQL...")
+    graphql_url = f"{BASE}/graphql.json"
+    query = """
+    query ($first: Int!, $after: String) {
+      products(first: $first, after: $after, query: "status:active") {
+        pageInfo { hasNextPage endCursor }
+        edges {
+          node {
+            handle
+          }
+        }
+      }
+    }
+    """
+    handles = []
+    has_next = True
+    cursor = None
+    while has_next:
+        variables = {"first": 250, "after": cursor}
+        try:
+            res = _shopify_post(graphql_url, {"query": query, "variables": variables})
+            data = res.get("data", {}).get("products", {})
+            for edge in data.get("edges", []):
+                handle = edge.get("node", {}).get("handle")
+                if handle:
+                    handles.append(handle)
+            page_info = data.get("pageInfo", {})
+            has_next = page_info.get("hasNextPage", False)
+            cursor = page_info.get("endCursor")
+        except Exception as e:
+            print(f"Error fetching products: {e}")
+            break
+    return [f"{STORE_URL}/products/{h}" for h in handles]
+
+def fetch_all_collections_graphql() -> list[str]:
+    print("Fetching all collection handles via GraphQL...")
+    graphql_url = f"{BASE}/graphql.json"
+    query = """
+    query ($first: Int!, $after: String) {
+      collections(first: $first, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        edges {
+          node {
+            handle
+          }
+        }
+      }
+    }
+    """
+    handles = []
+    has_next = True
+    cursor = None
+    while has_next:
+        variables = {"first": 250, "after": cursor}
+        try:
+            res = _shopify_post(graphql_url, {"query": query, "variables": variables})
+            data = res.get("data", {}).get("collections", {})
+            for edge in data.get("edges", []):
+                handle = edge.get("node", {}).get("handle")
+                if handle:
+                    handles.append(handle)
+            page_info = data.get("pageInfo", {})
+            has_next = page_info.get("hasNextPage", False)
+            cursor = page_info.get("endCursor")
+        except Exception as e:
+            print(f"Error fetching collections: {e}")
+            break
+    return [f"{STORE_URL}/collections/{h}" for h in handles]
+
+def fetch_all_articles_graphql() -> list[str]:
+    print("Fetching all blog articles via GraphQL...")
+    graphql_url = f"{BASE}/graphql.json"
+    blogs_query = """
+    query {
+      blogs(first: 50) {
+        edges {
+          node {
+            id
+            handle
+          }
+        }
+      }
+    }
+    """
+    try:
+        res = _shopify_post(graphql_url, {"query": blogs_query})
+        blogs = res.get("data", {}).get("blogs", {}).get("edges", [])
+    except Exception as e:
+        print(f"Error fetching blogs: {e}")
+        return []
+
+    urls = []
+    articles_query = """
+    query ($blogId: ID!, $first: Int!, $after: String) {
+      node(id: $blogId) {
+        ... on Blog {
+          articles(first: $first, after: $after) {
+            pageInfo { hasNextPage endCursor }
+            edges {
+              node {
+                handle
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+    for blog_edge in blogs:
+        blog_node = blog_edge.get("node", {})
+        blog_id = blog_node.get("id")
+        blog_handle = blog_node.get("handle")
+        if not blog_id or not blog_handle:
+            continue
+            
+        has_next = True
+        cursor = None
+        while has_next:
+            variables = {"blogId": blog_id, "first": 250, "after": cursor}
+            try:
+                res = _shopify_post(graphql_url, {"query": articles_query, "variables": variables})
+                data = res.get("data", {}).get("node", {}).get("articles", {})
+                for edge in data.get("edges", []):
+                    handle = edge.get("node", {}).get("handle")
+                    if handle:
+                        urls.append(f"{STORE_URL}/blogs/{blog_handle}/{handle}")
+                page_info = data.get("pageInfo", {})
+                has_next = page_info.get("hasNextPage", False)
+                cursor = page_info.get("endCursor")
+            except Exception as e:
+                print(f"Error fetching articles for blog {blog_handle}: {e}")
+                break
+    return urls
+
 def fetch_recent_articles(days: int) -> list[str]:
     print(f"Fetching blog posts published in the last {days} days...")
     blogs = _shopify_get(f"{BASE}/blogs.json").get("blogs", [])
@@ -229,6 +370,18 @@ def fetch_products(limit: int = 100) -> list[str]:
                          params={"limit": limit, "published_status": "published",
                                  "fields": "id,handle"})
     return [f"{STORE_URL}/products/{p['handle']}" for p in data.get("products", []) if p.get("handle")]
+
+def fetch_recent_collections(limit: int = 100) -> list[str]:
+    print(f"Fetching recently updated collections (limit={limit})...")
+    urls = []
+    for endpoint in ["custom_collections", "smart_collections"]:
+        try:
+            data = _shopify_get(f"{BASE}/{endpoint}.json",
+                                 params={"limit": limit, "fields": "handle"})
+            urls.extend([f"{STORE_URL}/collections/{c['handle']}" for c in data.get(endpoint, []) if c.get("handle")])
+        except Exception as e:
+            print(f"Warning: Failed to fetch recent {endpoint} via REST: {e}")
+    return urls
 
 # ── Submission History ─────────────────────────────────────────────────────────
 def load_history() -> dict:
@@ -279,7 +432,7 @@ def submit_to_indexnow(urls: list[str], dry_run: bool = False):
         print(f"❌ Connection error during IndexNow submission: {e}")
 
 # ── Main ───────────────────────────────────────────────────────────────────────
-def run(days: int = 1, products: bool = False, force: bool = False, dry_run: bool = False):
+def run(days: int = 1, products: bool = False, collections: bool = False, force: bool = False, dry_run: bool = False):
     print("=" * 65)
     print("  MeeeShop IndexNow submission script")
     print("=" * 65)
@@ -288,10 +441,28 @@ def run(days: int = 1, products: bool = False, force: bool = False, dry_run: boo
     if not dry_run:
         verify_and_register_key()
 
-    # 2. Gather URLs
-    urls = fetch_recent_articles(days)
-    if products:
-        urls.extend(fetch_products(100))
+    urls = []
+
+    if force:
+        print("FORCE MODE enabled: Fetching ALL products, collections, and blog articles...")
+        # 1. Fetch all blog articles
+        urls.extend(fetch_all_articles_graphql())
+
+        # 2. Fetch all products
+        urls.extend(fetch_all_products_graphql())
+
+        # 3. Fetch all collections
+        urls.extend(fetch_all_collections_graphql())
+    else:
+        # Normal lookback mode
+        print(f"Normal mode: Fetching blog posts published in the last {days} days...")
+        urls.extend(fetch_recent_articles(days))
+        
+        if products:
+            urls.extend(fetch_products(100))
+                
+        if collections:
+            urls.extend(fetch_recent_collections(100))
 
     urls = list(dict.fromkeys(urls)) # Deduplicate
 
@@ -321,8 +492,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="IndexNow Submission Automation")
     parser.add_argument("--days", type=int, default=1, help="Lookback days for blogs (default: 1)")
     parser.add_argument("--products", action="store_true", help="Include recently updated products")
+    parser.add_argument("--collections", action="store_true", help="Include recently updated collections")
     parser.add_argument("--force", action="store_true", help="Force submit all discovered URLs")
     parser.add_argument("--dry-run", action="store_true", help="Dry run mode, do not call API or modify files")
     args = parser.parse_args()
 
-    run(days=args.days, products=args.products, force=args.force, dry_run=args.dry_run)
+    run(days=args.days, products=args.products, collections=args.collections, force=args.force, dry_run=args.dry_run)

@@ -1,10 +1,13 @@
-name: Blog Daily Generator
+name: Blog Daily Generator [DEPRECATED — use Trend Article Engine workflow]
 
 on:
-  schedule:
-    - cron: '0 13 * * 2'  # Tuesday  8 AM EST (13:00 UTC) — peak weekday morning browse
-    - cron: '0 13 * * 4'  # Thursday 8 AM EST (13:00 UTC) — pre-weekend shopping intent
-    - cron: '0 14 * * 6'  # Saturday 9 AM EST (14:00 UTC) — highest weekend leisure scroll
+  # DISABLED: Replaced by .github/workflows/trend_article_engine.yml
+  # which has Flipboard research + keyword extraction + collage generation.
+  # Keeping workflow_dispatch so it can still be run manually if needed.
+  #
+  # schedule:
+  #   - cron: '0 13 * * 2'  # Tuesday  8 AM EST (13:00 UTC)
+  #   - cron: '0 14 * * 6'  # Saturday 9 AM EST (14:00 UTC)
   workflow_dispatch:
     inputs:
       count:
@@ -15,6 +18,23 @@ on:
         description: 'Dry run (no publishing)'
         default: 'false'
         required: false
+      publish:
+        description: 'Publish immediately (false = save as draft for review)'
+        default: 'false'
+        required: false
+      format:
+        description: 'Force a specific blog format (default: weighted selection)'
+        default: 'default'
+        required: false
+        type: choice
+        options:
+          - default
+          - sizing_guide
+          - outfit_formula
+          - buying_guide
+          - trend_report
+          - care_guide
+          - problem_solver
 
 jobs:
   generate-blog:
@@ -41,11 +61,21 @@ jobs:
         run: |
           COUNT="${{ github.event.inputs.count || '1' }}"
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          PUBLISH="${{ github.event.inputs.publish || 'false' }}"
+          FORMAT="${{ github.event.inputs.format || 'default' }}"
+          ARGS="--count $COUNT"
           if [ "$DRY_RUN" = "true" ]; then
-            python scripts/blog_daily.py --count "$COUNT" --dry-run
-          else
-            python scripts/blog_daily.py --count "$COUNT"
+            ARGS="$ARGS --dry-run"
           fi
+          # On scheduled runs, always publish immediately.
+          # On manual dispatch, respect the publish input (default: draft for human review).
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "$PUBLISH" = "true" ]; then
+            ARGS="$ARGS --publish"
+          fi
+          if [ "$FORMAT" != "default" ]; then
+            ARGS="$ARGS --format $FORMAT"
+          fi
+          python scripts/blog_daily.py $ARGS
 
       - name: Upload blog generation log
         if: always()

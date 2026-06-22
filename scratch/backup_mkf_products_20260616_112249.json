@@ -1,0 +1,955 @@
+{
+  "timestamp": "20260616_112249",
+  "products": [
+    {
+      "id": "gid://shopify/Product/8825881034923",
+      "title": "MKF Collection by Mia K. - Kaia Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "ACTIVE",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4",
+        "name": "Handbags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881067691",
+      "title": "MKF Collection by Mia K. - Adhara Shoulder Bag with Pouch",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-19",
+        "name": "Shoulder Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881100459",
+      "title": "MKF Collection by Mia K. - Kace Signature Sling Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825881133227",
+      "title": "MKF Collection by Mia K. - Parker Crossbody",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags, Crossbody Bags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-7",
+        "name": "Cross Body Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881165995",
+      "title": "MKF Collection by Mia K. - Tilly Mini Tote handbag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/lb-13",
+        "name": "Tote Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881198763",
+      "title": "MKF Collection by Mia K. - Ophelia Hobo Bag and Wallet Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881231531",
+      "title": "MKF Collection by Mia K. - Gianna Tote Bag and Wallet Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881264299",
+      "title": "MKF Collection by Mia K. - Shannon Mini Tote handbag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags, Mini & Micro Bags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-18",
+        "name": "Shopper Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881297067",
+      "title": "MKF Collection by Mia K. - Zephyra Weekender Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/lb-6",
+        "name": "Duffel Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881329835",
+      "title": "MKF Collection by Mia K. - Noemi Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-19",
+        "name": "Shoulder Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881362603",
+      "title": "MKF Collection by Mia K. - Kathe Embossed M Signature Wallet Wristlet",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-5-7",
+        "name": "Wallets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881395371",
+      "title": "MKF Collection by Mia K. - Marjorie Circular Print Satchel Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags, Shoulder Bags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-16",
+        "name": "Satchel Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881428139",
+      "title": "MKF Collection by Mia K. - Bonita Tote Bag and Wallet Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881460907",
+      "title": "MKF Collection by Mia K. - Paityn Bucket Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-4",
+        "name": "Bucket Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881493675",
+      "title": "MKF Collection by Mia K. - Viviana Hobo Bag and Wristlet Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881526443",
+      "title": "MKF Collection by Mia K. - Eulalie Weekender Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/lb-6",
+        "name": "Duffel Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881559211",
+      "title": "MKF Collection by Mia K. - Emma Cosmetic Case and Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881591979",
+      "title": "MKF Collection by Mia K. - Caddy Signature Phone Crossbody",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825881624747",
+      "title": "MKF Collection by Mia K. - Adorabella Tote Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-18",
+        "name": "Shopper Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881657515",
+      "title": "MKF Collection by Mia K. - Yonah Signature Tote Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825881690283",
+      "title": "MKF Collection by Mia K. - Yareli Tote Bag  with Mini Bag- 2-piece set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881723051",
+      "title": "MKF Collection by Mia K. - Kimberly Backpack",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825881755819",
+      "title": "MKF Collection by Mia K. - Naomi Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825881788587",
+      "title": "MKF Collection by Mia K. - Gardenia Tote Bag and Wallet Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881821355",
+      "title": "MKF Collection by Mia K. - Brigitte Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags, Shoulder Bags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4",
+        "name": "Handbags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881854123",
+      "title": "MKF Collection by Mia K. - Isolde Tote Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-18",
+        "name": "Shopper Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881886891",
+      "title": "MKF Collection by Mia K. - Estelle Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-7",
+        "name": "Cross Body Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881919659",
+      "title": "MKF Collection by Mia K. - Soraya Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-7",
+        "name": "Cross Body Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881952427",
+      "title": "MKF Collection by Mia K. - Morgana Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-19",
+        "name": "Shoulder Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825881985195",
+      "title": "MKF Collection by Mia K. - Talula Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825882017963",
+      "title": "MKF Collection by Mia K. - Calina Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-19",
+        "name": "Shoulder Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825882050731",
+      "title": "MKF Collection by Mia K. - Giada Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-19",
+        "name": "Shoulder Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825882083499",
+      "title": "MKF Collection by Mia K. - Leah Tote Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825882116267",
+      "title": "MKF Collection by Mia K. - Layla Convertible Weekender",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825882149035",
+      "title": "MKF Collection by Mia K. - Savannah Signature Tote Bag and Wallet Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825882181803",
+      "title": "MKF Collection by Mia K. - Londyn Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825882214571",
+      "title": "MKF Collection by Mia K. - Fantasia Shouder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825882247339",
+      "title": "MKF Collection by Mia K. - Vallie Tote Bag and Wallet set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825882280107",
+      "title": "MKF Collection by Mia K. - Cossetta Phone Crossbody",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825882312875",
+      "title": "MKF Collection by Mia K. - Arianna Bucket Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-4",
+        "name": "Bucket Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825882345643",
+      "title": "MKF Collection by Mia K. - Liv Tote Bag and Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825882378411",
+      "title": "MKF Collection by Mia K. - Ashley Hobo Bag and Wallet Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825882411179",
+      "title": "MKF Collection by Mia K. - Zinnia Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-7",
+        "name": "Cross Body Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825882443947",
+      "title": "MKF Collection by Mia K. - Merlina Tote Bag and Wallet Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825882476715",
+      "title": "MKF Collection by Mia K. - Karen Tote Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-18",
+        "name": "Shopper Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825882509483",
+      "title": "MKF Collection by Mia K. - Christine l Shoulder and Wallet Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825882542251",
+      "title": "MKF Collection by Mia K. - Vintage Stiella Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825882575019",
+      "title": "MKF Collection by Mia K. - Raven Croc Embossed Duffel Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825882640555",
+      "title": "MKF Collection by Mia K. - Madeline Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825882673323",
+      "title": "MKF Collection by Mia K. - Josephine Printed Flag Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825882837163",
+      "title": "MKF Collection by Mia K. - Quinzel Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825882869931",
+      "title": "MKF Collection by Mia K. - Valeska Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825882902699",
+      "title": "MKF Collection by Mia K. - Thania Signature Tote Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825882935467",
+      "title": "MKF Collection by Mia K. - Blake Shoulder Bag and Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825882968235",
+      "title": "MKF Collection by Mia K. - Edelyn Signature Tote Bag and Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825883001003",
+      "title": "MKF Collection by Mia K. - Marimar Signature Tote Bag and Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825883033771",
+      "title": "MKF Collection by Mia K. - Maggie Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883066539",
+      "title": "MKF Collection by Mia K. - Yuliana II Shoulder Bag and Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825883099307",
+      "title": "MKF Collection by Mia K. - Angela Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "MKF COLLECTION",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-19",
+        "name": "Shoulder Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825883132075",
+      "title": "MKF Collection by Mia K. - Janni Signature Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883164843",
+      "title": "MKF Collection by Mia K. - Sasha Signature Tote Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883197611",
+      "title": "MKF Collection by Mia K. - Jacqueline Signature Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Shop by Color",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883230379",
+      "title": "MKF Collection by Mia K. - Scarlett Signature Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883263147",
+      "title": "MKF Collection by Mia K. - Aubrey Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883295915",
+      "title": "MKF Collection by Mia K. - Bonita Tote Bag and Wallet Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825883328683",
+      "title": "MKF Collection by Mia K. - Fula Signature Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883361451",
+      "title": "MKF Collection by Mia K. - Andrea Signature Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883394219",
+      "title": "MKF Collection by Mia K. - Malika Signature Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883426987",
+      "title": "MKF Collection by Mia K. - Nadien Signature Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883459755",
+      "title": "MKF Collection by Mia K. - Marietta Signature Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883492523",
+      "title": "MKF Collection by Mia K. - Medina Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883525291",
+      "title": "MKF Collection by Mia K. - Gayle Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883590827",
+      "title": "MKF Collection by Mia K. - Mala Phone Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883623595",
+      "title": "MKF Collection by Mia K. - Cairo Signature Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883656363",
+      "title": "MKF Collection by Mia K. - Cora Signature Backpack",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883689131",
+      "title": "MKF Collection by Mia K. - Luciana Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Shop by Color",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883721899",
+      "title": "MKF Collection by Mia K. - Aylet  Signature Tote Bag and Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825883754667",
+      "title": "MKF Collection by Mia K. - Roonie Signature Phone Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883787435",
+      "title": "MKF Collection by Mia K. - Jordina 2 PCS Shoulder Bag with Matching Wallet",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4",
+        "name": "Handbags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825883820203",
+      "title": "MKF Collection by Mia K. - Jamie Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-5-4-19",
+        "name": "Shoulder Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825883852971",
+      "title": "MKF Collection by Mia K. - Janise Tote Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/lb-13",
+        "name": "Tote Bags"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825883885739",
+      "title": "MKF Collection by Mia K. - Grace Signature Tote Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883918507",
+      "title": "MKF Collection by Mia K. - Yuliana Shoulder Bag and Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825883951275",
+      "title": "MKF Collection by Mia K. - Siena Signature Tote Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825883984043",
+      "title": "MKF Collection by Mia K. - Beatrice Signature Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825884016811",
+      "title": "MKF Collection by Mia K. - Ultimate Shoulder Bag and Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825884049579",
+      "title": "MKF Collection by Mia K. - Camren Signature Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825884082347",
+      "title": "MKF Collection by Mia K. - Lemuel  Signature Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825884115115",
+      "title": "MKF Collection by Mia K. - Jeni Signature Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825884147883",
+      "title": "MKF Collection by Mia K. - Sue Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825884180651",
+      "title": "MKF Collection by Mia K. - Sirna Signature Tote Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825884213419",
+      "title": "MKF Collection by Mia K. - Gaia Milan Signature Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825884246187",
+      "title": "MKF Collection by Mia K. - Lux Shoulder Bag and Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825884278955",
+      "title": "MKF Collection by Mia K. - Autumn Tote Bag and Wallet Set",
+      "vendor": "MKF Dropship",
+      "productType": "Outfit Sets",
+      "status": "DRAFT",
+      "category": {
+        "id": "gid://shopify/TaxonomyCategory/aa-1-11",
+        "name": "Outfit Sets"
+      }
+    },
+    {
+      "id": "gid://shopify/Product/8825884311723",
+      "title": "MKF Collection by Mia K. - Skylar Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825884344491",
+      "title": "MKF Collection by Mia K. - Miriam Signature Tote Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825884377259",
+      "title": "MKF Collection by Mia K. - Lucy Signature Tote Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825884410027",
+      "title": "MKF Collection by Mia K. - Heartly Crossbody Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825884442795",
+      "title": "MKF Collection by Mia K. - Torra Signature Backpack",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    },
+    {
+      "id": "gid://shopify/Product/8825884475563",
+      "title": "MKF Collection by Mia K. - Melody Oversize Shoulder Bag",
+      "vendor": "MKF Dropship",
+      "productType": "Handbags",
+      "status": "DRAFT",
+      "category": null
+    }
+  ]
+}

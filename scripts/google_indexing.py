@@ -532,11 +532,13 @@ def deduplicate(urls: list[str], history: SubmissionHistory,
             report.set_dedup(0, 0, 0, 0, False, skip_hours)
             return [], []
         log.info("[DEDUP] --pending-only mode: submitting %d queued URL(s) only", len(pending_queue))
-        # Add any new URLs to pending for next time
+        # Add any new URLs to pending for next time, plus any pending URLs exceeding the limit
         new_urls = [u for u in urls if u not in pending_queue]
+        if len(pending_queue) > limit:
+            new_urls.extend(pending_queue[limit:])
         if new_urls:
-            log.info("[DEDUP]   Also found %d new URL(s) — added to pending for next run", len(new_urls))
-        report.set_dedup(len(urls), 0, len(pending_queue), len(pending_queue), False, skip_hours)
+            log.info("[DEDUP]   Also found %d new/over-limit URL(s) — added to pending for next run", len(new_urls))
+        report.set_dedup(len(urls), 0, len(pending_queue), len(pending_queue[:limit]), False, skip_hours)
         return pending_queue[:limit], new_urls
 
     # Normal mode: pending first, then new/stale URLs

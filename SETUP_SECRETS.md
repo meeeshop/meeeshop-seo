@@ -33,7 +33,7 @@ Go to: **GitHub repo > Settings > Secrets and variables > Actions**
 ## Step-by-Step Setup
 
 ### Step 1: Go to Secrets Settings
-1. Open: https://github.com/meeeshop/meeeshop-invt/settings/secrets/actions
+1. Open: https://github.com/your-username/your-repo/settings/secrets/actions
 2. Click **"New repository secret"**
 
 ### Step 2: Add SHOPIFY_ACCESS_TOKEN
@@ -111,8 +111,8 @@ Once secrets are added:
 
 You should see:
 ```
-[MeeeShop] Price Update Engine (LIVE mode)
-Store: us-meeeshop.myshopify.com
+[Store] Price Update Engine (LIVE mode)
+Store: your-store.myshopify.com
 [Fetch] Retrieving active products from Shopify...
 [Fetch] Found X products
 ...
