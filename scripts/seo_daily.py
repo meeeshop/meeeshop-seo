@@ -1935,14 +1935,17 @@ def main():
         print("Fetching products...")
         from shopify_graphql import fetch_products_graphql
         products = fetch_products_graphql(hours, query_by_updated=False)
-        total_fetched = len(products)
-        if mode == 'force' and args.batch_size > 0:
-            start = args.batch_index * args.batch_size
-            end   = start + args.batch_size
-            products = products[start:end]
-            print(f"  Fetched {total_fetched} products total; processing batch {args.batch_index} [{start}:{end}] = {len(products)} products")
-        elif args.limit:
-            products = products[:args.limit]
+        if args.handle:
+            products = [p for p in products if p.get('handle') == args.handle]
+        else:
+            total_fetched = len(products)
+            if mode == 'force' and args.batch_size > 0:
+                start = args.batch_index * args.batch_size
+                end   = start + args.batch_size
+                products = products[start:end]
+                print(f"  Fetched {total_fetched} products total; processing batch {args.batch_index} [{start}:{end}] = {len(products)} products")
+            elif args.limit:
+                products = products[:args.limit]
         print(f"  Found {len(products)} products\n")
 
     pages = []
@@ -1950,6 +1953,8 @@ def main():
         print("Fetching pages...")
         from shopify_graphql import fetch_pages_graphql
         pages = fetch_pages_graphql(hours)
+        if args.handle:
+            pages = [p for p in pages if p.get('handle') == args.handle]
         print(f"  Found {len(pages)} pages\n")
 
     collections = []
@@ -1957,6 +1962,8 @@ def main():
         print("Fetching collections...")
         from shopify_graphql import fetch_collections_graphql
         collections = fetch_collections_graphql(hours)
+        if args.handle:
+            collections = [c for c in collections if c.get('handle') == args.handle]
         print(f"  Found {len(collections)} collections\n")
 
     articles = []
@@ -1964,14 +1971,12 @@ def main():
         print("Fetching articles...")
         from shopify_graphql import fetch_articles_graphql
         articles = fetch_articles_graphql(hours)
+        if args.handle:
+            articles = [a for a in articles if a.get('handle') == args.handle]
         print(f"  Found {len(articles)} articles\n")
 
-    # Filter by handle if specified
+    # Filter by handle message if specified
     if args.handle:
-        products = [p for p in products if p.get('handle') == args.handle]
-        pages = [p for p in pages if p.get('handle') == args.handle]
-        collections = [c for c in collections if c.get('handle') == args.handle]
-        articles = [a for a in articles if a.get('handle') == args.handle]
         print(f"Filtered by handle '{args.handle}': {len(products)} products, {len(pages)} pages, {len(collections)} collections, {len(articles)} articles remaining.")
 
     total_items = len(products) + len(pages) + len(collections) + len(articles)
