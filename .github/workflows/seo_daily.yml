@@ -44,6 +44,11 @@ on:
           - collections
           - pages
           - blogs
+      handle:
+        description: 'Filter by a specific handle (product or blog handle) to run on a single resource'
+        required: false
+        default: ''
+        type: string
 
 env:
   PYTHONUTF8: "1"
@@ -95,8 +100,11 @@ jobs:
         run: |
           MODE="${{ steps.detect.outputs.mode }}"
           RESOURCE="${{ github.event.inputs.resource || 'all' }}"
+          HANDLE="${{ github.event.inputs.handle }}"
           
-          if [ "$MODE" = "force" ]; then
+          if [ -n "$HANDLE" ]; then
+            echo "batches_json=[{\"resource\":\"$RESOURCE\",\"batch_index\":0}]" >> "$GITHUB_OUTPUT"
+          elif [ "$MODE" = "force" ]; then
             JSON="["
             FIRST=true
             
@@ -198,6 +206,7 @@ jobs:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
           ONLY_IMAGES: ${{ github.event.inputs.only_images }}
+          HANDLE: ${{ github.event.inputs.handle }}
         run: |
           MODE="${{ needs.setup.outputs.mode }}"
           echo "Running SEO automation in $MODE mode for ${{ matrix.resource }} (batch index ${{ matrix.batch_index }})..."
@@ -205,6 +214,9 @@ jobs:
           CMD="python scripts/seo_daily.py --${MODE} --batch-size ${{ env.BATCH_SIZE }} --batch-index ${{ matrix.batch_index }} --resource ${{ matrix.resource }}"
           if [ "$ONLY_IMAGES" = "true" ]; then
             CMD="$CMD --only-images"
+          fi
+          if [ -n "$HANDLE" ]; then
+            CMD="$CMD --handle \"$HANDLE\""
           fi
           
           eval $CMD
