@@ -43,6 +43,151 @@ DISPLAY_BRAND = "us.meeeshop"  # For human-readable text (not in meta title)
 
 # Return policy is 7 days ONLY. Any other duration (30-day, 14-day, 60-day, etc.)
 # triggers an overwrite to the 7-day policy.
+
+# ── Google Search Console & Indexing API Integration ──────────────────────────
+GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly"
+OAUTH_ENDPOINT = "https://oauth2.googleapis.com/token"
+
+def get_gsc_oauth_token():
+    try:
+        raw = get_secret("GOOGLE_SA_KEY_JSON")
+        sa_key = json.loads(raw)
+    except Exception as e:
+        local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "google_sa_key.json")
+        if os.path.exists(local):
+            with open(local, "r", encoding="utf-8") as f:
+                sa_key = json.load(f)
+        else:
+            print("WARNING: Google Service Account key not found. GSC/Indexing integration disabled.")
+            return None
+            
+    try:
+        import base64
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding
+        from cryptography.hazmat.backends import default_backend
+    except ImportError:
+        print("WARNING: 'cryptography' package missing. GSC/Indexing integration disabled.")
+        return None
+
+    try:
+        now     = int(time.time())
+        header  = {"alg": "RS256", "typ": "JWT"}
+        payload = {"iss": sa_key["client_email"], "scope": GSC_SCOPE + " https://www.googleapis.com/auth/indexing",
+                    "aud": OAUTH_ENDPOINT, "exp": now + 3600, "iat": now}
+
+        def _b64url(data):
+            return base64.urlsafe_b64encode(
+                json.dumps(data, separators=(",", ":")).encode()
+            ).rstrip(b"=").decode()
+
+        signing_input = f"{_b64url(header)}.{_b64url(payload)}".encode()
+        pk  = serialization.load_pem_private_key(
+            sa_key["private_key"].encode(), password=None, backend=default_backend()
+        )
+        sig = pk.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
+        jwt = f"{signing_input.decode()}.{base64.urlsafe_b64encode(sig).rstrip(b'=').decode()}"
+
+        resp = requests.post(OAUTH_ENDPOINT,
+                             data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                                   "assertion": jwt},
+                             timeout=15)
+        resp.raise_for_status()
+        return resp.json()["access_token"]
+    except Exception as e:
+        print(f"WARNING: GSC OAuth failed: {e}")
+        return None
+
+def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
+    """Fetch top search queries for a specific page URL with rank 8-20, low CTR, and high impressions."""
+    token = get_gsc_oauth_token()
+    if not token:
+        return []
+        
+    import urllib.parse
+    try:
+        list_url = "https://www.googleapis.com/webmasters/v3/sites"
+        list_resp = requests.get(list_url, headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        list_resp.raise_for_status()
+        sites = list_resp.json().get("siteEntry", [])
+        
+        store_domain = urllib.parse.urlparse(SITE).netloc.lower()
+        site_url = None
+        for site in sites:
+            candidate = site.get("siteUrl", "")
+            if store_domain in candidate.lower():
+                site_url = candidate
+                break
+        if not site_url:
+            site_url = SITE + "/"
+            
+        encoded_site = urllib.parse.quote_plus(site_url)
+        query_url = f"https://www.googleapis.com/webmasters/v3/sites/{encoded_site}/searchAnalytics/query"
+        
+        end_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        start_date = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+        
+        payload = {
+            "startDate": start_date,
+            "endDate": end_date,
+            "dimensions": ["query"],
+            "dimensionFilterGroups": [{
+                "filters": [{
+                    "dimension": "page",
+                    "operator": "equals",
+                    "expression": page_url
+                }]
+            }],
+            "rowLimit": 100
+        }
+        
+        resp = requests.post(
+            query_url,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=20
+        )
+        resp.raise_for_status()
+        rows = resp.json().get("rows", [])
+        
+        candidates = []
+        for row in rows:
+            query = row.get("keys", [None])[0]
+            if query:
+                position = row.get("position", 0)
+                ctr = row.get("ctr", 0)
+                impressions = row.get("impressions", 0)
+                if 8.0 <= position <= 20.0 and ctr < 0.05:
+                    candidates.append((query, impressions))
+                    
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        queries = [c[0] for c in candidates[:limit]]
+        if queries:
+            print(f"  [GSC] Found low-hanging keywords for {page_url}: {queries}")
+        return queries
+    except Exception as e:
+        print(f"  [GSC] Failed to fetch queries for {page_url}: {e}")
+        return []
+
+def trigger_google_indexing(url: str):
+    """Pings Google Indexing API to request instant crawl of updated URL."""
+    try:
+        token = get_gsc_oauth_token()
+        if not token:
+            return
+        endpoint = "https://indexing.googleapis.com/v3/urlNotifications:publish"
+        resp = requests.post(
+            endpoint,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"url": url, "type": "URL_UPDATED"},
+            timeout=15
+        )
+        if resp.status_code == 200:
+            print(f"  [Indexing API] Instant crawl requested for {url}")
+        else:
+            print(f"  [Indexing API] Crawl request ignored/failed for {url}: HTTP {resp.status_code}")
+    except Exception as e:
+        print(f"  [Indexing API] Error triggering index for {url}: {e}")
 STALE_RETURN_RE = re.compile(r'\b(?!7[\s-]*day)\d+[\s-]*day[\s-]*(return|refund|exchange|policy)', re.IGNORECASE)
 
 def has_stale_return_policy(text):
@@ -159,10 +304,12 @@ META_DESC_TEMPLATES = [
     "Premium {keywords_str} {word} from {brand}: quality women's fashion with free shipping & 7-day returns. Shop now!",
 ]
 
-def build_meta_desc(title, product_type='', tags=''):
+def build_meta_desc(title, product_type='', tags='', gsc_keywords=None):
     """Deterministic meta description: same title always produces same output (so validation can use exact match)."""
     _, word = detect_cat(title, product_type, tags)
     keywords = extract_keywords(title)
+    if gsc_keywords:
+        keywords = list(dict.fromkeys(gsc_keywords + keywords))[:3]
     keywords_str = ' '.join(keywords) if keywords else (title.split()[0] if title.split() else "women's")
     # Deterministic template selection: pick by hash of title (no randomness)
     idx  = sum(ord(c) for c in title) % len(META_DESC_TEMPLATES)
@@ -172,9 +319,11 @@ def build_meta_desc(title, product_type='', tags=''):
 
 
 # ── Image alt text (Google standard: descriptive, ≤125 chars) ─────────────────
-def build_alt(title, variant_hint='', idx=0, product_type='', tags=''):
+def build_alt(title, variant_hint='', idx=0, product_type='', tags='', gsc_keywords=None):
     cat, word = detect_cat(title, product_type, tags)
     keywords = extract_keywords(title)
+    if gsc_keywords:
+        keywords = list(dict.fromkeys(gsc_keywords + keywords))[:2]
     keywords_str = ' '.join(keywords) if keywords else ''
     # Include product type keyword naturally in ALT text
     if variant_hint and variant_hint.lower() != 'default':
@@ -426,7 +575,7 @@ def build_qa_html(qa_list):
 
 
 # ── SEO description with keywords + size chart ───────────────────────────────
-def build_description(product, force=False):
+def build_description(product, force=False, gsc_keywords=None):
     title    = product['title']
     html_body = product.get('body_html', '') or ''
     cat, word = detect_cat(title)
@@ -456,6 +605,8 @@ def build_description(product, force=False):
         return final_body
 
     keywords = extract_keywords(title)
+    if gsc_keywords:
+        keywords = list(dict.fromkeys(gsc_keywords + keywords))[:4]
     keywords_str = ' '.join(keywords) if keywords else ''
 
     intro = (
@@ -1345,7 +1496,7 @@ def inject_jsonld(theme_id):
 # SEO VALIDATION (strict template compliance check)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def validate_seo(item, item_type, existing_mfs):
+def validate_seo(item, item_type, existing_mfs, gsc_keywords=None):
     """Strict template validation. Returns list of {field, before, after, [_img_id, _img_idx]} dicts."""
     mismatches = []
     title = item.get('title', '')
@@ -1373,7 +1524,7 @@ def validate_seo(item, item_type, existing_mfs):
         and not has_stale_return_policy(cur_meta_desc)
     )
     if not desc_ok:
-        new_meta_desc = build_meta_desc(title, ptype, tags)
+        new_meta_desc = build_meta_desc(title, ptype, tags, gsc_keywords=gsc_keywords)
         mismatches.append({"field": "meta_desc", "before": cur_meta_desc, "after": new_meta_desc})
 
     # ── Product-only: body_html + image ALTs ──────────────────────────────────
@@ -1400,7 +1551,7 @@ def validate_seo(item, item_type, existing_mfs):
             body_ok = has_all_markers and not has_stale_body and plain_len >= 500 and has_table
 
         if not body_ok:
-            new_desc = build_description(item, force=True)
+            new_desc = build_description(item, force=True, gsc_keywords=gsc_keywords)
             mismatches.append({
                 "field": "body_html",
                 "before": f"{plain_len} chars, table={has_table}, markers={has_all_markers}, stale={has_stale_body}",
@@ -1419,7 +1570,7 @@ def validate_seo(item, item_type, existing_mfs):
                 hint = matching_var.get('option1')
             else:
                 hint = colors[i] if i < len(colors) else ''
-            expected_alt = build_alt(title, hint, i, ptype, tags)
+            expected_alt = build_alt(title, hint, i, ptype, tags, gsc_keywords=gsc_keywords)
             cur_alt = img.get('alt', '') or ''
             if cur_alt != expected_alt:
                 mismatches.append({
@@ -1437,14 +1588,23 @@ def validate_seo(item, item_type, existing_mfs):
 # CORE PRODUCT PROCESSOR
 # ══════════════════════════════════════════════════════════════════════════════
 
-def process(product, stats, log, existing_mfs=None, force=False, only_images=False):
+def process(product, stats, log, existing_mfs=None, force=False, only_images=False, dry_run=False):
     pid        = product['id']
     old_title  = product['title']
     old_handle = product['handle']
     changes    = []
     missing    = []
 
+    gsc_kw = fetch_gsc_keywords(f"{SITE}/products/{old_handle}")
+
     prod_updates = {}
+    if gsc_kw and not only_images:
+        existing_tags = [t.strip() for t in product.get('tags', '').split(',') if t.strip()]
+        new_tags = list(dict.fromkeys(existing_tags + [kw.title() for kw in gsc_kw]))
+        new_tags_str = ', '.join(new_tags)
+        if new_tags_str != product.get('tags', ''):
+            prod_updates['tags'] = new_tags_str
+            changes.append({"field": "tags", "before": product.get('tags', ''), "after": new_tags_str})
     if not only_images:
         # ── 1. Title Case ─────────────────────────────────────────────────────────
         new_title    = title_case(old_title)
@@ -1471,7 +1631,7 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
 
         if needs_body_rewrite:
             missing.append(f"body_html ({plain_len} chars, table={has_table}, stale={has_stale_body}, markers={has_all_markers}, custom={is_custom})")
-            new_body = build_description(product, force=True)
+            new_body = build_description(product, force=True, gsc_keywords=gsc_kw)
             prod_updates['body_html'] = new_body
             stats['descriptions'] += 1
             changes.append({
@@ -1486,19 +1646,27 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
         if ideal_handle and ideal_handle != old_handle and len(ideal_handle) > 4:
             missing.append(f"handle (was '{old_handle}')")
             prod_updates['handle'] = ideal_handle
-            if create_redirect(old_handle, ideal_handle):
+            if dry_run:
+                print(f"    [DRY-RUN] Would create redirect: '{old_handle}' -> '{ideal_handle}'")
                 stats['redirects'] += 1
+            else:
+                if create_redirect(old_handle, ideal_handle):
+                    stats['redirects'] += 1
             stats['handles'] += 1
             changes.append({"field": "handle", "before": old_handle, "after": ideal_handle})
 
     # Apply product updates
     if prod_updates:
-        try:
-            api_put(f"/products/{pid}.json", {"product": prod_updates})
+        if dry_run:
+            print(f"    [DRY-RUN] Would update product JSON: {prod_updates}")
             stats['products'] += 1
-        except Exception as e:
-            print(f"    ! Update failed: {e}")
-            return
+        else:
+            try:
+                api_put(f"/products/{pid}.json", {"product": prod_updates})
+                stats['products'] += 1
+            except Exception as e:
+                print(f"    ! Update failed: {e}")
+                return
 
     # ── 4. Fetch metafields if not provided ───────────────────────────────────
     if existing_mfs is None:
@@ -1507,11 +1675,11 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
     # ── 5. Strict validation + fix ────────────────────────────────────────────
     display_title = prod_updates.get('title', old_title)
     product_with_new_title = {**product, 'title': display_title}
-    mismatches = validate_seo(product_with_new_title, "product", existing_mfs)
+    mismatches = validate_seo(product_with_new_title, "product", existing_mfs, gsc_keywords=gsc_kw)
 
     meta_fix_needed = False
     new_meta_title = build_meta_title(display_title, product.get('product_type', ''), product.get('tags', ''))
-    new_meta_desc = build_meta_desc(display_title, product.get('product_type', ''), product.get('tags', ''))
+    new_meta_desc = build_meta_desc(display_title, product.get('product_type', ''), product.get('tags', ''), gsc_keywords=gsc_kw)
 
     for m in mismatches:
         if m['field'] == 'meta_title':
@@ -1539,9 +1707,14 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
             if not m['before']:
                 missing.append(f"img[{i}] alt (missing)")
             img_src = next((img['src'] for img in product.get('images', []) if img.get('id') == iid), None)
-            if update_image_alt(pid, iid, m['after'], img_src, idx=i):
+            if dry_run:
+                print(f"    [DRY-RUN] Would update image alt/filename for {iid}: alt='{m['after']}'")
                 stats['alts'] += 1
                 changes.append({"field": f"img_alt[{i}]", "before": m['before'][:50], "after": m['after'][:50]})
+            else:
+                if update_image_alt(pid, iid, m['after'], img_src, idx=i):
+                    stats['alts'] += 1
+                    changes.append({"field": f"img_alt[{i}]", "before": m['before'][:50], "after": m['after'][:50]})
 
     # In force mode, always rewrite both meta fields even if they already pass validation
     if force and not only_images and not meta_fix_needed:
@@ -1557,15 +1730,21 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
     # Fix meta fields if needed
     if not only_images:
         if meta_fix_needed:
-            try:
-                set_seo_metafields("products", pid, new_meta_title, new_meta_desc, existing_mfs)
-            except Exception as e:
-                print(f"    ! Meta update error: {e}")
+            if dry_run:
+                print(f"    [DRY-RUN] Would set SEO metafields: title='{new_meta_title}', desc='{new_meta_desc}'")
+            else:
+                try:
+                    set_seo_metafields("products", pid, new_meta_title, new_meta_desc, existing_mfs)
+                except Exception as e:
+                    print(f"    ! Meta update error: {e}")
         elif any(m['field'] == 'meta_desc' for m in mismatches):
-            try:
-                set_seo_metafields("products", pid, new_meta_title, new_meta_desc)
-            except Exception as e:
-                print(f"    ! Meta desc update error: {e}")
+            if dry_run:
+                print(f"    [DRY-RUN] Would set SEO metafields: title='{new_meta_title}', desc='{new_meta_desc}'")
+            else:
+                try:
+                    set_seo_metafields("products", pid, new_meta_title, new_meta_desc)
+                except Exception as e:
+                    print(f"    ! Meta desc update error: {e}")
 
     # ── Log entry ─────────────────────────────────────────────────────────────
     entry = {
@@ -1585,6 +1764,13 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
             print(f"  + {c['field']}: '{b}' -> '{a}'")
         if len(changes) > 3:
             print(f"  + ...and {len(changes)-3} more")
+        
+        # Trigger Google Indexing API crawl
+        final_handle = prod_updates.get('handle', old_handle)
+        if dry_run:
+            print(f"  [DRY-RUN] Would trigger indexing for {SITE}/products/{final_handle}")
+        else:
+            trigger_google_indexing(f"{SITE}/products/{final_handle}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # LOG HELPERS FOR SKIP HISTORY
@@ -1680,6 +1866,8 @@ def main():
     ap.add_argument('--resource',    type=str, default='all', choices=['all', 'products', 'collections', 'pages', 'blogs'], help='Resource type to validate/optimize')
     ap.add_argument('--skip-jsonld', action='store_true', help='Skip JSON-LD injection')
     ap.add_argument('--only-images', action='store_true', help='Only update image ALTs and filenames, skip descriptions/meta/handles')
+    ap.add_argument('--handle',      type=str, default=None, help='Filter by a specific handle (product or blog handle)')
+    ap.add_argument('--dry-run',     action='store_true', help='Dry-run mode: do not write to Shopify or Google Indexing APIs')
     args = ap.parse_args()
 
     print("=== MeeeShop SEO Automation v2.0 ===\n")
@@ -1778,6 +1966,14 @@ def main():
         articles = fetch_articles_graphql(hours)
         print(f"  Found {len(articles)} articles\n")
 
+    # Filter by handle if specified
+    if args.handle:
+        products = [p for p in products if p.get('handle') == args.handle]
+        pages = [p for p in pages if p.get('handle') == args.handle]
+        collections = [c for c in collections if c.get('handle') == args.handle]
+        articles = [a for a in articles if a.get('handle') == args.handle]
+        print(f"Filtered by handle '{args.handle}': {len(products)} products, {len(pages)} pages, {len(collections)} collections, {len(articles)} articles remaining.")
+
     total_items = len(products) + len(pages) + len(collections) + len(articles)
     print(f"Total items to process: {total_items}\n")
 
@@ -1808,7 +2004,7 @@ def main():
             processed_ids.add(p['id'])
             continue
         print(f"  [{i}/{len(products)}] FIX {p['title'][:55]}")
-        process(p, stats, log, existing_mfs=mfs, force=(mode in ('force', 'weekly')), only_images=args.only_images)
+        process(p, stats, log, existing_mfs=mfs, force=(mode in ('force', 'weekly')), only_images=args.only_images, dry_run=args.dry_run)
         processed_ids.add(p['id'])
 
     # ── Process pages ─────────────────────────────────────────────────────────
@@ -1846,8 +2042,8 @@ def main():
                 f"{title} - {DISPLAY_BRAND}. Premium women's fashion with free US shipping & 7-day returns.",
                 155
             )
-            try:
-                set_seo_metafields("pages", page['id'], new_meta_title, new_meta_desc, mfs)
+            if args.dry_run:
+                print(f"    [DRY-RUN] Would set page SEO metafields: title='{new_meta_title}', desc='{new_meta_desc}'")
                 stats['meta_titles'] += 1
                 stats['meta_descs'] += 1
                 stats['pages'] += 1
@@ -1861,8 +2057,24 @@ def main():
                     ]
                 })
                 processed_ids.add(page['id'])
-            except Exception as e:
-                print(f"    ! Error processing page: {e}")
+            else:
+                try:
+                    set_seo_metafields("pages", page['id'], new_meta_title, new_meta_desc, mfs)
+                    stats['meta_titles'] += 1
+                    stats['meta_descs'] += 1
+                    stats['pages'] += 1
+                    log.append({
+                        'type': 'page',
+                        'title': title,
+                        'url': f"{SITE}/pages/{page['handle']}",
+                        'fixed': [
+                            {"field": "meta_title", "before": cur_mtitle, "after": new_meta_title},
+                            {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]},
+                        ]
+                    })
+                    processed_ids.add(page['id'])
+                except Exception as e:
+                    print(f"    ! Error processing page: {e}")
 
     # ── Process collections ───────────────────────────────────────────────────
     if collections:
@@ -1919,8 +2131,8 @@ def main():
                     f"Shop {title} at {DISPLAY_BRAND}. Premium women's fashion with free US shipping & 7-day returns.",
                     155
                 )
-                try:
-                    set_seo_metafields(coll_type, coll['id'], new_meta_title, new_meta_desc, mfs)
+                if args.dry_run:
+                    print(f"    [DRY-RUN] Would set collection SEO metafields: title='{new_meta_title}', desc='{new_meta_desc}'")
                     stats['meta_titles'] += 1
                     stats['meta_descs'] += 1
                     stats['collections'] += 1
@@ -1928,59 +2140,74 @@ def main():
                         {"field": "meta_title", "before": cur_mtitle, "after": new_meta_title},
                         {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]}
                     ])
-                except Exception as e:
-                    print(f"    ! Error processing collection metafields: {e}")
+                else:
+                    try:
+                        set_seo_metafields(coll_type, coll['id'], new_meta_title, new_meta_desc, mfs)
+                        stats['meta_titles'] += 1
+                        stats['meta_descs'] += 1
+                        stats['collections'] += 1
+                        coll_changes.extend([
+                            {"field": "meta_title", "before": cur_mtitle, "after": new_meta_title},
+                            {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]}
+                        ])
+                    except Exception as e:
+                        print(f"    ! Error processing collection metafields: {e}")
 
             # Update collection image alt and filename
             if coll_image and (not image_ok or mode in ('force', 'weekly')):
-                try:
-                    # 1. Update Alt text via collectionUpdate mutation
-                    q_update_coll = """
-                    mutation collectionUpdate($input: CollectionInput!) {
-                      collectionUpdate(input: $input) {
-                        collection { id }
-                        userErrors { field message }
-                      }
-                    }
-                    """
-                    variables = {
-                        "input": {
-                            "id": f"gid://shopify/Collection/{coll['id']}",
-                            "image": {
-                                "altText": expected_img_alt
+                if args.dry_run:
+                    print(f"    [DRY-RUN] Would update collection image alt for {coll['id']}: alt='{expected_img_alt}'")
+                    stats['alts'] += 1
+                    coll_changes.append({"field": "image_alt", "before": coll_image.get('altText') or '', "after": expected_img_alt})
+                else:
+                    try:
+                        # 1. Update Alt text via collectionUpdate mutation
+                        q_update_coll = """
+                        mutation collectionUpdate($input: CollectionInput!) {
+                          collectionUpdate(input: $input) {
+                            collection { id }
+                            userErrors { field message }
+                          }
+                        }
+                        """
+                        variables = {
+                            "input": {
+                                "id": f"gid://shopify/Collection/{coll['id']}",
+                                "image": {
+                                  "altText": expected_img_alt
+                                }
                             }
                         }
-                    }
-                    res = run_graphql(q_update_coll, variables)
-                    errs = res.get("data", {}).get("collectionUpdate", {}).get("userErrors", [])
-                    if errs:
-                        print(f"    ! Error updating collection image alt: {errs}")
-                    else:
-                        stats['alts'] += 1
-                        coll_changes.append({"field": "image_alt", "before": coll_image.get('altText') or '', "after": expected_img_alt})
-                        print(f"  + image_alt: '{coll_image.get('altText') or ''}' -> '{expected_img_alt}'")
+                        res = run_graphql(q_update_coll, variables)
+                        errs = res.get("data", {}).get("collectionUpdate", {}).get("userErrors", [])
+                        if errs:
+                            print(f"    ! Error updating collection image alt: {errs}")
+                        else:
+                            stats['alts'] += 1
+                            coll_changes.append({"field": "image_alt", "before": coll_image.get('altText') or '', "after": expected_img_alt})
+                            print(f"  + image_alt: '{coll_image.get('altText') or ''}' -> '{expected_img_alt}'")
 
-                    # 2. Try to rename image filename if possible
-                    src = coll_image.get('url')
-                    if src:
-                        clean_url = src.split('?')[0]
-                        base = clean_url.split('/')[-1]
-                        if '.' in base:
-                            ext = base.rsplit('.', 1)[1].lower()
-                            slug = slugify(expected_img_alt)
-                            img_id = parse_gid(coll_image.get('id'))
-                            media_suffix = str(img_id)[-6:] if img_id else str(int(time.time() * 1000))[-6:]
-                            new_filename = f"{slug[:50].strip('-')}-{media_suffix}.{ext}"
-                            if slug[:30] not in base.lower():
-                                # Search standard files to find GenericFile/MediaImage ID
-                                file_id = find_file_id_by_filename(base)
-                                if file_id:
-                                    if rename_shopify_file(file_id, new_filename):
-                                        print(f"  + Filename updated: '{base}' -> '{new_filename}'")
-                                else:
-                                    print(f"  (Note: collection image '{base}' not found in standard files for renaming)")
-                except Exception as e:
-                    print(f"    ! Error updating collection image: {e}")
+                        # 2. Try to rename image filename if possible
+                        src = coll_image.get('url')
+                        if src:
+                            clean_url = src.split('?')[0]
+                            base = clean_url.split('/')[-1]
+                            if '.' in base:
+                                ext = base.rsplit('.', 1)[1].lower()
+                                slug = slugify(expected_img_alt)
+                                img_id = parse_gid(coll_image.get('id'))
+                                media_suffix = str(img_id)[-6:] if img_id else str(int(time.time() * 1000))[-6:]
+                                new_filename = f"{slug[:50].strip('-')}-{media_suffix}.{ext}"
+                                if slug[:30] not in base.lower():
+                                    # Search standard files to find GenericFile/MediaImage ID
+                                    file_id = find_file_id_by_filename(base)
+                                    if file_id:
+                                        if rename_shopify_file(file_id, new_filename):
+                                            print(f"  + Filename updated: '{base}' -> '{new_filename}'")
+                                    else:
+                                        print(f"  (Note: collection image '{base}' not found in standard files for renaming)")
+                    except Exception as e:
+                        print(f"    ! Error updating collection image: {e}")
 
             if coll_changes:
                 log.append({
@@ -2049,12 +2276,15 @@ def main():
             # Update meta fields if not only_images
             if not args.only_images:
                 new_meta_title = expected_mt
+                article_url = f"{SITE}/blogs/{blog_handle}/{article['handle']}"
+                gsc_kw = fetch_gsc_keywords(article_url)
+                kw_suffix = f" {', '.join(gsc_kw)}." if gsc_kw else ""
                 new_meta_desc = truncate(
-                    f"{title} - {DISPLAY_BRAND} Blog. Women's fashion tips & styling guides with free shipping & 7-day returns.",
+                    f"{title} - {DISPLAY_BRAND} Blog.{kw_suffix} Women's fashion tips & styling guides with free shipping & 7-day returns.",
                     155
                 )
-                try:
-                    set_seo_metafields(f"blogs/{blog_id}/articles", art_id, new_meta_title, new_meta_desc, mfs)
+                if args.dry_run:
+                    print(f"    [DRY-RUN] Would set article SEO metafields: title='{new_meta_title}', desc='{new_meta_desc}'")
                     stats['meta_titles'] += 1
                     stats['meta_descs'] += 1
                     stats['articles'] += 1
@@ -2062,59 +2292,74 @@ def main():
                         {"field": "meta_title", "before": cur_mtitle, "after": new_meta_title},
                         {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]}
                     ])
-                except Exception as e:
-                    print(f"    ! Error processing article metafields: {e}")
+                else:
+                    try:
+                        set_seo_metafields(f"blogs/{blog_id}/articles", art_id, new_meta_title, new_meta_desc, mfs)
+                        stats['meta_titles'] += 1
+                        stats['meta_descs'] += 1
+                        stats['articles'] += 1
+                        art_changes.extend([
+                            {"field": "meta_title", "before": cur_mtitle, "after": new_meta_title},
+                            {"field": "meta_desc", "before": cur_mdesc[:60], "after": new_meta_desc[:60]}
+                        ])
+                    except Exception as e:
+                        print(f"    ! Error processing article metafields: {e}")
 
             # Update article image alt and filename
             if art_image and (not image_ok or mode in ('force', 'weekly')):
-                try:
-                    # 1. Update Alt text via articleUpdate mutation
-                    q_update_art = """
-                    mutation articleUpdate($id: ID!, $article: ArticleUpdateInput!) {
-                      articleUpdate(id: $id, article: $article) {
-                        article { id }
-                        userErrors { field message }
-                      }
-                    }
-                    """
-                    variables = {
-                        "id": f"gid://shopify/Article/{art_id}",
-                        "article": {
-                            "image": {
-                                "altText": expected_img_alt
+                if args.dry_run:
+                    print(f"    [DRY-RUN] Would update article image alt for {art_id}: alt='{expected_img_alt}'")
+                    stats['alts'] += 1
+                    art_changes.append({"field": "image_alt", "before": art_image.get('altText') or '', "after": expected_img_alt})
+                else:
+                    try:
+                        # 1. Update Alt text via articleUpdate mutation
+                        q_update_art = """
+                        mutation articleUpdate($id: ID!, $article: ArticleUpdateInput!) {
+                          articleUpdate(id: $id, article: $article) {
+                            article { id }
+                            userErrors { field message }
+                          }
+                        }
+                        """
+                        variables = {
+                            "id": f"gid://shopify/Article/{art_id}",
+                            "article": {
+                                "image": {
+                                    "altText": expected_img_alt
+                                }
                             }
                         }
-                    }
-                    res = run_graphql(q_update_art, variables)
-                    errs = res.get("data", {}).get("articleUpdate", {}).get("userErrors", [])
-                    if errs:
-                        print(f"    ! Error updating article image alt: {errs}")
-                    else:
-                        stats['alts'] += 1
-                        art_changes.append({"field": "image_alt", "before": art_image.get('altText') or '', "after": expected_img_alt})
-                        print(f"  + image_alt: '{art_image.get('altText') or ''}' -> '{expected_img_alt}'")
+                        res = run_graphql(q_update_art, variables)
+                        errs = res.get("data", {}).get("articleUpdate", {}).get("userErrors", [])
+                        if errs:
+                            print(f"    ! Error updating article image alt: {errs}")
+                        else:
+                            stats['alts'] += 1
+                            art_changes.append({"field": "image_alt", "before": art_image.get('altText') or '', "after": expected_img_alt})
+                            print(f"  + image_alt: '{art_image.get('altText') or ''}' -> '{expected_img_alt}'")
 
-                    # 2. Try to rename image filename if possible
-                    src = art_image.get('src')
-                    if src:
-                        clean_url = src.split('?')[0]
-                        base = clean_url.split('/')[-1]
-                        if '.' in base:
-                            ext = base.rsplit('.', 1)[1].lower()
-                            slug = slugify(expected_img_alt)
-                            img_id = parse_gid(art_image.get('id'))
-                            media_suffix = str(img_id)[-6:] if img_id else str(int(time.time() * 1000))[-6:]
-                            new_filename = f"{slug[:50].strip('-')}-{media_suffix}.{ext}"
-                            if slug[:30] not in base.lower():
-                                # Search standard files to find GenericFile/MediaImage ID
-                                file_id = find_file_id_by_filename(base)
-                                if file_id:
-                                    if rename_shopify_file(file_id, new_filename):
-                                        print(f"  + Filename updated: '{base}' -> '{new_filename}'")
-                                else:
-                                    print(f"  (Note: article image '{base}' not found in standard files for renaming)")
-                except Exception as e:
-                    print(f"    ! Error updating article image: {e}")
+                        # 2. Try to rename image filename if possible
+                        src = art_image.get('src')
+                        if src:
+                            clean_url = src.split('?')[0]
+                            base = clean_url.split('/')[-1]
+                            if '.' in base:
+                                ext = base.rsplit('.', 1)[1].lower()
+                                slug = slugify(expected_img_alt)
+                                img_id = parse_gid(art_image.get('id'))
+                                media_suffix = str(img_id)[-6:] if img_id else str(int(time.time() * 1000))[-6:]
+                                new_filename = f"{slug[:50].strip('-')}-{media_suffix}.{ext}"
+                                if slug[:30] not in base.lower():
+                                    # Search standard files to find GenericFile/MediaImage ID
+                                    file_id = find_file_id_by_filename(base)
+                                    if file_id:
+                                        if rename_shopify_file(file_id, new_filename):
+                                            print(f"  + Filename updated: '{base}' -> '{new_filename}'")
+                                    else:
+                                        print(f"  (Note: article image '{base}' not found in standard files for renaming)")
+                    except Exception as e:
+                        print(f"    ! Error updating article image: {e}")
 
             if art_changes:
                 log.append({
@@ -2123,6 +2368,11 @@ def main():
                     'url': f"{SITE}/blogs/{blog_handle}/{article['handle']}",
                     'fixed': art_changes
                 })
+                # Trigger Google Indexing API crawl
+                if args.dry_run:
+                    print(f"  [DRY-RUN] Would trigger indexing for {SITE}/blogs/{blog_handle}/{article['handle']}")
+                else:
+                    trigger_google_indexing(f"{SITE}/blogs/{blog_handle}/{article['handle']}")
             processed_ids.add(article['id'])
 
     # ── Report ────────────────────────────────────────────────────────────────
