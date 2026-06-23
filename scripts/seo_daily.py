@@ -2050,9 +2050,17 @@ def main():
                 continue
 
             print(f"  [{i}/{len(pages)}] FIX {title[:55]}")
+            page_url = f"{SITE}/pages/{page['handle']}"
+            gsc_kw = fetch_gsc_keywords(page_url)
+            if gsc_kw:
+                print(f"  [GSC] Found queries to integrate: {gsc_kw}")
+            else:
+                print(f"  [GSC] No queries found for page handle '{page['handle']}' in position 8-20 with CTR < 5%")
+            kw_suffix = f" {', '.join(gsc_kw)}." if gsc_kw else ""
+
             new_meta_title = expected_mt
             new_meta_desc = truncate(
-                f"{title} - {DISPLAY_BRAND}. Premium women's fashion with free US shipping & 7-day returns.",
+                f"{title} - {DISPLAY_BRAND}.{kw_suffix} Premium women's fashion with free US shipping & 7-day returns.",
                 155
             )
             if args.dry_run:
@@ -2139,9 +2147,17 @@ def main():
 
             # Update meta fields if not only_images
             if not args.only_images:
+                coll_url = f"{SITE}/collections/{coll['handle']}"
+                gsc_kw = fetch_gsc_keywords(coll_url)
+                if gsc_kw:
+                    print(f"  [GSC] Found queries to integrate: {gsc_kw}")
+                else:
+                    print(f"  [GSC] No queries found for collection handle '{coll['handle']}' in position 8-20 with CTR < 5%")
+                kw_suffix = f" {', '.join(gsc_kw)}." if gsc_kw else ""
+
                 new_meta_title = expected_mt
                 new_meta_desc = truncate(
-                    f"Shop {title} at {DISPLAY_BRAND}. Premium women's fashion with free US shipping & 7-day returns.",
+                    f"Shop {title} at {DISPLAY_BRAND}.{kw_suffix} Premium women's fashion with free US shipping & 7-day returns.",
                     155
                 )
                 if args.dry_run:
@@ -2291,6 +2307,10 @@ def main():
                 new_meta_title = expected_mt
                 article_url = f"{SITE}/blogs/{blog_handle}/{article['handle']}"
                 gsc_kw = fetch_gsc_keywords(article_url)
+                if gsc_kw:
+                    print(f"  [GSC] Found queries to integrate: {gsc_kw}")
+                else:
+                    print(f"  [GSC] No queries found for article handle '{article['handle']}' in position 8-20 with CTR < 5%")
                 kw_suffix = f" {', '.join(gsc_kw)}." if gsc_kw else ""
                 new_meta_desc = truncate(
                     f"{title} - {DISPLAY_BRAND} Blog.{kw_suffix} Women's fashion tips & styling guides with free shipping & 7-day returns.",
