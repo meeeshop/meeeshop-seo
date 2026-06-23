@@ -227,7 +227,7 @@ def check_core_web_vitals() -> Dict:
     """Check Core Web Vitals compliance via PageSpeed Insights API"""
     logger.info(f"Querying Google PageSpeed Insights API for {SITE}...")
     
-    url = "https://pagespeedonline.googleapis.com/v5/runPagespeed"
+    url = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
     params = {
         "url": SITE,
         "category": "performance",
