@@ -464,30 +464,38 @@ def build_meta_desc(title, product_type='', tags='', gsc_keywords=None):
     """Deterministic meta description: same title always produces same output (so validation can use exact match)."""
     _, word = detect_cat(title, product_type, tags)
     keywords = extract_keywords(title)
-    if gsc_keywords:
-        keywords = list(dict.fromkeys(gsc_keywords + keywords))[:3]
     keywords_str = ' '.join(keywords) if keywords else (title.split()[0] if title.split() else "women's")
     # Deterministic template selection: pick by hash of title (no randomness)
     idx  = sum(ord(c) for c in title) % len(META_DESC_TEMPLATES)
     tpl  = META_DESC_TEMPLATES[idx]
     desc = tpl.format(title=title, brand=BRAND, word=word, keywords_str=keywords_str)
+    
+    if gsc_keywords:
+        kw_suffix = f" Perfect for {', '.join(gsc_keywords)}."
+        desc = truncate(desc, 155 - len(kw_suffix)) + kw_suffix
+        
     return truncate(desc, 155)
 
 
 # ── Image alt text (Google standard: descriptive, ≤125 chars) ─────────────────
 def build_alt(title, variant_hint='', idx=0, product_type='', tags='', gsc_keywords=None):
     cat, word = detect_cat(title, product_type, tags)
-    keywords = extract_keywords(title)
-    if gsc_keywords:
-        keywords = list(dict.fromkeys(gsc_keywords + keywords))[:2]
-    keywords_str = ' '.join(keywords) if keywords else ''
-    # Include product type keyword naturally in ALT text
+    
+    base_alt = f"{title}"
     if variant_hint and variant_hint.lower() != 'default':
-        alt = f"{keywords_str} {title} {variant_hint} ({word}) - shop at {DISPLAY_BRAND}" if keywords_str else f"{title} {variant_hint} ({word}) - shop at {DISPLAY_BRAND}"
-    else:
-        alt = f"{keywords_str} {title} ({word}) - shop at {DISPLAY_BRAND}" if keywords_str else f"{title} ({word}) - shop at {DISPLAY_BRAND}"
+        base_alt += f" {variant_hint}"
     if idx > 0:
-        alt = f"{keywords_str} {title} view {idx + 1} ({word}) - shop at {DISPLAY_BRAND}" if keywords_str else f"{title} view {idx + 1} ({word}) - shop at {DISPLAY_BRAND}"
+        base_alt += f" view {idx + 1}"
+    base_alt += f" ({word})"
+    
+    # Add keywords if we have space
+    if gsc_keywords:
+        kw_str = ", ".join(gsc_keywords)
+        space_left = 125 - len(base_alt) - len(f" - shop at {DISPLAY_BRAND}") - len(" - ")
+        if space_left > 10:
+            base_alt += f" - {kw_str[:space_left]}"
+            
+    alt = f"{base_alt} - shop at {DISPLAY_BRAND}"
     return alt[:125].strip()
 
 
@@ -761,16 +769,20 @@ def build_description(product, force=False, gsc_keywords=None):
         return final_body
 
     keywords = extract_keywords(title)
-    if gsc_keywords:
-        bold_gsc = [f"<strong>{kw}</strong>" for kw in gsc_keywords]
-        keywords = list(dict.fromkeys(bold_gsc + keywords))[:4]
     keywords_str = ' '.join(keywords) if keywords else ''
 
     intro = (
-        f"<p><strong>Discover the {keywords_str} {title} at {DISPLAY_BRAND}.</strong> This {word} combines "
+        f"<p><strong>Discover the {title} at {DISPLAY_BRAND}.</strong> This {word} combines "
         f"exceptional quality with style, perfect for women looking for women's {word}s. "
-        f"Enjoy free US shipping and easy returns on every order.</p>"
+        f"Enjoy free US shipping and easy returns on every order."
     )
+    if gsc_keywords:
+        kw_list = [f"<strong>{kw}</strong>" for kw in gsc_keywords]
+        if len(kw_list) == 1:
+            intro += f" Perfect if you are looking for {kw_list[0]}."
+        elif len(kw_list) > 1:
+            intro += f" Perfect if you are looking for {', '.join(kw_list[:-1])} or {kw_list[-1]}."
+    intro += "</p>"
 
     features = (
         f"<h3>Product Features</h3>"
@@ -785,7 +797,7 @@ def build_description(product, force=False, gsc_keywords=None):
     )
 
     why_choose = (
-        f"<h3>Why Choose {keywords_str} {title} at {DISPLAY_BRAND}?</h3>"
+        f"<h3>Why Choose the {title} at {DISPLAY_BRAND}?</h3>"
         f"<p>Looking for women's fashion? Our curated selection of {word}s for women features "
         f"quality that lasts. Whether you're shopping for everyday essentials or something special, "
         f"we have options for every style and budget.</p>"
