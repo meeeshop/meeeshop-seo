@@ -766,6 +766,23 @@ def build_description(product, force=False, gsc_keywords=None):
             qa_list = build_templated_qa(title, cat, word)
             qa_html = build_qa_html(qa_list)
             final_body = final_body.strip() + "\n\n" + qa_html
+
+        # Append GSC/Google suggestions to the custom description
+        if gsc_keywords:
+            kw_list = [f"<strong>{kw}</strong>" for kw in gsc_keywords]
+            kw_html = ""
+            if len(kw_list) == 1:
+                kw_html = f"<p>Perfect if you are looking for {kw_list[0]}.</p>"
+            elif len(kw_list) > 1:
+                kw_html = f"<p>Perfect if you are looking for {', '.join(kw_list[:-1])} or {kw_list[-1]}.</p>"
+            
+            if kw_html:
+                if "<h3>Frequently Asked Questions</h3>" in final_body:
+                    parts = final_body.split("<h3>Frequently Asked Questions</h3>", 1)
+                    final_body = parts[0].strip() + "\n\n" + kw_html + "\n\n<h3>Frequently Asked Questions</h3>" + parts[1]
+                else:
+                    final_body = final_body.strip() + "\n\n" + kw_html
+
         return final_body
 
     keywords = extract_keywords(title)
