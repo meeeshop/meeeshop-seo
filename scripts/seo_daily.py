@@ -98,11 +98,79 @@ def get_gsc_oauth_token():
         print(f"WARNING: GSC OAuth failed: {e}")
         return None
 
+def generate_long_tail_keywords(handle: str) -> list[str]:
+    """Construct logical medium/long tail keywords by combining handle terms."""
+    if not handle:
+        return []
+    words = handle.lower().replace('_', '-').split('-')
+    
+    # Brands check
+    brands = {'judy-blue', 'judy', 'pol', 'zsv', 'kancan', 'vervet', 'gilli'}
+    brand_found = None
+    for b in brands:
+        if b in handle.lower():
+            brand_found = b.replace('-', ' ').title()
+            break
+            
+    # Generic clothing words we can use as nouns
+    clothing_nouns = {
+        'jeans', 'blouse', 'top', 'dress', 'skirt', 'jacket', 'coat', 'blazer', 'sweater',
+        'hoodie', 'cardigan', 'pullover', 'romper', 'jumpsuit', 'bodysuit', 'playsuit',
+        'bag', 'purse', 'handbag', 'tote', 'crossbody', 'shoe', 'boot', 'heel', 'sandal', 'sneaker'
+    }
+    
+    noun_found = next((w for w in words if w in clothing_nouns), None)
+    if not noun_found:
+        noun_found = words[-1] if words else 'item'
+        
+    ignore = {
+        'and', 'the', 'for', 'with', 'new', 'hot', 'best', 'shop', 'meeeshop', 'us',
+        'tie', 'front', 'side', 'back', 'neck', 'sleeve', 'sleeves', 'size', 'fit',
+        'mr', 'mrs', 'jaqueline', 'styling', 'tips'
+    }
+    if brand_found:
+        for b_word in brand_found.lower().split():
+            ignore.add(b_word)
+    ignore.add(noun_found)
+    
+    descriptors = [w for w in words if w not in ignore and len(w) > 2]
+    
+    generated = []
+    # 1. Combination: Brand + Noun (e.g. Pol Blouse)
+    if brand_found:
+        generated.append(f"{brand_found} {noun_found}")
+        # 2. Combination: Brand + Descriptor + Noun (e.g. Pol Boho Blouse)
+        if descriptors:
+            generated.append(f"{brand_found} {descriptors[-1]} {noun_found}")
+            if len(descriptors) > 1:
+                # 3. Combination: Brand + Multiple Descriptors + Noun (e.g. Pol Block Print Blouse)
+                generated.append(f"{brand_found} {descriptors[0]} {descriptors[1]} {noun_found}")
+                
+    # 4. Combination: Descriptor + Noun (e.g. Boho Blouse)
+    if descriptors:
+        generated.append(f"{descriptors[-1]} {noun_found}")
+        if len(descriptors) > 1:
+            # 5. Combination: Double Descriptor + Noun (e.g. Floral Boho Blouse)
+            generated.append(f"{descriptors[-2]} {descriptors[-1]} {noun_found}")
+            
+    unique = []
+    for g in generated:
+        g_clean = g.strip().lower()
+        if g_clean not in unique:
+            unique.append(g_clean)
+            
+    return unique[:3]
+
+
 def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
     """Fetch top search queries for a specific page URL with rank 8-20, low CTR, and high impressions."""
     token = get_gsc_oauth_token()
+    parts = page_url.strip('/').split('/')
+    handle = parts[-1] if parts else ""
+
     if not token:
-        return []
+        # Fallback if GSC integration disabled/failed
+        return generate_long_tail_keywords(handle)[:limit]
         
     import urllib.parse
     try:
@@ -166,8 +234,6 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
             print(f"  [GSC] Found low-hanging keywords for {page_url}: {queries}")
         else:
             # Fallback if exact page yields no results: search site-wide queries matching handle terms
-            parts = page_url.strip('/').split('/')
-            handle = parts[-1] if parts else ""
             if handle:
                 words = handle.lower().replace('_', '-').split('-')
                 stop_words = {
@@ -209,10 +275,17 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
                         queries = [c[0] for c in fb_candidates[:limit]]
                         if queries:
                             print(f"  [GSC] Fallback found low-hanging keywords matching {search_terms}: {queries}")
+
+        # Final Fallback: Generate zero search value keywords from handle combinations if still empty
+        if not queries and handle:
+            queries = generate_long_tail_keywords(handle)[:limit]
+            if queries:
+                print(f"  [GSC] Generated zero-value fallback long-tail keywords: {queries}")
         return queries
     except Exception as e:
         print(f"  [GSC] Failed to fetch queries for {page_url}: {e}")
-        return []
+        # Fallback on exception
+        return generate_long_tail_keywords(handle)[:limit]
 
 def trigger_google_indexing(url: str):
     """Pings Google Indexing API to request instant crawl of updated URL."""
