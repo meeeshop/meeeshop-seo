@@ -606,7 +606,8 @@ def build_description(product, force=False, gsc_keywords=None):
 
     keywords = extract_keywords(title)
     if gsc_keywords:
-        keywords = list(dict.fromkeys(gsc_keywords + keywords))[:4]
+        bold_gsc = [f"<strong>{kw}</strong>" for kw in gsc_keywords]
+        keywords = list(dict.fromkeys(bold_gsc + keywords))[:4]
     keywords_str = ' '.join(keywords) if keywords else ''
 
     intro = (
@@ -1596,6 +1597,10 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
     missing    = []
 
     gsc_kw = fetch_gsc_keywords(f"{SITE}/products/{old_handle}")
+    if gsc_kw:
+        print(f"  [GSC] Found queries to integrate: {gsc_kw}")
+    else:
+        print(f"  [GSC] No queries found for handle '{old_handle}' in position 8-20 with CTR < 5%")
 
     prod_updates = {}
     if gsc_kw and not only_images:
@@ -1605,6 +1610,7 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
         if new_tags_str != product.get('tags', ''):
             prod_updates['tags'] = new_tags_str
             changes.append({"field": "tags", "before": product.get('tags', ''), "after": new_tags_str})
+            print(f"  + Added keywords to product tags: {gsc_kw}")
     if not only_images:
         # ── 1. Title Case ─────────────────────────────────────────────────────────
         new_title    = title_case(old_title)
@@ -1639,6 +1645,8 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
                 "before": f"{plain_len} chars",
                 "after": f"{len(strip_html(new_body))} chars + table"
             })
+            if gsc_kw:
+                print(f"  + Injected GSC keywords (bolded in description): {gsc_kw}")
 
         # ── 3. URL handle + redirect ──────────────────────────────────────────────
         final_title  = prod_updates.get('title', old_title)
