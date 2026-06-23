@@ -162,6 +162,87 @@ def generate_long_tail_keywords(handle: str) -> list[str]:
     return unique[:3]
 
 
+def fetch_google_search_keywords(handle: str, limit: int = 3) -> list[str]:
+    """
+    Generate a base query from handle terms (e.g. 'judy blue flare jeans') 
+    and fetch real autocomplete suggestions directly from Google Search.
+    """
+    if not handle:
+        return []
+    words = handle.lower().replace('_', '-').split('-')
+    
+    # Brands check
+    brands = {'judy-blue', 'judy', 'pol', 'zsv', 'kancan', 'vervet', 'gilli'}
+    brand_found = None
+    for b in brands:
+        if b in handle.lower():
+            brand_found = b.replace('-', ' ').title()
+            break
+            
+    # Generic clothing words we can use as nouns
+    clothing_nouns = {
+        'jeans', 'blouse', 'top', 'dress', 'skirt', 'jacket', 'coat', 'blazer', 'sweater',
+        'hoodie', 'cardigan', 'pullover', 'romper', 'jumpsuit', 'bodysuit', 'playsuit',
+        'bag', 'purse', 'handbag', 'tote', 'crossbody', 'shoe', 'boot', 'heel', 'sandal', 'sneaker'
+    }
+    
+    noun_found = next((w for w in words if w in clothing_nouns), None)
+    if not noun_found:
+        noun_found = words[-1] if words else 'item'
+        
+    ignore = {
+        'and', 'the', 'for', 'with', 'new', 'hot', 'best', 'shop', 'meeeshop', 'us',
+        'tie', 'front', 'side', 'back', 'neck', 'sleeve', 'sleeves', 'size', 'fit',
+        'mr', 'mrs', 'jaqueline', 'styling', 'tips'
+    }
+    if brand_found:
+        for b_word in brand_found.lower().split():
+            ignore.add(b_word)
+    ignore.add(noun_found)
+    
+    descriptors = [w for w in words if w not in ignore and len(w) > 2]
+    
+    # Construct a highly relevant base query: e.g. "Judy Blue flare jeans"
+    query_parts = []
+    if brand_found:
+        query_parts.append(brand_found.lower())
+    if descriptors:
+        query_parts.extend(descriptors[:2])
+    query_parts.append(noun_found)
+    
+    base_query = " ".join(query_parts)
+    print(f"  [Google Search] Querying autocomplete suggestions for: '{base_query}'")
+    
+    import urllib.parse
+    url = f"http://suggestqueries.google.com/complete/search?client=chrome&q={urllib.parse.quote_plus(base_query)}"
+    try:
+        resp = requests.get(url, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            if len(data) > 1 and isinstance(data[1], list):
+                suggestions = data[1]
+                # Filter suggestions to ensure they don't contain other brands from our list
+                other_brands = {'zenana', 'flying monkey', 'kancan', 'vervet', 'gilli', 'pol', 'judy blue'}
+                if brand_found:
+                    other_brands.discard(brand_found.lower())
+                    
+                cleaned = []
+                for s in suggestions:
+                    s_clean = s.strip().lower()
+                    # Exclude other competitor brands
+                    if any(ob in s_clean for ob in other_brands):
+                        continue
+                    if s_clean not in cleaned:
+                        cleaned.append(s_clean)
+                
+                if cleaned:
+                    return cleaned[:limit]
+    except Exception as e:
+        print(f"  [Google Search] Autocomplete request failed: {e}")
+        
+    return generate_long_tail_keywords(handle)[:limit]
+
+
 def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
     """Fetch top search queries for a specific page URL with rank 8-20, low CTR, and high impressions."""
     token = get_gsc_oauth_token()
@@ -170,7 +251,7 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
 
     if not token:
         # Fallback if GSC integration disabled/failed
-        return generate_long_tail_keywords(handle)[:limit]
+        return fetch_google_search_keywords(handle, limit)
         
     import urllib.parse
     try:
@@ -233,16 +314,16 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
         if queries:
             print(f"  [GSC] Found low-hanging keywords for {page_url}: {queries}")
         else:
-            # Fallback if exact page yields no results: construct keywords directly from the handle/category
+            # Fallback if exact page yields no results: search Google Autocomplete Suggest queries
             if handle:
-                queries = generate_long_tail_keywords(handle)[:limit]
+                queries = fetch_google_search_keywords(handle, limit)
                 if queries:
-                    print(f"  [GSC] Generated fallback long-tail keywords from handle: {queries}")
+                    print(f"  [Google Search] Suggestions found for handle: {queries}")
         return queries
     except Exception as e:
         print(f"  [GSC] Failed to fetch queries for {page_url}: {e}")
         # Fallback on exception
-        return generate_long_tail_keywords(handle)[:limit]
+        return fetch_google_search_keywords(handle, limit)
 
 def trigger_google_indexing(url: str):
     """Pings Google Indexing API to request instant crawl of updated URL."""
