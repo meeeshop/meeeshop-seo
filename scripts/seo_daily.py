@@ -164,6 +164,51 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
         queries = [c[0] for c in candidates[:limit]]
         if queries:
             print(f"  [GSC] Found low-hanging keywords for {page_url}: {queries}")
+        else:
+            # Fallback if exact page yields no results: search site-wide queries matching handle terms
+            parts = page_url.strip('/').split('/')
+            handle = parts[-1] if parts else ""
+            if handle:
+                words = handle.lower().replace('_', '-').split('-')
+                stop_words = {
+                    'a', 'an', 'the', 'and', 'or', 'for', 'with', 'on', 'at', 'by', 'to', 'in',
+                    'tie', 'front', 'side', 'back', 'neck', 'sleeve', 'sleeves', 'up', 'down',
+                    'with', 'without', 'style', 'fashion', 'women', 'womens', 'fit', 'size',
+                    'new', 'hot', 'best', 'shop', 'meeeshop', 'us'
+                }
+                search_terms = [w for w in words if w not in stop_words and len(w) > 2]
+                if search_terms:
+                    fallback_payload = {
+                        "startDate": start_date,
+                        "endDate": end_date,
+                        "dimensions": ["query"],
+                        "rowLimit": 2500
+                    }
+                    fb_resp = requests.post(
+                        query_url,
+                        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                        json=fallback_payload,
+                        timeout=25
+                    )
+                    if fb_resp.status_code == 200:
+                        fb_rows = fb_resp.json().get("rows", [])
+                        fb_candidates = []
+                        for row in fb_rows:
+                            query = row.get("keys", [None])[0]
+                            if not query:
+                                continue
+                            query_lower = query.lower()
+                            # Check if query contains any search term
+                            if any(w in query_lower for w in search_terms):
+                                position = row.get("position", 0)
+                                ctr = row.get("ctr", 0)
+                                impressions = row.get("impressions", 0)
+                                if 8.0 <= position <= 20.0 and ctr < 0.05:
+                                    fb_candidates.append((query, impressions))
+                        fb_candidates.sort(key=lambda x: x[1], reverse=True)
+                        queries = [c[0] for c in fb_candidates[:limit]]
+                        if queries:
+                            print(f"  [GSC] Fallback found low-hanging keywords matching {search_terms}: {queries}")
         return queries
     except Exception as e:
         print(f"  [GSC] Failed to fetch queries for {page_url}: {e}")
