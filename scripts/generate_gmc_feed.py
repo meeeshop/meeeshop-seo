@@ -488,12 +488,22 @@ def generate_feed():
             
             # Price mapping
             price = f"{variant.get('price')} USD"
-            
+             
             # GTIN validation
-            gtin_value = variant.get("barcode", "")
-            # Common GTIN lengths are 8, 12, 13, 14. If it's not one of these, send empty.
-            if gtin_value and not (len(gtin_value) in [8, 12, 13, 14] and gtin_value.isdigit()):
-                gtin_value = ""
+            gtin_value = variant.get("barcode", "") or ""
+            gtin_value = gtin_value.strip()
+            if gtin_value:
+                if not (len(gtin_value) in [8, 12, 13, 14] and gtin_value.isdigit()):
+                    gtin_value = ""
+                else:
+                    # Validate GS1 check digit
+                    padded = gtin_value.zfill(14)
+                    odd_sum = sum(int(padded[i]) for i in range(0, 13, 2))
+                    even_sum = sum(int(padded[i]) for i in range(1, 13, 2))
+                    total = odd_sum * 3 + even_sum
+                    check_digit = (10 - (total % 10)) % 10
+                    if check_digit != int(padded[13]):
+                        gtin_value = ""  # Clear invalid GTIN to prevent disapproval
 
             # Find Color and Size dynamically from variant options
             color = ""
