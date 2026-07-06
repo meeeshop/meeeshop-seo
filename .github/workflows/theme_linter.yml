@@ -18,5 +18,4 @@ jobs:
       - name: Run Shopify Theme Check
         uses: shopify/theme-check-action@v2
         with:
-          path: '.'
-          fail_on_error: true
+          theme_root: '.'
