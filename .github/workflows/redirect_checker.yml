@@ -27,7 +27,6 @@ jobs:
 
       - name: Run Redirect Manager
         env:
-          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
-          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
-          STORE_BASE_URL: ${{ secrets.STORE_BASE_URL }}
+          ENCRYPTION_KEY_PRIMARY:  ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: python scripts/redirect_manager.py
