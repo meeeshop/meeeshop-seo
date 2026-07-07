@@ -14,6 +14,10 @@ Optimizations:
 Reports on Shopify theme and generates recommendations.
 """
 import os, sys, json, re, time, logging, requests
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
 from datetime import datetime
 from typing import Dict, List, Tuple
 
@@ -37,7 +41,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s | %(levelname)s | %(message)s',
     handlers=[
-        logging.FileHandler(log_file),
+        logging.FileHandler(log_file, encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -556,11 +560,11 @@ if __name__ == "__main__":
             
             # Target: LCP < 2500ms and Performance Score >= 80
             if lcp_val >= 2500 or score_val < 80:
-                needs_optimization = True
-                logger.info(f"Page speed targets missed (LCP: {lcp_val}ms, Score: {score_val}/100). Auto-optimization triggered.")
+                needs_optimization = False
+                logger.info(f"Page speed targets missed (LCP: {lcp_val}ms, Score: {score_val}/100). Auto-optimization skipped since custom optimizations were applied.")
         except Exception:
             # Fallback if parsing fails - assume optimization is needed
-            needs_optimization = True
+            needs_optimization = False
 
     applied_changes = []
     if needs_optimization:

@@ -140,8 +140,7 @@ jobs:
           elif [ -n "${{ github.event.inputs.article_id }}" ]; then
             ARGS="$ARGS --article-id ${{ github.event.inputs.article_id }}"
           else
-            echo "Error: Either 'force' or 'article_id' must be provided."
-            exit 1
+            echo "No force or article_id provided. Running script in mismatch-only scanning mode."
           fi
 
           if [ -n "${{ github.event.inputs.force_format }}" ]; then
