@@ -828,8 +828,8 @@ def regenerate_single_article(
             log_entry["status"] = "error"
             log_entry["message"] = str(e)
             
-def is_article_mismatched(title: str, body_html: str) -> bool:
-    """Uses LLM to detect if there is a mismatch between the title and content."""
+def is_article_mismatched(title: str, body_html: str) -> bool | None:
+    """Uses LLM to detect if there is a mismatch between the title and content. Returns None on failure."""
     text_content = re.sub(r"<[^>]+>", " ", body_html or "").strip()
     text_sample = text_content[:1500]
     
@@ -846,9 +846,11 @@ def is_article_mismatched(title: str, body_html: str) -> bool:
             answer = resp.strip().upper().replace(".", "").replace('?', '').replace('!', '').replace('"', '').replace("'", "")
             print(f"  [QA Check] Semantic Match Analysis: '{answer}' (Title: '{title}')")
             return "NO" in answer
+        else:
+            return None
     except Exception as e:
         print(f"  [QA Check] [Warning] Failed to check semantic mismatch: {e}")
-    return False
+        return None
 
 def main():
     parser = argparse.ArgumentParser(description="Regenerate content for existing Shopify blog articles.")
@@ -908,8 +910,21 @@ def main():
         # Default behavior: Find mismatched articles from all articles
         print("[*] Scanning all articles for semantic title-body mismatches...")
         mismatched_articles = []
+        consecutive_failures = 0
         for art in all_articles:
-            if is_article_mismatched(art["title"], art["body_html"]):
+            mismatched = is_article_mismatched(art["title"], art["body_html"])
+            if mismatched is None:
+                consecutive_failures += 1
+                if consecutive_failures >= 3:
+                    print("\n[!] ERROR: AI providers are completely rate-limited or failing. Aborting scan to avoid spamming APIs.")
+                    break
+                print("  [QA Check] API failure/rate-limit. Sleeping 5 seconds before next retry...")
+                time.sleep(5)
+                continue
+            else:
+                consecutive_failures = 0 # reset on success
+                
+            if mismatched:
                 print(f"  [MISMATCH DETECTED] Title: '{art['title']}'")
                 mismatched_articles.append(art)
         articles_to_process = mismatched_articles
