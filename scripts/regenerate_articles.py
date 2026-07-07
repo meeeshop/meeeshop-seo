@@ -828,6 +828,8 @@ def regenerate_single_article(
             log_entry["status"] = "error"
             log_entry["message"] = str(e)
             
+    return log_entry
+
 def is_article_mismatched(title: str, body_html: str) -> bool | None:
     """Uses LLM to detect if there is a mismatch between the title and content. Returns None on failure."""
     text_content = re.sub(r"<[^>]+>", " ", body_html or "").strip()
