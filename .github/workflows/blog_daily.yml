@@ -1,13 +1,11 @@
-name: Blog Daily Generator [DEPRECATED — use Trend Article Engine workflow]
+name: Blog Daily Generator
 
 on:
-  # DISABLED: Replaced by .github/workflows/trend_article_engine.yml
-  # which has Flipboard research + keyword extraction + collage generation.
-  # Keeping workflow_dispatch so it can still be run manually if needed.
-  #
-  # schedule:
-  #   - cron: '0 13 * * 2'  # Tuesday  8 AM EST (13:00 UTC)
-  #   - cron: '0 14 * * 6'  # Saturday 9 AM EST (14:00 UTC)
+  schedule:
+    - cron: '0 14 * * 0'  # Sunday 9 AM EST (14:00 UTC)
+    - cron: '0 14 * * 1'  # Monday 9 AM EST (14:00 UTC)
+    - cron: '0 14 * * 3'  # Wednesday 9 AM EST (14:00 UTC)
+    - cron: '0 14 * * 5'  # Friday 9 AM EST (14:00 UTC)
   workflow_dispatch:
     inputs:
       count:
