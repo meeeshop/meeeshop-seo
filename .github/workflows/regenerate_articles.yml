@@ -1,6 +1,8 @@
 name: Regenerate Existing Blog Articles
 
 on:
+  schedule:
+    - cron: '0 4 * * 1'  # Monday 4 AM UTC (Sunday 11 PM EST)
   workflow_dispatch:
     inputs:
       force:

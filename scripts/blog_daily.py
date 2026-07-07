@@ -31,6 +31,8 @@ import requests
 import ai_client
 from PIL import Image
 from io import BytesIO
+import weekly_trend_blog as wtb
+from internal_linker import LinkMap
 
 # ── credentials ───────────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -1521,134 +1523,72 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
     all_blogs = get_all_blogs()
     print(f"  Available blogs: {[b['title'] for b in all_blogs]}\n")
 
+    # Build internal linker map
+    print("[*] Building internal linker map...")
+    link_map = wtb.build_linker_map()
+
+    # Build type map
+    type_map = {}
+    for p in pool:
+        ptype = (p.get("product_type") or "Uncategorized").strip()
+        if ptype not in type_map:
+            type_map[ptype] = []
+        type_map[ptype].append(p)
+
     chosen   = random.sample(pool, min(count, len(pool)))
 
     created = 0
     for i, product in enumerate(chosen):
         keyword, title_hint, fmt = generate_keyword_title_and_format(product, format_override)
 
-        print(f"[{i+1}/{count}] Format: {fmt} | Keyword: '{keyword}'")
+        # Map our daily format to weekly_trend_blog's mode IDs
+        mode_mapping = {
+            "sizing_guide": "body_type_guide",
+            "outfit_formula": "one_item_multiple_ways",
+            "buying_guide": "shopping_guide_edit",
+            "trend_report": "trend_report",
+            "care_guide": "fabric_care_guide",
+            "problem_solver": "stain_odour_rescue"
+        }
+        wtb_format = mode_mapping.get(fmt, "one_item_multiple_ways")
+
+        print(f"[{i+1}/{count}] Format: {fmt} (Mapping to wtb: {wtb_format}) | Keyword: '{keyword}'")
         print(f"  Product: {product['title'][:70]}")
         print(f"  Type   : {product.get('product_type', 'unknown')}")
 
         blog = get_or_create_blog(product.get("product_type", ""), all_blogs, dry_run)
         print(f"  Blog   : {blog['title']}")
 
-        # Select styling matches first so we can feed them into the prompt, ONLY for styling formats
-        is_styling_format = fmt in ["outfit_formula", "buying_guide", "trend_report", "problem_solver"]
-        if is_styling_format:
-            matching_products = select_styling_matches(product, pool, num_matches=2)
-        else:
-            matching_products = []
+        # We call the unified generator engine from weekly_trend_blog.py
+        # It handles: Flipboard research, collage creation, E-E-A-T prompting, internal links injection, etc.
+        content_assets = wtb.generate_single_article_content(
+            main_product=product,
+            all_products_with_images=pool,
+            link_map=link_map,
+            type_map=type_map,
+            research_cache={},
+            force_format=wtb_format,
+            dry_run=dry_run,
+            original_handle_hint=None
+        )
 
-        # Generate content — pass full pool and matching products for cohesion
-        prompt, h1_hint = _build_prompt(fmt, product, keyword, title_hint, similar_products=pool, matching_products=matching_products)
-        print("  Generating content…")
-        html_body = ai_client.generate(prompt, max_tokens=1600, temperature=0.75)
+        if not content_assets:
+            print("  [ERROR] Content generation failed — skipping article.\n")
+            continue
 
-        is_fallback_mode = False
-        seo_text = ""
+        html_body = content_assets["html_body"]
+        post_title = content_assets["seo_title"]
+        meta_desc = content_assets["meta_desc"]
+        suggested_handle = content_assets["suggested_handle"]
+        tags = content_assets["tags"]
+        img_url = content_assets["img_url"]
+        img_alt = content_assets["img_alt"]
+        author_name = content_assets["author"]
 
-        if not html_body:
-            print("  [AI] All providers failed — executing local template-based fallback generator...")
-            is_fallback_mode = True
-            html_body, seo = generate_fallback_blog_post(fmt, product, keyword, title_hint, pool, matching_products)
-        else:
-            # Extract <seometa> block if present
-            seo_match = re.search(r"<seometa>(.*?)</seometa>", html_body, re.DOTALL | re.IGNORECASE)
-            if seo_match:
-                seo_text = seo_match.group(1).strip()
-                # Remove the <seometa> block from body
-                html_body = html_body[:seo_match.start()] + html_body[seo_match.end():]
-            else:
-                # Inline detection fallback if tags were omitted
-                lines = html_body.splitlines()
-                cleaned_lines = []
-                seo_lines = []
-                for line in lines:
-                    l_upper = line.strip().upper()
-                    if l_upper.startswith("SEO_TITLE:") or l_upper.startswith("META_DESC:") or l_upper.startswith("IMG_ALT:"):
-                        seo_lines.append(line)
-                    elif "seometa" not in line.lower():
-                        cleaned_lines.append(line)
-                if seo_lines:
-                    seo_text = "\n".join(seo_lines)
-                    html_body = "\n".join(cleaned_lines)
-
-        html_body = _clean_html(html_body)
-        post_title = _extract_h1(html_body, h1_hint)
-
-        if not is_fallback_mode:
-            print("  Extracting SEO metadata…")
-            ptype = (product.get("product_type") or "women's fashion").lower()
-            seo   = parse_and_clean_seo_meta(seo_text, keyword, product["title"], ptype)
-            
-        print(f"  SEO title : {seo['seo_title']}")
-        print(f"  Meta desc : {seo['meta_desc'][:80]}\u2026")
-        print(f"  IMG ALT   : {seo['img_alt']}")
-
-        # ── Featured Image: Collage for ALL formats ───────────────────────────────────────────
-        collage_path = None
-        img_url = None
-        num_collage_items = 1  # tracks total products in collage for logging
-
-        is_styling_format = fmt in ["outfit_formula", "buying_guide", "trend_report", "problem_solver"]
-
-        if is_styling_format and matching_products:
-            # Outfit collage: main product + complementary styling matches
-            num_collage_items = 1 + len(matching_products)
-            print(f"  Building outfit collage ({num_collage_items} products)...")
-            collage_path = generate_outfit_collage(product, matching_products)
-        else:
-            # Topic-matched collage: use same product-type pool products
-            ptype_lower = get_clean_product_type(product).lower()
-            same_type_pool = [
-                p for p in pool
-                if p.get("id") != product.get("id")
-                and p.get("images")
-                and ptype_lower in (p.get("product_type") or "").lower()
-            ][:2]
-            if same_type_pool:
-                num_collage_items = 1 + len(same_type_pool)
-                print(f"  Building topic-matched collage for {fmt} ({num_collage_items} {ptype_lower}s)...")
-                collage_path = generate_outfit_collage(product, same_type_pool)
-            else:
-                # Fallback: just use main product solo
-                print(f"  Building single-product collage for {fmt}...")
-                collage_path = generate_outfit_collage(product, [])
-
-        # Upload collage for ALL formats (was previously only uploading in the else branch)
-        if collage_path and collage_path.exists():
-            if not dry_run:
-                ts = int(time.time())
-                filename = f"styling_collage_{product['id']}_{ts}.jpg"
-                img_url = upload_image_to_shopify(collage_path, filename)
-                try:
-                    collage_path.unlink()
-                except Exception:
-                    pass
-            else:
-                img_url = f"file:///{collage_path.absolute().as_posix()}"
-
-        if not img_url:
-            img_url = make_featured_image_url(product, fmt)
-            img_src = "Shopify CDN 1200x630 (Single product fallback)"
-        else:
-            img_src = f"Shopify CDN 1200x630 (Outfit Collage of {num_collage_items} products)"
-            
-        print(f"  Featured Image : {img_src}")
-        if img_url:
-            print(f"  Image URL      : {img_url[:90]}...")
-
-        # Inject featured product card + related products
-        html_body = inject_product_card(html_body, product, keyword)
-        html_body += make_related_products_section(products, product.get("handle", ""), keyword, matching_products if is_styling_format else None)
-
-        tags = _make_tags(product, fmt, keyword)
-        print(f"  Title     : {post_title[:80]}")
-
-        # Select fictional author pseudonym for E-E-A-T
-        author_name = random.choice(PEN_NAMES)
+        print(f"  SEO title : {post_title}")
+        print(f"  Meta desc : {meta_desc[:80]}…")
+        print(f"  IMG ALT   : {img_alt}")
+        print(f"  Featured Image : {img_url}")
         print(f"  Author    : {author_name}")
 
         # Publish (or save as draft)
@@ -1656,14 +1596,23 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
         print(f"  Status    : {status_label}")
         article = publish_article(
             blog, post_title, html_body, tags,
-            img_url, seo["img_alt"], seo["meta_desc"],
+            img_url, img_alt, meta_desc,
             dry_run, publish=publish, author=author_name
         )
 
         # Set SEO metafields (title_tag + description_tag) after creation
         if article and not dry_run and article.get("id"):
+            # Update the article handle to match suggested_handle
+            if suggested_handle and suggested_handle != article.get("handle"):
+                try:
+                    update_payload = {"id": article["id"], "handle": suggested_handle}
+                    _req("put", f"{BASE}/blogs/{blog['id']}/articles/{article['id']}.json", json={"article": update_payload})
+                    print(f"  [Handle] Updated article handle to '{suggested_handle}'")
+                except Exception as e:
+                    print(f"  [Warning] Failed to update handle: {e}")
+
             set_article_seo_metafields(blog["id"], article["id"],
-                                       seo["seo_title"], seo["meta_desc"])
+                                       post_title, meta_desc)
 
         if article:
             created += 1
