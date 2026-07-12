@@ -67,7 +67,10 @@ API_VER = "2024-10"
 BASE    = f"https://{SHOP}/admin/api/{API_VER}"
 HEADERS = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 STORE_URL = get_secret("STORE_BASE_URL") or f"https://{SHOP}"
-BRAND_NAME = get_secret("BRAND_NAME") or "MeeeShop"
+try:
+    BRAND_NAME = get_secret("BRAND_NAME")
+except KeyError:
+    BRAND_NAME = "MeeeShop"
 
 if not TOKEN:
     sys.exit("ERROR: SHOPIFY_ACCESS_TOKEN not set.")
