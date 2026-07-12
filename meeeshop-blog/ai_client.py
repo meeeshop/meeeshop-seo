@@ -69,7 +69,7 @@ def _call_openrouter(prompt: str, max_tokens: int, temperature: float) -> str:
             "Authorization": f"Bearer {OPENROUTER_KEY}",
             "Content-Type": "application/json",
             "HTTP-Referer": f"https://{os.getenv('STORE_DOMAIN', 'your-store.com')}",
-            "X-Title": os.getenv('BRAND_NAME', 'your-brand'),
+            "X-Title": get_secret("BRAND_NAME") or "MeeeShop",
         },
         json={
             "model": "meta-llama/llama-3.3-70b-instruct:free",
