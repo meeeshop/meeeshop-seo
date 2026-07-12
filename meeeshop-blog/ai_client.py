@@ -63,13 +63,18 @@ def _call_groq(prompt: str, max_tokens: int, temperature: float) -> str:
 def _call_openrouter(prompt: str, max_tokens: int, temperature: float) -> str:
     if not OPENROUTER_KEY:
         raise RuntimeError("OPENROUTER_API_KEY not set")
+    try:
+        brand_name = get_secret("BRAND_NAME")
+    except KeyError:
+        brand_name = "MeeeShop"
+
     r = requests.post(
         _OPENROUTER_URL,
         headers={
             "Authorization": f"Bearer {OPENROUTER_KEY}",
             "Content-Type": "application/json",
             "HTTP-Referer": f"https://{os.getenv('STORE_DOMAIN', 'your-store.com')}",
-            "X-Title": get_secret("BRAND_NAME") or "MeeeShop",
+            "X-Title": brand_name,
         },
         json={
             "model": "meta-llama/llama-3.3-70b-instruct:free",
