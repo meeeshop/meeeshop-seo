@@ -1088,26 +1088,27 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
     print(f"Articles to refresh: {len(work_items)}\n")
 
     # ── Check and update authors for all articles in the store ──────────────────
-    print("Checking article authors...")
-    articles_to_check = work_items if article_id else all_articles
-    for blog, art in articles_to_check:
-        cur_author = (art.get("author") or "").strip()
-        # If author is empty or generic (and doesn't contain 'meeeshop'), update to a valid E-E-A-T named pen name
-        is_generic = not cur_author or any(g in cur_author.lower() for g in ["author", "staff", "writer", "admin"])
-        if "meeeshop" not in cur_author.lower() and is_generic:
-            new_author = random.choice(PEN_NAMES)
-            print(f"  Article '{art.get('title')}' (ID {art.get('id')}) has generic/empty author '{cur_author}'. Updating to E-E-A-T author '{new_author}'...")
-            if not dry_run:
-                payload = {"article": {"id": art["id"], "author": new_author}}
-                r = _req("put", f"{BASE}/blogs/{blog['id']}/articles/{art['id']}.json", json=payload)
-                if r.status_code in (200, 201):
-                    print("    ✓ Updated successfully.")
-                    art["author"] = new_author
+    if not no_ai:
+        print("Checking article authors...")
+        articles_to_check = work_items if article_id else all_articles
+        for blog, art in articles_to_check:
+            cur_author = (art.get("author") or "").strip()
+            # If author is empty or generic (and doesn't contain 'meeeshop'), update to a valid E-E-A-T named pen name
+            is_generic = not cur_author or any(g in cur_author.lower() for g in ["author", "staff", "writer", "admin"])
+            if "meeeshop" not in cur_author.lower() and is_generic:
+                new_author = random.choice(PEN_NAMES)
+                print(f"  Article '{art.get('title')}' (ID {art.get('id')}) has generic/empty author '{cur_author}'. Updating to E-E-A-T author '{new_author}'...")
+                if not dry_run:
+                    payload = {"article": {"id": art["id"], "author": new_author}}
+                    r = _req("put", f"{BASE}/blogs/{blog['id']}/articles/{art['id']}.json", json=payload)
+                    if r.status_code in (200, 201):
+                        print("    ✓ Updated successfully.")
+                        art["author"] = new_author
+                    else:
+                        print(f"    ✗ Update failed: {r.status_code} {r.text[:200]}")
+                    time.sleep(1.0)
                 else:
-                    print(f"    ✗ Update failed: {r.status_code} {r.text[:200]}")
-                time.sleep(1.0)
-            else:
-                print(f"    [DRY-RUN] Would update author to '{new_author}'.")
+                    print(f"    [DRY-RUN] Would update author to '{new_author}'.")
 
     # ── Process each article ──────────────────────────────────────────────────
     updated = skipped = 0
