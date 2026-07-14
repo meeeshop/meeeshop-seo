@@ -116,15 +116,19 @@ def split_products(products: list) -> tuple[list, list]:
 
 
 def find_best_replacement(out_product: dict, in_stock: list) -> dict | None:
-    """Find best in-stock replacement: same product_type first (must have image), then any with image."""
+    """Find best in-stock replacement: same product_type (must have image, different product)."""
     ptype = (out_product.get("product_type") or "").lower()
-    # Same type with image
-    same = [p for p in in_stock if (p.get("product_type") or "").lower() == ptype and p.get("images")]
+    out_handle = out_product.get("handle")
+    # Same type with image, different product
+    same = [
+        p for p in in_stock 
+        if (p.get("product_type") or "").lower() == ptype 
+        and p.get("images") 
+        and p.get("handle") != out_handle
+    ]
     if same:
         return random.choice(same)
-    # Any in-stock with image
-    with_img = [p for p in in_stock if p.get("images")]
-    return random.choice(with_img) if with_img else None
+    return None
 
 
 # ── Blog / article fetching ───────────────────────────────────────────────────
@@ -204,7 +208,7 @@ def fix_article_images(html_str: str, product_by_handle: dict[str, dict]) -> tup
         return html_str, 0
         
     swaps = 0
-    # Find all <a> tags that link to products
+    # 1. Update existing images
     for a in root.find_all("a"):
         href = a.get("href", "")
         m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
@@ -224,6 +228,37 @@ def fix_article_images(html_str: str, product_by_handle: dict[str, dict]) -> tup
                         if current_src_base != new_src_base:
                             img["src"] = new_src
                             swaps += 1
+
+    # 2. Add missing images to product cards
+    for div in root.find_all("div"):
+        style = div.get("style", "") or ""
+        style_clean = style.replace(" ", "").lower()
+        # Identify main product card
+        if "background:#f8f6f3" in style_clean:
+            # Check if it lacks an img
+            if not div.find("img"):
+                # It doesn't have an image, find the product link inside to get the handle
+                a_tag = div.find("a", href=re.compile(r'/products/', re.IGNORECASE))
+                if a_tag:
+                    href = a_tag.get("href", "")
+                    m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
+                    if m:
+                        handle = m.group(1)
+                        product = product_by_handle.get(handle)
+                        if product:
+                            img_src = product_img_url(product)
+                            if img_src:
+                                import html
+                                raw_title = product.get("title", "")
+                                ptype = (product.get("product_type") or "women's fashion").lower()
+                                alt = f"{raw_title} — {ptype} for women at MeeeShop"
+                                alt_clean = alt.replace('"', "'")
+                                url = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=featured_card&utm_campaign=meeeshop_refresh"
+                                
+                                img_html = f'<a href="{url}"><img src="{img_src}" alt="{alt_clean}" style="width:220px;height:220px;object-fit:cover;border-radius:10px;flex-shrink:0;" loading="lazy" /></a>'
+                                new_img_soup = BeautifulSoup(img_html, "html.parser")
+                                div.insert(0, new_img_soup)
+                                swaps += 1
 
     # Reconstruct the inner HTML
     res = "".join(str(c) for c in root.contents)
@@ -1057,8 +1092,9 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
     articles_to_check = work_items if article_id else all_articles
     for blog, art in articles_to_check:
         cur_author = (art.get("author") or "").strip()
-        # If author is empty or generic, update to a valid E-E-A-T named pen name
-        if not cur_author or any(g in cur_author.lower() for g in ["meeeshop", "author", "staff", "writer", "admin"]):
+        # If author is empty or generic (and doesn't contain 'meeeshop'), update to a valid E-E-A-T named pen name
+        is_generic = not cur_author or any(g in cur_author.lower() for g in ["author", "staff", "writer", "admin"])
+        if "meeeshop" not in cur_author.lower() and is_generic:
             new_author = random.choice(PEN_NAMES)
             print(f"  Article '{art.get('title')}' (ID {art.get('id')}) has generic/empty author '{cur_author}'. Updating to E-E-A-T author '{new_author}'...")
             if not dry_run:
