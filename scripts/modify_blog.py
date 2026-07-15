@@ -72,25 +72,73 @@ def _req(method: str, url: str, **kw):
     raise RuntimeError(f"{method.upper()} {url} failed after 5 attempts")
 
 
+def _graphql(query: str, variables: dict = None) -> dict:
+    for attempt in range(5):
+        try:
+            payload = {"query": query}
+            if variables:
+                payload["variables"] = variables
+            r = getattr(requests, "post")(f"{BASE.replace('/api/'+API_VER, '/api/'+API_VER+'/graphql.json')}", headers=HEADERS, json=payload, timeout=45)
+            if r.status_code == 429:
+                wait = 4
+                print(f"    [GraphQL rate-limit] sleeping {wait}s…")
+                time.sleep(wait)
+                continue
+            r.raise_for_status()
+            res = r.json()
+            if "errors" in res and res["errors"]:
+                print("    [GraphQL Errors]:", res["errors"])
+                # Sometimes a query has errors but also data, but typically it's bad.
+                if attempt == 4: raise RuntimeError(f"GraphQL Errors: {res['errors']}")
+            return res
+        except requests.exceptions.ConnectionError:
+            time.sleep(3 * (attempt + 1))
+    raise RuntimeError(f"GraphQL POST failed after 5 attempts")
+
+
 # ── Product fetching ──────────────────────────────────────────────────────────
 def fetch_all_products() -> list:
-    """Fetch all products with inventory info (up to 250 per page)."""
-    products, page_info = [], None
-    while True:
-        params = {
-            "limit": 250,
-            "fields": "id,title,handle,product_type,variants,images,tags,body_html",
+    """Fetch all products using GraphQL and map to REST-like dicts."""
+    query = """
+    query($cursor: String) {
+      products(first: 250, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        edges {
+          node {
+            legacyResourceId title handle productType tags
+            variants(first: 10) {
+              edges { node { price inventoryQuantity inventoryPolicy } }
+            }
+            images(first: 10) {
+              edges { node { url } }
+            }
+          }
         }
-        if page_info:
-            params["page_info"] = page_info
-        r = _req("get", f"{BASE}/products.json", params=params)
-        r.raise_for_status()
-        batch = r.json().get("products", [])
-        products.extend(batch)
-        link = r.headers.get("Link", "")
-        m = re.search(r'<[^>]*page_info=([^&>]+)[^>]*>;\s*rel="next"', link)
-        if m:
-            page_info = m.group(1)
+      }
+    }
+    """
+    products = []
+    cursor = None
+    while True:
+        res = _graphql(query, variables={"cursor": cursor})
+        data = res.get("data", {}).get("products", {})
+        for edge in data.get("edges", []):
+            node = edge["node"]
+            variants = [{"price": v["node"]["price"], "inventory_quantity": v["node"]["inventoryQuantity"], "inventory_policy": v["node"]["inventoryPolicy"]} for v in node.get("variants", {}).get("edges", [])]
+            images = [{"src": img["node"]["url"]} for img in node.get("images", {}).get("edges", [])]
+            products.append({
+                "id": int(node["legacyResourceId"]),
+                "title": node.get("title"),
+                "handle": node.get("handle"),
+                "product_type": node.get("productType"),
+                "tags": ", ".join(node.get("tags", [])),
+                "variants": variants,
+                "images": images
+            })
+        
+        page_info = data.get("pageInfo", {})
+        if page_info.get("hasNextPage"):
+            cursor = page_info.get("endCursor")
         else:
             break
     return products
@@ -133,32 +181,75 @@ def find_best_replacement(out_product: dict, in_stock: list) -> dict | None:
 
 # ── Blog / article fetching ───────────────────────────────────────────────────
 def fetch_all_blogs() -> list:
-    r = _req("get", f"{BASE}/blogs.json")
-    r.raise_for_status()
-    return r.json().get("blogs", [])
+    query = """
+    query {
+      blogs(first: 10) {
+        edges {
+          node {
+            id title handle
+          }
+        }
+      }
+    }
+    """
+    res = _graphql(query)
+    blogs = []
+    for edge in res.get("data", {}).get("blogs", {}).get("edges", []):
+        node = edge["node"]
+        # Extract numeric ID from gid://shopify/Blog/123
+        gid = node["id"]
+        num_id = int(gid.split("/")[-1])
+        blogs.append({"id": num_id, "title": node.get("title"), "handle": node.get("handle")})
+    return blogs
 
 
 def fetch_articles_for_blog(blog_id: int, limit: int = 50) -> list:
-    """Fetch articles for one blog, oldest first."""
-    articles = []
-    page_info = None
-    while len(articles) < limit:
-        params = {
-            "limit": min(50, limit - len(articles)),
-            "fields": "id,title,handle,body_html,image,tags,summary_html,published_at,author",
+    query = """
+    query($id: ID!, $cursor: String, $first: Int) {
+      blog(id: $id) {
+        articles(first: $first, after: $cursor) {
+          pageInfo { hasNextPage endCursor }
+          edges {
+            node {
+              id title handle body tags publishedAt
+              image { url }
+              author { name }
+            }
+          }
         }
-        if page_info:
-            params["page_info"] = page_info
-        r = _req("get", f"{BASE}/blogs/{blog_id}/articles.json", params=params)
-        r.raise_for_status()
-        batch = r.json().get("articles", [])
-        if not batch:
-            break
-        articles.extend(batch)
-        link = r.headers.get("Link", "")
-        m = re.search(r'<[^>]*page_info=([^&>]+)[^>]*>;\s*rel="next"', link)
-        if m:
-            page_info = m.group(1)
+      }
+    }
+    """
+    articles = []
+    cursor = None
+    gid = f"gid://shopify/Blog/{blog_id}"
+    while len(articles) < limit:
+        first = min(50, limit - len(articles))
+        res = _graphql(query, variables={"id": gid, "first": first, "cursor": cursor})
+        blog_data = res.get("data", {}).get("blog", {})
+        if not blog_data: break
+        arts_data = blog_data.get("articles", {})
+        for edge in arts_data.get("edges", []):
+            node = edge["node"]
+            num_id = int(node["id"].split("/")[-1])
+            author_name = node.get("author", {}).get("name", "") if node.get("author") else ""
+            img_dict = {"src": node["image"]["url"]} if node.get("image") else None
+            tags_str = ", ".join(node.get("tags", []))
+            articles.append({
+                "id": num_id,
+                "title": node.get("title"),
+                "handle": node.get("handle"),
+                "body_html": node.get("body", ""),
+                "tags": tags_str,
+                "published_at": node.get("publishedAt"),
+                "author": author_name,
+                "image": img_dict,
+                "gid": node["id"]
+            })
+        
+        page_info = arts_data.get("pageInfo", {})
+        if page_info.get("hasNextPage"):
+            cursor = page_info.get("endCursor")
         else:
             break
     return articles
@@ -666,31 +757,6 @@ def parse_and_clean_seo_meta(raw_seo_text: str, keyword: str, product_title: str
     return {"seo_title": seo_title, "meta_desc": meta_desc, "img_alt": img_alt}
 
 
-def set_article_seo_metafields(blog_id: int, article_id: int,
-                                seo_title: str, meta_desc: str):
-    metafields = [
-        {"namespace": "global", "key": "title_tag",       "value": seo_title, "type": "single_line_text_field"},
-        {"namespace": "global", "key": "description_tag", "value": meta_desc, "type": "single_line_text_field"},
-    ]
-    for mf in metafields:
-        # Try to find existing metafield to update (upsert pattern)
-        existing = fetch_article_metafields(blog_id, article_id)
-        existing_mf = next((m for m in existing
-                            if m.get("namespace") == "global" and m.get("key") == mf["key"]), None)
-        if existing_mf:
-            r = _req("put",
-                     f"{BASE}/blogs/{blog_id}/articles/{article_id}/metafields/{existing_mf['id']}.json",
-                     json={"metafield": {"id": existing_mf["id"], "value": mf["value"]}})
-        else:
-            r = _req("post",
-                     f"{BASE}/blogs/{blog_id}/articles/{article_id}/metafields.json",
-                     json={"metafield": mf})
-        if r.status_code in (200, 201):
-            print(f"    SEO metafield: {mf['key']} = {mf['value'][:60]}")
-        else:
-            print(f"    SEO metafield FAILED ({mf['key']}): {r.status_code} {r.text[:100]}")
-
-
 def _clean_html(raw: str) -> str:
     raw = raw.strip()
     raw = re.sub(r"^```html?\s*", "", raw, flags=re.IGNORECASE)
@@ -1016,7 +1082,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
                 seo_meta = parse_and_clean_seo_meta(ai_html, keyword, featured["title"], featured.get("product_type", ""))
                 payload_title = new_title
                 print(f"  [Rewrite] AI rewrite successful. New title: {new_title}")
-                set_article_seo_metafields(blog_id, article_id, seo_meta["seo_title"], seo_meta["meta_desc"])
+                
             else:
                 print("  [AI Fallback] AI generation failed, using programmatic fallback...")
                 from blog_daily import generate_fallback_blog_post
@@ -1025,7 +1091,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
                 new_body = _clean_html(fb_html)
                 new_title = keyword.title()
                 payload_title = new_title
-                set_article_seo_metafields(blog_id, article_id, seo_meta["seo_title"], seo_meta["meta_desc"])
+                
         else:
             payload_title = art_title
     else:
@@ -1054,24 +1120,73 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     print(f"    [Backup] Saved original article content to backup_articles/{backup_file.name}")
 
     # ── PATCH the article (keeps same URL handle, title, author, tags, etc.) ──
-    payload = {
-        "article": {
-            "id":           article_id,
-            "title":        payload_title,
-            "body_html":    new_body,
-        }
+    # Return payload for batch execution
+    ret = {
+        "status": "updated",
+        "gid": article.get("gid", f"gid://shopify/Article/{article_id}"),
+        "title": payload_title,
+        "body_html": new_body,
+        "replacements": replacements_log,
+        "featured_product": first_replacement["title"] if first_replacement else None
     }
-
-    r = _req("put", f"{BASE}/blogs/{blog_id}/articles/{article_id}.json", json=payload)
-    if r.status_code not in (200, 201):
-        print(f"  PATCH FAILED {r.status_code}: {r.text[:200]}")
-        return None
-
-    print(f"  PATCHED  : article {article_id} updated successfully with in-stock products.")
-    return {"replacements": replacements_log, "featured_product": first_replacement["title"]}
+    if 'seo_meta' in locals() and seo_meta:
+        ret["seo_title"] = seo_meta["seo_title"]
+        ret["meta_desc"] = seo_meta["meta_desc"]
+        
+    return ret
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
+
+def _execute_article_batch(batch: list):
+    if not batch: return
+    
+    mutation_str = "mutation {\n"
+    variables = {}
+    for i, payload in enumerate(batch):
+        # Build metafields input
+        metafields_input = ""
+        if payload.get("seo_title") and payload.get("meta_desc"):
+            variables[f"title_{i}"] = payload["seo_title"]
+            variables[f"desc_{i}"] = payload["meta_desc"]
+            metafields_input = f", metafields: [{{namespace: \"global\", key: \"title_tag\", type: \"single_line_text_field\", value: $title_{i}}}, {{namespace: \"global\", key: \"description_tag\", type: \"single_line_text_field\", value: $desc_{i}}}]"
+            
+        variables[f"body_{i}"] = payload["body_html"]
+        variables[f"artTitle_{i}"] = payload.get("title")
+        
+        mutation_str += f'  m{i}: articleUpdate(id: "{payload["gid"]}", article: {{title: $artTitle_{i}, body: $body_{i}{metafields_input}}}) {{ userErrors {{ message }} }}\n'
+        
+    mutation_str += "}"
+    
+    res = _graphql(mutation_str, variables=variables)
+    data = res.get("data", {})
+    for i, payload in enumerate(batch):
+        errs = data.get(f"m{i}", {}).get("userErrors", [])
+        if errs:
+            print(f"  [GraphQL Error] article {payload['gid']}: {errs}")
+        else:
+            print(f"  ✓ Batch Updated article {payload['gid']}")
+
+def _execute_author_batch(batch: list):
+    if not batch: return
+    
+    mutation_str = "mutation {\n"
+    variables = {}
+    for i, payload in enumerate(batch):
+        variables[f"author_{i}"] = payload["author"]
+        mutation_str += f'  m{i}: articleUpdate(id: "{payload["gid"]}", article: {{author: $author_{i}}}) {{ userErrors {{ message }} }}\n'
+    mutation_str += "}"
+    
+    res = _graphql(mutation_str, variables=variables)
+    data = res.get("data", {})
+    for i, payload in enumerate(batch):
+        errs = data.get(f"m{i}", {}).get("userErrors", [])
+        if errs:
+            print(f"  [GraphQL Error] author update {payload['gid']}: {errs}")
+        else:
+            print(f"    ✓ Updated author {payload['gid']} to {payload['author']}")
+
+
 def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
         force: bool = False, batch_size: int = 20, batch_index: int = 0, no_ai: bool = False,
         fix_images_only: bool = False):
@@ -1139,6 +1254,7 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
     if not no_ai:
         print("Checking article authors...")
         articles_to_check = work_items if article_id else all_articles
+        author_batch = []
         for blog, art in articles_to_check:
             cur_author = (art.get("author") or "").strip()
             # If author is empty or generic (and doesn't contain 'meeeshop'), update to a valid E-E-A-T named pen name
@@ -1147,20 +1263,21 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
                 new_author = random.choice(PEN_NAMES)
                 print(f"  Article '{art.get('title')}' (ID {art.get('id')}) has generic/empty author '{cur_author}'. Updating to E-E-A-T author '{new_author}'...")
                 if not dry_run:
-                    payload = {"article": {"id": art["id"], "author": new_author}}
-                    r = _req("put", f"{BASE}/blogs/{blog['id']}/articles/{art['id']}.json", json=payload)
-                    if r.status_code in (200, 201):
-                        print("    ✓ Updated successfully.")
-                        art["author"] = new_author
-                    else:
-                        print(f"    ✗ Update failed: {r.status_code} {r.text[:200]}")
-                    time.sleep(1.0)
+                    author_batch.append({"gid": art.get("gid", f"gid://shopify/Article/{art['id']}"), "author": new_author})
+                    art["author"] = new_author
+                    if len(author_batch) >= 10:
+                        _execute_author_batch(author_batch)
+                        author_batch = []
                 else:
                     print(f"    [DRY-RUN] Would update author to '{new_author}'.")
+
+        if author_batch:
+            _execute_author_batch(author_batch)
 
     # ── Process each article ──────────────────────────────────────────────────
     updated = skipped = 0
     log = []
+    article_batch = []
 
     for blog, article in work_items:
         try:
@@ -1171,12 +1288,22 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
                 no_ai=no_ai,
                 fix_images_only=fix_images_only, force=force,
             )
-            if result:
+            if result and result.get("status") in ("updated", "images_fixed"):
+                if not dry_run:
+                    article_batch.append(result)
+                    if len(article_batch) >= 5:
+                        _execute_article_batch(article_batch)
+                        article_batch = []
+                        
                 updated += 1
                 log.append({"id": article["id"], "title": article["title"],
                              "status": "updated", "dry_run": dry_run,
                              "replacements": result.get("replacements", []),
                              "featured_product": result.get("featured_product")})
+            elif result and result.get("status") == "no_changes_needed":
+                skipped += 1
+                log.append({"id": article["id"], "title": article["title"],
+                             "status": "skipped"})
             else:
                 skipped += 1
                 log.append({"id": article["id"], "title": article["title"],
@@ -1189,6 +1316,9 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
             import traceback
             traceback.print_exc()
         time.sleep(1.5)  # polite rate-limiting
+
+    if article_batch and not dry_run:
+        _execute_article_batch(article_batch)
 
     # ── Summary ───────────────────────────────────────────────────────────────
     print(f"\n{'='*64}")
