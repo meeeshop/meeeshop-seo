@@ -1187,7 +1187,7 @@ def _execute_author_batch(batch: list):
             print(f"    ✓ Updated author {payload['gid']} to {payload['author']}")
 
 
-def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
+def run(limit: int = 0, dry_run: bool = False, article_id: int | None = None,
         force: bool = False, batch_size: int = 20, batch_index: int = 0, no_ai: bool = False,
         fix_images_only: bool = False):
     mode = "force" if force else ("single" if article_id else "batch")
@@ -1246,7 +1246,7 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
             work_items = all_articles[start:end]
             print(f"  Force batch {batch_index}: articles {start}–{end-1} of {len(all_articles)} total")
         else:
-            work_items = all_articles[:limit]
+            work_items = all_articles if limit <= 0 else all_articles[:limit]
 
     print(f"Articles to refresh: {len(work_items)}\n")
 
@@ -1341,7 +1341,7 @@ if __name__ == "__main__":
 
     ap = argparse.ArgumentParser(description="MeeeShop weekly blog refresher")
     ap.add_argument("--dry-run",     action="store_true", help="Print plan, no Shopify writes")
-    ap.add_argument("--limit",       type=int, default=5,  help="Max articles per run (default 5; ignored in --force)")
+    ap.add_argument("--limit",       type=int, default=0,  help="Max articles per run (default 0 for all; ignored in --force)")
     ap.add_argument("--article-id",  type=int, default=None, help="Refresh one specific article by ID")
     ap.add_argument("--force",       action="store_true", help="Update ALL articles (use with --batch-size/--batch-index)")
     ap.add_argument("--batch-size",  type=int, default=20, help="Articles per batch in force mode (default 20)")
