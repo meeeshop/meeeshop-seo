@@ -894,6 +894,22 @@ def swap_products_in_html(body_html: str, replacement_map: dict[str, dict], prod
     return str(soup), swaps
 
 
+def check_alignment(handle: str, html_content: str) -> bool:
+    if not handle or not html_content:
+        return True
+    raw_words = handle.replace('-', ' ').replace('_', ' ').split()
+    stop_words = {"how", "to", "the", "a", "an", "is", "for", "with", "what", "where", "why", "on", "in", "of"}
+    significant_words = [w.lower() for w in raw_words if w.lower() not in stop_words and len(w) > 2]
+    if not significant_words:
+        return True
+    
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html_content, "html.parser")
+    text = soup.get_text().lower()
+    
+    found_count = sum(1 for word in significant_words if word in text)
+    return (found_count / len(significant_words)) >= 0.6
+
 # ── Main article refresh logic ────────────────────────────────────────────────
 def refresh_article(blog: dict, article: dict, all_products: list,
                     in_stock: list, out_of_stock_handles: set[str],
@@ -923,26 +939,19 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         new_body, swaps = fix_article_images(body, product_by_handle)
         if swaps > 0:
             print(f"  [Fix Images] Fixed {swaps} broken/outdated product images.")
-            if dry_run:
-                print(f"  [DRY-RUN] would PATCH article {article_id} with fixed images.")
-                return {"status": "images_fixed", "swaps": swaps}
             
-            payload = {
-                "article": {
-                    "id": article_id,
-                    "body_html": new_body
-                }
-            }
-            r = _req("put", f"{BASE}/blogs/{blog_id}/articles/{article_id}.json", json=payload)
-            if r.status_code in (200, 201):
-                print(f"  PATCHED  : article {article_id} images updated successfully")
-                return {"status": "images_fixed", "swaps": swaps}
-            else:
-                print(f"  PATCH FAILED {r.status_code}: {r.text[:200]}")
-                return None
-        else:
-            print("  No out-of-stock products or outdated images found. No changes needed.")
+        aligned = check_alignment(art_handle, new_body)
+        force_rewrite = kwargs.get("force", False)
+        needs_rewrite = not aligned or force_rewrite
+        
+        if not needs_rewrite and swaps == 0:
+            print("  No out-of-stock products, outdated images, or unaligned content found. No changes needed.")
             return {"status": "no_changes_needed", "swaps": 0}
+            
+        first_replacement = None
+        replacements_log = []
+        img_swaps = swaps
+        swaps = 0
 
     # Build replacement map for out-of-stock handles
     replacement_map: dict[str, dict] = {}
@@ -978,11 +987,49 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     # Run image fixes on top of the swapped HTML to ensure images are fresh
     new_body, img_swaps = fix_article_images(new_body, product_by_handle)
 
-    if swaps == 0 and img_swaps == 0:
-        print("  No replacements or changes made in HTML. Skipping.")
+    aligned_check = check_alignment(art_handle, new_body)
+    needs_rew = not aligned_check or kwargs.get("force", False)
+    if swaps == 0 and img_swaps == 0 and not needs_rew:
+        print("  No replacements, changes, or rewrites needed in HTML. Skipping.")
         return {"status": "no_changes_needed", "swaps": 0}
 
     print(f"  HTML Swaps made: {swaps} | Image updates: {img_swaps}")
+
+    aligned = check_alignment(art_handle, new_body)
+    force_rewrite = kwargs.get("force", False)
+    needs_rewrite = not aligned or force_rewrite
+
+    if needs_rewrite and not no_ai:
+        print(f"  [Rewrite] Article unaligned with handle (aligned={aligned}) or force enabled. Rewriting...")
+        featured = first_replacement if first_replacement else (in_stock[0] if in_stock else None)
+        keyword = art_handle.replace("-", " ")
+        if featured:
+            prompt = _build_refresh_prompt(art_title, featured, keyword, new_body, art_handle)
+            prompt += "\nCRITICAL INSTRUCTION: You must adopt the styling from trending topics but write the article ONLY related to the topic dictated by the handle. Do not deviate from the handle topic."
+            
+            import ai_client
+            ai_html = ai_client.generate(prompt, max_tokens=1500, temperature=0.7)
+            
+            if ai_html:
+                new_body = _clean_html(ai_html)
+                new_title = keyword.title()
+                seo_meta = parse_and_clean_seo_meta(ai_html, keyword, featured["title"], featured.get("product_type", ""))
+                payload_title = new_title
+                print(f"  [Rewrite] AI rewrite successful. New title: {new_title}")
+                set_article_seo_metafields(blog_id, article_id, seo_meta["seo_title"], seo_meta["meta_desc"])
+            else:
+                print("  [AI Fallback] AI generation failed, using programmatic fallback...")
+                from blog_daily import generate_fallback_blog_post
+                fmt = random.choice(["sizing_guide", "outfit_formula", "buying_guide", "comparison"])
+                fb_html, seo_meta = generate_fallback_blog_post(fmt, featured, keyword, art_title, in_stock, in_stock)
+                new_body = _clean_html(fb_html)
+                new_title = keyword.title()
+                payload_title = new_title
+                set_article_seo_metafields(blog_id, article_id, seo_meta["seo_title"], seo_meta["meta_desc"])
+        else:
+            payload_title = art_title
+    else:
+        payload_title = art_title
 
     # ── Dry-run short-circuit ─────────────────────────────────────────────
     if dry_run:
@@ -1010,6 +1057,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     payload = {
         "article": {
             "id":           article_id,
+            "title":        payload_title,
             "body_html":    new_body,
         }
     }
@@ -1121,7 +1169,7 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
                 in_stock, out_of_stock_handles, product_by_handle,
                 dry_run=dry_run,
                 no_ai=no_ai,
-                fix_images_only=fix_images_only,
+                fix_images_only=fix_images_only, force=force,
             )
             if result:
                 updated += 1
