@@ -1007,12 +1007,16 @@ def refresh_article(blog: dict, article: dict, all_products: list,
             print(f"  [Fix Images] Fixed {swaps} broken/outdated product images.")
             
         aligned = check_alignment(art_handle, new_body)
+        has_products = len(referenced) > 0
         force_rewrite = kwargs.get("force", False)
-        needs_rewrite = not aligned or force_rewrite
+        needs_rewrite = not aligned or not has_products or force_rewrite
         
         if not needs_rewrite and swaps == 0:
-            print("  No out-of-stock products, outdated images, or unaligned content found. No changes needed.")
-            return {"status": "no_changes_needed", "swaps": 0}
+            if not has_products:
+                pass # Will rewrite
+            else:
+                print("  No out-of-stock products, outdated images, or unaligned content found. No changes needed.")
+                return {"status": "no_changes_needed", "swaps": 0}
             
         first_replacement = None
         replacements_log = []
@@ -1054,7 +1058,8 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     new_body, img_swaps = fix_article_images(new_body, product_by_handle)
 
     aligned_check = check_alignment(art_handle, new_body)
-    needs_rew = not aligned_check or kwargs.get("force", False)
+    has_products = len(extract_product_handles(new_body)) > 0
+    needs_rew = not aligned_check or not has_products or kwargs.get("force", False)
     if swaps == 0 and img_swaps == 0 and not needs_rew:
         print("  No replacements, changes, or rewrites needed in HTML. Skipping.")
         return {"status": "no_changes_needed", "swaps": 0}
@@ -1063,7 +1068,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
 
     aligned = check_alignment(art_handle, new_body)
     force_rewrite = kwargs.get("force", False)
-    needs_rewrite = not aligned or force_rewrite
+    needs_rewrite = not aligned or not has_products or force_rewrite
 
     if needs_rewrite and not no_ai:
         print(f"  [Rewrite] Article unaligned with handle (aligned={aligned}) or force enabled. Rewriting...")
@@ -1100,7 +1105,8 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     # ── Dry-run short-circuit ─────────────────────────────────────────────
     if dry_run:
         print(f"  [DRY-RUN] would PATCH article {article_id} with swapped products.")
-        return {"status": "updated", "replacements": replacements_log, "featured_product": first_replacement["title"] if first_replacement else None}
+        feat_title = first_replacement["title"] if first_replacement else (in_stock[0]["title"] if in_stock else None)
+        return {"status": "updated", "replacements": replacements_log, "featured_product": feat_title}
 
     # Save a backup of the original article content before we edit it
     backup_data = {
@@ -1314,7 +1320,7 @@ def run(limit: int = 0, dry_run: bool = False, article_id: int | None = None,
                          "status": "error", "error": str(exc)})
             import traceback
             traceback.print_exc()
-        time.sleep(1.5)  # polite rate-limiting
+
 
     if article_batch and not dry_run:
         _execute_article_batch(article_batch)
