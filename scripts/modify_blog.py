@@ -960,21 +960,33 @@ def swap_products_in_html(body_html: str, replacement_map: dict[str, dict], prod
     return str(soup), swaps
 
 
-def check_alignment(handle: str, html_content: str) -> bool:
+def check_alignment(handle: str, title: str, html_content: str) -> bool:
     if not handle or not html_content:
         return True
     raw_words = handle.replace('-', ' ').replace('_', ' ').split()
-    stop_words = {"how", "to", "the", "a", "an", "is", "for", "with", "what", "where", "why", "on", "in", "of"}
+    stop_words = {"how", "to", "the", "a", "an", "is", "for", "with", "what", "where", "why", "on", "in", "of", "and", "or"}
     significant_words = [w.lower() for w in raw_words if w.lower() not in stop_words and len(w) > 2]
     if not significant_words:
         return True
     
+    # 1. Check if the Title aligns with the handle
+    title_text = title.lower()
+    found_in_title = sum(1 for word in significant_words if word in title_text)
+    title_aligned = (found_in_title / len(significant_words)) >= 0.5
+    
+    if not title_aligned:
+        return False
+    
+    # 2. Check if the Body aligns with the handle
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(html_content, "html.parser")
-    text = soup.get_text().lower()
+    # Split body into words for whole-word matching instead of substring matching
+    body_words = set(re.findall(r'\b\w+\b', soup.get_text().lower()))
     
-    found_count = sum(1 for word in significant_words if word in text)
-    return (found_count / len(significant_words)) >= 0.6
+    found_in_body = sum(1 for word in significant_words if word in body_words)
+    body_aligned = (found_in_body / len(significant_words)) >= 0.6
+    
+    return body_aligned
 
 # ── Main article refresh logic ────────────────────────────────────────────────
 def refresh_article(blog: dict, article: dict, all_products: list,
@@ -1006,7 +1018,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         if swaps > 0:
             print(f"  [Fix Images] Fixed {swaps} broken/outdated product images.")
             
-        aligned = check_alignment(art_handle, new_body)
+        aligned = check_alignment(art_handle, art_title, new_body)
         has_products = len(referenced) > 0
         force_rewrite = kwargs.get("force", False)
         needs_rewrite = not aligned or not has_products or force_rewrite
@@ -1057,7 +1069,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     # Run image fixes on top of the swapped HTML to ensure images are fresh
     new_body, img_swaps = fix_article_images(new_body, product_by_handle)
 
-    aligned_check = check_alignment(art_handle, new_body)
+    aligned_check = check_alignment(art_handle, art_title, new_body)
     has_products = len(extract_product_handles(new_body)) > 0
     needs_rew = not aligned_check or not has_products or kwargs.get("force", False)
     if swaps == 0 and img_swaps == 0 and not needs_rew:
@@ -1066,7 +1078,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
 
     print(f"  HTML Swaps made: {swaps} | Image updates: {img_swaps}")
 
-    aligned = check_alignment(art_handle, new_body)
+    aligned = check_alignment(art_handle, art_title, new_body)
     force_rewrite = kwargs.get("force", False)
     needs_rewrite = not aligned or not has_products or force_rewrite
 
