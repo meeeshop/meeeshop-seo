@@ -1043,7 +1043,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         else:
             print(f"    No replacement found for '{handle}'")
 
-    if not replacement_map:
+    if oos_in_article and not replacement_map:
         print("  SKIP — No replacements could be determined for out-of-stock products.")
         return None
 
@@ -1100,7 +1100,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     # ── Dry-run short-circuit ─────────────────────────────────────────────
     if dry_run:
         print(f"  [DRY-RUN] would PATCH article {article_id} with swapped products.")
-        return {"replacements": replacements_log, "featured_product": first_replacement["title"]}
+        return {"status": "updated", "replacements": replacements_log, "featured_product": first_replacement["title"] if first_replacement else None}
 
     # Save a backup of the original article content before we edit it
     backup_data = {
