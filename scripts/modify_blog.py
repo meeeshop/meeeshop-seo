@@ -1257,11 +1257,10 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
         author_batch = []
         for blog, art in articles_to_check:
             cur_author = (art.get("author") or "").strip()
-            # If author is empty or generic (and doesn't contain 'meeeshop'), update to a valid E-E-A-T named pen name
-            is_generic = not cur_author or any(g in cur_author.lower() for g in ["author", "staff", "writer", "admin"])
-            if "meeeshop" not in cur_author.lower() and is_generic:
+            # If author doesn't contain 'meeeshop', update to a valid E-E-A-T named pen name
+            if "meeeshop" not in cur_author.lower():
                 new_author = random.choice(PEN_NAMES)
-                print(f"  Article '{art.get('title')}' (ID {art.get('id')}) has generic/empty author '{cur_author}'. Updating to E-E-A-T author '{new_author}'...")
+                print(f"  Article '{art.get('title')}' (ID {art.get('id')}) has author '{cur_author}' missing 'MeeeShop'. Updating to E-E-A-T author '{new_author}'...")
                 if not dry_run:
                     author_batch.append({"gid": art.get("gid", f"gid://shopify/Article/{art['id']}"), "author": new_author})
                     art["author"] = new_author
