@@ -1,9 +1,9 @@
 name: Weekly Blog Refresher
 
 # Schedules
-#   weekly -- Sunday 9 AM EST (14:00 UTC) -> refresh 5 oldest articles
+#   weekly -- Sunday 9 AM EST (14:00 UTC) -> refresh all articles
 #
-# Manual dispatch: normal batch (default 5) or force mode.
+# Manual dispatch: normal batch (default all) or force mode.
 # force splits ALL articles into batches of 20 so no single job exceeds
 # ~25 min (well under GitHub's 6-hour job limit).
 #
@@ -24,8 +24,8 @@ on:
           - weekly
           - force
       limit:
-        description: 'Max articles (weekly mode only, default 5)'
-        default: '5'
+        description: 'Max articles (weekly mode only, default 0 for all)'
+        default: '0'
         required: false
       dry_run:
         description: 'Dry run — print plan only, no Shopify writes (true/false)'
@@ -142,7 +142,7 @@ jobs:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          LIMIT="${{ github.event.inputs.limit || '5' }}"
+          LIMIT="${{ github.event.inputs.limit || '0' }}"
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
           ARTICLE_ID="${{ github.event.inputs.article_id || '' }}"
           NO_AI="${{ github.event.inputs.no_ai || 'false' }}"

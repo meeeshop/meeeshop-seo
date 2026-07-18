@@ -523,10 +523,41 @@ def handle_flip_popup(driver, target_mag):
             button_clicked = True
                 
     if button_clicked:
-        # Wait for success toast/notification
+        # Wait for success toast/notification or modal close
         logging.info("  [Trace] Waiting 3s for success confirmation...")
         time.sleep(3)
-        logging.info(f"  ✓ Flipped successfully.")
+        
+        # Check if modal is still open
+        modal_still_open = False
+        try:
+            modals = driver.find_elements(By.CSS_SELECTOR, 'div[role="dialog"], .modal, .magazine-selection')
+            if any(m.is_displayed() for m in modals):
+                modal_still_open = True
+        except Exception:
+            pass
+
+        # Check for success toast
+        saw_toast = False
+        try:
+            toasts = driver.find_elements(By.XPATH, '//*[contains(text(), "Flipped") or contains(text(), "Added to") or contains(text(), "Saved to")]')
+            if any(t.is_displayed() for t in toasts):
+                saw_toast = True
+                logging.info(f"  [Trace] Found success toast notification.")
+        except Exception:
+            pass
+            
+        # DEBUG SCREENSHOT to verify it actually worked
+        debug_time = int(time.time())
+        try:
+            driver.save_screenshot(f"debug_flip_{debug_time}.png")
+        except Exception:
+            pass
+
+        if modal_still_open and not saw_toast:
+            logging.warning("  ✗ Modal is still open and no success toast seen. Flip likely failed.")
+            return False
+            
+        logging.info("  ✓ Flipped successfully.")
         return True
     else:
         logging.warning("  ✗ Failed to click any submit/done button in popup.")
@@ -541,7 +572,14 @@ def reflip_trending(driver, limit):
         "jeans": "Women's Jeans & Bottoms",
         "handbags": "Handbags",
         "shoes": "Women's footwear",
-        "plussize": "Curvy | Plus Size Styles & Tips"
+        "plussize": "Curvy | Plus Size Styles & Tips",
+        "outerwear": "Trending Clothing Tips & Styles For Women",
+        "sustainablefashion": "Veganism | Eco-Friendly & Sustainable",
+        "veganfashion": "Veganism | Eco-Friendly & Sustainable",
+        "activewear": "Trending Clothing Tips & Styles For Women",
+        "swimwear": "Trending Clothing Tips & Styles For Women",
+        "accessories": "Trending Clothing Tips & Styles For Women",
+        "jewelry": "Trending Clothing Tips & Styles For Women"
     }
     
     topics = list(topic_mag_map.keys())
@@ -553,60 +591,85 @@ def reflip_trending(driver, limit):
     max_attempts = 15
     topic_idx = 0
     
+    import urllib.parse
+    import xml.etree.ElementTree as ET
+
+    def fetch_trending_candidates(topic: str) -> list:
+        """
+        Fetch trending articles for a topic using Flipboard's RSS feed.
+        Flipboard exposes https://flipboard.com/topic/{topic}.rss which returns
+        external article URLs — far more reliable than scraping the JS-rendered page.
+        """
+        rss_url = f"https://flipboard.com/topic/{topic}.rss"
+        try:
+            resp = requests.get(rss_url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            if not resp.ok:
+                logging.warning(f"  [RSS] HTTP {resp.status_code} for topic RSS: {rss_url}")
+                return []
+            root = ET.fromstring(resp.text)
+            items = root.findall(".//item")
+            candidates = []
+            for item in items:
+                title_el = item.find("title")
+                link_el  = item.find("link")
+                title = (title_el.text or "").strip() if title_el is not None else ""
+                link  = (link_el.text  or "").strip() if link_el  is not None else ""
+                if title and link and len(title) > 10 and "flipboard.com" not in link:
+                    candidates.append((link, title))
+            logging.info(f"  [RSS] Found {len(candidates)} external articles for topic '{topic}'")
+            return candidates
+        except ET.ParseError as pe:
+            logging.warning(f"  [RSS] Failed to parse RSS for '{topic}': {pe}")
+            return []
+        except Exception as e:
+            logging.warning(f"  [RSS] Error fetching RSS for '{topic}': {e}")
+            return []
+
     while successful_flips < limit and attempt < max_attempts:
         attempt += 1
         topic = topics[topic_idx % len(topics)]
         topic_idx += 1
         
         target_mag = topic_mag_map.get(topic, FLIPBOARD_MAGAZINE)
-        logging.info(f"[{successful_flips + 1}/{limit}] Attempt {attempt}: Finding trending article in topic '{topic}' -> to mag '{target_mag}'...")
+        logging.info(f"[{successful_flips + 1}/{limit}] Attempt {attempt}: topic='{topic}' -> mag='{target_mag}'")
         
         try:
-            driver.get(f"https://flipboard.com/topic/{topic}")
-            time.sleep(6) # Let the feed load fully
-            
-            # Scroll down slightly to make sure articles render
-            driver.execute_script("window.scrollBy(0, 500);")
-            time.sleep(2)
-            
-            xpath = '//button[contains(@aria-label, "Flip") or contains(@title, "Flip") or @aria-label="Add to Magazine"] | //button//*[local-name()="svg" and contains(@aria-label, "Flip")]/ancestor::button'
-            flip_btns = driver.find_elements(By.XPATH, xpath)
-            
-            visible_btns = [b for b in flip_btns if b.is_displayed()]
-            
-            if not visible_btns:
-                fallback_xpath = '//article//button[contains(@class, "flip") or contains(@aria-label, "Add") or contains(@aria-label, "Save")]'
-                article_btns = driver.find_elements(By.XPATH, fallback_xpath)
-                visible_btns = [b for b in article_btns if b.is_displayed()]
-            
-            if not visible_btns:
-                logging.warning(f"  [Trace] Could not find article flip buttons on topic '{topic}'. Skipping.")
+            candidates = fetch_trending_candidates(topic)
+
+            if not candidates:
+                logging.warning(f"  No candidates found for topic '{topic}'. Skipping.")
                 continue
-                
-            # Randomly choose one of the top visible flip buttons
-            btn = random.choice(visible_btns[:min(5, len(visible_btns))])
-            
-            logging.info("  [Trace] Clicking Flip button on a trending article...")
-            try:
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
-                time.sleep(1)
-                driver.execute_script("arguments[0].click();", btn)
-            except Exception:
-                btn.click()
-                
-            time.sleep(3)
-            
+
+            # Pick a random article from the top results
+            article_url, article_title = random.choice(candidates[:min(8, len(candidates))])
+            logging.info(f"  [Trace] Selected: '{article_title}' — {article_url}")
+
+            # Use the proven share.flipboard.com popout (same as our blog articles)
+            encoded_url   = urllib.parse.quote(article_url,   safe="")
+            encoded_title = urllib.parse.quote(article_title, safe="")
+            popout_url = (
+                f"https://share.flipboard.com/bookmarklet/popout"
+                f"?v=2&title={encoded_title}&url={encoded_url}"
+            )
+
+            logging.info(f"  [Trace] Opening share popout...")
+            driver.get(popout_url)
+            time.sleep(4)
+
             if handle_flip_popup(driver, target_mag):
                 successful_flips += 1
-                logging.info(f"  ✓ Successfully flipped trending article {successful_flips} of {limit}.")
+                logging.info(
+                    f"  ✓ Flipped '{article_title}' -> '{target_mag}' "
+                    f"({successful_flips}/{limit})"
+                )
             else:
-                logging.warning("  ✗ Failed to flip popup for this article.")
-            
+                logging.warning(f"  ✗ Flip failed for '{article_title}'.")
+
         except Exception as e:
-            logging.error(f"Failed to reflip trending article: {e}")
-            
+            logging.error(f"  Error during trending flip attempt: {e}")
+
         time.sleep(4)
-    logging.info(f"--- Finished Reflip of Trending Articles. Flipped {successful_flips}/{limit} in {attempt} attempts. ---")
+    logging.info(f"--- Finished Reflip. Flipped {successful_flips}/{limit} in {attempt} attempts. ---")
 
 def flip_articles(articles: list, headless: bool, do_reflip: bool = False, reflip_limit: int = 3):
     """Use Playwright to log in and flip articles."""
@@ -740,7 +803,7 @@ if __name__ == "__main__":
     ap.add_argument("--dry-run", action="store_true", help="Print plan, do not flip.")
     ap.add_argument("--headed", action="store_true", help="Show browser window (helpful for initial setup).")
     ap.add_argument("--no-reflip", dest="reflip", action="store_false", help="Disable finding and re-flipping trending articles.")
-    ap.add_argument("--reflip-limit", type=int, default=5, help="Max trending articles to re-flip.")
+    ap.add_argument("--reflip-limit", type=int, default=10, help="Max trending articles to re-flip.")
     ap.set_defaults(reflip=True)
     args = ap.parse_args()
     
@@ -766,10 +829,10 @@ if __name__ == "__main__":
         else:
             logging.info(f"Found {len(articles)} unsynced article(s) to process.")
             
-    # Randomize trending articles count to 4 or 5 when using the default (5)
+    # Randomize trending articles count slightly for variability
     reflip_limit = args.reflip_limit
-    if args.reflip and reflip_limit == 5:
-        reflip_limit = random.randint(4, 5)
+    if args.reflip and reflip_limit >= 2:
+        reflip_limit = random.randint(max(2, reflip_limit - 2), reflip_limit)
     
     if args.dry_run:
         logging.info("--- DRY RUN MODE ---")

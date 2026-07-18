@@ -72,25 +72,73 @@ def _req(method: str, url: str, **kw):
     raise RuntimeError(f"{method.upper()} {url} failed after 5 attempts")
 
 
+def _graphql(query: str, variables: dict = None) -> dict:
+    for attempt in range(5):
+        try:
+            payload = {"query": query}
+            if variables:
+                payload["variables"] = variables
+            r = getattr(requests, "post")(f"{BASE.replace('/api/'+API_VER, '/api/'+API_VER+'/graphql.json')}", headers=HEADERS, json=payload, timeout=45)
+            if r.status_code == 429:
+                wait = 4
+                print(f"    [GraphQL rate-limit] sleeping {wait}s…")
+                time.sleep(wait)
+                continue
+            r.raise_for_status()
+            res = r.json()
+            if "errors" in res and res["errors"]:
+                print("    [GraphQL Errors]:", res["errors"])
+                # Sometimes a query has errors but also data, but typically it's bad.
+                if attempt == 4: raise RuntimeError(f"GraphQL Errors: {res['errors']}")
+            return res
+        except requests.exceptions.ConnectionError:
+            time.sleep(3 * (attempt + 1))
+    raise RuntimeError(f"GraphQL POST failed after 5 attempts")
+
+
 # ── Product fetching ──────────────────────────────────────────────────────────
 def fetch_all_products() -> list:
-    """Fetch all products with inventory info (up to 250 per page)."""
-    products, page_info = [], None
-    while True:
-        params = {
-            "limit": 250,
-            "fields": "id,title,handle,product_type,variants,images,tags,body_html",
+    """Fetch all products using GraphQL and map to REST-like dicts."""
+    query = """
+    query($cursor: String) {
+      products(first: 250, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        edges {
+          node {
+            legacyResourceId title handle productType tags
+            variants(first: 10) {
+              edges { node { price inventoryQuantity inventoryPolicy } }
+            }
+            images(first: 10) {
+              edges { node { url } }
+            }
+          }
         }
-        if page_info:
-            params["page_info"] = page_info
-        r = _req("get", f"{BASE}/products.json", params=params)
-        r.raise_for_status()
-        batch = r.json().get("products", [])
-        products.extend(batch)
-        link = r.headers.get("Link", "")
-        m = re.search(r'<[^>]*page_info=([^&>]+)[^>]*>;\s*rel="next"', link)
-        if m:
-            page_info = m.group(1)
+      }
+    }
+    """
+    products = []
+    cursor = None
+    while True:
+        res = _graphql(query, variables={"cursor": cursor})
+        data = res.get("data", {}).get("products", {})
+        for edge in data.get("edges", []):
+            node = edge["node"]
+            variants = [{"price": v["node"]["price"], "inventory_quantity": v["node"]["inventoryQuantity"], "inventory_policy": v["node"]["inventoryPolicy"]} for v in node.get("variants", {}).get("edges", [])]
+            images = [{"src": img["node"]["url"]} for img in node.get("images", {}).get("edges", [])]
+            products.append({
+                "id": int(node["legacyResourceId"]),
+                "title": node.get("title"),
+                "handle": node.get("handle"),
+                "product_type": node.get("productType"),
+                "tags": ", ".join(node.get("tags", [])),
+                "variants": variants,
+                "images": images
+            })
+        
+        page_info = data.get("pageInfo", {})
+        if page_info.get("hasNextPage"):
+            cursor = page_info.get("endCursor")
         else:
             break
     return products
@@ -116,45 +164,92 @@ def split_products(products: list) -> tuple[list, list]:
 
 
 def find_best_replacement(out_product: dict, in_stock: list) -> dict | None:
-    """Find best in-stock replacement: same product_type first (must have image), then any with image."""
+    """Find best in-stock replacement: same product_type (must have image, different product)."""
     ptype = (out_product.get("product_type") or "").lower()
-    # Same type with image
-    same = [p for p in in_stock if (p.get("product_type") or "").lower() == ptype and p.get("images")]
+    out_handle = out_product.get("handle")
+    # Same type with image, different product
+    same = [
+        p for p in in_stock 
+        if (p.get("product_type") or "").lower() == ptype 
+        and p.get("images") 
+        and p.get("handle") != out_handle
+    ]
     if same:
         return random.choice(same)
-    # Any in-stock with image
-    with_img = [p for p in in_stock if p.get("images")]
-    return random.choice(with_img) if with_img else None
+    return None
 
 
 # ── Blog / article fetching ───────────────────────────────────────────────────
 def fetch_all_blogs() -> list:
-    r = _req("get", f"{BASE}/blogs.json")
-    r.raise_for_status()
-    return r.json().get("blogs", [])
+    query = """
+    query {
+      blogs(first: 10) {
+        edges {
+          node {
+            id title handle
+          }
+        }
+      }
+    }
+    """
+    res = _graphql(query)
+    blogs = []
+    for edge in res.get("data", {}).get("blogs", {}).get("edges", []):
+        node = edge["node"]
+        # Extract numeric ID from gid://shopify/Blog/123
+        gid = node["id"]
+        num_id = int(gid.split("/")[-1])
+        blogs.append({"id": num_id, "title": node.get("title"), "handle": node.get("handle")})
+    return blogs
 
 
 def fetch_articles_for_blog(blog_id: int, limit: int = 50) -> list:
-    """Fetch articles for one blog, oldest first."""
-    articles = []
-    page_info = None
-    while len(articles) < limit:
-        params = {
-            "limit": min(50, limit - len(articles)),
-            "fields": "id,title,handle,body_html,image,tags,summary_html,published_at,author",
+    query = """
+    query($id: ID!, $cursor: String, $first: Int) {
+      blog(id: $id) {
+        articles(first: $first, after: $cursor) {
+          pageInfo { hasNextPage endCursor }
+          edges {
+            node {
+              id title handle body tags publishedAt
+              image { url }
+              author { name }
+            }
+          }
         }
-        if page_info:
-            params["page_info"] = page_info
-        r = _req("get", f"{BASE}/blogs/{blog_id}/articles.json", params=params)
-        r.raise_for_status()
-        batch = r.json().get("articles", [])
-        if not batch:
-            break
-        articles.extend(batch)
-        link = r.headers.get("Link", "")
-        m = re.search(r'<[^>]*page_info=([^&>]+)[^>]*>;\s*rel="next"', link)
-        if m:
-            page_info = m.group(1)
+      }
+    }
+    """
+    articles = []
+    cursor = None
+    gid = f"gid://shopify/Blog/{blog_id}"
+    while len(articles) < limit:
+        first = min(50, limit - len(articles))
+        res = _graphql(query, variables={"id": gid, "first": first, "cursor": cursor})
+        blog_data = res.get("data", {}).get("blog", {})
+        if not blog_data: break
+        arts_data = blog_data.get("articles", {})
+        for edge in arts_data.get("edges", []):
+            node = edge["node"]
+            num_id = int(node["id"].split("/")[-1])
+            author_name = node.get("author", {}).get("name", "") if node.get("author") else ""
+            img_dict = {"src": node["image"]["url"]} if node.get("image") else None
+            tags_str = ", ".join(node.get("tags", []))
+            articles.append({
+                "id": num_id,
+                "title": node.get("title"),
+                "handle": node.get("handle"),
+                "body_html": node.get("body", ""),
+                "tags": tags_str,
+                "published_at": node.get("publishedAt"),
+                "author": author_name,
+                "image": img_dict,
+                "gid": node["id"]
+            })
+        
+        page_info = arts_data.get("pageInfo", {})
+        if page_info.get("hasNextPage"):
+            cursor = page_info.get("endCursor")
         else:
             break
     return articles
@@ -204,7 +299,7 @@ def fix_article_images(html_str: str, product_by_handle: dict[str, dict]) -> tup
         return html_str, 0
         
     swaps = 0
-    # Find all <a> tags that link to products
+    # 1. Update existing images
     for a in root.find_all("a"):
         href = a.get("href", "")
         m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
@@ -224,6 +319,37 @@ def fix_article_images(html_str: str, product_by_handle: dict[str, dict]) -> tup
                         if current_src_base != new_src_base:
                             img["src"] = new_src
                             swaps += 1
+
+    # 2. Add missing images to product cards
+    for div in root.find_all("div"):
+        style = div.get("style", "") or ""
+        style_clean = style.replace(" ", "").lower()
+        # Identify main product card
+        if "background:#f8f6f3" in style_clean:
+            # Check if it lacks an img
+            if not div.find("img"):
+                # It doesn't have an image, find the product link inside to get the handle
+                a_tag = div.find("a", href=re.compile(r'/products/', re.IGNORECASE))
+                if a_tag:
+                    href = a_tag.get("href", "")
+                    m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
+                    if m:
+                        handle = m.group(1)
+                        product = product_by_handle.get(handle)
+                        if product:
+                            img_src = product_img_url(product)
+                            if img_src:
+                                import html
+                                raw_title = product.get("title", "")
+                                ptype = (product.get("product_type") or "women's fashion").lower()
+                                alt = f"{raw_title} — {ptype} for women at MeeeShop"
+                                alt_clean = alt.replace('"', "'")
+                                url = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=featured_card&utm_campaign=meeeshop_refresh"
+                                
+                                img_html = f'<a href="{url}"><img src="{img_src}" alt="{alt_clean}" style="width:220px;height:220px;object-fit:cover;border-radius:10px;flex-shrink:0;" loading="lazy" /></a>'
+                                new_img_soup = BeautifulSoup(img_html, "html.parser")
+                                div.insert(0, new_img_soup)
+                                swaps += 1
 
     # Reconstruct the inner HTML
     res = "".join(str(c) for c in root.contents)
@@ -631,31 +757,6 @@ def parse_and_clean_seo_meta(raw_seo_text: str, keyword: str, product_title: str
     return {"seo_title": seo_title, "meta_desc": meta_desc, "img_alt": img_alt}
 
 
-def set_article_seo_metafields(blog_id: int, article_id: int,
-                                seo_title: str, meta_desc: str):
-    metafields = [
-        {"namespace": "global", "key": "title_tag",       "value": seo_title, "type": "single_line_text_field"},
-        {"namespace": "global", "key": "description_tag", "value": meta_desc, "type": "single_line_text_field"},
-    ]
-    for mf in metafields:
-        # Try to find existing metafield to update (upsert pattern)
-        existing = fetch_article_metafields(blog_id, article_id)
-        existing_mf = next((m for m in existing
-                            if m.get("namespace") == "global" and m.get("key") == mf["key"]), None)
-        if existing_mf:
-            r = _req("put",
-                     f"{BASE}/blogs/{blog_id}/articles/{article_id}/metafields/{existing_mf['id']}.json",
-                     json={"metafield": {"id": existing_mf["id"], "value": mf["value"]}})
-        else:
-            r = _req("post",
-                     f"{BASE}/blogs/{blog_id}/articles/{article_id}/metafields.json",
-                     json={"metafield": mf})
-        if r.status_code in (200, 201):
-            print(f"    SEO metafield: {mf['key']} = {mf['value'][:60]}")
-        else:
-            print(f"    SEO metafield FAILED ({mf['key']}): {r.status_code} {r.text[:100]}")
-
-
 def _clean_html(raw: str) -> str:
     raw = raw.strip()
     raw = re.sub(r"^```html?\s*", "", raw, flags=re.IGNORECASE)
@@ -859,6 +960,34 @@ def swap_products_in_html(body_html: str, replacement_map: dict[str, dict], prod
     return str(soup), swaps
 
 
+def check_alignment(handle: str, title: str, html_content: str) -> bool:
+    if not handle or not html_content:
+        return True
+    raw_words = handle.replace('-', ' ').replace('_', ' ').split()
+    stop_words = {"how", "to", "the", "a", "an", "is", "for", "with", "what", "where", "why", "on", "in", "of", "and", "or"}
+    significant_words = [w.lower() for w in raw_words if w.lower() not in stop_words and len(w) > 2]
+    if not significant_words:
+        return True
+    
+    # 1. Check if the Title aligns with the handle
+    title_text = title.lower()
+    found_in_title = sum(1 for word in significant_words if word in title_text)
+    title_aligned = (found_in_title / len(significant_words)) >= 0.5
+    
+    if not title_aligned:
+        return False
+    
+    # 2. Check if the Body aligns with the handle
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html_content, "html.parser")
+    # Split body into words for whole-word matching instead of substring matching
+    body_words = set(re.findall(r'\b\w+\b', soup.get_text().lower()))
+    
+    found_in_body = sum(1 for word in significant_words if word in body_words)
+    body_aligned = (found_in_body / len(significant_words)) >= 0.6
+    
+    return body_aligned
+
 # ── Main article refresh logic ────────────────────────────────────────────────
 def refresh_article(blog: dict, article: dict, all_products: list,
                     in_stock: list, out_of_stock_handles: set[str],
@@ -888,26 +1017,23 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         new_body, swaps = fix_article_images(body, product_by_handle)
         if swaps > 0:
             print(f"  [Fix Images] Fixed {swaps} broken/outdated product images.")
-            if dry_run:
-                print(f"  [DRY-RUN] would PATCH article {article_id} with fixed images.")
-                return {"status": "images_fixed", "swaps": swaps}
             
-            payload = {
-                "article": {
-                    "id": article_id,
-                    "body_html": new_body
-                }
-            }
-            r = _req("put", f"{BASE}/blogs/{blog_id}/articles/{article_id}.json", json=payload)
-            if r.status_code in (200, 201):
-                print(f"  PATCHED  : article {article_id} images updated successfully")
-                return {"status": "images_fixed", "swaps": swaps}
+        aligned = check_alignment(art_handle, art_title, new_body)
+        has_products = len(referenced) > 0
+        force_rewrite = kwargs.get("force", False)
+        needs_rewrite = not aligned or not has_products or force_rewrite
+        
+        if not needs_rewrite and swaps == 0:
+            if not has_products:
+                pass # Will rewrite
             else:
-                print(f"  PATCH FAILED {r.status_code}: {r.text[:200]}")
-                return None
-        else:
-            print("  No out-of-stock products or outdated images found. No changes needed.")
-            return {"status": "no_changes_needed", "swaps": 0}
+                print("  No out-of-stock products, outdated images, or unaligned content found. No changes needed.")
+                return {"status": "no_changes_needed", "swaps": 0}
+            
+        first_replacement = None
+        replacements_log = []
+        img_swaps = swaps
+        swaps = 0
 
     # Build replacement map for out-of-stock handles
     replacement_map: dict[str, dict] = {}
@@ -933,7 +1059,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         else:
             print(f"    No replacement found for '{handle}'")
 
-    if not replacement_map:
+    if oos_in_article and not replacement_map:
         print("  SKIP — No replacements could be determined for out-of-stock products.")
         return None
 
@@ -943,16 +1069,56 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     # Run image fixes on top of the swapped HTML to ensure images are fresh
     new_body, img_swaps = fix_article_images(new_body, product_by_handle)
 
-    if swaps == 0 and img_swaps == 0:
-        print("  No replacements or changes made in HTML. Skipping.")
+    aligned_check = check_alignment(art_handle, art_title, new_body)
+    has_products = len(extract_product_handles(new_body)) > 0
+    needs_rew = not aligned_check or not has_products or kwargs.get("force", False)
+    if swaps == 0 and img_swaps == 0 and not needs_rew:
+        print("  No replacements, changes, or rewrites needed in HTML. Skipping.")
         return {"status": "no_changes_needed", "swaps": 0}
 
     print(f"  HTML Swaps made: {swaps} | Image updates: {img_swaps}")
 
+    aligned = check_alignment(art_handle, art_title, new_body)
+    force_rewrite = kwargs.get("force", False)
+    needs_rewrite = not aligned or not has_products or force_rewrite
+
+    if needs_rewrite and not no_ai:
+        print(f"  [Rewrite] Article unaligned with handle (aligned={aligned}) or force enabled. Rewriting...")
+        featured = first_replacement if first_replacement else (in_stock[0] if in_stock else None)
+        keyword = art_handle.replace("-", " ")
+        if featured:
+            prompt = _build_refresh_prompt(art_title, featured, keyword, new_body, art_handle)
+            prompt += "\nCRITICAL INSTRUCTION: You must adopt the styling from trending topics but write the article ONLY related to the topic dictated by the handle. Do not deviate from the handle topic."
+            
+            import ai_client
+            ai_html = ai_client.generate(prompt, max_tokens=1500, temperature=0.7)
+            
+            if ai_html:
+                new_body = _clean_html(ai_html)
+                new_title = keyword.title()
+                seo_meta = parse_and_clean_seo_meta(ai_html, keyword, featured["title"], featured.get("product_type", ""))
+                payload_title = new_title
+                print(f"  [Rewrite] AI rewrite successful. New title: {new_title}")
+                
+            else:
+                print("  [AI Fallback] AI generation failed, using programmatic fallback...")
+                from blog_daily import generate_fallback_blog_post
+                fmt = random.choice(["sizing_guide", "outfit_formula", "buying_guide", "comparison"])
+                fb_html, seo_meta = generate_fallback_blog_post(fmt, featured, keyword, art_title, in_stock, in_stock)
+                new_body = _clean_html(fb_html)
+                new_title = keyword.title()
+                payload_title = new_title
+                
+        else:
+            payload_title = art_title
+    else:
+        payload_title = art_title
+
     # ── Dry-run short-circuit ─────────────────────────────────────────────
     if dry_run:
         print(f"  [DRY-RUN] would PATCH article {article_id} with swapped products.")
-        return {"replacements": replacements_log, "featured_product": first_replacement["title"]}
+        feat_title = first_replacement["title"] if first_replacement else (in_stock[0]["title"] if in_stock else None)
+        return {"status": "updated", "replacements": replacements_log, "featured_product": feat_title}
 
     # Save a backup of the original article content before we edit it
     backup_data = {
@@ -972,24 +1138,74 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     print(f"    [Backup] Saved original article content to backup_articles/{backup_file.name}")
 
     # ── PATCH the article (keeps same URL handle, title, author, tags, etc.) ──
-    payload = {
-        "article": {
-            "id":           article_id,
-            "body_html":    new_body,
-        }
+    # Return payload for batch execution
+    ret = {
+        "status": "updated",
+        "gid": article.get("gid", f"gid://shopify/Article/{article_id}"),
+        "title": payload_title,
+        "body_html": new_body,
+        "replacements": replacements_log,
+        "featured_product": first_replacement["title"] if first_replacement else None
     }
-
-    r = _req("put", f"{BASE}/blogs/{blog_id}/articles/{article_id}.json", json=payload)
-    if r.status_code not in (200, 201):
-        print(f"  PATCH FAILED {r.status_code}: {r.text[:200]}")
-        return None
-
-    print(f"  PATCHED  : article {article_id} updated successfully with in-stock products.")
-    return {"replacements": replacements_log, "featured_product": first_replacement["title"]}
+    if 'seo_meta' in locals() and seo_meta:
+        ret["seo_title"] = seo_meta["seo_title"]
+        ret["meta_desc"] = seo_meta["meta_desc"]
+        
+    return ret
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
-def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
+
+def _execute_article_batch(batch: list):
+    if not batch: return
+    
+    mutation_str = "mutation {\n"
+    variables = {}
+    for i, payload in enumerate(batch):
+        # Build metafields input
+        metafields_input = ""
+        if payload.get("seo_title") and payload.get("meta_desc"):
+            variables[f"title_{i}"] = payload["seo_title"]
+            variables[f"desc_{i}"] = payload["meta_desc"]
+            metafields_input = f", metafields: [{{namespace: \"global\", key: \"title_tag\", type: \"single_line_text_field\", value: $title_{i}}}, {{namespace: \"global\", key: \"description_tag\", type: \"single_line_text_field\", value: $desc_{i}}}]"
+            
+        variables[f"body_{i}"] = payload["body_html"]
+        variables[f"artTitle_{i}"] = payload.get("title")
+        
+        mutation_str += f'  m{i}: articleUpdate(id: "{payload["gid"]}", article: {{title: $artTitle_{i}, body: $body_{i}{metafields_input}}}) {{ userErrors {{ message }} }}\n'
+        
+    mutation_str += "}"
+    
+    res = _graphql(mutation_str, variables=variables)
+    data = res.get("data", {})
+    for i, payload in enumerate(batch):
+        errs = data.get(f"m{i}", {}).get("userErrors", [])
+        if errs:
+            print(f"  [GraphQL Error] article {payload['gid']}: {errs}")
+        else:
+            print(f"  ✓ Batch Updated article {payload['gid']}")
+
+def _execute_author_batch(batch: list):
+    if not batch: return
+    
+    mutation_str = "mutation {\n"
+    variables = {}
+    for i, payload in enumerate(batch):
+        variables[f"author_{i}"] = payload["author"]
+        mutation_str += f'  m{i}: articleUpdate(id: "{payload["gid"]}", article: {{author: $author_{i}}}) {{ userErrors {{ message }} }}\n'
+    mutation_str += "}"
+    
+    res = _graphql(mutation_str, variables=variables)
+    data = res.get("data", {})
+    for i, payload in enumerate(batch):
+        errs = data.get(f"m{i}", {}).get("userErrors", [])
+        if errs:
+            print(f"  [GraphQL Error] author update {payload['gid']}: {errs}")
+        else:
+            print(f"    ✓ Updated author {payload['gid']} to {payload['author']}")
+
+
+def run(limit: int = 0, dry_run: bool = False, article_id: int | None = None,
         force: bool = False, batch_size: int = 20, batch_index: int = 0, no_ai: bool = False,
         fix_images_only: bool = False):
     mode = "force" if force else ("single" if article_id else "batch")
@@ -1048,34 +1264,37 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
             work_items = all_articles[start:end]
             print(f"  Force batch {batch_index}: articles {start}–{end-1} of {len(all_articles)} total")
         else:
-            work_items = all_articles[:limit]
+            work_items = all_articles if limit <= 0 else all_articles[:limit]
 
     print(f"Articles to refresh: {len(work_items)}\n")
 
     # ── Check and update authors for all articles in the store ──────────────────
-    print("Checking article authors...")
-    articles_to_check = work_items if article_id else all_articles
-    for blog, art in articles_to_check:
-        cur_author = (art.get("author") or "").strip()
-        # If author is empty or generic, update to a valid E-E-A-T named pen name
-        if not cur_author or any(g in cur_author.lower() for g in ["meeeshop", "author", "staff", "writer", "admin"]):
-            new_author = random.choice(PEN_NAMES)
-            print(f"  Article '{art.get('title')}' (ID {art.get('id')}) has generic/empty author '{cur_author}'. Updating to E-E-A-T author '{new_author}'...")
-            if not dry_run:
-                payload = {"article": {"id": art["id"], "author": new_author}}
-                r = _req("put", f"{BASE}/blogs/{blog['id']}/articles/{art['id']}.json", json=payload)
-                if r.status_code in (200, 201):
-                    print("    ✓ Updated successfully.")
+    if not no_ai:
+        print("Checking article authors...")
+        articles_to_check = work_items if article_id else all_articles
+        author_batch = []
+        for blog, art in articles_to_check:
+            cur_author = (art.get("author") or "").strip()
+            # If author doesn't contain 'meeeshop', update to a valid E-E-A-T named pen name
+            if "meeeshop" not in cur_author.lower():
+                new_author = random.choice(PEN_NAMES)
+                print(f"  Article '{art.get('title')}' (ID {art.get('id')}) has author '{cur_author}' missing 'MeeeShop'. Updating to E-E-A-T author '{new_author}'...")
+                if not dry_run:
+                    author_batch.append({"gid": art.get("gid", f"gid://shopify/Article/{art['id']}"), "author": new_author})
                     art["author"] = new_author
+                    if len(author_batch) >= 10:
+                        _execute_author_batch(author_batch)
+                        author_batch = []
                 else:
-                    print(f"    ✗ Update failed: {r.status_code} {r.text[:200]}")
-                time.sleep(1.0)
-            else:
-                print(f"    [DRY-RUN] Would update author to '{new_author}'.")
+                    print(f"    [DRY-RUN] Would update author to '{new_author}'.")
+
+        if author_batch:
+            _execute_author_batch(author_batch)
 
     # ── Process each article ──────────────────────────────────────────────────
     updated = skipped = 0
     log = []
+    article_batch = []
 
     for blog, article in work_items:
         try:
@@ -1084,14 +1303,24 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
                 in_stock, out_of_stock_handles, product_by_handle,
                 dry_run=dry_run,
                 no_ai=no_ai,
-                fix_images_only=fix_images_only,
+                fix_images_only=fix_images_only, force=force,
             )
-            if result:
+            if result and result.get("status") in ("updated", "images_fixed"):
+                if not dry_run:
+                    article_batch.append(result)
+                    if len(article_batch) >= 5:
+                        _execute_article_batch(article_batch)
+                        article_batch = []
+                        
                 updated += 1
                 log.append({"id": article["id"], "title": article["title"],
                              "status": "updated", "dry_run": dry_run,
                              "replacements": result.get("replacements", []),
                              "featured_product": result.get("featured_product")})
+            elif result and result.get("status") == "no_changes_needed":
+                skipped += 1
+                log.append({"id": article["id"], "title": article["title"],
+                             "status": "skipped"})
             else:
                 skipped += 1
                 log.append({"id": article["id"], "title": article["title"],
@@ -1103,7 +1332,10 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
                          "status": "error", "error": str(exc)})
             import traceback
             traceback.print_exc()
-        time.sleep(1.5)  # polite rate-limiting
+
+
+    if article_batch and not dry_run:
+        _execute_article_batch(article_batch)
 
     # ── Summary ───────────────────────────────────────────────────────────────
     print(f"\n{'='*64}")
@@ -1127,7 +1359,7 @@ if __name__ == "__main__":
 
     ap = argparse.ArgumentParser(description="MeeeShop weekly blog refresher")
     ap.add_argument("--dry-run",     action="store_true", help="Print plan, no Shopify writes")
-    ap.add_argument("--limit",       type=int, default=5,  help="Max articles per run (default 5; ignored in --force)")
+    ap.add_argument("--limit",       type=int, default=0,  help="Max articles per run (default 0 for all; ignored in --force)")
     ap.add_argument("--article-id",  type=int, default=None, help="Refresh one specific article by ID")
     ap.add_argument("--force",       action="store_true", help="Update ALL articles (use with --batch-size/--batch-index)")
     ap.add_argument("--batch-size",  type=int, default=20, help="Articles per batch in force mode (default 20)")

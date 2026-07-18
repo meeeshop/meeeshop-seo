@@ -3,11 +3,11 @@ Dynamic pricing engine for MeeeShop inventory.
 
 Rules:
   - Take current MSRP (selling price) from Shopify
-  - Add $10.00 to every variant
+  - Add $20.00 to every variant
   - Snap to nearest x4.99 or x9.99 ending
-      e.g. $71.99 + $10 = $81.99 -> $84.99
-           $76.99 + $10 = $86.99 -> $89.99
-           $45.00 + $10 = $55.00 -> $59.99
+      e.g. $71.99 + $20 = $91.99 -> $94.99
+           $76.99 + $20 = $96.99 -> $99.99
+           $45.00 + $20 = $65.00 -> $69.99
   - Skip variants already at the correct target price
 
 Modes:
@@ -55,7 +55,7 @@ except Exception as _e:
     sys.exit(1)
 
 API_VERSION = "2025-01"
-PRICE_MARKUP = 10.00
+PRICE_MARKUP = 20.00
 # Shopify REST API allows ~2 req/s on standard plans; stay well under to avoid 429s
 API_DELAY_SECONDS = 0.6
 
@@ -231,17 +231,17 @@ def get_products(mode: str, window_hours: Optional[int] = None) -> List[Dict]:
 
 def calculate_target_price(current_price: float) -> float:
     """
-    Add $10 to current MSRP, then snap up to the nearest x4.99 or x9.99.
+    Add $20 to current MSRP, then snap up to the nearest x4.99 or x9.99.
 
     The rule: valid endings are ...4.99 and ...9.99 (ones digit 4 or 9).
     We always round UP so we never under-price.
 
     Examples:
-      $71.99 + $10 = $81.99 -> $84.99
-      $76.99 + $10 = $86.99 -> $89.99
-      $45.00 + $10 = $55.00 -> $59.99  (55.00 is not a valid ending, go up)
-      $34.99 + $10 = $44.99 -> $44.99  (already valid, keep)
-      $14.99 + $10 = $24.99 -> $29.99
+      $71.99 + $20 = $91.99 -> $94.99
+      $76.99 + $20 = $96.99 -> $99.99
+      $45.00 + $20 = $65.00 -> $69.99  (65.00 is not a valid ending, go up)
+      $34.99 + $20 = $54.99 -> $54.99  (already valid, keep)
+      $14.99 + $20 = $34.99 -> $39.99
     """
     raw = round(current_price + PRICE_MARKUP, 2)
     base = int(raw)
