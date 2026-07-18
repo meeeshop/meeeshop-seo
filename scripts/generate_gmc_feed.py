@@ -133,24 +133,26 @@ def upload_to_shopify_files(filepath):
         time.sleep(3) # Wait for deletion to propagate
         
     # 2. Request Staged Upload
-    staged_mut = """
-    mutation {
-      stagedUploadsCreate(input: [{
+    file_size = str(os.path.getsize(filepath))
+    staged_mut = f"""
+    mutation {{
+      stagedUploadsCreate(input: [{{
         resource: FILE,
         filename: "google_merchant_feed.txt",
         mimeType: "text/plain",
-        httpMethod: POST
-      }]) {
-        stagedTargets {
+        httpMethod: POST,
+        fileSize: "{file_size}"
+      }}]) {{
+        stagedTargets {{
           url
           resourceUrl
-          parameters {
+          parameters {{
             name
             value
-          }
-        }
-      }
-    }
+          }}
+        }}
+      }}
+    }}
     """
     resp = requests.post(graphql_url, headers=HEADERS, json={"query": staged_mut})
     resp.raise_for_status() # Ensure HTTP errors are caught
