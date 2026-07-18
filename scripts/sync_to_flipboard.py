@@ -523,19 +523,41 @@ def handle_flip_popup(driver, target_mag):
             button_clicked = True
                 
     if button_clicked:
-        # Wait for success toast/notification
+        # Wait for success toast/notification or modal close
         logging.info("  [Trace] Waiting 3s for success confirmation...")
         time.sleep(3)
         
-        # DEBUG SCREENSHOT to verify it actually worked
-        debug_time = int(time.time())
+        # Check if modal is still open
+        modal_still_open = False
         try:
-            driver.save_screenshot(f"debug_success_{debug_time}.png")
-            logging.info(f"  [Debug] Saved success screenshot to debug_success_{debug_time}.png")
+            modals = driver.find_elements(By.CSS_SELECTOR, 'div[role="dialog"], .modal, .magazine-selection')
+            if any(m.is_displayed() for m in modals):
+                modal_still_open = True
+        except Exception:
+            pass
+
+        # Check for success toast
+        saw_toast = False
+        try:
+            toasts = driver.find_elements(By.XPATH, '//*[contains(text(), "Flipped") or contains(text(), "Added to") or contains(text(), "Saved to")]')
+            if any(t.is_displayed() for t in toasts):
+                saw_toast = True
+                logging.info(f"  [Trace] Found success toast notification.")
         except Exception:
             pass
             
-        logging.info(f"  ✓ Flipped successfully.")
+        # DEBUG SCREENSHOT to verify it actually worked
+        debug_time = int(time.time())
+        try:
+            driver.save_screenshot(f"debug_flip_{debug_time}.png")
+        except Exception:
+            pass
+
+        if modal_still_open and not saw_toast:
+            logging.warning("  ✗ Modal is still open and no success toast seen. Flip likely failed.")
+            return False
+            
+        logging.info("  ✓ Flipped successfully.")
         return True
     else:
         logging.warning("  ✗ Failed to click any submit/done button in popup.")
