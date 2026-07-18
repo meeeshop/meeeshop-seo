@@ -591,6 +591,8 @@ def reflip_trending(driver, limit):
     max_attempts = 15
     topic_idx = 0
     
+    import urllib.parse
+    
     while successful_flips < limit and attempt < max_attempts:
         attempt += 1
         topic = topics[topic_idx % len(topics)]
@@ -607,56 +609,52 @@ def reflip_trending(driver, limit):
             driver.execute_script("window.scrollBy(0, 500);")
             time.sleep(2)
             
-            xpath = '//button[contains(@aria-label, "Flip") or contains(@title, "Flip") or @aria-label="Add to Magazine"] | //button//*[local-name()="svg" and contains(@aria-label, "Flip")]/ancestor::button'
-            flip_btns = driver.find_elements(By.XPATH, xpath)
+            # Strategy: extract article URLs and titles directly from article card links.
+            # This is more reliable than clicking the in-feed Flip button — that popup flow
+            # requires a multi-step submit sequence that keeps the modal open and fails.
+            # Instead, we extract the external URL and use the share.flipboard.com popout,
+            # which is the same proven path used for our own blog articles.
+            article_links = driver.find_elements(
+                By.XPATH,
+                "//article//a[@href] | //div[contains(@class,'article')]//a[@href] | //li[contains(@class,'item')]//a[@href]"
+            )
             
-            visible_btns = [b for b in flip_btns if b.is_displayed()]
-            
-            if not visible_btns:
-                fallback_xpath = '//article//button[contains(@class, "flip") or contains(@aria-label, "Add") or contains(@aria-label, "Save")]'
-                article_btns = driver.find_elements(By.XPATH, fallback_xpath)
-                visible_btns = [b for b in article_btns if b.is_displayed()]
-            
-            if not visible_btns:
-                logging.warning(f"  [Trace] Could not find article flip buttons on topic '{topic}'. Skipping.")
-                continue
-                
-            # Randomly choose one of the top visible flip buttons
-            btn = random.choice(visible_btns[:min(5, len(visible_btns))])
-            
-            # Try to extract the article title for logging
-            article_title = "Unknown Trending Article"
-            try:
-                article_elem = btn.find_element(By.XPATH, "./ancestor::article")
-                header_elems = article_elem.find_elements(By.XPATH, ".//h1 | .//h2 | .//h3 | .//a[string-length(text()) > 15]")
-                for h in header_elems:
-                    txt = h.text.strip()
-                    if txt:
-                        article_title = txt
-                        break
-            except Exception:
+            candidates = []
+            seen_urls = set()
+            for a in article_links:
                 try:
-                    aria = btn.get_attribute("aria-label")
-                    if aria and "Flip" in aria:
-                        article_title = aria
+                    href = a.get_attribute("href") or ""
+                    title = a.text.strip()
+                    # Only keep external links with a meaningful title (not Flipboard internal links)
+                    if (href and "flipboard.com" not in href and title
+                            and len(title) > 15 and href not in seen_urls):
+                        seen_urls.add(href)
+                        candidates.append((href, title))
                 except Exception:
-                    pass
+                    continue
             
-            logging.info(f"  [Trace] Clicking Flip button on trending article: '{article_title}'")
-            try:
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
-                time.sleep(1)
-                driver.execute_script("arguments[0].click();", btn)
-            except Exception:
-                btn.click()
-                
-            time.sleep(3)
+            if not candidates:
+                logging.warning(f"  [Trace] No external article URLs found on topic '{topic}'. Skipping.")
+                continue
+            
+            # Pick a random candidate from the top results
+            article_url, article_title = random.choice(candidates[:min(8, len(candidates))])
+            logging.info(f"  [Trace] Selected trending article: '{article_title}' — {article_url}")
+            
+            # Use the proven share.flipboard.com popout approach (same as our blog articles)
+            encoded_url = urllib.parse.quote(article_url, safe="")
+            encoded_title = urllib.parse.quote(article_title, safe="")
+            popout_url = f"https://share.flipboard.com/bookmarklet/popout?v=2&title={encoded_title}&url={encoded_url}"
+            
+            logging.info(f"  [Trace] Opening share popout...")
+            driver.get(popout_url)
+            time.sleep(4) # Let the share popout load
             
             if handle_flip_popup(driver, target_mag):
                 successful_flips += 1
                 logging.info(f"  ✓ Successfully flipped trending article '{article_title}' to magazine '{target_mag}' ({successful_flips} of {limit}).")
             else:
-                logging.warning(f"  ✗ Failed to flip popup for article '{article_title}'.")
+                logging.warning(f"  ✗ Failed to flip article '{article_title}' via share popout.")
             
         except Exception as e:
             logging.error(f"Failed to reflip trending article: {e}")
