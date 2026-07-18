@@ -445,7 +445,7 @@ def generate_feed():
         # Extract Images
         images = product.get("images", [])
         main_image = images[0].get("src") if images else ""
-        additional_images = ",".join([img.get("src") for img in images[1:11]]) # Max 10 additional images
+        additional_images = ",".join([img.get("src") for img in images[1:4]]) # Max 3 additional images
         
         # Extract Base Product details
         prod_desc = clean_html(product.get("body_html", ""))
