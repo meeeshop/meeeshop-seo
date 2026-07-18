@@ -593,7 +593,25 @@ def reflip_trending(driver, limit):
             # Randomly choose one of the top visible flip buttons
             btn = random.choice(visible_btns[:min(5, len(visible_btns))])
             
-            logging.info("  [Trace] Clicking Flip button on a trending article...")
+            # Try to extract the article title for logging
+            article_title = "Unknown Trending Article"
+            try:
+                article_elem = btn.find_element(By.XPATH, "./ancestor::article")
+                header_elems = article_elem.find_elements(By.XPATH, ".//h1 | .//h2 | .//h3 | .//a[string-length(text()) > 15]")
+                for h in header_elems:
+                    txt = h.text.strip()
+                    if txt:
+                        article_title = txt
+                        break
+            except Exception:
+                try:
+                    aria = btn.get_attribute("aria-label")
+                    if aria and "Flip" in aria:
+                        article_title = aria
+                except Exception:
+                    pass
+            
+            logging.info(f"  [Trace] Clicking Flip button on trending article: '{article_title}'")
             try:
                 driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
                 time.sleep(1)
@@ -605,9 +623,9 @@ def reflip_trending(driver, limit):
             
             if handle_flip_popup(driver, target_mag):
                 successful_flips += 1
-                logging.info(f"  ✓ Successfully flipped trending article {successful_flips} of {limit}.")
+                logging.info(f"  ✓ Successfully flipped trending article '{article_title}' to magazine '{target_mag}' ({successful_flips} of {limit}).")
             else:
-                logging.warning("  ✗ Failed to flip popup for this article.")
+                logging.warning(f"  ✗ Failed to flip popup for article '{article_title}'.")
             
         except Exception as e:
             logging.error(f"Failed to reflip trending article: {e}")
