@@ -526,6 +526,15 @@ def handle_flip_popup(driver, target_mag):
         # Wait for success toast/notification
         logging.info("  [Trace] Waiting 3s for success confirmation...")
         time.sleep(3)
+        
+        # DEBUG SCREENSHOT to verify it actually worked
+        debug_time = int(time.time())
+        try:
+            driver.save_screenshot(f"debug_success_{debug_time}.png")
+            logging.info(f"  [Debug] Saved success screenshot to debug_success_{debug_time}.png")
+        except Exception:
+            pass
+            
         logging.info(f"  ✓ Flipped successfully.")
         return True
     else:
