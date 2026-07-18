@@ -592,75 +592,84 @@ def reflip_trending(driver, limit):
     topic_idx = 0
     
     import urllib.parse
-    
+    import xml.etree.ElementTree as ET
+
+    def fetch_trending_candidates(topic: str) -> list:
+        """
+        Fetch trending articles for a topic using Flipboard's RSS feed.
+        Flipboard exposes https://flipboard.com/topic/{topic}.rss which returns
+        external article URLs — far more reliable than scraping the JS-rendered page.
+        """
+        rss_url = f"https://flipboard.com/topic/{topic}.rss"
+        try:
+            resp = requests.get(rss_url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            if not resp.ok:
+                logging.warning(f"  [RSS] HTTP {resp.status_code} for topic RSS: {rss_url}")
+                return []
+            root = ET.fromstring(resp.text)
+            items = root.findall(".//item")
+            candidates = []
+            for item in items:
+                title_el = item.find("title")
+                link_el  = item.find("link")
+                title = (title_el.text or "").strip() if title_el is not None else ""
+                link  = (link_el.text  or "").strip() if link_el  is not None else ""
+                if title and link and len(title) > 10 and "flipboard.com" not in link:
+                    candidates.append((link, title))
+            logging.info(f"  [RSS] Found {len(candidates)} external articles for topic '{topic}'")
+            return candidates
+        except ET.ParseError as pe:
+            logging.warning(f"  [RSS] Failed to parse RSS for '{topic}': {pe}")
+            return []
+        except Exception as e:
+            logging.warning(f"  [RSS] Error fetching RSS for '{topic}': {e}")
+            return []
+
     while successful_flips < limit and attempt < max_attempts:
         attempt += 1
         topic = topics[topic_idx % len(topics)]
         topic_idx += 1
         
         target_mag = topic_mag_map.get(topic, FLIPBOARD_MAGAZINE)
-        logging.info(f"[{successful_flips + 1}/{limit}] Attempt {attempt}: Finding trending article in topic '{topic}' -> to mag '{target_mag}'...")
+        logging.info(f"[{successful_flips + 1}/{limit}] Attempt {attempt}: topic='{topic}' -> mag='{target_mag}'")
         
         try:
-            driver.get(f"https://flipboard.com/topic/{topic}")
-            time.sleep(6) # Let the feed load fully
-            
-            # Scroll down slightly to make sure articles render
-            driver.execute_script("window.scrollBy(0, 500);")
-            time.sleep(2)
-            
-            # Strategy: extract article URLs and titles directly from article card links.
-            # This is more reliable than clicking the in-feed Flip button — that popup flow
-            # requires a multi-step submit sequence that keeps the modal open and fails.
-            # Instead, we extract the external URL and use the share.flipboard.com popout,
-            # which is the same proven path used for our own blog articles.
-            article_links = driver.find_elements(
-                By.XPATH,
-                "//article//a[@href] | //div[contains(@class,'article')]//a[@href] | //li[contains(@class,'item')]//a[@href]"
-            )
-            
-            candidates = []
-            seen_urls = set()
-            for a in article_links:
-                try:
-                    href = a.get_attribute("href") or ""
-                    title = a.text.strip()
-                    # Only keep external links with a meaningful title (not Flipboard internal links)
-                    if (href and "flipboard.com" not in href and title
-                            and len(title) > 15 and href not in seen_urls):
-                        seen_urls.add(href)
-                        candidates.append((href, title))
-                except Exception:
-                    continue
-            
+            candidates = fetch_trending_candidates(topic)
+
             if not candidates:
-                logging.warning(f"  [Trace] No external article URLs found on topic '{topic}'. Skipping.")
+                logging.warning(f"  No candidates found for topic '{topic}'. Skipping.")
                 continue
-            
-            # Pick a random candidate from the top results
+
+            # Pick a random article from the top results
             article_url, article_title = random.choice(candidates[:min(8, len(candidates))])
-            logging.info(f"  [Trace] Selected trending article: '{article_title}' — {article_url}")
-            
-            # Use the proven share.flipboard.com popout approach (same as our blog articles)
-            encoded_url = urllib.parse.quote(article_url, safe="")
+            logging.info(f"  [Trace] Selected: '{article_title}' — {article_url}")
+
+            # Use the proven share.flipboard.com popout (same as our blog articles)
+            encoded_url   = urllib.parse.quote(article_url,   safe="")
             encoded_title = urllib.parse.quote(article_title, safe="")
-            popout_url = f"https://share.flipboard.com/bookmarklet/popout?v=2&title={encoded_title}&url={encoded_url}"
-            
+            popout_url = (
+                f"https://share.flipboard.com/bookmarklet/popout"
+                f"?v=2&title={encoded_title}&url={encoded_url}"
+            )
+
             logging.info(f"  [Trace] Opening share popout...")
             driver.get(popout_url)
-            time.sleep(4) # Let the share popout load
-            
+            time.sleep(4)
+
             if handle_flip_popup(driver, target_mag):
                 successful_flips += 1
-                logging.info(f"  ✓ Successfully flipped trending article '{article_title}' to magazine '{target_mag}' ({successful_flips} of {limit}).")
+                logging.info(
+                    f"  ✓ Flipped '{article_title}' -> '{target_mag}' "
+                    f"({successful_flips}/{limit})"
+                )
             else:
-                logging.warning(f"  ✗ Failed to flip article '{article_title}' via share popout.")
-            
+                logging.warning(f"  ✗ Flip failed for '{article_title}'.")
+
         except Exception as e:
-            logging.error(f"Failed to reflip trending article: {e}")
-            
+            logging.error(f"  Error during trending flip attempt: {e}")
+
         time.sleep(4)
-    logging.info(f"--- Finished Reflip of Trending Articles. Flipped {successful_flips}/{limit} in {attempt} attempts. ---")
+    logging.info(f"--- Finished Reflip. Flipped {successful_flips}/{limit} in {attempt} attempts. ---")
 
 def flip_articles(articles: list, headless: bool, do_reflip: bool = False, reflip_limit: int = 3):
     """Use Playwright to log in and flip articles."""
