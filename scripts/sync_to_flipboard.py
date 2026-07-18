@@ -541,7 +541,14 @@ def reflip_trending(driver, limit):
         "jeans": "Women's Jeans & Bottoms",
         "handbags": "Handbags",
         "shoes": "Women's footwear",
-        "plussize": "Curvy | Plus Size Styles & Tips"
+        "plussize": "Curvy | Plus Size Styles & Tips",
+        "outerwear": "Trending Clothing Tips & Styles For Women",
+        "sustainablefashion": "Veganism | Eco-Friendly & Sustainable",
+        "veganfashion": "Veganism | Eco-Friendly & Sustainable",
+        "activewear": "Trending Clothing Tips & Styles For Women",
+        "swimwear": "Trending Clothing Tips & Styles For Women",
+        "accessories": "Trending Clothing Tips & Styles For Women",
+        "jewelry": "Trending Clothing Tips & Styles For Women"
     }
     
     topics = list(topic_mag_map.keys())
@@ -740,7 +747,7 @@ if __name__ == "__main__":
     ap.add_argument("--dry-run", action="store_true", help="Print plan, do not flip.")
     ap.add_argument("--headed", action="store_true", help="Show browser window (helpful for initial setup).")
     ap.add_argument("--no-reflip", dest="reflip", action="store_false", help="Disable finding and re-flipping trending articles.")
-    ap.add_argument("--reflip-limit", type=int, default=5, help="Max trending articles to re-flip.")
+    ap.add_argument("--reflip-limit", type=int, default=10, help="Max trending articles to re-flip.")
     ap.set_defaults(reflip=True)
     args = ap.parse_args()
     
@@ -766,10 +773,10 @@ if __name__ == "__main__":
         else:
             logging.info(f"Found {len(articles)} unsynced article(s) to process.")
             
-    # Randomize trending articles count to 4 or 5 when using the default (5)
+    # Randomize trending articles count slightly for variability
     reflip_limit = args.reflip_limit
-    if args.reflip and reflip_limit == 5:
-        reflip_limit = random.randint(4, 5)
+    if args.reflip and reflip_limit >= 2:
+        reflip_limit = random.randint(max(2, reflip_limit - 2), reflip_limit)
     
     if args.dry_run:
         logging.info("--- DRY RUN MODE ---")
