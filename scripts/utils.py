@@ -102,6 +102,18 @@ def extract_keywords(text: str) -> Dict[str, List[str]]:
     zero_search = random.sample(zero_search, min(10, len(zero_search)))
     return {"long_tail": long_tail, "zero_search": zero_search}
 
+
+def extract_handle_count(text: str) -> int:
+    """Extract item/outfit count from handle, title, or string (e.g., '5-stunning-outfits' -> 5). Default is 3."""
+    if not text:
+        return 3
+    m = re.search(r'\b(\d+)\b', str(text))
+    if m:
+        num = int(m.group(1))
+        if 2 <= num <= 10:
+            return num
+    return 3
+
 # ---------------------------------------------------------------------------
 # 3. Collage generation — 1200x630 Discover landscape layout
 # ---------------------------------------------------------------------------

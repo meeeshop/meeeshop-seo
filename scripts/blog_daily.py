@@ -31,7 +31,7 @@ import requests
 import ai_client
 from PIL import Image, ImageOps
 
-from utils import generate_collage
+from utils import generate_collage, extract_handle_count
 
 def generate_outfit_collage(main_product: dict, matching_products: list) -> Path | None:
     """
@@ -553,10 +553,11 @@ def make_related_products_section(products: list, exclude_handle: str, keyword: 
         section_title = "Shop Styled Pairings from This Article"
         cta_text = "Shop the Look"
     else:
+        outfit_count = extract_handle_count(keyword or exclude_handle or "")
         related = [p for p in products if p.get("handle") != exclude_handle and p.get("images")]
         if not related:
             related = [p for p in products if p.get("handle") != exclude_handle]
-        picks = random.sample(related, min(3, len(related)))
+        picks = random.sample(related, min(outfit_count, len(related)))
         section_title = "You Might Also Love"
         cta_text = "Shop Similar"
 

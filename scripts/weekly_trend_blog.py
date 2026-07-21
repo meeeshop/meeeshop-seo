@@ -44,7 +44,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 import ai_client
 from secrets_manager import inject_to_env, get_secret
-from utils import download_article_content, extract_keywords, generate_collage
+from utils import download_article_content, extract_keywords, generate_collage, extract_handle_count
 from internal_linker import (
     LinkMap,
     extract_existing_links,
@@ -1018,6 +1018,7 @@ Zero-Search-Volume: {', '.join(zero_search[:5])}
     - **Comparison / Styling Recipe Cards**: Create side-by-side recipe or match guides with inline style (using border-radius, clean fonts, subtle colors).
 11. LIST FORMATTING (CRITICAL): NEVER write numbered items, tips, or Q&A as a single paragraph of text. ALWAYS use proper HTML list elements:
     - For numbered steps/tips/ideas, use `<ol><li>…</li></ol>`.
+12. OUTFIT / ITEM COUNT ALIGNMENT (CRITICAL): The title/handle specifies {extract_handle_count(original_handle_hint or title_hint)} outfits/items/rules. You MUST structure the body with exactly {extract_handle_count(original_handle_hint or title_hint)} distinct outfit formulas/sections (e.g. 'Outfit 1', 'Outfit 2', ... 'Outfit {extract_handle_count(original_handle_hint or title_hint)}') to match the handle and title count, featuring the hero product and all complementary products provided ({', '.join(m_names)}).
     - For unordered items/checklists, use `<ul><li>…</li></ul>`.
     - For the FAQ section, wrap each Q&A in its own `<div>` block. Use a `<strong>` or `<h3>` for the question and a `<p>` for the answer, NEVER inline them like "Q: ... A: ..." in one paragraph.
     - Example of WRONG format: "Here are tips: 1. Do X 2. Do Y 3. Do Z"
@@ -1235,9 +1236,9 @@ def generate_fallback_content(
 """
         pairings_html = f"""
 <h2 id="pairings" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">Styled Lookbook: Complete Outfit Recipes</h2>
-<p>To help you integrate this piece into your daily rotation, our editors have put together two gorgeous outfit recipes using MeeeShop favorites:</p>
+<p>To help you integrate this piece into your daily rotation, our editors have put together {len(matching_products) + 1} gorgeous outfit recipes using MeeeShop favorites:</p>
 """
-        for idx, p in enumerate(matching_products[:2]):
+        for idx, p in enumerate(matching_products):
             pair_title = p["title"]
             pair_handle = p.get("handle", "")
             pair_url = f"{STORE_URL}/products/{pair_handle}"
@@ -1370,9 +1371,12 @@ def generate_single_article_content(
         
     rdata = research_cache[ptype]
 
-    # 2. Select styling matches
-    matching_products = select_styling_matches(main_product, all_products_with_images, num_matches=2)
-    print(f"  Styling Pairings: {[p['title'] for p in matching_products]}")
+    # 2. Select styling matches matching outfit count in handle/title
+    target_count_text = original_handle_hint or ""
+    outfit_count = extract_handle_count(target_count_text)
+    num_matches = max(2, outfit_count - 1)
+    matching_products = select_styling_matches(main_product, all_products_with_images, num_matches=num_matches)
+    print(f"  Styling Pairings ({len(matching_products)} products for {outfit_count} outfits/items): {[p['title'] for p in matching_products]}")
 
     # 3. Build AI prompt and generate content
     mode = None
