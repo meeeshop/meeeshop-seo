@@ -31,7 +31,12 @@ import requests
 import ai_client
 from PIL import Image, ImageOps
 
-from utils import generate_collage, extract_handle_count
+from utils import (
+    generate_collage,
+    extract_handle_count,
+    is_product_compatible,
+    select_styling_matches
+)
 
 def generate_outfit_collage(main_product: dict, matching_products: list) -> Path | None:
     """
@@ -554,12 +559,11 @@ def make_related_products_section(products: list, exclude_handle: str, keyword: 
         cta_text = "Shop the Look"
     else:
         outfit_count = extract_handle_count(keyword or exclude_handle or "")
-        related = [p for p in products if p.get("handle") != exclude_handle and p.get("images")]
-        if not related:
-            related = [p for p in products if p.get("handle") != exclude_handle]
-        picks = random.sample(related, min(outfit_count, len(related)))
-        section_title = "You Might Also Love"
-        cta_text = "Shop Similar"
+        main_prod_candidates = [p for p in products if p.get("handle") == exclude_handle]
+        main_product = main_prod_candidates[0] if main_prod_candidates else {"handle": exclude_handle, "product_type": keyword}
+        picks = select_styling_matches(main_product, products, num_matches=outfit_count, topic_context=keyword or exclude_handle)
+        section_title = "Shop Styled Pairings from This Article"
+        cta_text = "Shop the Look"
 
     cards_html = ""
     for p in picks:
@@ -622,47 +626,6 @@ def inject_product_card(html_body: str, product: dict, keyword: str = "") -> str
 
 
 # ── Dynamic Collage & Pairing Helpers ──────────────────────────────────────────
-
-def select_styling_matches(main_product: dict, pool: list, num_matches: int = 2) -> list[dict]:
-    main_type = (main_product.get("product_type") or "").lower()
-    main_id = main_product.get("id")
-    
-    # Categorize broad clothing types
-    is_top = any(x in main_type for x in ["top", "blouse", "shirt", "tee"])
-    is_bottom = any(x in main_type for x in ["jean", "pant", "skirt", "legging", "short"])
-    is_one_piece = any(x in main_type for x in ["dress", "jumpsuit", "romper"])
-    
-    matches = []
-    
-    # Try to find items of complementary types first
-    complementary_pool = []
-    for p in pool:
-        if p.get("id") == main_id or not p.get("images"):
-            continue
-        ptype = (p.get("product_type") or "").lower()
-        
-        if is_top:
-            if any(x in ptype for x in ["jean", "pant", "skirt", "jacket", "coat", "cardigan", "accessory"]):
-                complementary_pool.append(p)
-        elif is_bottom:
-            if any(x in ptype for x in ["top", "blouse", "shirt", "tee", "sweater", "jacket", "coat", "cardigan"]):
-                complementary_pool.append(p)
-        elif is_one_piece:
-            if any(x in ptype for x in ["jacket", "coat", "cardigan", "accessory", "shoe", "bag"]):
-                complementary_pool.append(p)
-        else:
-            complementary_pool.append(p)
-            
-    if len(complementary_pool) >= num_matches:
-        matches = random.sample(complementary_pool, num_matches)
-    else:
-        fallback_pool = [p for p in pool if p.get("id") != main_id and p.get("images")]
-        if len(fallback_pool) >= num_matches:
-            matches = random.sample(fallback_pool, num_matches)
-        else:
-            matches = fallback_pool
-            
-    return matches
 
 
 def crop_to_fit(img, target_w, target_h):

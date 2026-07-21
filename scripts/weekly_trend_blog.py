@@ -44,7 +44,14 @@ sys.path.insert(0, str(REPO_ROOT))
 
 import ai_client
 from secrets_manager import inject_to_env, get_secret
-from utils import download_article_content, extract_keywords, generate_collage, extract_handle_count
+from utils import (
+    download_article_content,
+    extract_keywords,
+    generate_collage,
+    extract_handle_count,
+    is_product_compatible,
+    select_styling_matches
+)
 from internal_linker import (
     LinkMap,
     extract_existing_links,
@@ -485,33 +492,6 @@ def inject_internal_links(html_body: str, link_map: LinkMap, article_title: str)
     return modified_html
 
 # ── Collage generation & Shopify Upload ────────────────────────────────────────
-def select_styling_matches(main_product: dict, pool: list, num_matches: int = 2) -> list[dict]:
-    main_type = (main_product.get("product_type") or "").lower()
-    main_id = main_product.get("id")
-    is_top = any(x in main_type for x in ["top", "blouse", "shirt", "tee"])
-    is_bottom = any(x in main_type for x in ["jean", "pant", "skirt", "legging", "short"])
-    is_one_piece = any(x in main_type for x in ["dress", "jumpsuit", "romper"])
-    
-    complementary_pool = []
-    for p in pool:
-        if p.get("id") == main_id or not p.get("images"):
-            continue
-        ptype = (p.get("product_type") or "").lower()
-        if is_top and any(x in ptype for x in ["jean", "pant", "skirt", "jacket", "coat", "cardigan"]):
-            complementary_pool.append(p)
-        elif is_bottom and any(x in ptype for x in ["top", "blouse", "shirt", "tee", "sweater", "jacket", "coat"]):
-            complementary_pool.append(p)
-        elif is_one_piece and any(x in ptype for x in ["jacket", "coat", "cardigan", "accessory", "bag"]):
-            complementary_pool.append(p)
-        else:
-            complementary_pool.append(p)
-            
-    if len(complementary_pool) >= num_matches:
-        return random.sample(complementary_pool, num_matches)
-    
-    fallback_pool = [p for p in pool if p.get("id") != main_id and p.get("images")]
-    return random.sample(fallback_pool, min(num_matches, len(fallback_pool))) if fallback_pool else []
-
 def upload_image_to_shopify(filepath: Path, filename: str) -> str | None:
     print(f"  Uploading {filename} to Shopify Files via GraphQL...")
     graphql_url = f"https://{SHOP}/admin/api/{API_VER}/graphql.json"
@@ -1372,10 +1352,10 @@ def generate_single_article_content(
     rdata = research_cache[ptype]
 
     # 2. Select styling matches matching outfit count in handle/title
-    target_count_text = original_handle_hint or ""
+    target_count_text = original_handle_hint or ptype or ""
     outfit_count = extract_handle_count(target_count_text)
     num_matches = max(2, outfit_count - 1)
-    matching_products = select_styling_matches(main_product, all_products_with_images, num_matches=num_matches)
+    matching_products = select_styling_matches(main_product, all_products_with_images, num_matches=num_matches, topic_context=target_count_text)
     print(f"  Styling Pairings ({len(matching_products)} products for {outfit_count} outfits/items): {[p['title'] for p in matching_products]}")
 
     # 3. Build AI prompt and generate content

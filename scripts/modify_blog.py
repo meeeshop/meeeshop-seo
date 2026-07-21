@@ -36,6 +36,7 @@ from bs4 import BeautifulSoup
 from PIL import Image, ImageOps
 
 import requests
+from utils import is_product_compatible, select_styling_matches
 ROOT = Path(__file__).resolve().parent.parent
 
 import ai_client
@@ -599,7 +600,10 @@ def make_related_products_section(products: list, exclude_handle: str,
     cat = extract_handle_category(handle or keyword)
     keywords = extract_handle_keywords(handle or keyword)
 
-    pool = [p for p in products if p.get("handle") != exclude_handle and is_in_stock(p) and product_img_url(p)]
+    main_prod_matches = [p for p in products if p.get("handle") == exclude_handle]
+    main_product = main_prod_matches[0] if main_prod_matches else {"handle": exclude_handle, "product_type": cat or keyword}
+
+    pool = [p for p in products if p.get("handle") != exclude_handle and is_in_stock(p) and product_img_url(p) and is_product_compatible(main_product, p, topic_context=handle or keyword)]
 
     # Score candidates based on keyword relevance
     scored = []
@@ -632,7 +636,7 @@ def make_related_products_section(products: list, exclude_handle: str,
         picks = random.sample(high_picks, count)
     else:
         remaining_needed = count - len(high_picks)
-        rest = [p for p in pool if p not in high_picks]
+        rest = [p for p in pool if p not in high_picks and is_product_compatible(main_product, p, topic_context=handle or keyword)]
         picks = high_picks + random.sample(rest, min(remaining_needed, len(rest)))
 
     cards_html = ""
@@ -1448,10 +1452,10 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     # Generate 1200px Discover landscape 3-panel collage (Featured centered)
     b64_collage = None
     if featured:
-        cat_rel_picks = [p for p in in_stock if p.get("handle") != featured["handle"] and product_img_url(p)]
+        cat_rel_picks = [p for p in in_stock if p.get("handle") != featured["handle"] and product_img_url(p) and is_product_compatible(featured, p, topic_context=art_handle)]
         cat = extract_handle_category(art_handle)
         if cat:
-            filtered_rel = [p for p in cat_rel_picks if cat in (p.get("product_type") or "").lower() or cat in (p.get("title") or "").lower()]
+            filtered_rel = [p for p in cat_rel_picks if (cat in (p.get("product_type") or "").lower() or cat in (p.get("title") or "").lower()) and is_product_compatible(featured, p, topic_context=art_handle)]
             if len(filtered_rel) >= 2:
                 cat_rel_picks = filtered_rel
         collage_bytes = build_discover_landscape_collage(featured, cat_rel_picks)

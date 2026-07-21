@@ -114,6 +114,94 @@ def extract_handle_count(text: str) -> int:
             return num
     return 3
 
+
+def is_product_compatible(main_product: dict, candidate: dict, topic_context: str = "") -> bool:
+    """Check if candidate product is style-compatible and category-relevant to main_product & article topic."""
+    main_id = main_product.get("id")
+    cand_id = candidate.get("id")
+    if main_id and cand_id and main_id == cand_id:
+        return False
+    if main_product.get("handle") and candidate.get("handle") and main_product.get("handle") == candidate.get("handle"):
+        return False
+
+    main_type = (main_product.get("product_type") or "").lower()
+    main_title = (main_product.get("title") or "").lower()
+    main_tags = (main_product.get("tags") or "").lower() if isinstance(main_product.get("tags"), str) else " ".join(main_product.get("tags") or []).lower()
+    main_text = f"{main_type} {main_title} {main_tags}"
+
+    cand_type = (candidate.get("product_type") or "").lower()
+    cand_title = (candidate.get("title") or "").lower()
+    cand_tags = (candidate.get("tags") or "").lower() if isinstance(candidate.get("tags"), str) else " ".join(candidate.get("tags") or []).lower()
+    cand_text = f"{cand_type} {cand_title} {cand_tags}"
+
+    topic_lower = (topic_context or "").lower()
+
+    DENIM_KEYWORDS = ["jean", "denim", "jort"]
+    ONE_PIECE_KEYWORDS = ["dress", "jumpsuit", "romper"]
+    BOTTOM_KEYWORDS = ["jean", "denim", "pant", "skirt", "short", "legging", "skort", "trouser", "jort"]
+    TOP_KEYWORDS = ["top", "blouse", "shirt", "tee", "t-shirt", "tank", "sweater", "cardigan", "knit", "pullover", "tunic"]
+    OUTERWEAR_KEYWORDS = ["jacket", "coat", "blazer", "vest", "outerwear"]
+
+    main_is_denim = any(kw in main_text for kw in DENIM_KEYWORDS) or any(kw in topic_lower for kw in DENIM_KEYWORDS)
+    main_is_one_piece = any(kw in main_type or kw in main_title for kw in ONE_PIECE_KEYWORDS)
+    main_is_bottom = any(kw in main_type or kw in main_title for kw in BOTTOM_KEYWORDS)
+    main_is_top = any(kw in main_type or kw in main_title for kw in TOP_KEYWORDS)
+
+    cand_is_one_piece = any(kw in cand_type or kw in cand_title for kw in ONE_PIECE_KEYWORDS)
+    cand_is_bottom = any(kw in cand_type or kw in cand_title for kw in BOTTOM_KEYWORDS)
+    cand_is_top = any(kw in cand_type or kw in cand_title for kw in TOP_KEYWORDS)
+    cand_is_denim = any(kw in cand_text for kw in DENIM_KEYWORDS)
+
+    is_care_guide = any(kw in topic_lower for kw in ["care", "wash", "maintenance", "stain", "odour", "laundry"])
+
+    # 1. Denim topic/main: CANDIDATE CANNOT BE A DRESS / JUMPSUIT / ROMPER
+    if main_is_denim and cand_is_one_piece:
+        return False
+
+    # 2. Bottoms (Jeans/Pants/Skirts) CANNOT pair with One-Pieces (Dresses)
+    if main_is_bottom and cand_is_one_piece:
+        return False
+
+    # 3. Tops CANNOT pair with One-Pieces
+    if main_is_top and cand_is_one_piece:
+        return False
+
+    # 4. One-Pieces (Dresses) CANNOT pair with Bottoms or Tops
+    if main_is_one_piece and (cand_is_bottom or cand_is_top):
+        return False
+
+    # 5. Care Guide relevance
+    if is_care_guide and main_is_denim:
+        if not (cand_is_denim or cand_is_top or any(kw in cand_type or kw in cand_title for kw in OUTERWEAR_KEYWORDS)):
+            return False
+
+    return True
+
+
+def select_styling_matches(main_product: dict, pool: list, num_matches: int = 2, topic_context: str = "") -> list[dict]:
+    """Select styling match products from pool that are strictly compatible with main_product and topic_context."""
+    main_id = main_product.get("id")
+    compatible_pool = [p for p in pool if p.get("id") != main_id and p.get("images") and is_product_compatible(main_product, p, topic_context)]
+
+    topic_lower = (topic_context or "").lower()
+    main_text = f"{(main_product.get('product_type') or '')} {(main_product.get('title') or '')}".lower()
+    is_denim = "denim" in topic_lower or "jean" in topic_lower or "denim" in main_text or "jean" in main_text
+    is_care = any(kw in topic_lower for kw in ["care", "wash", "maintenance", "stain"])
+
+    if is_denim and is_care:
+        denim_matches = [p for p in compatible_pool if "denim" in (p.get("product_type") or "").lower() or "jean" in (p.get("product_type") or "").lower() or "denim" in (p.get("title") or "").lower() or "jean" in (p.get("title") or "").lower()]
+        if len(denim_matches) >= num_matches:
+            return random.sample(denim_matches, num_matches)
+
+    if len(compatible_pool) >= num_matches:
+        return random.sample(compatible_pool, num_matches)
+    
+    if compatible_pool:
+        return compatible_pool
+
+    safe_fallback = [p for p in pool if p.get("id") != main_id and p.get("images") and is_product_compatible(main_product, p, topic_context)]
+    return random.sample(safe_fallback, min(num_matches, len(safe_fallback))) if safe_fallback else []
+
 # ---------------------------------------------------------------------------
 # 3. Collage generation — 1200x630 Discover landscape layout
 # ---------------------------------------------------------------------------
