@@ -711,10 +711,10 @@ EEAT_RULES = (
     "❌ BAD: 'Accessorize to complete the outfit.' (too vague)\n"
     "❌ BAD: 'Add a bag to elevate the look.' (generic filler)\n\n"
 
-    "═══ 2026 TREND CONTEXT (Weave in naturally — sourced from Flipboard #Style 8.4M followers) ═══\n"
+    f"═══ {datetime.now().year} TREND CONTEXT (Weave in naturally — sourced from Flipboard #Style 8.4M followers) ═══\n"
     "Reference real trends where relevant but do NOT force every trend into every article:\n"
-    "• Quiet luxury: 'No logos, no distressing — clean dark wash denim with a tucked-in linen shirt is the 2026 quiet luxury formula.'\n"
-    "• Cigarette/stovepipe silhouette replacing wide-leg as dominant denim cut in 2026.\n"
+    f"• Quiet luxury: 'No logos, no distressing — clean dark wash denim with a tucked-in linen shirt is the {datetime.now().year} quiet luxury formula.'\n"
+    f"• Cigarette/stovepipe silhouette replacing wide-leg as dominant denim cut in {datetime.now().year}.\n"
     "• Dark indigo clean wash over distressed/light wash — reads more expensive instantly.\n"
     "• Linen top + dark wash jean = the heat-proof chic summer formula trending on Flipboard.\n"
     "• All-black outfits even in summer — trending on Flipboard #Style with 8.4M followers.\n"
@@ -737,40 +737,41 @@ EEAT_RULES = (
 )
 
 SEED_KEYWORDS = [
-    # 2026 Trending — sourced from Flipboard #Style (8.4M followers) & Who What Wear
-    "women's fashion 2026", "summer outfit ideas for women 2026",
+    # Dynamic Trending — sourced from Flipboard #Style (8.4M followers) & Who What Wear
+    f"women's fashion {datetime.now().year}", f"summer outfit ideas for women {datetime.now().year}",
     "affordable women's clothing USA", "summer dress outfits for women",
     "women's jeans styles guide", "casual chic outfits women",
     "cute outfits under $50", "stylish women's tops",
     "best dresses for women", "women's summer wardrobe essentials",
     "affordable boutique fashion USA", "work outfits for women",
     "best tops to wear with jeans", "women's date night outfit ideas",
-    # Jeans-specific trending 2026 (Flipboard #Jeans 66K followers)
-    "how to style jeans 2026", "dark wash jeans outfits",
+    # Jeans-specific trending (Flipboard #Jeans 66K followers)
+    f"how to style jeans {datetime.now().year}", "dark wash jeans outfits",
     "quiet luxury jeans women", "cigarette jeans styling tips",
     "barrel leg jeans vs wide leg", "linen top with jeans outfit",
     "blazer with jeans outfit ideas", "how to look taller in jeans",
     # Care & How-To (high search intent)
     "how to wash jeans without fading", "how to remove stains from jeans",
     "how to remove smell from clothes", "how to fix pilling on clothes",
-    # Summer 2026 (Flipboard #SummerFashion 73.9K followers)
+    # Summer (Flipboard #SummerFashion 73.9K followers)
     "linen top with jeans outfit", "summer denim outfit ideas",
-    "all black summer outfit women", "women's capsule wardrobe 2026",
+    "all black summer outfit women", f"women's capsule wardrobe {datetime.now().year}",
 ]
 
 
 def _lsi_keywords(ptype: str) -> list[str]:
+    curr_yr = str(datetime.now().year)
     ptype_lsi = {
         "dress":      ["summer dress outfits", "flattering dresses women", "midi dress",
-                       "linen dresses 2026", "casual dress outfit ideas"],
-        "jean":       ["jeans for women 2026", "best fitting jeans", "high waist jeans",
+                       f"linen dresses {curr_yr}", "casual dress outfit ideas"],
+        "jean":       [f"jeans for women {curr_yr}", "best fitting jeans", "high waist jeans",
                        "dark wash jeans outfits", "cigarette jeans styling", "quiet luxury denim",
-                       "barrel leg jeans", "linen top with jeans outfit", "denim trends 2026"],
+                       f"barrel leg jeans", "linen top with jeans outfit", f"denim trends {curr_yr}"],
         "top":        ["tops for women", "blouse styles", "work tops", "casual tops women",
-                       "linen tops summer 2026"],
+                       f"linen tops summer {curr_yr}"],
         "blouse":     ["blouse outfits", "women's blouse styles", "office blouse", "summer blouse ideas"],
-        "skirt":      ["skirt outfits women", "midi skirt", "how to wear skirts", "asymmetric skirt 2026"],
-        "pant":       ["women's pants guide", "wide leg pants", "work pants women", "trouser trends 2026"],
+        "skirt":      ["skirt outfits women", "midi skirt", "how to wear skirts", f"asymmetric skirt {curr_yr}"],
+        "pant":       ["women's pants guide", "wide leg pants", "work pants women", f"trouser trends {curr_yr}"],
         "jacket":     ["women's jacket outfits", "blazer women", "casual jacket", "blazer jeans combo"],
         "coat":       ["women's coat styles", "trench coat women", "coat outfit ideas"],
         "sweater":    ["cozy sweater outfits", "sweater styles", "fall fashion women"],
@@ -797,7 +798,7 @@ HANDLE_CONTENT_RULES: dict[str, dict] = {
                                                   "The Single Roll Cuff", "The Double Roll Cuff",
                                                   "The Pin Roll Cuff",
                                                   "What Tops Work Best With Each Cuff Style (tuck in or crop?)",
-                                                  "2026 Styling Tip: Cigarette Jeans + Cropped Linen Top — The Cuffed Look"],
+                                                  f"{datetime.now().year} Styling Tip: Cigarette Jeans + Cropped Linen Top — The Cuffed Look"],
                             "tone": "step-by-step how-to, practical"},
     "sizing-guide":        {"topic": "jeans sizing guide for women",
                             "required_sections": ["How to Measure Yourself for Jeans",
@@ -812,7 +813,7 @@ HANDLE_CONTENT_RULES: dict[str, dict] = {
                                                   "The Tuck-In Effect: How a Cropped or Tucked Top Creates Leg Length",
                                                   "Monochrome Dressing for Height Illusion",
                                                   "Vertical Stripes and Elongating Details on Tops",
-                                                  "2026 Pro Tip: Cigarette Jeans + Fitted Ribbed Top = Longest-Looking Legs"],
+                                                  f"{datetime.now().year} Pro Tip: Cigarette Jeans + Fitted Ribbed Top = Longest-Looking Legs"],
                             "tone": "empowering, styling expert"},
     "how-to-pair":         {"topic": "how to pair jeans with outfits",
                             "required_sections": ["The Foundation: Choosing the Right Jeans Wash for the Vibe",
@@ -820,7 +821,7 @@ HANDLE_CONTENT_RULES: dict[str, dict] = {
                                                   "Office Formula: Blazer + Fitted Top + Straight-Leg Jeans",
                                                   "Evening Formula: Silk Blouse + Cigarette Jeans + Statement Earrings",
                                                   "Weekend Formula: Oversized Tee + Barrel Leg + Tote Bag",
-                                                  "The Quiet Luxury Jeans Look for 2026"],
+                                                  f"The Quiet Luxury Jeans Look for {datetime.now().year}"],
                             "tone": "outfit formula, editorial"},
     "what-to-pair":        {"topic": "what to pair with jeans",
                             "required_sections": ["Tops That Always Work With Jeans (tuck-in vs untucked vs knotted)",
@@ -844,7 +845,7 @@ HANDLE_CONTENT_RULES: dict[str, dict] = {
                                                   "Baking Soda Treatment",
                                                   "Vodka Spritz Hack",
                                                   "Steam vs Dry Air Out",
-                                                  "Prevention: The Wash-Less Denim Movement 2026"],
+                                                  f"Prevention: The Wash-Less Denim Movement {datetime.now().year}"],
                             "tone": "practical, problem-solver"},
     "remove-stain":        {"topic": "how to remove stains from jeans and clothes",
                             "required_sections": ["Act Fast: The First 60 Seconds Rule",
@@ -869,6 +870,7 @@ def _get_handle_rules(article_handle: str) -> dict:
     topic = article_handle.replace("-", " ").replace("_", " ").title()
     cat = extract_handle_category(article_handle)
 
+    curr_yr = str(datetime.now().year)
     if cat == "skirt":
         sections = [
             "Understanding Skirt Silhouettes & Fit Principles for Curvy Shapes",
@@ -881,7 +883,7 @@ def _get_handle_rules(article_handle: str) -> dict:
     elif cat == "dress":
         sections = [
             "Choosing the Right Dress Silhouette for Your Body",
-            "Key Fit & Fabric Features to Look For in 2026",
+            f"Key Fit & Fabric Features to Look For in {curr_yr}",
             "How to Outfit & Layer Your Dress for Any Occasion",
             "Styling & Accessory Tips",
             "Stylist Recommended Outfits & Picks"
@@ -898,7 +900,7 @@ def _get_handle_rules(article_handle: str) -> dict:
         tone = "versatile, modern, practical style guide"
     elif cat == "jean":
         sections = [
-            "Denim Fit Guide & Silhouette Breakthroughs for 2026",
+            f"Denim Fit Guide & Silhouette Breakthroughs for {curr_yr}",
             "High Waist vs Straight vs Wide-Leg: Finding Your Best Match",
             "How to Style Jeans from Office Casual to Weekend Chic",
             "Care & Washing Hacks to Preserve Stretch & Wash",
@@ -950,18 +952,18 @@ def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
             f"REQUIRED H2 sections (cover ALL of these, in a logical order):\n{sections_list}\n"
             f"The featured product ({title}) should be woven in as a RECOMMENDATION within this guide, "
             f"NOT as the primary focus. The guide topic is the primary focus.\n"
-            f"2026 FRESHNESS ANGLES to include naturally:\n"
+            f"{datetime.now().year} FRESHNESS ANGLES to include naturally:\n"
             f"  - Reference 'quiet luxury' denim aesthetic: dark wash + tucked linen top, no logos, clean lines\n"
-            f"  - Mention cigarette/stovepipe jeans as the 2026 trending silhouette\n"
+            f"  - Mention cigarette/stovepipe jeans as the {datetime.now().year} trending silhouette\n"
             f"  - Reference linen tops + jeans as the trending summer formula (heat-proof + chic)\n"
-            f"  - Mention dark indigo/clean wash denim as the elevated 2026 choice\n"
+            f"  - Mention dark indigo/clean wash denim as the elevated {datetime.now().year} choice\n"
         )
     else:
-        # For articles without a specific handle match, add general 2026 freshness
+        # For articles without a specific handle match, add general trend freshness
         handle_section = (
-            f"\n\n2026 TREND FRESHNESS (weave in naturally, 1-2 references):\n"
+            f"\n\n{datetime.now().year} TREND FRESHNESS (weave in naturally, 1-2 references):\n"
             f"  - Quiet luxury styling: clean lines, no logos, elevated basics\n"
-            f"  - Summer 2026 colour palette: dark indigo denim, linen textures, earth tones\n"
+            f"  - Summer {datetime.now().year} colour palette: dark indigo denim, linen textures, earth tones\n"
             f"  - The office-to-evening formula: oversized blazer + fitted top + straight-leg jeans\n"
             f"  - Heat-proof summer styling: linen tops, breathable fabrics, cropped layers\n"
         )

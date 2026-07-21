@@ -308,7 +308,7 @@ def generate_fallback_blog_post(fmt: str, product: dict, keyword: str, title_hin
 <h2>Look 4: Airport Chic</h2>
 <p>Comfort and looking pulled-together are not mutually exclusive. Wear the {clean_ptype} with an oversized zip-up hoodie or knit cardigan in a neutral — oatmeal, charcoal, or dusty rose. Add a spacious canvas tote for carry-on essentials. This outfit works from security line to arrival hall without looking like you gave up.</p>
 <h2>Look 5: The Gallery Hop</h2>
-<p>Go monochromatic. Pair this {clean_ptype} with similar tones in your blazer and top — think all-black for summer 2026, or a sandy neutral layered look. Statement earrings and a half-tuck are the only two details this look needs. It is the quiet luxury formula that is all over Flipboard right now.</p>
+<p>Go monochromatic. Pair this {clean_ptype} with similar tones in your blazer and top — think all-black for summer {datetime.now().year}, or a sandy neutral layered look. Statement earrings and a half-tuck are the only two details this look needs. It is the quiet luxury formula that is all over Flipboard right now.</p>
 """,
 
         "buying_guide": f"""
@@ -326,7 +326,7 @@ def generate_fallback_blog_post(fmt: str, product: dict, keyword: str, title_hin
 <h3>The Power Lunch</h3>
 <p>Pull a structured blazer in ivory or soft camel over this {clean_ptype}. Front-tuck the hem slightly to define the waist, add the {match1_name} for a layer of interest, and finish with a small leather shoulder bag in cognac. Simple gold earrings, nothing statement. This works for a client meeting or a first date at a nice restaurant.</p>
 <h3>Saturday Gallery Hop</h3>
-<p>Go tone-on-tone. Match this {clean_ptype} with the {match2_name} in a similar neutral palette — oatmeal, olive, or all black. Half-tuck the top, add a canvas crossbody, and one interesting accessory (a chunky ring, a silk scarf). This is the quiet luxury formula that is dominating Flipboard Style feeds in summer 2026.</p>
+<p>Go tone-on-tone. Match this {clean_ptype} with the {match2_name} in a similar neutral palette — oatmeal, olive, or all black. Half-tuck the top, add a canvas crossbody, and one interesting accessory (a chunky ring, a silk scarf). This is the quiet luxury formula that is dominating Flipboard Style feeds in summer {datetime.now().year}.</p>
 <h3>The Long Weekend</h3>
 <p>Pack light but look intentional. Pair with an oversized linen button-down in white or sage left open as a layer, a market tote, and a braided belt at the waist. Works from the airport to the poolside dinner with zero effort.</p>
 <h2>Who This Actually Works For (and Who Should Skip It)</h2>
@@ -400,12 +400,12 @@ def generate_fallback_blog_post(fmt: str, product: dict, keyword: str, title_hin
 
         "trend_report": f"""
 <p>If you have been paying attention to Flipboard, Who What Wear, and real women\'s street style this {MONTH}, you already know that the rules shifted. Wide-leg is not the only answer anymore. Distressed denim is out. And the all-black summer outfit is not just acceptable — it is the move. Here is what is actually trending right now.</p>
-<h2>Trend #1: {display_name} — Why It Fits the 2026 Moment</h2>
-<p>The {display_name} is landing at exactly the right time. The 2026 consumer is tired of trend-chasing and wants pieces that read intentional, not disposable. This {clean_ptype} fits that shift. Its construction is clean, its colour palette is edit-friendly, and it layers like a dream over the linen-and-denim combinations dominating summer style right now.</p>
+<h2>Trend #1: {display_name} — Why It Fits the {datetime.now().year} Moment</h2>
+<p>The {display_name} is landing at exactly the right time. The {datetime.now().year} consumer is tired of trend-chasing and wants pieces that read intentional, not disposable. This {clean_ptype} fits that shift. Its construction is clean, its colour palette is edit-friendly, and it layers like a dream over the linen-and-denim combinations dominating summer style right now.</p>
 <h2>Trend #2: Cigarette Jeans Are Taking Over</h2>
 <p>The wide-leg denim moment had its run. The silhouette that is replacing it? The cigarette jean — slim, straight, hitting at the ankle. It works with tucked-in tops, cropped layers, and oversized blazers in a way that wide-leg simply cannot match. If you are buying one new denim item this season, this is the silhouette.</p>
 <h2>Trend #3: The Quiet Luxury Denim Edit</h2>
-<p>Dark indigo. No distressing. Clean hems. No branding. This is the 2026 quiet luxury formula applied to denim, and it is trending hard on Flipboard #Style (8.4 million followers). The effect is simple: dark wash jeans read more expensive than light wash at any price point, because the colour is doing the visual work.</p>
+<p>Dark indigo. No distressing. Clean hems. No branding. This is the {datetime.now().year} quiet luxury formula applied to denim, and it is trending hard on Flipboard #Style (8.4 million followers). The effect is simple: dark wash jeans read more expensive than light wash at any price point, because the colour is doing the visual work.</p>
 <h2>Trend #4: The Linen + Dark Wash Formula</h2>
 <p>This is the heat-proof summer answer. A relaxed linen top in white, ecru, or sage layered over or tucked into dark wash jeans — it is the combination that keeps appearing on every mood board right now. The contrast of textures does all the work. You do not need to add much else.</p>
 <h2>Trend #5: The Blazer-as-a-Top Moment</h2>
@@ -805,16 +805,16 @@ def publish_article(blog: dict, title: str, body_html: str, tags: list,
 FORMATS = ["buying_guide", "comparison", "problem_solver", "trend_report", "outfit_formula", "care_guide", "sizing_guide"]
 
 SEED_KEYWORDS = [
-    # 2026 Trending — sourced from Flipboard #Style (8.4M followers) & Who What Wear
-    "women's fashion 2026", "summer outfit ideas for women 2026",
+    # Dynamic Trending — sourced from Flipboard #Style (8.4M followers) & Who What Wear
+    f"women's fashion {datetime.now().year}", f"summer outfit ideas for women {datetime.now().year}",
     "affordable women's clothing USA", "summer dress outfits for women",
     "women's jeans styles guide", "casual chic outfits women",
-    "women's fashion trends 2026", "cute outfits under $50",
+    f"women's fashion trends {datetime.now().year}", "cute outfits under $50",
     "stylish women's tops", "best dresses for women",
     "women's summer wardrobe essentials", "affordable boutique fashion USA",
     "women's outfit ideas", "how to style women's clothing",
     "plus size fashion tips", "work outfits for women",
-    "women's weekend casual looks", "women's spring outfit ideas 2026",
+    "women's weekend casual looks", f"women's spring outfit ideas {datetime.now().year}",
     "best tops to wear with jeans", "how to build a capsule wardrobe women",
     "women's date night outfit ideas",
     "Zenana women's clothing basics guide", "how to style POL clothing bohemian pieces",
@@ -822,19 +822,19 @@ SEED_KEYWORDS = [
     "Risen stretch denim jeans review", "Umgee USA clothing styling ideas",
     "Hyfve clothing fashion trends", "Bibi clothing cute outfits",
     "Artemis Vintage denim styles",
-    # Jeans-specific trending 2026 (Flipboard #Jeans 66K followers)
-    "how to style jeans 2026", "dark wash jeans outfits",
+    # Jeans-specific trending (Flipboard #Jeans 66K followers)
+    f"how to style jeans {datetime.now().year}", "dark wash jeans outfits",
     "quiet luxury jeans women", "cigarette jeans styling tips",
     "barrel leg jeans vs wide leg jeans", "blazer with jeans outfit ideas",
-    "tops to wear with jeans 2026", "how to look taller in jeans",
+    f"tops to wear with jeans {datetime.now().year}", "how to look taller in jeans",
     # Care & How-To (high search intent, Flipboard trending)
     "how to wash jeans without fading", "how to remove stains from jeans",
     "how to remove smell from clothes", "how to fix pilling on clothes",
-    "jeans care guide 2026",
-    # Summer 2026 (Flipboard #SummerFashion 73.9K followers)
-    "linen top with jeans outfit", "summer denim outfit ideas 2026",
-    "all black summer outfit women", "women's capsule wardrobe 2026",
-    "linen dress summer 2026",
+    f"jeans care guide {datetime.now().year}",
+    # Summer (Flipboard #SummerFashion 73.9K followers)
+    "linen top with jeans outfit", f"summer denim outfit ideas {datetime.now().year}",
+    "all black summer outfit women", f"women's capsule wardrobe {datetime.now().year}",
+    f"linen dress summer {datetime.now().year}",
 ]
 
 

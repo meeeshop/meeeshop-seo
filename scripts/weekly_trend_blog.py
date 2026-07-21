@@ -669,7 +669,7 @@ ARTICLE_MODES = [
         "description": "Identify 5-6 current/upcoming trends in this product category. For each trend: what it is, why it's hot right now, how real women can wear it, what to pair it with, and link to specific MeeeShop products.",
         "structure": "Trend intro hook | TOC | Each trend: name + why trending + how to wear + do's & don'ts + MeeeShop pick | Editor's top trend pick | FAQ | Related products",
         "tone": "Fashion editor sharing exclusive intel from the season's shows & street style",
-        "title_examples": ["5 Dress Trends Taking Over Summer 2026", "The 6 Jean Silhouettes Fashion Editors Are Obsessed With Right Now"],
+        "title_examples": ["5 Dress Trends Taking Over Summer {year}", "The 6 Jean Silhouettes Fashion Editors Are Obsessed With Right Now"],
     },
     {
         "id": "styling_rules",
@@ -682,12 +682,12 @@ ARTICLE_MODES = [
     },
     {
         "id": "body_type_guide",
-        "title_pattern": "The Best {ptype} Styles for Every Body Type (2026 Guide)",
+        "title_pattern": "The Best {ptype} Styles for Every Body Type ({year} Guide)",
         "angle": "body-positive-proportion-styling",
         "description": "Modern, body-positive proportion guide. Instead of 'hiding' shapes, teach readers how specific {ptype} cuts/silhouettes work with different proportions. Cover petite, tall, curvy, straight-frame, pear, apple, hourglass.",
         "structure": "Hook (proportion over labels) | TOC | Each body proportion type: what to look for + what to avoid + MeeeShop picks + confidence tip | Universal rules | FAQ | Related products",
         "tone": "Inclusive, empowering stylist who celebrates all bodies",
-        "title_examples": ["The Best Jeans for Every Body Type", "Which Dress Silhouette Flatters YOUR Proportions? A 2026 Guide"],
+        "title_examples": ["The Best Jeans for Every Body Type", "Which Dress Silhouette Flatters YOUR Proportions? A {year} Guide"],
     },
     {
         "id": "one_item_multiple_ways",
@@ -723,7 +723,7 @@ ARTICLE_MODES = [
         "description": "Explore the season's trending colour palette for this product type. Explain colour theory in plain language, how to use the trending shades, which neutrals they pair with, and how to incorporate a pop of colour without looking overwhelming.",
         "structure": "Colour trends hook | TOC | Top 5 trending colours (each: name, what it is, best pairings, avoid with) | Building a colour-cohesive outfit | Colour confidence tips for beginners | FAQ | MeeeShop colour picks",
         "tone": "Colour-obsessed art director turned stylist, approachable and inspiring",
-        "title_examples": ["The 5 Dress Colours Every Stylish Woman Will Wear This Summer", "Butter Yellow, Powder Blue & Beyond: The Color Palette Dominating 2026"],
+        "title_examples": ["The 5 Dress Colours Every Stylish Woman Will Wear This Summer", "Butter Yellow, Powder Blue & Beyond: The Color Palette Dominating {year}"],
     },
     {
         "id": "stain_odour_rescue",

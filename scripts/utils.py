@@ -115,13 +115,26 @@ def extract_handle_count(text: str) -> int:
     return 3
 
 
+def get_current_year() -> str:
+    """Returns current system year dynamically (e.g., '2026' in 2026, '2027' in 2027)."""
+    return str(datetime.now().year)
+
+
 def enforce_current_year(text: str, target_year: str = None) -> str:
-    """Sanitize text to replace any accidental past years (2020 through 2025) with the current target year (defaults to current year e.g. 2026)."""
+    """Sanitize text to replace any accidental past years with the dynamic current year."""
     if not text:
         return text
     if target_year is None:
-        target_year = str(datetime.now().year)
-    return re.sub(r'\b(2020|2021|2022|2023|2024|2025)\b', target_year, str(text))
+        target_year = get_current_year()
+    try:
+        current_yr = int(target_year)
+        past_years = [str(y) for y in range(2020, current_yr)]
+        if not past_years:
+            return text
+        pattern = r'\b(' + '|'.join(past_years) + r')\b'
+        return re.sub(pattern, str(target_year), str(text))
+    except (ValueError, TypeError):
+        return text
 
 
 def is_product_compatible(main_product: dict, candidate: dict, topic_context: str = "") -> bool:
