@@ -337,6 +337,33 @@ def build_discover_landscape_collage(featured_prod: dict, related_prods: list) -
     return buf.getvalue()
 
 
+def extract_handle_count(handle: str) -> int:
+    """Extract item/outfit count from handle if specified (e.g., '5-stunning-outfits' -> 5). Default is 3."""
+    m = re.search(r'\b(\d+)\b', handle or "")
+    if m:
+        num = int(m.group(1))
+        if 2 <= num <= 10:
+            return num
+    return 3
+
+
+def extract_handle_keywords(handle: str) -> list[str]:
+    """Extract key material, style, and garment keywords from handle."""
+    h = (handle or "").lower().replace("_", "-")
+    tokens = set(re.findall(r'\b[a-z0-9]+\b', h))
+    keywords = []
+    modifiers = ["denim", "linen", "lace", "leather", "silk", "cotton", "knit", 
+                 "off-shoulder", "puff", "sleeves", "smocked", "midi", "maxi", "mini", 
+                 "wrap", "a-line", "curvy", "plus-size", "summer", "work"]
+    for mod in modifiers:
+        if mod in tokens or mod in h:
+            keywords.append(mod)
+    cat = extract_handle_category(handle)
+    if cat and cat not in keywords:
+        keywords.append(cat)
+    return keywords
+
+
 def extract_handle_category(handle: str) -> str:
     h = (handle or "").lower().replace("_", "-")
     words = set(re.findall(r'\b[a-z0-9]+\b', h))
@@ -361,40 +388,49 @@ def find_matching_product_for_handle(handle: str, in_stock: list, exclude_handle
     if not in_stock:
         return None
     exclude = exclude_handles or set()
-    cat = extract_handle_category(handle)
     valid_pool = [p for p in in_stock if p.get("handle") not in exclude and product_img_url(p)]
     if not valid_pool:
         valid_pool = [p for p in in_stock if product_img_url(p)]
         if not valid_pool:
             return None
 
-    if cat:
-        strict_matches = []
-        secondary_matches = []
-        for p in valid_pool:
-            ptype = (p.get("product_type") or "").lower()
-            title = (p.get("title") or "").lower()
-            tags  = (p.get("tags") or "").lower()
+    cat = extract_handle_category(handle)
+    keywords = extract_handle_keywords(handle)
 
-            # Exclude mismatched item types (e.g., sets/tops/dresses when looking for skirts)
-            if cat == "skirt" and ("set" in title or "top" in ptype or "dress" in ptype or "top" in title or "dress" in title):
-                continue
-            if cat == "dress" and ("skirt" in ptype or "top" in ptype or "pant" in ptype):
-                continue
-            if cat == "top" and ("skirt" in ptype or "dress" in ptype or "pant" in ptype):
-                continue
-            if cat == "jean" and ("dress" in ptype or "top" in ptype):
-                continue
+    scored = []
+    for p in valid_pool:
+        ptype = (p.get("product_type") or "").lower()
+        title = (p.get("title") or "").lower()
+        tags  = (p.get("tags") or "").lower()
+        text  = f"{ptype} {title} {tags}"
 
-            if ptype == cat or ptype == f"{cat}s":
-                strict_matches.append(p)
-            elif cat in title or cat in ptype or cat in tags:
-                secondary_matches.append(p)
+        score = 0
+        for kw in keywords:
+            if kw in text:
+                score += 3 if (kw in ptype or kw in title) else 1
 
-        if strict_matches:
-            return random.choice(strict_matches)
-        if secondary_matches:
-            return random.choice(secondary_matches)
+        # Additional bonus for exact multi-keyword combinations (e.g. denim + dress)
+        if "denim" in keywords and "dress" in keywords and "denim" in text and "dress" in text:
+            score += 10
+
+        # Mismatch penalties
+        if cat == "skirt" and ("set" in title or "top" in ptype or "dress" in ptype or "top" in title or "dress" in title):
+            score -= 15
+        if cat == "dress" and ("skirt" in ptype or "top" in ptype or "pant" in ptype):
+            score -= 15
+        if cat == "top" and ("skirt" in ptype or "dress" in ptype or "pant" in ptype):
+            score -= 15
+        if cat == "jean" and ("dress" in ptype or "top" in ptype):
+            score -= 15
+
+        if score > 0:
+            scored.append((score, p))
+
+    if scored:
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top_score = scored[0][0]
+        top_candidates = [p for s, p in scored if s == top_score]
+        return random.choice(top_candidates)
 
     return random.choice(valid_pool)
 
@@ -537,34 +573,45 @@ def make_product_card(product: dict, keyword: str = "",
 def make_related_products_section(products: list, exclude_handle: str,
                                   keyword: str = "", handle: str = "") -> str:
     import html
+    count = extract_handle_count(handle or keyword)
     cat = extract_handle_category(handle or keyword)
+    keywords = extract_handle_keywords(handle or keyword)
+
     pool = [p for p in products if p.get("handle") != exclude_handle and is_in_stock(p) and product_img_url(p)]
 
-    if cat:
-        cat_pool = []
-        for p in pool:
-            ptype = (p.get("product_type") or "").lower()
-            title = (p.get("title") or "").lower()
-            tags  = (p.get("tags") or "").lower()
+    # Score candidates based on keyword relevance
+    scored = []
+    for p in pool:
+        ptype = (p.get("product_type") or "").lower()
+        title = (p.get("title") or "").lower()
+        tags  = (p.get("tags") or "").lower()
+        text  = f"{ptype} {title} {tags}"
 
-            if cat == "skirt" and ("set" in title or "top" in ptype or "dress" in ptype or "top" in title or "dress" in title):
-                continue
-            if cat == "dress" and ("skirt" in ptype or "top" in ptype or "pant" in ptype):
-                continue
-            if cat == "top" and ("skirt" in ptype or "dress" in ptype or "pant" in ptype):
-                continue
-            if cat == "jean" and ("dress" in ptype or "top" in ptype):
-                continue
+        score = 0
+        for kw in keywords:
+            if kw in text:
+                score += 3 if (kw in ptype or kw in title) else 1
 
-            if cat in ptype or cat in title or cat in tags:
-                cat_pool.append(p)
+        if "denim" in keywords and "dress" in keywords and "denim" in text and "dress" in text:
+            score += 10
 
-        if len(cat_pool) >= 3:
-            pool = cat_pool
-        elif cat_pool:
-            pool = cat_pool + [p for p in pool if p not in cat_pool]
+        if cat == "skirt" and ("set" in title or "top" in ptype or "dress" in ptype or "top" in title or "dress" in title):
+            score -= 15
+        if cat == "dress" and ("skirt" in ptype or "top" in ptype or "pant" in ptype):
+            score -= 15
 
-    picks = random.sample(pool, min(3, len(pool)))
+        if score > 0:
+            scored.append((score, p))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    high_picks = [p for s, p in scored[:count * 2]]
+
+    if len(high_picks) >= count:
+        picks = random.sample(high_picks, count)
+    else:
+        remaining_needed = count - len(high_picks)
+        rest = [p for p in pool if p not in high_picks]
+        picks = high_picks + random.sample(rest, min(remaining_needed, len(rest)))
 
     cards_html = ""
     for p in picks:
@@ -585,7 +632,7 @@ def make_related_products_section(products: list, exclude_handle: str,
             if img else ""
         )
         cards_html += f"""
-  <div style="flex:1;min-width:200px;max-width:260px;font-family:sans-serif;text-align:center;">
+  <div style="flex:1;min-width:180px;max-width:240px;font-family:sans-serif;text-align:center;">
     {img_tag}
     <p style="font-size:14px;font-weight:700;color:#1a1a1a;margin:0 0 4px;line-height:1.3;">{escaped_title}</p>
     <p style="font-size:16px;font-weight:800;color:#1a1a1a;margin:0 0 12px;">${price}</p>
@@ -602,9 +649,9 @@ def make_related_products_section(products: list, exclude_handle: str,
     return f"""
 <div style="margin:48px 0;padding:32px;background:#fafafa;border-radius:14px;border:1px solid #eee;">
   <h2 style="font-size:20px;font-weight:700;color:#1a1a1a;margin:0 0 24px;text-align:center;">
-    You Might Also Love
+    Shop The Look — {count} Featured Picks
   </h2>
-  <div style="display:flex;flex-wrap:wrap;gap:24px;justify-content:center;">
+  <div style="display:flex;flex-wrap:wrap;gap:20px;justify-content:center;">
     {cards_html}
   </div>
 </div>
@@ -906,6 +953,7 @@ def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
         f"SEO rules:\n"
         f"- Target keyword '{keyword}': use 3-4 times — in first paragraph, H2 subheadings, body, conclusion\n"
         f"- LSI keywords (weave in naturally, at least 2 in H2 subheadings): {lsi_str}\n"
+        f"- Title/Handle specifies {extract_handle_count(article_handle)} items/outfits. You MUST structure the body with exactly {extract_handle_count(article_handle)} distinct outfit formulas/sections (e.g. 'Outfit 1', 'Outfit 2', ... 'Outfit {extract_handle_count(article_handle)}') to match the handle count.\n"
         f"- Do NOT write or include any HTML links (<a> tags) to the product page or MeeeShop anywhere in the body text. The product card and shop-the-look widgets will be programmatically injected by the developer, so manual linking inside the article is redundant and violates SEO guidelines by looking spammy.\n"
         f"- Limit mentions of the product title '{title}' to a maximum of 2 times in the entire body. When referring to the product subsequent times, use pronouns or generic terms (e.g., 'this dress', 'the top', 'it', 'this piece') instead of repeating the full product name.\n"
         f"- Do NOT include the <h1> tag — that is the article title already, start with <p>\n"
@@ -964,7 +1012,10 @@ def parse_and_clean_seo_meta(raw_seo_text: str, keyword: str, product_title: str
 def _clean_html(raw: str) -> str:
     raw = raw.strip()
     raw = re.sub(r"^```html?\s*", "", raw, flags=re.IGNORECASE)
-    return re.sub(r"\s*```$", "", raw).strip()
+    raw = re.sub(r"\s*```$", "", raw).strip()
+    # Remove <seometa>...</seometa> block so SEO title/meta desc text never appears in reader-facing body HTML
+    raw = re.sub(r"<seometa>[\s\S]*?</seometa>", "", raw, flags=re.IGNORECASE).strip()
+    return raw
 
 
 # ── Replace out-of-stock product links in HTML ────────────────────────────────
