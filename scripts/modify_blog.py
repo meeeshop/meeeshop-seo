@@ -297,9 +297,9 @@ def product_img_url(product: dict) -> str | None:
 def build_discover_landscape_collage(featured_prod: dict, related_prods: list) -> bytes | None:
     """
     Build a 1200x630 landscape Google Discover eligible 3-panel collage image.
-    - 3 images side-by-side: Left (rel #1), Center (Featured), Right (rel #2)
-    - Featured product image is CENTERED
-    - All 3 product images have identical panel sizes with plain flat borders
+    - Center image (Featured product): TALLER (380x600 tile) with a clean solid white/cream border.
+    - Side images (Left & Right related products): SHORTER (360x500 tile), vertically centered.
+    - Plain cream/white background (#f8f6f3).
     """
     feat_url = product_img_url(featured_prod)
     if not feat_url:
@@ -307,33 +307,55 @@ def build_discover_landscape_collage(featured_prod: dict, related_prods: list) -
 
     rel_urls = [product_img_url(p) for p in related_prods if product_img_url(p)]
     left_url = rel_urls[0] if len(rel_urls) > 0 else feat_url
-    center_url = feat_url  # Featured product is CENTERED
     right_url = rel_urls[1] if len(rel_urls) > 1 else (rel_urls[0] if len(rel_urls) > 0 else feat_url)
-
-    urls = [left_url, center_url, right_url]
 
     CANVAS_W = 1200
     CANVAS_H = 630
-    PANEL_W = CANVAS_W // 3  # 400px per panel
 
-    # Plain white background / clean flat borders
-    bg = Image.new("RGB", (CANVAS_W, CANVAS_H), (255, 255, 255))
+    BG_COLOR = (248, 246, 243)     # #f8f6f3 cream background
+    BORDER_COLOR = (255, 255, 255) # white border around center featured image
 
-    for i, url in enumerate(urls):
-        try:
-            r = requests.get(url, timeout=15)
-            r.raise_for_status()
-            raw = Image.open(BytesIO(r.content)).convert("RGB")
-            # Same size for all 3 panels (390x610 inside 400x630 column), plain flat borders
-            fitted = ImageOps.fit(raw, (PANEL_W - 10, CANVAS_H - 20), method=Image.Resampling.LANCZOS)
-            x_pos = i * PANEL_W + 5
-            y_pos = 10
-            bg.paste(fitted, (x_pos, y_pos))
-        except Exception as exc:
-            print(f"  [Collage Warning] Failed to load image {url}: {exc}")
+    bg = Image.new("RGB", (CANVAS_W, CANVAS_H), BG_COLOR)
+
+    # 1. Left image (Shorter - 360x500)
+    try:
+        r = requests.get(left_url, timeout=15)
+        r.raise_for_status()
+        raw = Image.open(BytesIO(r.content)).convert("RGB")
+        fitted_left = ImageOps.fit(raw, (360, 500), method=Image.Resampling.LANCZOS)
+        bg.paste(fitted_left, (20, (CANVAS_H - 500) // 2))
+    except Exception as exc:
+        print(f"  [Collage Warning] Failed to load left image {left_url}: {exc}")
+
+    # 2. Right image (Shorter - 360x500)
+    try:
+        r = requests.get(right_url, timeout=15)
+        r.raise_for_status()
+        raw = Image.open(BytesIO(r.content)).convert("RGB")
+        fitted_right = ImageOps.fit(raw, (360, 500), method=Image.Resampling.LANCZOS)
+        bg.paste(fitted_right, (820, (CANVAS_H - 500) // 2))
+    except Exception as exc:
+        print(f"  [Collage Warning] Failed to load right image {right_url}: {exc}")
+
+    # 3. Center featured image (TALLER - 380x600 with white/cream border)
+    try:
+        r = requests.get(feat_url, timeout=15)
+        r.raise_for_status()
+        raw = Image.open(BytesIO(r.content)).convert("RGB")
+        
+        # Fit inner image into 368x588 tile
+        feat_img = ImageOps.fit(raw, (368, 588), method=Image.Resampling.LANCZOS)
+        
+        # Add 6px solid white border around featured image (total tile 380x600)
+        bordered_feat = ImageOps.expand(feat_img, border=6, fill=BORDER_COLOR)
+        
+        # Paste centered in center column
+        bg.paste(bordered_feat, (410, (CANVAS_H - 600) // 2))
+    except Exception as exc:
+        print(f"  [Collage Warning] Failed to load featured image {feat_url}: {exc}")
 
     buf = BytesIO()
-    bg.save(buf, format="JPEG", quality=90, optimize=True)
+    bg.save(buf, format="JPEG", quality=92, optimize=True)
     return buf.getvalue()
 
 
