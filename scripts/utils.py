@@ -115,6 +115,15 @@ def extract_handle_count(text: str) -> int:
     return 3
 
 
+def enforce_current_year(text: str, target_year: str = None) -> str:
+    """Sanitize text to replace any accidental past years (2020 through 2025) with the current target year (defaults to current year e.g. 2026)."""
+    if not text:
+        return text
+    if target_year is None:
+        target_year = str(datetime.now().year)
+    return re.sub(r'\b(2020|2021|2022|2023|2024|2025)\b', target_year, str(text))
+
+
 def is_product_compatible(main_product: dict, candidate: dict, topic_context: str = "") -> bool:
     """Check if candidate product is style-compatible and category-relevant to main_product & article topic."""
     main_id = main_product.get("id")

@@ -49,6 +49,7 @@ from utils import (
     extract_keywords,
     generate_collage,
     extract_handle_count,
+    enforce_current_year,
     is_product_compatible,
     select_styling_matches
 )
@@ -939,6 +940,8 @@ def _build_article_prompt(main_product: dict, research_data: dict, matching_prod
             .replace("{year}", str(YEAR))
         )
 
+    title_hint = enforce_current_year(title_hint, str(YEAR))
+
     # Research context from trending articles
     research_context = ""
     if articles:
@@ -949,6 +952,8 @@ def _build_article_prompt(main_product: dict, research_data: dict, matching_prod
             snippet = (art.get("full_content") or "")[:2500]
             src = art.get("source", "")
             research_context += f"Ref #{idx+1} [{src}]:\n  Title: {title}\n  Summary: {summary}\n  Snippet: {snippet}\n\n"
+
+    research_context = enforce_current_year(research_context, str(YEAR))
 
     prompt = f"""You are {random.choice(PEN_NAMES)}, an expert fashion editor writing for {BRAND_NAME} — a premium women's clothing boutique based in the USA.
 
@@ -980,7 +985,7 @@ Long-tail: {', '.join(long_tail[:5])}
 Zero-Search-Volume: {', '.join(zero_search[:5])}
 
 ────────── TREND RESEARCH ──────────
-{research_context if research_context else 'No external trend references available — use your expert fashion knowledge for {MONTH}.'}
+{research_context if research_context else f'No external trend references available — use your expert fashion knowledge for {MONTH}.'}
 
 ────────── MANDATORY EDITORIAL & VISUAL STYLING RULES ──────────
 1. Target audience: Women in the USA, ages 25-55. Speak directly to her.
@@ -995,6 +1000,25 @@ Zero-Search-Volume: {', '.join(zero_search[:5])}
 10. PREMIUM HTML STYLING: Make the article visually outstanding and premium. Use these HTML elements:
     - **Styled Blockquotes**: Use `<blockquote>` with elegant borders and styling (e.g. `<blockquote style="border-left: 4px solid #111; padding-left: 20px; font-style: italic; margin: 30px 0; color: #555;">...</blockquote>`).
     - **Key Takeaway Cards / Callout Boxes**: Insert styled `div`s for editor's tips or warnings (e.g. `<div style="background: #faf5f5; border-left: 4px solid #d9534f; padding: 15px 20px; margin: 20px 0; border-radius: 4px;"><strong>Editor's Note:</strong> ...</div>`).
+    - **Comparison / Styling Recipe Cards**: Create side-by-side recipe or match guides with inline style (using border-radius, clean fonts, subtle colors).
+11. LIST FORMATTING (CRITICAL): NEVER write numbered items, tips, or Q&A as a single paragraph of text. ALWAYS use proper HTML list elements:
+    - For numbered steps/tips/ideas, use `<ol><li>…</li></ol>`.
+12. OUTFIT / ITEM COUNT ALIGNMENT (CRITICAL): The title/handle specifies {extract_handle_count(original_handle_hint or title_hint)} outfits/items/rules. You MUST structure the body with exactly {extract_handle_count(original_handle_hint or title_hint)} distinct outfit formulas/sections (e.g. 'Outfit 1', 'Outfit 2', ... 'Outfit {extract_handle_count(original_handle_hint or title_hint)}') to match the handle and title count, featuring the hero product and all complementary products provided ({', '.join(m_names)}).
+13. CURRENT YEAR ENFORCEMENT (CRITICAL): The current year is {YEAR}. You MUST write all titles, subheadings, and content specifically for {YEAR}. You MUST NEVER output past years (2024, 2025, 2023, or older). If any research reference mentions an older year, you MUST update it to {YEAR}.
+    - For unordered items/checklists, use `<ul><li>…</li></ul>`.
+    - For the FAQ section, wrap each Q&A in its own `<div>` block. Use a `<strong>` or `<h3>` for the question and a `<p>` for the answer, NEVER inline them like "Q: ... A: ..." in one paragraph.
+    - Example of WRONG format: "Here are tips: 1. Do X 2. Do Y 3. Do Z"
+    - Example of CORRECT format: `<ol><li>Do X</li><li>Do Y</li><li>Do Z</li></ol>`
+
+At the very end, append this block:
+<seometa>
+SEO_TITLE: [50-60 chars, include main keyword near start, MUST use current year {YEAR} or 'for Women', NEVER past years like 2024 or 2025]
+META_DESC: [140-155 chars, benefit-first, end with CTA]
+IMG_ALT: [10-15 words describing the featured image styling scene]
+SUGGESTED_HANDLE: [url-slug-format]
+SUGGESTED_TAGS: [comma-separated list of 6-8 relevant tags]
+ARTICLE_MODE: {mode['id']}
+</seometa>e="background: #faf5f5; border-left: 4px solid #d9534f; padding: 15px 20px; margin: 20px 0; border-radius: 4px;"><strong>Editor's Note:</strong> ...</div>`).
     - **Comparison / Styling Recipe Cards**: Create side-by-side recipe or match guides with inline style (using border-radius, clean fonts, subtle colors).
 11. LIST FORMATTING (CRITICAL): NEVER write numbered items, tips, or Q&A as a single paragraph of text. ALWAYS use proper HTML list elements:
     - For numbered steps/tips/ideas, use `<ol><li>…</li></ol>`.
@@ -1397,6 +1421,13 @@ def generate_single_article_content(
     meta_desc = seometa.get("meta_desc") or f"Expert styling guide and care tips for {main_product['title']}."
     img_alt = seometa.get("img_alt") or f"{main_product['title']} styling collage"
     new_tags = seometa.get("suggested_tags") or ["style", "fashion", ptype.lower()]
+
+    # Enforce current year (2026) across all fields
+    new_title = enforce_current_year(new_title, str(YEAR))
+    suggested_handle = enforce_current_year(suggested_handle, str(YEAR))
+    meta_desc = enforce_current_year(meta_desc, str(YEAR))
+    img_alt = enforce_current_year(img_alt, str(YEAR))
+    html_body = enforce_current_year(html_body, str(YEAR))
 
     # 5. Inject product cards and related products section
     card_html = make_product_card(main_product)
