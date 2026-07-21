@@ -27,11 +27,13 @@ Usage:
   python scripts/modify_blog.py --force --batch-size 20 --batch-index 0  # batch 0 of N
 """
 
-import os, sys, re, time, random, json, argparse
+import os, sys, re, time, random, json, argparse, base64
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
+from io import BytesIO
 from bs4 import BeautifulSoup
+from PIL import Image, ImageOps
 
 import requests
 ROOT = Path(__file__).resolve().parent.parent
@@ -290,6 +292,49 @@ def product_img_url(product: dict) -> str | None:
     if src.startswith("//"):
         src = "https:" + src
     return src
+
+
+def build_discover_landscape_collage(featured_prod: dict, related_prods: list) -> bytes | None:
+    """
+    Build a 1200x630 landscape Google Discover eligible 3-panel collage image.
+    - 3 images side-by-side: Left (rel #1), Center (Featured), Right (rel #2)
+    - Featured product image is CENTERED
+    - All 3 product images have identical panel sizes with plain flat borders
+    """
+    feat_url = product_img_url(featured_prod)
+    if not feat_url:
+        return None
+
+    rel_urls = [product_img_url(p) for p in related_prods if product_img_url(p)]
+    left_url = rel_urls[0] if len(rel_urls) > 0 else feat_url
+    center_url = feat_url  # Featured product is CENTERED
+    right_url = rel_urls[1] if len(rel_urls) > 1 else (rel_urls[0] if len(rel_urls) > 0 else feat_url)
+
+    urls = [left_url, center_url, right_url]
+
+    CANVAS_W = 1200
+    CANVAS_H = 630
+    PANEL_W = CANVAS_W // 3  # 400px per panel
+
+    # Plain white background / clean flat borders
+    bg = Image.new("RGB", (CANVAS_W, CANVAS_H), (255, 255, 255))
+
+    for i, url in enumerate(urls):
+        try:
+            r = requests.get(url, timeout=15)
+            r.raise_for_status()
+            raw = Image.open(BytesIO(r.content)).convert("RGB")
+            # Same size for all 3 panels (390x610 inside 400x630 column), plain flat borders
+            fitted = ImageOps.fit(raw, (PANEL_W - 10, CANVAS_H - 20), method=Image.Resampling.LANCZOS)
+            x_pos = i * PANEL_W + 5
+            y_pos = 10
+            bg.paste(fitted, (x_pos, y_pos))
+        except Exception as exc:
+            print(f"  [Collage Warning] Failed to load image {url}: {exc}")
+
+    buf = BytesIO()
+    bg.save(buf, format="JPEG", quality=90, optimize=True)
+    return buf.getvalue()
 
 
 def extract_handle_category(handle: str) -> str:
@@ -1327,14 +1372,29 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     backup_file = backup_dir / f"article_{article_id}_{int(time.time())}.json"
     backup_file.write_text(json.dumps(backup_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
+    # Generate 1200px Discover landscape 3-panel collage (Featured centered)
+    b64_collage = None
+    if featured:
+        cat_rel_picks = [p for p in in_stock if p.get("handle") != featured["handle"] and product_img_url(p)]
+        cat = extract_handle_category(art_handle)
+        if cat:
+            filtered_rel = [p for p in cat_rel_picks if cat in (p.get("product_type") or "").lower() or cat in (p.get("title") or "").lower()]
+            if len(filtered_rel) >= 2:
+                cat_rel_picks = filtered_rel
+        collage_bytes = build_discover_landscape_collage(featured, cat_rel_picks)
+        if collage_bytes:
+            b64_collage = base64.b64encode(collage_bytes).decode("utf-8")
+
     ret = {
         "status": "updated",
+        "blog_id": blog_id,
         "gid": article.get("gid", f"gid://shopify/Article/{article_id}"),
         "title": payload_title,
         "body_html": new_body,
         "replacements": replacements_log,
         "featured_product": featured["title"],
-        "featured_img_url": product_img_url(featured)
+        "featured_img_url": product_img_url(featured),
+        "b64_collage": b64_collage
     }
     if seo_meta:
         ret["seo_title"] = seo_meta["seo_title"]
@@ -1358,12 +1418,6 @@ def _execute_article_batch(batch: list):
         variables[f"artTitle_{i}"] = payload.get("title")
         variables[f"body_{i}"] = payload["body_html"]
 
-        image_input = ""
-        if payload.get("featured_img_url"):
-            var_defs.append(f"$imgSrc_{i}: String!")
-            variables[f"imgSrc_{i}"] = payload["featured_img_url"]
-            image_input = f", image: {{url: $imgSrc_{i}}}"
-
         metafields_input = ""
         if payload.get("seo_title") and payload.get("meta_desc"):
             var_defs.append(f"$title_{i}: String!")
@@ -1378,7 +1432,7 @@ def _execute_article_batch(batch: list):
             )
 
         mutations.append(
-            f'  m{i}: articleUpdate(id: "{payload["gid"]}", article: {{title: $artTitle_{i}, body: $body_{i}{image_input}{metafields_input}}}) {{ userErrors {{ field message }} }}'
+            f'  m{i}: articleUpdate(id: "{payload["gid"]}", article: {{title: $artTitle_{i}, body: $body_{i}{metafields_input}}}) {{ userErrors {{ field message }} }}'
         )
 
     query_str = f"mutation({', '.join(var_defs)}) {{\n" + "\n".join(mutations) + "\n}"
@@ -1391,6 +1445,22 @@ def _execute_article_batch(batch: list):
             print(f"  [GraphQL Error] article {payload['gid']}: {errs}")
         else:
             print(f"  ✓ Batch Updated article {payload['gid']}")
+            if payload.get("b64_collage"):
+                gid_num = payload["gid"].split("/")[-1]
+                blog_num = payload.get("blog_id")
+                if blog_num:
+                    url = f"{BASE}/blogs/{blog_num}/articles/{gid_num}.json"
+                    img_payload = {
+                        "article": {
+                            "id": int(gid_num),
+                            "image": {
+                                "attachment": payload["b64_collage"],
+                                "filename": f"discover_collage_{gid_num}.jpg"
+                            }
+                        }
+                    }
+                    _req("put", url, json=img_payload)
+                    print(f"    ✓ Uploaded 1200px Discover landscape 3-panel collage header image to Shopify article {gid_num}")
 
 
 def _execute_author_batch(batch: list):
