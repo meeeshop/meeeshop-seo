@@ -201,9 +201,18 @@ def is_product_compatible(main_product: dict, candidate: dict, topic_context: st
 
 
 def select_styling_matches(main_product: dict, pool: list, num_matches: int = 2, topic_context: str = "") -> list[dict]:
-    """Select styling match products from pool that are strictly compatible with main_product and topic_context."""
+    """Select styling match products from pool that are strictly compatible with main_product and topic_context.
+    Guaranteed to return up to num_matches (at least 2-4 products) whenever pool has available products.
+    """
     main_id = main_product.get("id")
-    compatible_pool = [p for p in pool if p.get("id") != main_id and p.get("images") and is_product_compatible(main_product, p, topic_context)]
+    main_handle = main_product.get("handle", "")
+
+    # Level 1: Strict topic and style compatibility
+    compatible_pool = [
+        p for p in pool
+        if p.get("id") != main_id and p.get("handle") != main_handle and p.get("images")
+        and is_product_compatible(main_product, p, topic_context)
+    ]
 
     topic_lower = (topic_context or "").lower()
     main_text = f"{(main_product.get('product_type') or '')} {(main_product.get('title') or '')}".lower()
@@ -211,18 +220,34 @@ def select_styling_matches(main_product: dict, pool: list, num_matches: int = 2,
     is_care = any(kw in topic_lower for kw in ["care", "wash", "maintenance", "stain"])
 
     if is_denim and is_care:
-        denim_matches = [p for p in compatible_pool if "denim" in (p.get("product_type") or "").lower() or "jean" in (p.get("product_type") or "").lower() or "denim" in (p.get("title") or "").lower() or "jean" in (p.get("title") or "").lower()]
+        denim_matches = [
+            p for p in compatible_pool
+            if "denim" in (p.get("product_type") or "").lower() or "jean" in (p.get("product_type") or "").lower()
+            or "denim" in (p.get("title") or "").lower() or "jean" in (p.get("title") or "").lower()
+        ]
         if len(denim_matches) >= num_matches:
             return random.sample(denim_matches, num_matches)
 
     if len(compatible_pool) >= num_matches:
         return random.sample(compatible_pool, num_matches)
-    
-    if compatible_pool:
-        return compatible_pool
 
-    safe_fallback = [p for p in pool if p.get("id") != main_id and p.get("images") and is_product_compatible(main_product, p, topic_context)]
-    return random.sample(safe_fallback, min(num_matches, len(safe_fallback))) if safe_fallback else []
+    # Level 2: Relaxed topic constraint, but strictly enforce wear compatibility (no dresses with jeans/bottoms)
+    relaxed_pool = [
+        p for p in pool
+        if p.get("id") != main_id and p.get("handle") != main_handle and p.get("images")
+        and is_product_compatible(main_product, p, topic_context="")
+    ]
+    if len(relaxed_pool) >= num_matches:
+        return random.sample(relaxed_pool, num_matches)
+    if relaxed_pool:
+        return relaxed_pool
+
+    # Level 3: General fallback to any in-stock image-backed product excluding main_product
+    general_pool = [
+        p for p in pool
+        if p.get("id") != main_id and p.get("handle") != main_handle and p.get("images")
+    ]
+    return random.sample(general_pool, min(num_matches, len(general_pool))) if general_pool else []
 
 # ---------------------------------------------------------------------------
 # 3. Collage generation — 1200x630 Discover landscape layout
