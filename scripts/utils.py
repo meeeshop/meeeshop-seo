@@ -17,7 +17,7 @@ from typing import List, Dict
 import requests
 import trafilatura
 from bs4 import BeautifulSoup
-from PIL import Image
+from PIL import Image, ImageOps
 
 # ---------------------------------------------------------------------------
 # Configuration – these will be populated from the environment via the main script
@@ -103,56 +103,54 @@ def extract_keywords(text: str) -> Dict[str, List[str]]:
     return {"long_tail": long_tail, "zero_search": zero_search}
 
 # ---------------------------------------------------------------------------
-# 3. Collage generation — horizontal landscape strip (side-by-side)
+# 3. Collage generation — 1200x630 Discover landscape layout
 # ---------------------------------------------------------------------------
-def generate_collage(product_images: List[bytes], strip_height: int = 400) -> bytes:
-    """Create a horizontal landscape strip collage from a list of image bytes.
+def generate_collage(product_images: List[bytes], strip_height: int = 630) -> bytes:
+    """Create a 1200x630 Google Discover eligible landscape 3-panel collage image.
 
-    All product images are resized to the same height (``strip_height``) while
-    maintaining their natural aspect ratios, then placed side-by-side to form a
-    single wide banner. This keeps the resulting image compact, fast to load, and
-    consistent with standard blog featured-image proportions.
-
-    Args:
-        product_images: Raw JPEG/PNG bytes for each product photo.
-        strip_height:   The uniform height (px) for every panel. Defaults to 400.
-
-    Returns:
-        JPEG bytes of the final landscape strip image.
+    - Center image (product_images[0] - Featured product): TALLER (380x600 tile) with a solid white border.
+    - Side images (Left & Right related products): SHORTER (360x500 tile), vertically centered.
+    - Cream background (#f8f6f3).
     """
     if not product_images:
         raise ValueError("No product images provided for collage generation")
 
-    GAP = 6          # px gap between panels
-    BG_COLOR = (245, 245, 245)   # light grey background / gap fill
+    CANVAS_W = 1200
+    CANVAS_H = 630
+    BG_COLOR = (248, 246, 243)     # cream background
+    BORDER_COLOR = (255, 255, 255) # solid white border for featured image
 
-    panels: List[Image.Image] = []
-    for img_data in product_images[:6]:          # cap at 6 panels
+    canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), BG_COLOR)
+
+    imgs = []
+    for data in product_images:
         try:
-            img = Image.open(BytesIO(img_data)).convert("RGB")
+            imgs.append(Image.open(BytesIO(data)).convert("RGB"))
         except Exception:
-            continue
-        # Scale so height == strip_height, preserve aspect ratio
-        aspect = img.width / img.height
-        new_w = max(int(strip_height * aspect), 1)
-        img = img.resize((new_w, strip_height), Image.LANCZOS)
-        panels.append(img)
+            pass
 
-    if not panels:
+    if not imgs:
         raise ValueError("Could not decode any product images for the collage")
 
-    # Build canvas dimensions
-    total_w = sum(p.width for p in panels) + GAP * (len(panels) - 1)
-    canvas = Image.new("RGB", (total_w, strip_height), BG_COLOR)
+    feat_img = imgs[0]
+    left_img = imgs[1] if len(imgs) > 1 else imgs[0]
+    right_img = imgs[2] if len(imgs) > 2 else (imgs[1] if len(imgs) > 1 else imgs[0])
 
-    x_offset = 0
-    for panel in panels:
-        canvas.paste(panel, (x_offset, 0))
-        x_offset += panel.width + GAP
+    # 1. Left image (Shorter - 360x500)
+    fitted_left = ImageOps.fit(left_img, (360, 500), method=Image.Resampling.LANCZOS)
+    canvas.paste(fitted_left, (20, (CANVAS_H - 500) // 2))
 
-    # Export — keep quality high but optimize for web
+    # 2. Right image (Shorter - 360x500)
+    fitted_right = ImageOps.fit(right_img, (360, 500), method=Image.Resampling.LANCZOS)
+    canvas.paste(fitted_right, (820, (CANVAS_H - 500) // 2))
+
+    # 3. Center featured image (TALLER - 380x600 with solid white border)
+    inner_feat = ImageOps.fit(feat_img, (368, 588), method=Image.Resampling.LANCZOS)
+    bordered_feat = ImageOps.expand(inner_feat, border=6, fill=BORDER_COLOR)
+    canvas.paste(bordered_feat, (410, (CANVAS_H - 600) // 2))
+
     out_buf = BytesIO()
-    canvas.save(out_buf, format="JPEG", quality=82, optimize=True, progressive=True)
+    canvas.save(out_buf, format="JPEG", quality=92, optimize=True)
     return out_buf.getvalue()
 
 # ---------------------------------------------------------------------------

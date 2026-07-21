@@ -29,7 +29,49 @@ from urllib.parse import quote
 
 import requests
 import ai_client
-from PIL import Image
+from PIL import Image, ImageOps
+
+from utils import generate_collage
+
+def generate_outfit_collage(main_product: dict, matching_products: list) -> Path | None:
+    """
+    Downloads featured images for main product and matching products,
+    creates a 1200x630 Discover landscape collage with taller center featured image + white border,
+    and saves locally using utils.generate_collage.
+    """
+    image_bytes_list = []
+    main_imgs = main_product.get("images", [])
+    if main_imgs:
+        try:
+            r = requests.get(main_imgs[0]["src"], timeout=10)
+            if r.status_code == 200:
+                image_bytes_list.append(r.content)
+        except Exception as e:
+            print(f"    [!] Error fetching main product image: {e}")
+
+    for p in matching_products:
+        imgs = p.get("images", [])
+        if imgs:
+            try:
+                r = requests.get(imgs[0]["src"], timeout=10)
+                if r.status_code == 200:
+                    image_bytes_list.append(r.content)
+            except Exception as e:
+                print(f"    [!] Error fetching product image: {e}")
+
+    if not image_bytes_list:
+        return None
+
+    try:
+        collage_bytes = generate_collage(image_bytes_list)
+        temp_path = Path("collage_temp.jpg")
+        with open(temp_path, "wb") as f:
+            f.write(collage_bytes)
+        print(f"  ✓ Discover featured collage generated locally: {temp_path.absolute()}")
+        return temp_path
+    except Exception as e:
+        print(f"  [!] Failed to generate image collage: {e}")
+        return None
 from io import BytesIO
 import weekly_trend_blog as wtb
 from internal_linker import LinkMap
@@ -643,97 +685,7 @@ def crop_to_fit(img, target_w, target_h):
         return img_resized.crop((0, crop_y, target_w, crop_y + target_h))
 
 
-def generate_outfit_collage(main_product: dict, matching_products: list) -> Path | None:
-    """
-    Downloads the featured images of the main product and matches,
-    creates a beautiful side-by-side outfit collage (1200x630),
-    and saves it locally.
-    """
-    images_to_load = []
-    
-    main_imgs = main_product.get("images", [])
-    if main_imgs:
-        images_to_load.append(main_imgs[0]["src"])
-        
-    for p in matching_products:
-        imgs = p.get("images", [])
-        if imgs:
-            images_to_load.append(imgs[0]["src"])
-            
-    if not images_to_load:
-        return None
-        
-    print(f"  Downloading {len(images_to_load)} images to create styling collage...")
-    downloaded_imgs = []
-    for url in images_to_load:
-        try:
-            r = requests.get(url, timeout=15)
-            if r.status_code == 200:
-                img = Image.open(BytesIO(r.content))
-                downloaded_imgs.append(img)
-            else:
-                print(f"    [!] Failed to download {url[:60]}... (HTTP {r.status_code})")
-        except Exception as e:
-            print(f"    [!] Error downloading {url[:60]}...: {e}")
-            
-    if not downloaded_imgs:
-        return None
-        
-    canvas_w, canvas_h = 1200, 630
-    collage = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
-    
-    num_imgs = len(downloaded_imgs)
-    
-    try:
-        if num_imgs == 1:
-            img = downloaded_imgs[0]
-            img_ratio = img.width / img.height
-            target_ratio = canvas_w / canvas_h
-            
-            if img_ratio > target_ratio:
-                new_h = canvas_h
-                new_w = int(img.width * (canvas_h / img.height))
-                img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-                crop_x = (new_w - canvas_w) // 2
-                img_cropped = img_resized.crop((crop_x, 0, crop_x + canvas_w, canvas_h))
-            else:
-                new_w = canvas_w
-                new_h = int(img.height * (canvas_w / img.width))
-                img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-                crop_y = (new_h - canvas_h) // 2
-                img_cropped = img_resized.crop((0, crop_y, canvas_w, crop_y + canvas_h))
-                
-            collage.paste(img_cropped, (0, 0))
-            
-        elif num_imgs == 2:
-            spacing = 25
-            col_w = (canvas_w - (3 * spacing)) // 2
-            col_h = canvas_h - (2 * spacing)
-            
-            for i, img in enumerate(downloaded_imgs):
-                img_resized = crop_to_fit(img, col_w, col_h)
-                left = spacing + i * (col_w + spacing)
-                top = spacing
-                collage.paste(img_resized, (left, top))
-                
-        else:
-            spacing = 20
-            col_w = (canvas_w - (4 * spacing)) // 3
-            col_h = canvas_h - (2 * spacing)
-            
-            for i, img in enumerate(downloaded_imgs[:3]):
-                img_resized = crop_to_fit(img, col_w, col_h)
-                left = spacing + i * (col_w + spacing)
-                top = spacing
-                collage.paste(img_resized, (left, top))
-                
-        temp_path = Path("collage_temp.jpg")
-        collage.save(temp_path, "JPEG", quality=92)
-        print(f"  ✓ Collage generated locally: {temp_path.absolute()}")
-        return temp_path
-    except Exception as e:
-        print(f"  [!] Failed to generate image collage: {e}")
-        return None
+
 
 
 def upload_image_to_shopify(filepath: Path, filename: str) -> str | None:

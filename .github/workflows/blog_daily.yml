@@ -54,6 +54,7 @@ jobs:
       - name: Generate blog post
         env:
           PYTHONUTF8: "1"
+          PYTHONUNBUFFERED: "1"
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
@@ -75,11 +76,14 @@ jobs:
           fi
           python scripts/blog_daily.py $ARGS
 
-      - name: Upload blog generation log
+      - name: Upload previews, collages, and logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: blog-generation-${{ github.run_number }}
-          path: blog_*.json
+          name: blog-daily-logs-${{ github.run_number }}
+          path: |
+            logs/weekly_preview_*.html
+            collage_temp*.jpg
+            blog_*.json
           if-no-files-found: ignore
           retention-days: 14

@@ -31,7 +31,7 @@ from io import BytesIO
 import requests
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
-from PIL import Image
+from PIL import Image, ImageOps
 
 # ── Path Setup ────────────────────────────────────────────────────────────────
 SCRIPT_DIR = Path(__file__).resolve().parent
