@@ -29,7 +29,54 @@ from urllib.parse import quote
 
 import requests
 import ai_client
-from PIL import Image
+from PIL import Image, ImageOps
+
+from utils import (
+    generate_collage,
+    extract_handle_count,
+    is_product_compatible,
+    select_styling_matches
+)
+
+def generate_outfit_collage(main_product: dict, matching_products: list) -> Path | None:
+    """
+    Downloads featured images for main product and matching products,
+    creates a 1200x630 Discover landscape collage with taller center featured image + white border,
+    and saves locally using utils.generate_collage.
+    """
+    image_bytes_list = []
+    main_imgs = main_product.get("images", [])
+    if main_imgs:
+        try:
+            r = requests.get(main_imgs[0]["src"], timeout=10)
+            if r.status_code == 200:
+                image_bytes_list.append(r.content)
+        except Exception as e:
+            print(f"    [!] Error fetching main product image: {e}")
+
+    for p in matching_products:
+        imgs = p.get("images", [])
+        if imgs:
+            try:
+                r = requests.get(imgs[0]["src"], timeout=10)
+                if r.status_code == 200:
+                    image_bytes_list.append(r.content)
+            except Exception as e:
+                print(f"    [!] Error fetching product image: {e}")
+
+    if not image_bytes_list:
+        return None
+
+    try:
+        collage_bytes = generate_collage(image_bytes_list)
+        temp_path = Path("collage_temp.jpg")
+        with open(temp_path, "wb") as f:
+            f.write(collage_bytes)
+        print(f"  ✓ Discover featured collage generated locally: {temp_path.absolute()}")
+        return temp_path
+    except Exception as e:
+        print(f"  [!] Failed to generate image collage: {e}")
+        return None
 from io import BytesIO
 import weekly_trend_blog as wtb
 from internal_linker import LinkMap
@@ -261,7 +308,7 @@ def generate_fallback_blog_post(fmt: str, product: dict, keyword: str, title_hin
 <h2>Look 4: Airport Chic</h2>
 <p>Comfort and looking pulled-together are not mutually exclusive. Wear the {clean_ptype} with an oversized zip-up hoodie or knit cardigan in a neutral — oatmeal, charcoal, or dusty rose. Add a spacious canvas tote for carry-on essentials. This outfit works from security line to arrival hall without looking like you gave up.</p>
 <h2>Look 5: The Gallery Hop</h2>
-<p>Go monochromatic. Pair this {clean_ptype} with similar tones in your blazer and top — think all-black for summer 2026, or a sandy neutral layered look. Statement earrings and a half-tuck are the only two details this look needs. It is the quiet luxury formula that is all over Flipboard right now.</p>
+<p>Go monochromatic. Pair this {clean_ptype} with similar tones in your blazer and top — think all-black for summer {datetime.now().year}, or a sandy neutral layered look. Statement earrings and a half-tuck are the only two details this look needs. It is the quiet luxury formula that is all over Flipboard right now.</p>
 """,
 
         "buying_guide": f"""
@@ -279,7 +326,7 @@ def generate_fallback_blog_post(fmt: str, product: dict, keyword: str, title_hin
 <h3>The Power Lunch</h3>
 <p>Pull a structured blazer in ivory or soft camel over this {clean_ptype}. Front-tuck the hem slightly to define the waist, add the {match1_name} for a layer of interest, and finish with a small leather shoulder bag in cognac. Simple gold earrings, nothing statement. This works for a client meeting or a first date at a nice restaurant.</p>
 <h3>Saturday Gallery Hop</h3>
-<p>Go tone-on-tone. Match this {clean_ptype} with the {match2_name} in a similar neutral palette — oatmeal, olive, or all black. Half-tuck the top, add a canvas crossbody, and one interesting accessory (a chunky ring, a silk scarf). This is the quiet luxury formula that is dominating Flipboard Style feeds in summer 2026.</p>
+<p>Go tone-on-tone. Match this {clean_ptype} with the {match2_name} in a similar neutral palette — oatmeal, olive, or all black. Half-tuck the top, add a canvas crossbody, and one interesting accessory (a chunky ring, a silk scarf). This is the quiet luxury formula that is dominating Flipboard Style feeds in summer {datetime.now().year}.</p>
 <h3>The Long Weekend</h3>
 <p>Pack light but look intentional. Pair with an oversized linen button-down in white or sage left open as a layer, a market tote, and a braided belt at the waist. Works from the airport to the poolside dinner with zero effort.</p>
 <h2>Who This Actually Works For (and Who Should Skip It)</h2>
@@ -353,12 +400,12 @@ def generate_fallback_blog_post(fmt: str, product: dict, keyword: str, title_hin
 
         "trend_report": f"""
 <p>If you have been paying attention to Flipboard, Who What Wear, and real women\'s street style this {MONTH}, you already know that the rules shifted. Wide-leg is not the only answer anymore. Distressed denim is out. And the all-black summer outfit is not just acceptable — it is the move. Here is what is actually trending right now.</p>
-<h2>Trend #1: {display_name} — Why It Fits the 2026 Moment</h2>
-<p>The {display_name} is landing at exactly the right time. The 2026 consumer is tired of trend-chasing and wants pieces that read intentional, not disposable. This {clean_ptype} fits that shift. Its construction is clean, its colour palette is edit-friendly, and it layers like a dream over the linen-and-denim combinations dominating summer style right now.</p>
+<h2>Trend #1: {display_name} — Why It Fits the {datetime.now().year} Moment</h2>
+<p>The {display_name} is landing at exactly the right time. The {datetime.now().year} consumer is tired of trend-chasing and wants pieces that read intentional, not disposable. This {clean_ptype} fits that shift. Its construction is clean, its colour palette is edit-friendly, and it layers like a dream over the linen-and-denim combinations dominating summer style right now.</p>
 <h2>Trend #2: Cigarette Jeans Are Taking Over</h2>
 <p>The wide-leg denim moment had its run. The silhouette that is replacing it? The cigarette jean — slim, straight, hitting at the ankle. It works with tucked-in tops, cropped layers, and oversized blazers in a way that wide-leg simply cannot match. If you are buying one new denim item this season, this is the silhouette.</p>
 <h2>Trend #3: The Quiet Luxury Denim Edit</h2>
-<p>Dark indigo. No distressing. Clean hems. No branding. This is the 2026 quiet luxury formula applied to denim, and it is trending hard on Flipboard #Style (8.4 million followers). The effect is simple: dark wash jeans read more expensive than light wash at any price point, because the colour is doing the visual work.</p>
+<p>Dark indigo. No distressing. Clean hems. No branding. This is the {datetime.now().year} quiet luxury formula applied to denim, and it is trending hard on Flipboard #Style (8.4 million followers). The effect is simple: dark wash jeans read more expensive than light wash at any price point, because the colour is doing the visual work.</p>
 <h2>Trend #4: The Linen + Dark Wash Formula</h2>
 <p>This is the heat-proof summer answer. A relaxed linen top in white, ecru, or sage layered over or tucked into dark wash jeans — it is the combination that keeps appearing on every mood board right now. The contrast of textures does all the work. You do not need to add much else.</p>
 <h2>Trend #5: The Blazer-as-a-Top Moment</h2>
@@ -511,12 +558,12 @@ def make_related_products_section(products: list, exclude_handle: str, keyword: 
         section_title = "Shop Styled Pairings from This Article"
         cta_text = "Shop the Look"
     else:
-        related = [p for p in products if p.get("handle") != exclude_handle and p.get("images")]
-        if not related:
-            related = [p for p in products if p.get("handle") != exclude_handle]
-        picks = random.sample(related, min(3, len(related)))
-        section_title = "You Might Also Love"
-        cta_text = "Shop Similar"
+        outfit_count = extract_handle_count(keyword or exclude_handle or "")
+        main_prod_candidates = [p for p in products if p.get("handle") == exclude_handle]
+        main_product = main_prod_candidates[0] if main_prod_candidates else {"handle": exclude_handle, "product_type": keyword}
+        picks = select_styling_matches(main_product, products, num_matches=outfit_count, topic_context=keyword or exclude_handle)
+        section_title = "Shop Styled Pairings from This Article"
+        cta_text = "Shop the Look"
 
     cards_html = ""
     for p in picks:
@@ -580,47 +627,6 @@ def inject_product_card(html_body: str, product: dict, keyword: str = "") -> str
 
 # ── Dynamic Collage & Pairing Helpers ──────────────────────────────────────────
 
-def select_styling_matches(main_product: dict, pool: list, num_matches: int = 2) -> list[dict]:
-    main_type = (main_product.get("product_type") or "").lower()
-    main_id = main_product.get("id")
-    
-    # Categorize broad clothing types
-    is_top = any(x in main_type for x in ["top", "blouse", "shirt", "tee"])
-    is_bottom = any(x in main_type for x in ["jean", "pant", "skirt", "legging", "short"])
-    is_one_piece = any(x in main_type for x in ["dress", "jumpsuit", "romper"])
-    
-    matches = []
-    
-    # Try to find items of complementary types first
-    complementary_pool = []
-    for p in pool:
-        if p.get("id") == main_id or not p.get("images"):
-            continue
-        ptype = (p.get("product_type") or "").lower()
-        
-        if is_top:
-            if any(x in ptype for x in ["jean", "pant", "skirt", "jacket", "coat", "cardigan", "accessory"]):
-                complementary_pool.append(p)
-        elif is_bottom:
-            if any(x in ptype for x in ["top", "blouse", "shirt", "tee", "sweater", "jacket", "coat", "cardigan"]):
-                complementary_pool.append(p)
-        elif is_one_piece:
-            if any(x in ptype for x in ["jacket", "coat", "cardigan", "accessory", "shoe", "bag"]):
-                complementary_pool.append(p)
-        else:
-            complementary_pool.append(p)
-            
-    if len(complementary_pool) >= num_matches:
-        matches = random.sample(complementary_pool, num_matches)
-    else:
-        fallback_pool = [p for p in pool if p.get("id") != main_id and p.get("images")]
-        if len(fallback_pool) >= num_matches:
-            matches = random.sample(fallback_pool, num_matches)
-        else:
-            matches = fallback_pool
-            
-    return matches
-
 
 def crop_to_fit(img, target_w, target_h):
     """Helper to crop and resize an image to fit target bounds cleanly (center crop)."""
@@ -643,97 +649,7 @@ def crop_to_fit(img, target_w, target_h):
         return img_resized.crop((0, crop_y, target_w, crop_y + target_h))
 
 
-def generate_outfit_collage(main_product: dict, matching_products: list) -> Path | None:
-    """
-    Downloads the featured images of the main product and matches,
-    creates a beautiful side-by-side outfit collage (1200x630),
-    and saves it locally.
-    """
-    images_to_load = []
-    
-    main_imgs = main_product.get("images", [])
-    if main_imgs:
-        images_to_load.append(main_imgs[0]["src"])
-        
-    for p in matching_products:
-        imgs = p.get("images", [])
-        if imgs:
-            images_to_load.append(imgs[0]["src"])
-            
-    if not images_to_load:
-        return None
-        
-    print(f"  Downloading {len(images_to_load)} images to create styling collage...")
-    downloaded_imgs = []
-    for url in images_to_load:
-        try:
-            r = requests.get(url, timeout=15)
-            if r.status_code == 200:
-                img = Image.open(BytesIO(r.content))
-                downloaded_imgs.append(img)
-            else:
-                print(f"    [!] Failed to download {url[:60]}... (HTTP {r.status_code})")
-        except Exception as e:
-            print(f"    [!] Error downloading {url[:60]}...: {e}")
-            
-    if not downloaded_imgs:
-        return None
-        
-    canvas_w, canvas_h = 1200, 630
-    collage = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
-    
-    num_imgs = len(downloaded_imgs)
-    
-    try:
-        if num_imgs == 1:
-            img = downloaded_imgs[0]
-            img_ratio = img.width / img.height
-            target_ratio = canvas_w / canvas_h
-            
-            if img_ratio > target_ratio:
-                new_h = canvas_h
-                new_w = int(img.width * (canvas_h / img.height))
-                img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-                crop_x = (new_w - canvas_w) // 2
-                img_cropped = img_resized.crop((crop_x, 0, crop_x + canvas_w, canvas_h))
-            else:
-                new_w = canvas_w
-                new_h = int(img.height * (canvas_w / img.width))
-                img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-                crop_y = (new_h - canvas_h) // 2
-                img_cropped = img_resized.crop((0, crop_y, canvas_w, crop_y + canvas_h))
-                
-            collage.paste(img_cropped, (0, 0))
-            
-        elif num_imgs == 2:
-            spacing = 25
-            col_w = (canvas_w - (3 * spacing)) // 2
-            col_h = canvas_h - (2 * spacing)
-            
-            for i, img in enumerate(downloaded_imgs):
-                img_resized = crop_to_fit(img, col_w, col_h)
-                left = spacing + i * (col_w + spacing)
-                top = spacing
-                collage.paste(img_resized, (left, top))
-                
-        else:
-            spacing = 20
-            col_w = (canvas_w - (4 * spacing)) // 3
-            col_h = canvas_h - (2 * spacing)
-            
-            for i, img in enumerate(downloaded_imgs[:3]):
-                img_resized = crop_to_fit(img, col_w, col_h)
-                left = spacing + i * (col_w + spacing)
-                top = spacing
-                collage.paste(img_resized, (left, top))
-                
-        temp_path = Path("collage_temp.jpg")
-        collage.save(temp_path, "JPEG", quality=92)
-        print(f"  ✓ Collage generated locally: {temp_path.absolute()}")
-        return temp_path
-    except Exception as e:
-        print(f"  [!] Failed to generate image collage: {e}")
-        return None
+
 
 
 def upload_image_to_shopify(filepath: Path, filename: str) -> str | None:
@@ -889,16 +805,16 @@ def publish_article(blog: dict, title: str, body_html: str, tags: list,
 FORMATS = ["buying_guide", "comparison", "problem_solver", "trend_report", "outfit_formula", "care_guide", "sizing_guide"]
 
 SEED_KEYWORDS = [
-    # 2026 Trending — sourced from Flipboard #Style (8.4M followers) & Who What Wear
-    "women's fashion 2026", "summer outfit ideas for women 2026",
+    # Dynamic Trending — sourced from Flipboard #Style (8.4M followers) & Who What Wear
+    f"women's fashion {datetime.now().year}", f"summer outfit ideas for women {datetime.now().year}",
     "affordable women's clothing USA", "summer dress outfits for women",
     "women's jeans styles guide", "casual chic outfits women",
-    "women's fashion trends 2026", "cute outfits under $50",
+    f"women's fashion trends {datetime.now().year}", "cute outfits under $50",
     "stylish women's tops", "best dresses for women",
     "women's summer wardrobe essentials", "affordable boutique fashion USA",
     "women's outfit ideas", "how to style women's clothing",
     "plus size fashion tips", "work outfits for women",
-    "women's weekend casual looks", "women's spring outfit ideas 2026",
+    "women's weekend casual looks", f"women's spring outfit ideas {datetime.now().year}",
     "best tops to wear with jeans", "how to build a capsule wardrobe women",
     "women's date night outfit ideas",
     "Zenana women's clothing basics guide", "how to style POL clothing bohemian pieces",
@@ -906,19 +822,19 @@ SEED_KEYWORDS = [
     "Risen stretch denim jeans review", "Umgee USA clothing styling ideas",
     "Hyfve clothing fashion trends", "Bibi clothing cute outfits",
     "Artemis Vintage denim styles",
-    # Jeans-specific trending 2026 (Flipboard #Jeans 66K followers)
-    "how to style jeans 2026", "dark wash jeans outfits",
+    # Jeans-specific trending (Flipboard #Jeans 66K followers)
+    f"how to style jeans {datetime.now().year}", "dark wash jeans outfits",
     "quiet luxury jeans women", "cigarette jeans styling tips",
     "barrel leg jeans vs wide leg jeans", "blazer with jeans outfit ideas",
-    "tops to wear with jeans 2026", "how to look taller in jeans",
+    f"tops to wear with jeans {datetime.now().year}", "how to look taller in jeans",
     # Care & How-To (high search intent, Flipboard trending)
     "how to wash jeans without fading", "how to remove stains from jeans",
     "how to remove smell from clothes", "how to fix pilling on clothes",
-    "jeans care guide 2026",
-    # Summer 2026 (Flipboard #SummerFashion 73.9K followers)
-    "linen top with jeans outfit", "summer denim outfit ideas 2026",
-    "all black summer outfit women", "women's capsule wardrobe 2026",
-    "linen dress summer 2026",
+    f"jeans care guide {datetime.now().year}",
+    # Summer (Flipboard #SummerFashion 73.9K followers)
+    "linen top with jeans outfit", f"summer denim outfit ideas {datetime.now().year}",
+    "all black summer outfit women", f"women's capsule wardrobe {datetime.now().year}",
+    f"linen dress summer {datetime.now().year}",
 ]
 
 

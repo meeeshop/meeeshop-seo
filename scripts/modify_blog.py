@@ -27,13 +27,16 @@ Usage:
   python scripts/modify_blog.py --force --batch-size 20 --batch-index 0  # batch 0 of N
 """
 
-import os, sys, re, time, random, json, argparse
+import os, sys, re, time, random, json, argparse, base64
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
+from io import BytesIO
 from bs4 import BeautifulSoup
+from PIL import Image, ImageOps
 
 import requests
+from utils import is_product_compatible, select_styling_matches
 ROOT = Path(__file__).resolve().parent.parent
 
 import ai_client
@@ -282,12 +285,183 @@ def has_product_card(html: str) -> bool:
 # ── Image helpers (same as blog_daily.py) ────────────────────────────────────
 def product_img_url(product: dict) -> str | None:
     imgs = product.get("images", [])
-    return imgs[0]["src"] if imgs else None
+    if not imgs:
+        return None
+    src = imgs[0].get("src", "")
+    if not src:
+        return None
+    if src.startswith("//"):
+        src = "https:" + src
+    return src
+
+
+def build_discover_landscape_collage(featured_prod: dict, related_prods: list) -> bytes | None:
+    """
+    Build a 1200x630 landscape Google Discover eligible 3-panel collage image.
+    - Center image (Featured product): TALLER (380x600 tile) with a clean solid white/cream border.
+    - Side images (Left & Right related products): SHORTER (360x500 tile), vertically centered.
+    - Plain cream/white background (#f8f6f3).
+    """
+    feat_url = product_img_url(featured_prod)
+    if not feat_url:
+        return None
+
+    rel_urls = [product_img_url(p) for p in related_prods if product_img_url(p)]
+    left_url = rel_urls[0] if len(rel_urls) > 0 else feat_url
+    right_url = rel_urls[1] if len(rel_urls) > 1 else (rel_urls[0] if len(rel_urls) > 0 else feat_url)
+
+    CANVAS_W = 1200
+    CANVAS_H = 630
+
+    BG_COLOR = (248, 246, 243)     # #f8f6f3 cream background
+    BORDER_COLOR = (255, 255, 255) # white border around center featured image
+
+    bg = Image.new("RGB", (CANVAS_W, CANVAS_H), BG_COLOR)
+
+    # 1. Left image (Shorter - 360x500)
+    try:
+        r = requests.get(left_url, timeout=15)
+        r.raise_for_status()
+        raw = Image.open(BytesIO(r.content)).convert("RGB")
+        fitted_left = ImageOps.fit(raw, (360, 500), method=Image.Resampling.LANCZOS)
+        bg.paste(fitted_left, (20, (CANVAS_H - 500) // 2))
+    except Exception as exc:
+        print(f"  [Collage Warning] Failed to load left image {left_url}: {exc}")
+
+    # 2. Right image (Shorter - 360x500)
+    try:
+        r = requests.get(right_url, timeout=15)
+        r.raise_for_status()
+        raw = Image.open(BytesIO(r.content)).convert("RGB")
+        fitted_right = ImageOps.fit(raw, (360, 500), method=Image.Resampling.LANCZOS)
+        bg.paste(fitted_right, (820, (CANVAS_H - 500) // 2))
+    except Exception as exc:
+        print(f"  [Collage Warning] Failed to load right image {right_url}: {exc}")
+
+    # 3. Center featured image (TALLER - 380x600 with white/cream border)
+    try:
+        r = requests.get(feat_url, timeout=15)
+        r.raise_for_status()
+        raw = Image.open(BytesIO(r.content)).convert("RGB")
+        
+        # Fit inner image into 368x588 tile
+        feat_img = ImageOps.fit(raw, (368, 588), method=Image.Resampling.LANCZOS)
+        
+        # Add 6px solid white border around featured image (total tile 380x600)
+        bordered_feat = ImageOps.expand(feat_img, border=6, fill=BORDER_COLOR)
+        
+        # Paste centered in center column
+        bg.paste(bordered_feat, (410, (CANVAS_H - 600) // 2))
+    except Exception as exc:
+        print(f"  [Collage Warning] Failed to load featured image {feat_url}: {exc}")
+
+    buf = BytesIO()
+    bg.save(buf, format="JPEG", quality=92, optimize=True)
+    return buf.getvalue()
+
+
+def extract_handle_count(handle: str) -> int:
+    """Extract item/outfit count from handle if specified (e.g., '5-stunning-outfits' -> 5). Default is 3."""
+    m = re.search(r'\b(\d+)\b', handle or "")
+    if m:
+        num = int(m.group(1))
+        if 2 <= num <= 10:
+            return num
+    return 3
+
+
+def extract_handle_keywords(handle: str) -> list[str]:
+    """Extract key material, style, and garment keywords from handle."""
+    h = (handle or "").lower().replace("_", "-")
+    tokens = set(re.findall(r'\b[a-z0-9]+\b', h))
+    keywords = []
+    modifiers = ["denim", "linen", "lace", "leather", "silk", "cotton", "knit", 
+                 "off-shoulder", "puff", "sleeves", "smocked", "midi", "maxi", "mini", 
+                 "wrap", "a-line", "curvy", "plus-size", "summer", "work"]
+    for mod in modifiers:
+        if mod in tokens or mod in h:
+            keywords.append(mod)
+    cat = extract_handle_category(handle)
+    if cat and cat not in keywords:
+        keywords.append(cat)
+    return keywords
+
+
+def extract_handle_category(handle: str) -> str:
+    h = (handle or "").lower().replace("_", "-")
+    words = set(re.findall(r'\b[a-z0-9]+\b', h))
+    if any(w in words or w in h for w in ["skirt", "skirts"]):
+        return "skirt"
+    if any(w in words or w in h for w in ["dress", "dresses", "gown", "gowns", "frock"]):
+        return "dress"
+    if any(w in words or w in h for w in ["jean", "jeans", "denim"]):
+        return "jean"
+    if any(w in words or w in h for w in ["top", "tops", "blouse", "blouses", "shirt", "shirts", "tee", "tees", "tank", "tanks"]):
+        return "top"
+    if any(w in words or w in h for w in ["pant", "pants", "trouser", "trousers", "slacks", "leggings"]):
+        return "pant"
+    if any(w in words or w in h for w in ["jacket", "jackets", "blazer", "blazers", "coat", "coats", "outerwear"]):
+        return "jacket"
+    if any(w in words or w in h for w in ["sweater", "sweaters", "cardigan", "cardigans", "knitwear"]):
+        return "sweater"
+    return ""
+
+
+def find_matching_product_for_handle(handle: str, in_stock: list, exclude_handles: set = None) -> dict | None:
+    if not in_stock:
+        return None
+    exclude = exclude_handles or set()
+    valid_pool = [p for p in in_stock if p.get("handle") not in exclude and product_img_url(p)]
+    if not valid_pool:
+        valid_pool = [p for p in in_stock if product_img_url(p)]
+        if not valid_pool:
+            return None
+
+    cat = extract_handle_category(handle)
+    keywords = extract_handle_keywords(handle)
+
+    scored = []
+    for p in valid_pool:
+        ptype = (p.get("product_type") or "").lower()
+        title = (p.get("title") or "").lower()
+        tags  = (p.get("tags") or "").lower()
+        text  = f"{ptype} {title} {tags}"
+
+        score = 0
+        for kw in keywords:
+            if kw in text:
+                score += 3 if (kw in ptype or kw in title) else 1
+
+        # Additional bonus for exact multi-keyword combinations (e.g. denim + dress)
+        if "denim" in keywords and "dress" in keywords and "denim" in text and "dress" in text:
+            score += 10
+
+        # Mismatch penalties
+        if cat == "skirt" and ("set" in title or "top" in ptype or "dress" in ptype or "top" in title or "dress" in title):
+            score -= 15
+        if cat == "dress" and ("skirt" in ptype or "top" in ptype or "pant" in ptype):
+            score -= 15
+        if cat == "top" and ("skirt" in ptype or "dress" in ptype or "pant" in ptype):
+            score -= 15
+        if cat == "jean" and ("dress" in ptype or "top" in ptype):
+            score -= 15
+
+        if score > 0:
+            scored.append((score, p))
+
+    if scored:
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top_score = scored[0][0]
+        top_candidates = [p for s, p in scored if s == top_score]
+        return random.choice(top_candidates)
+
+    return random.choice(valid_pool)
+
 
 def fix_article_images(html_str: str, product_by_handle: dict[str, dict]) -> tuple[str, int]:
     """
-    Parse article body, find any links to products, and if they contain an image,
-    ensure the image src matches the latest live product image.
+    Parse article body, find any links to products, and ensure all product images
+    are present, valid HTTPS URLs, and up-to-date with live Shopify data.
     Returns (updated_html, swap_count).
     """
     if not html_str:
@@ -299,7 +473,7 @@ def fix_article_images(html_str: str, product_by_handle: dict[str, dict]) -> tup
         return html_str, 0
         
     swaps = 0
-    # 1. Update existing images
+    # 1. Update existing images inside <a> links pointing to /products/
     for a in root.find_all("a"):
         href = a.get("href", "")
         m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
@@ -307,51 +481,61 @@ def fix_article_images(html_str: str, product_by_handle: dict[str, dict]) -> tup
             handle = m.group(1)
             product = product_by_handle.get(handle)
             if product:
-                # Find img inside
-                img = a.find("img")
-                if img:
-                    current_src = img.get("src", "")
-                    new_src = product_img_url(product)
-                    # We compare the base URL without query parameters for a cleaner check
-                    if new_src:
-                        new_src_base = new_src.split('?')[0]
-                        current_src_base = current_src.split('?')[0] if current_src else ""
-                        if current_src_base != new_src_base:
+                new_src = product_img_url(product)
+                if new_src:
+                    img = a.find("img")
+                    if img:
+                        current_src = img.get("src", "")
+                        new_base = new_src.split('?')[0]
+                        curr_base = current_src.split('?')[0] if current_src else ""
+                        if curr_base != new_base or not current_src.startswith("http"):
                             img["src"] = new_src
                             swaps += 1
+                    else:
+                        # Skip if parent div or ancestor div ALREADY contains an img
+                        parent_div = a.parent
+                        has_img = False
+                        p = parent_div
+                        while p and p.name not in ("body", "html", "[document]"):
+                            if p.name == "div" and p.find("img"):
+                                has_img = True
+                                break
+                            p = p.parent
+                        if not has_img and parent_div and parent_div.name == "div":
+                            raw_title = product.get("title", "")
+                            ptype = (product.get("product_type") or "women's fashion").lower()
+                            alt = f"{raw_title} — {ptype} for women at MeeeShop".replace('"', "'")
+                            url = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=featured_card&utm_campaign=meeeshop_refresh"
+                            img_html = f'<a href="{url}"><img src="{new_src}" alt="{alt}" style="width:220px;height:220px;object-fit:cover;border-radius:10px;flex-shrink:0;" loading="lazy" /></a>'
+                            new_img_soup = BeautifulSoup(img_html, "html.parser")
+                            parent_div.insert(0, new_img_soup)
+                            swaps += 1
 
-    # 2. Add missing images to product cards
+    # 2. Check all card divs containing product links that lack images
     for div in root.find_all("div"):
-        style = div.get("style", "") or ""
-        style_clean = style.replace(" ", "").lower()
-        # Identify main product card
-        if "background:#f8f6f3" in style_clean:
-            # Check if it lacks an img
-            if not div.find("img"):
-                # It doesn't have an image, find the product link inside to get the handle
-                a_tag = div.find("a", href=re.compile(r'/products/', re.IGNORECASE))
-                if a_tag:
-                    href = a_tag.get("href", "")
-                    m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
-                    if m:
-                        handle = m.group(1)
-                        product = product_by_handle.get(handle)
-                        if product:
-                            img_src = product_img_url(product)
-                            if img_src:
-                                import html
-                                raw_title = product.get("title", "")
-                                ptype = (product.get("product_type") or "women's fashion").lower()
-                                alt = f"{raw_title} — {ptype} for women at MeeeShop"
-                                alt_clean = alt.replace('"', "'")
-                                url = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=featured_card&utm_campaign=meeeshop_refresh"
-                                
-                                img_html = f'<a href="{url}"><img src="{img_src}" alt="{alt_clean}" style="width:220px;height:220px;object-fit:cover;border-radius:10px;flex-shrink:0;" loading="lazy" /></a>'
-                                new_img_soup = BeautifulSoup(img_html, "html.parser")
-                                div.insert(0, new_img_soup)
-                                swaps += 1
+        style = (div.get("style", "") or "").replace(" ", "").lower()
+        if any(pat in style for pat in ["background:", "border:", "display:flex", "padding:"]):
+            # Prevent double image: skip if div or ancestor/descendant div already has an img
+            if div.find("img") or div.find_parent(lambda p: p.name == "div" and p.find("img")):
+                continue
+            a_tag = div.find("a", href=re.compile(r'/products/([a-z0-9_-]+)', re.IGNORECASE))
+            if a_tag:
+                m = re.search(r'/products/([a-z0-9_-]+)', a_tag.get("href", ""), re.IGNORECASE)
+                if m:
+                    handle = m.group(1)
+                    product = product_by_handle.get(handle)
+                    if product:
+                        new_src = product_img_url(product)
+                        if new_src:
+                            raw_title = product.get("title", "")
+                            ptype = (product.get("product_type") or "women's fashion").lower()
+                            alt = f"{raw_title} — {ptype} for women at MeeeShop".replace('"', "'")
+                            url = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=featured_card&utm_campaign=meeeshop_refresh"
+                            img_html = f'<a href="{url}"><img src="{new_src}" alt="{alt}" style="width:220px;height:220px;object-fit:cover;border-radius:10px;flex-shrink:0;" loading="lazy" /></a>'
+                            new_img_soup = BeautifulSoup(img_html, "html.parser")
+                            div.insert(0, new_img_soup)
+                            swaps += 1
 
-    # Reconstruct the inner HTML
     res = "".join(str(c) for c in root.contents)
     return res.strip(), swaps
 
@@ -410,21 +594,59 @@ def make_product_card(product: dict, keyword: str = "",
 
 
 def make_related_products_section(products: list, exclude_handle: str,
-                                  keyword: str = "") -> str:
+                                  keyword: str = "", handle: str = "") -> str:
     import html
-    pool = [p for p in products if p.get("handle") != exclude_handle and is_in_stock(p)]
-    if not pool:
-        pool = [p for p in products if p.get("handle") != exclude_handle]
-    picks = random.sample(pool, min(3, len(pool)))
+    count = extract_handle_count(handle or keyword)
+    cat = extract_handle_category(handle or keyword)
+    keywords = extract_handle_keywords(handle or keyword)
+
+    main_prod_matches = [p for p in products if p.get("handle") == exclude_handle]
+    main_product = main_prod_matches[0] if main_prod_matches else {"handle": exclude_handle, "product_type": cat or keyword}
+
+    pool = [p for p in products if p.get("handle") != exclude_handle and is_in_stock(p) and product_img_url(p) and is_product_compatible(main_product, p, topic_context=handle or keyword)]
+
+    # Score candidates based on keyword relevance
+    scored = []
+    for p in pool:
+        ptype = (p.get("product_type") or "").lower()
+        title = (p.get("title") or "").lower()
+        tags  = (p.get("tags") or "").lower()
+        text  = f"{ptype} {title} {tags}"
+
+        score = 0
+        for kw in keywords:
+            if kw in text:
+                score += 3 if (kw in ptype or kw in title) else 1
+
+        if "denim" in keywords and "dress" in keywords and "denim" in text and "dress" in text:
+            score += 10
+
+        if cat == "skirt" and ("set" in title or "top" in ptype or "dress" in ptype or "top" in title or "dress" in title):
+            score -= 15
+        if cat == "dress" and ("skirt" in ptype or "top" in ptype or "pant" in ptype):
+            score -= 15
+
+        if score > 0:
+            scored.append((score, p))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    high_picks = [p for s, p in scored[:count * 2]]
+
+    if len(high_picks) >= count:
+        picks = random.sample(high_picks, count)
+    else:
+        remaining_needed = count - len(high_picks)
+        rest = [p for p in pool if p not in high_picks and is_product_compatible(main_product, p, topic_context=handle or keyword)]
+        picks = high_picks + random.sample(rest, min(remaining_needed, len(rest)))
 
     cards_html = ""
     for p in picks:
         raw_title  = p["title"]
         escaped_title = html.escape(raw_title)
         price  = p["variants"][0]["price"] if p.get("variants") else "0"
-        handle = p.get("handle", "")
+        h_val  = p.get("handle", "")
         ptype  = (p.get("product_type") or "women's fashion").lower()
-        url    = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=related_card&utm_campaign=meeeshop_refresh"
+        url    = f"{STORE_URL}/products/{h_val}?utm_source=blog&utm_medium=related_card&utm_campaign=meeeshop_refresh"
         img    = product_img_url(p)
         alt    = f"{raw_title} — shop {keyword or ptype} at MeeeShop"
         
@@ -436,7 +658,7 @@ def make_related_products_section(products: list, exclude_handle: str,
             if img else ""
         )
         cards_html += f"""
-  <div style="flex:1;min-width:200px;max-width:260px;font-family:sans-serif;text-align:center;">
+  <div style="flex:1;min-width:180px;max-width:240px;font-family:sans-serif;text-align:center;">
     {img_tag}
     <p style="font-size:14px;font-weight:700;color:#1a1a1a;margin:0 0 4px;line-height:1.3;">{escaped_title}</p>
     <p style="font-size:16px;font-weight:800;color:#1a1a1a;margin:0 0 12px;">${price}</p>
@@ -453,9 +675,9 @@ def make_related_products_section(products: list, exclude_handle: str,
     return f"""
 <div style="margin:48px 0;padding:32px;background:#fafafa;border-radius:14px;border:1px solid #eee;">
   <h2 style="font-size:20px;font-weight:700;color:#1a1a1a;margin:0 0 24px;text-align:center;">
-    You Might Also Love
+    Shop The Look — {count} Featured Picks
   </h2>
-  <div style="display:flex;flex-wrap:wrap;gap:24px;justify-content:center;">
+  <div style="display:flex;flex-wrap:wrap;gap:20px;justify-content:center;">
     {cards_html}
   </div>
 </div>
@@ -489,10 +711,10 @@ EEAT_RULES = (
     "❌ BAD: 'Accessorize to complete the outfit.' (too vague)\n"
     "❌ BAD: 'Add a bag to elevate the look.' (generic filler)\n\n"
 
-    "═══ 2026 TREND CONTEXT (Weave in naturally — sourced from Flipboard #Style 8.4M followers) ═══\n"
+    f"═══ {datetime.now().year} TREND CONTEXT (Weave in naturally — sourced from Flipboard #Style 8.4M followers) ═══\n"
     "Reference real trends where relevant but do NOT force every trend into every article:\n"
-    "• Quiet luxury: 'No logos, no distressing — clean dark wash denim with a tucked-in linen shirt is the 2026 quiet luxury formula.'\n"
-    "• Cigarette/stovepipe silhouette replacing wide-leg as dominant denim cut in 2026.\n"
+    f"• Quiet luxury: 'No logos, no distressing — clean dark wash denim with a tucked-in linen shirt is the {datetime.now().year} quiet luxury formula.'\n"
+    f"• Cigarette/stovepipe silhouette replacing wide-leg as dominant denim cut in {datetime.now().year}.\n"
     "• Dark indigo clean wash over distressed/light wash — reads more expensive instantly.\n"
     "• Linen top + dark wash jean = the heat-proof chic summer formula trending on Flipboard.\n"
     "• All-black outfits even in summer — trending on Flipboard #Style with 8.4M followers.\n"
@@ -515,40 +737,41 @@ EEAT_RULES = (
 )
 
 SEED_KEYWORDS = [
-    # 2026 Trending — sourced from Flipboard #Style (8.4M followers) & Who What Wear
-    "women's fashion 2026", "summer outfit ideas for women 2026",
+    # Dynamic Trending — sourced from Flipboard #Style (8.4M followers) & Who What Wear
+    f"women's fashion {datetime.now().year}", f"summer outfit ideas for women {datetime.now().year}",
     "affordable women's clothing USA", "summer dress outfits for women",
     "women's jeans styles guide", "casual chic outfits women",
     "cute outfits under $50", "stylish women's tops",
     "best dresses for women", "women's summer wardrobe essentials",
     "affordable boutique fashion USA", "work outfits for women",
     "best tops to wear with jeans", "women's date night outfit ideas",
-    # Jeans-specific trending 2026 (Flipboard #Jeans 66K followers)
-    "how to style jeans 2026", "dark wash jeans outfits",
+    # Jeans-specific trending (Flipboard #Jeans 66K followers)
+    f"how to style jeans {datetime.now().year}", "dark wash jeans outfits",
     "quiet luxury jeans women", "cigarette jeans styling tips",
     "barrel leg jeans vs wide leg", "linen top with jeans outfit",
     "blazer with jeans outfit ideas", "how to look taller in jeans",
     # Care & How-To (high search intent)
     "how to wash jeans without fading", "how to remove stains from jeans",
     "how to remove smell from clothes", "how to fix pilling on clothes",
-    # Summer 2026 (Flipboard #SummerFashion 73.9K followers)
+    # Summer (Flipboard #SummerFashion 73.9K followers)
     "linen top with jeans outfit", "summer denim outfit ideas",
-    "all black summer outfit women", "women's capsule wardrobe 2026",
+    "all black summer outfit women", f"women's capsule wardrobe {datetime.now().year}",
 ]
 
 
 def _lsi_keywords(ptype: str) -> list[str]:
+    curr_yr = str(datetime.now().year)
     ptype_lsi = {
         "dress":      ["summer dress outfits", "flattering dresses women", "midi dress",
-                       "linen dresses 2026", "casual dress outfit ideas"],
-        "jean":       ["jeans for women 2026", "best fitting jeans", "high waist jeans",
+                       f"linen dresses {curr_yr}", "casual dress outfit ideas"],
+        "jean":       [f"jeans for women {curr_yr}", "best fitting jeans", "high waist jeans",
                        "dark wash jeans outfits", "cigarette jeans styling", "quiet luxury denim",
-                       "barrel leg jeans", "linen top with jeans outfit", "denim trends 2026"],
+                       f"barrel leg jeans", "linen top with jeans outfit", f"denim trends {curr_yr}"],
         "top":        ["tops for women", "blouse styles", "work tops", "casual tops women",
-                       "linen tops summer 2026"],
+                       f"linen tops summer {curr_yr}"],
         "blouse":     ["blouse outfits", "women's blouse styles", "office blouse", "summer blouse ideas"],
-        "skirt":      ["skirt outfits women", "midi skirt", "how to wear skirts", "asymmetric skirt 2026"],
-        "pant":       ["women's pants guide", "wide leg pants", "work pants women", "trouser trends 2026"],
+        "skirt":      ["skirt outfits women", "midi skirt", "how to wear skirts", f"asymmetric skirt {curr_yr}"],
+        "pant":       ["women's pants guide", "wide leg pants", "work pants women", f"trouser trends {curr_yr}"],
         "jacket":     ["women's jacket outfits", "blazer women", "casual jacket", "blazer jeans combo"],
         "coat":       ["women's coat styles", "trench coat women", "coat outfit ideas"],
         "sweater":    ["cozy sweater outfits", "sweater styles", "fall fashion women"],
@@ -575,7 +798,7 @@ HANDLE_CONTENT_RULES: dict[str, dict] = {
                                                   "The Single Roll Cuff", "The Double Roll Cuff",
                                                   "The Pin Roll Cuff",
                                                   "What Tops Work Best With Each Cuff Style (tuck in or crop?)",
-                                                  "2026 Styling Tip: Cigarette Jeans + Cropped Linen Top — The Cuffed Look"],
+                                                  f"{datetime.now().year} Styling Tip: Cigarette Jeans + Cropped Linen Top — The Cuffed Look"],
                             "tone": "step-by-step how-to, practical"},
     "sizing-guide":        {"topic": "jeans sizing guide for women",
                             "required_sections": ["How to Measure Yourself for Jeans",
@@ -590,7 +813,7 @@ HANDLE_CONTENT_RULES: dict[str, dict] = {
                                                   "The Tuck-In Effect: How a Cropped or Tucked Top Creates Leg Length",
                                                   "Monochrome Dressing for Height Illusion",
                                                   "Vertical Stripes and Elongating Details on Tops",
-                                                  "2026 Pro Tip: Cigarette Jeans + Fitted Ribbed Top = Longest-Looking Legs"],
+                                                  f"{datetime.now().year} Pro Tip: Cigarette Jeans + Fitted Ribbed Top = Longest-Looking Legs"],
                             "tone": "empowering, styling expert"},
     "how-to-pair":         {"topic": "how to pair jeans with outfits",
                             "required_sections": ["The Foundation: Choosing the Right Jeans Wash for the Vibe",
@@ -598,7 +821,7 @@ HANDLE_CONTENT_RULES: dict[str, dict] = {
                                                   "Office Formula: Blazer + Fitted Top + Straight-Leg Jeans",
                                                   "Evening Formula: Silk Blouse + Cigarette Jeans + Statement Earrings",
                                                   "Weekend Formula: Oversized Tee + Barrel Leg + Tote Bag",
-                                                  "The Quiet Luxury Jeans Look for 2026"],
+                                                  f"The Quiet Luxury Jeans Look for {datetime.now().year}"],
                             "tone": "outfit formula, editorial"},
     "what-to-pair":        {"topic": "what to pair with jeans",
                             "required_sections": ["Tops That Always Work With Jeans (tuck-in vs untucked vs knotted)",
@@ -622,7 +845,7 @@ HANDLE_CONTENT_RULES: dict[str, dict] = {
                                                   "Baking Soda Treatment",
                                                   "Vodka Spritz Hack",
                                                   "Steam vs Dry Air Out",
-                                                  "Prevention: The Wash-Less Denim Movement 2026"],
+                                                  f"Prevention: The Wash-Less Denim Movement {datetime.now().year}"],
                             "tone": "practical, problem-solver"},
     "remove-stain":        {"topic": "how to remove stains from jeans and clothes",
                             "required_sections": ["Act Fast: The First 60 Seconds Rule",
@@ -636,13 +859,69 @@ HANDLE_CONTENT_RULES: dict[str, dict] = {
 }
 
 
-def _get_handle_rules(article_handle: str) -> dict | None:
-    """Return handle-specific content rules if the handle matches a known pattern."""
+def _get_handle_rules(article_handle: str) -> dict:
+    """Return handle-specific content rules or dynamically generate a structured blueprint."""
     handle_lower = (article_handle or "").lower()
     for pattern, rules in HANDLE_CONTENT_RULES.items():
         if pattern in handle_lower:
             return rules
-    return None
+
+    # Dynamic section blueprint for unlisted handles
+    topic = article_handle.replace("-", " ").replace("_", " ").title()
+    cat = extract_handle_category(article_handle)
+
+    curr_yr = str(datetime.now().year)
+    if cat == "skirt":
+        sections = [
+            "Understanding Skirt Silhouettes & Fit Principles for Curvy Shapes",
+            "Top Flattering Skirt Styles You Need (Midi, A-Line, Wrap & Pencil)",
+            "How to Style Skirts with Tops, Blazers & Accessories",
+            "Common Fit Mistakes & Tailoring Solutions",
+            "Stylist Recommended Outfits & Picks"
+        ]
+        tone = "body-positive, stylish, practical style guide"
+    elif cat == "dress":
+        sections = [
+            "Choosing the Right Dress Silhouette for Your Body",
+            f"Key Fit & Fabric Features to Look For in {curr_yr}",
+            "How to Outfit & Layer Your Dress for Any Occasion",
+            "Styling & Accessory Tips",
+            "Stylist Recommended Outfits & Picks"
+        ]
+        tone = "chic, effortless, practical fashion guide"
+    elif cat == "top":
+        sections = [
+            "Essential Top Styles & Necklines That Flatter",
+            "How to Pair Tops with Jeans, Skirts, and Trousers",
+            "The Tuck-In Trick & Proportional Styling",
+            "Layering Hacks for Everyday Elegance",
+            "Stylist Recommended Outfits & Picks"
+        ]
+        tone = "versatile, modern, practical style guide"
+    elif cat == "jean":
+        sections = [
+            f"Denim Fit Guide & Silhouette Breakthroughs for {curr_yr}",
+            "High Waist vs Straight vs Wide-Leg: Finding Your Best Match",
+            "How to Style Jeans from Office Casual to Weekend Chic",
+            "Care & Washing Hacks to Preserve Stretch & Wash",
+            "Stylist Recommended Outfits & Picks"
+        ]
+        tone = "denim expert, practical, trend-conscious"
+    else:
+        sections = [
+            f"Introduction & Essential Guide to {topic}",
+            "Key Styling Principles & What to Look For",
+            "Complete Outfit Formulas for Everyday & Special Occasions",
+            "Common Fashion Mistakes & Pro Stylist Hacks",
+            "Final Thoughts & Recommended Store Picks"
+        ]
+        tone = "expert styling advice, practical, trend-conscious"
+
+    return {
+        "topic": topic,
+        "required_sections": sections,
+        "tone": tone
+    }
 
 
 def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
@@ -673,18 +952,18 @@ def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
             f"REQUIRED H2 sections (cover ALL of these, in a logical order):\n{sections_list}\n"
             f"The featured product ({title}) should be woven in as a RECOMMENDATION within this guide, "
             f"NOT as the primary focus. The guide topic is the primary focus.\n"
-            f"2026 FRESHNESS ANGLES to include naturally:\n"
+            f"{datetime.now().year} FRESHNESS ANGLES to include naturally:\n"
             f"  - Reference 'quiet luxury' denim aesthetic: dark wash + tucked linen top, no logos, clean lines\n"
-            f"  - Mention cigarette/stovepipe jeans as the 2026 trending silhouette\n"
+            f"  - Mention cigarette/stovepipe jeans as the {datetime.now().year} trending silhouette\n"
             f"  - Reference linen tops + jeans as the trending summer formula (heat-proof + chic)\n"
-            f"  - Mention dark indigo/clean wash denim as the elevated 2026 choice\n"
+            f"  - Mention dark indigo/clean wash denim as the elevated {datetime.now().year} choice\n"
         )
     else:
-        # For articles without a specific handle match, add general 2026 freshness
+        # For articles without a specific handle match, add general trend freshness
         handle_section = (
-            f"\n\n2026 TREND FRESHNESS (weave in naturally, 1-2 references):\n"
+            f"\n\n{datetime.now().year} TREND FRESHNESS (weave in naturally, 1-2 references):\n"
             f"  - Quiet luxury styling: clean lines, no logos, elevated basics\n"
-            f"  - Summer 2026 colour palette: dark indigo denim, linen textures, earth tones\n"
+            f"  - Summer {datetime.now().year} colour palette: dark indigo denim, linen textures, earth tones\n"
             f"  - The office-to-evening formula: oversized blazer + fitted top + straight-leg jeans\n"
             f"  - Heat-proof summer styling: linen tops, breathable fabrics, cropped layers\n"
         )
@@ -702,6 +981,7 @@ def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
         f"SEO rules:\n"
         f"- Target keyword '{keyword}': use 3-4 times — in first paragraph, H2 subheadings, body, conclusion\n"
         f"- LSI keywords (weave in naturally, at least 2 in H2 subheadings): {lsi_str}\n"
+        f"- Title/Handle specifies {extract_handle_count(article_handle)} items/outfits. You MUST structure the body with exactly {extract_handle_count(article_handle)} distinct outfit formulas/sections (e.g. 'Outfit 1', 'Outfit 2', ... 'Outfit {extract_handle_count(article_handle)}') to match the handle count.\n"
         f"- Do NOT write or include any HTML links (<a> tags) to the product page or MeeeShop anywhere in the body text. The product card and shop-the-look widgets will be programmatically injected by the developer, so manual linking inside the article is redundant and violates SEO guidelines by looking spammy.\n"
         f"- Limit mentions of the product title '{title}' to a maximum of 2 times in the entire body. When referring to the product subsequent times, use pronouns or generic terms (e.g., 'this dress', 'the top', 'it', 'this piece') instead of repeating the full product name.\n"
         f"- Do NOT include the <h1> tag — that is the article title already, start with <p>\n"
@@ -760,7 +1040,10 @@ def parse_and_clean_seo_meta(raw_seo_text: str, keyword: str, product_title: str
 def _clean_html(raw: str) -> str:
     raw = raw.strip()
     raw = re.sub(r"^```html?\s*", "", raw, flags=re.IGNORECASE)
-    return re.sub(r"\s*```$", "", raw).strip()
+    raw = re.sub(r"\s*```$", "", raw).strip()
+    # Remove <seometa>...</seometa> block so SEO title/meta desc text never appears in reader-facing body HTML
+    raw = re.sub(r"<seometa>[\s\S]*?</seometa>", "", raw, flags=re.IGNORECASE).strip()
+    return raw
 
 
 # ── Replace out-of-stock product links in HTML ────────────────────────────────
@@ -960,11 +1243,11 @@ def swap_products_in_html(body_html: str, replacement_map: dict[str, dict], prod
     return str(soup), swaps
 
 
-def check_alignment(handle: str, title: str, html_content: str) -> bool:
+def check_alignment(handle: str, title: str, html_content: str, product_by_handle: dict[str, dict] = None) -> bool:
     if not handle or not html_content:
         return True
     raw_words = handle.replace('-', ' ').replace('_', ' ').split()
-    stop_words = {"how", "to", "the", "a", "an", "is", "for", "with", "what", "where", "why", "on", "in", "of", "and", "or"}
+    stop_words = {"how", "to", "the", "a", "an", "is", "for", "with", "what", "where", "why", "on", "in", "of", "and", "or", "you", "need", "your", "best", "most"}
     significant_words = [w.lower() for w in raw_words if w.lower() not in stop_words and len(w) > 2]
     if not significant_words:
         return True
@@ -972,32 +1255,48 @@ def check_alignment(handle: str, title: str, html_content: str) -> bool:
     # 1. Check if the Title aligns with the handle
     title_text = title.lower()
     found_in_title = sum(1 for word in significant_words if word in title_text)
-    title_aligned = (found_in_title / len(significant_words)) >= 0.5
-    
-    if not title_aligned:
+    if (found_in_title / len(significant_words)) < 0.4:
         return False
     
     # 2. Check if the Body aligns with the handle
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(html_content, "html.parser")
-    # Split body into words for whole-word matching instead of substring matching
-    body_words = set(re.findall(r'\b\w+\b', soup.get_text().lower()))
+    body_text = soup.get_text().lower()
+    body_words = set(re.findall(r'\b\w+\b', body_text))
     
     found_in_body = sum(1 for word in significant_words if word in body_words)
-    body_aligned = (found_in_body / len(significant_words)) >= 0.6
-    
-    return body_aligned
+    if (found_in_body / len(significant_words)) < 0.5:
+        return False
+
+    # 3. Check Product Category alignment
+    cat = extract_handle_category(handle)
+    if cat and product_by_handle:
+        handles_in_body = extract_product_handles(html_content)
+        if handles_in_body:
+            matched_cat = False
+            for h in handles_in_body:
+                prod = product_by_handle.get(h)
+                if prod:
+                    ptype = (prod.get("product_type") or "").lower()
+                    pname = (prod.get("title") or "").lower()
+                    ptags = (prod.get("tags") or "").lower()
+                    if cat in ptype or cat in pname or cat in ptags:
+                        matched_cat = True
+                        break
+            if not matched_cat:
+                print(f"  [Alignment Check] Handle category '{cat}' does NOT match referenced products in body.")
+                return False
+                
+    return True
 
 # ── Main article refresh logic ────────────────────────────────────────────────
 def refresh_article(blog: dict, article: dict, all_products: list,
                     in_stock: list, out_of_stock_handles: set[str],
                     product_by_handle: dict[str, dict],
                     dry_run: bool = False, no_ai: bool = False,
+                    fix_images_only: bool = False, force: bool = False,
+                    is_single_article: bool = False,
                     **kwargs) -> dict | None:
-    """
-    Refresh one article by replacing out-of-stock products with in-stock ones of the same type.
-    Does NOT rewrite the article content or change the handle & title.
-    """
     blog_id    = blog["id"]
     article_id = article["id"]
     art_title  = article["title"]
@@ -1012,30 +1311,35 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     oos_in_article = referenced & out_of_stock_handles
     print(f"  Products referenced: {len(referenced)} | out-of-stock: {len(oos_in_article)}")
 
-    if not oos_in_article:
-        # Run fix_article_images to ensure any existing images are up-to-date
+    # ── 2. Handle Fix Images Only mode ────────────────────────────────────────
+    if fix_images_only:
         new_body, swaps = fix_article_images(body, product_by_handle)
-        if swaps > 0:
-            print(f"  [Fix Images] Fixed {swaps} broken/outdated product images.")
-            
-        aligned = check_alignment(art_handle, art_title, new_body)
-        has_products = len(referenced) > 0
-        force_rewrite = kwargs.get("force", False)
-        needs_rewrite = not aligned or not has_products or force_rewrite
-        
-        if not needs_rewrite and swaps == 0:
-            if not has_products:
-                pass # Will rewrite
-            else:
-                print("  No out-of-stock products, outdated images, or unaligned content found. No changes needed.")
-                return {"status": "no_changes_needed", "swaps": 0}
-            
-        first_replacement = None
-        replacements_log = []
-        img_swaps = swaps
-        swaps = 0
+        replacement_map = {}
+        for h in oos_in_article:
+            old_prod = product_by_handle.get(h)
+            if old_prod:
+                rep = find_matching_product_for_handle(art_handle, in_stock)
+                if rep:
+                    replacement_map[h] = rep
+        if replacement_map:
+            new_body, oos_swaps = swap_products_in_html(new_body, replacement_map, product_by_handle)
+            swaps += oos_swaps
 
-    # Build replacement map for out-of-stock handles
+        if swaps == 0 and not is_single_article and not force:
+            print("  [Fix Images Only] No images or out-of-stock links needed fixing.")
+            return {"status": "no_changes_needed", "swaps": 0}
+
+        print(f"  [Fix Images Only] Updated {swaps} product images / links.")
+        return {
+            "status": "images_fixed",
+            "gid": article.get("gid", f"gid://shopify/Article/{article_id}"),
+            "title": art_title,
+            "body_html": new_body,
+            "replacements": [],
+            "featured_product": None
+        }
+
+    # ── 3. Find out-of-stock replacements or category-aligned product ─────────
     replacement_map: dict[str, dict] = {}
     replacements_log: list[dict] = []
     first_replacement: dict | None = None
@@ -1044,7 +1348,7 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         old_product = product_by_handle.get(handle)
         if not old_product:
             continue
-        replacement = find_best_replacement(old_product, in_stock)
+        replacement = find_best_replacement(old_product, in_stock) or find_matching_product_for_handle(art_handle, in_stock)
         if replacement:
             replacement_map[handle] = replacement
             if first_replacement is None:
@@ -1056,101 +1360,125 @@ def refresh_article(blog: dict, article: dict, all_products: list,
                 "new_title":  replacement["title"],
             })
             print(f"    Replacing '{old_product['title'][:40]}' → '{replacement['title'][:40]}'")
-        else:
-            print(f"    No replacement found for '{handle}'")
 
-    if oos_in_article and not replacement_map:
-        print("  SKIP — No replacements could be determined for out-of-stock products.")
-        return None
-
-    # Swap product links and styled card containers in HTML
+    # Swap product links & styled cards in HTML
     new_body, swaps = swap_products_in_html(body, replacement_map, product_by_handle)
-    
-    # Run image fixes on top of the swapped HTML to ensure images are fresh
     new_body, img_swaps = fix_article_images(new_body, product_by_handle)
 
-    aligned_check = check_alignment(art_handle, art_title, new_body)
+    # ── 4. Check alignment & product category ─────────────────────────────────
+    aligned = check_alignment(art_handle, art_title, new_body, product_by_handle)
     has_products = len(extract_product_handles(new_body)) > 0
-    needs_rew = not aligned_check or not has_products or kwargs.get("force", False)
-    if swaps == 0 and img_swaps == 0 and not needs_rew:
-        print("  No replacements, changes, or rewrites needed in HTML. Skipping.")
+    needs_rewrite = not aligned or not has_products or force or is_single_article
+
+    if not needs_rewrite and swaps == 0 and img_swaps == 0:
+        print("  Article content is aligned and images are up to date. No changes needed.")
         return {"status": "no_changes_needed", "swaps": 0}
 
-    print(f"  HTML Swaps made: {swaps} | Image updates: {img_swaps}")
+    print(f"  HTML Swaps: {swaps} | Image updates: {img_swaps} | Needs Rewrite: {needs_rewrite}")
 
-    aligned = check_alignment(art_handle, art_title, new_body)
-    force_rewrite = kwargs.get("force", False)
-    needs_rewrite = not aligned or not has_products or force_rewrite
+    # Determine featured product matching the handle category
+    featured = first_replacement
+    if not featured:
+        # Check if existing referenced products match category
+        cat = extract_handle_category(art_handle)
+        for h in extract_product_handles(new_body):
+            p = product_by_handle.get(h)
+            if p and is_in_stock(p) and product_img_url(p):
+                if not cat or cat in (p.get("product_type") or "").lower() or cat in (p.get("title") or "").lower():
+                    featured = p
+                    break
+    if not featured:
+        featured = find_matching_product_for_handle(art_handle, in_stock)
 
-    if needs_rewrite and not no_ai:
-        print(f"  [Rewrite] Article unaligned with handle (aligned={aligned}) or force enabled. Rewriting...")
-        featured = first_replacement if first_replacement else (in_stock[0] if in_stock else None)
+    if not featured:
+        print("  ERROR: No suitable in-stock featured product found.")
+        return None
+
+    # ── 5. Rewrite content if needed ──────────────────────────────────────────
+    payload_title = art_title
+    seo_meta = None
+
+    if needs_rewrite:
         keyword = art_handle.replace("-", " ")
-        if featured:
-            prompt = _build_refresh_prompt(art_title, featured, keyword, new_body, art_handle)
-            prompt += "\nCRITICAL INSTRUCTION: You must adopt the styling from trending topics but write the article ONLY related to the topic dictated by the handle. Do not deviate from the handle topic."
+        if not no_ai:
+            print(f"  [Rewrite] Rewriting article for handle '{art_handle}' using featured product '{featured['title'][:40]}'")
+            cleaned_context = clean_article_body_html(new_body)
+            prompt = _build_refresh_prompt(art_title, featured, keyword, cleaned_context, art_handle)
+            prompt += (
+                f"\nCRITICAL INSTRUCTION: The article MUST focus strictly on '{art_handle.replace('-', ' ')}'. "
+                f"Use featured product '{featured['title']}' (${featured['variants'][0]['price'] if featured.get('variants') else '49'}) "
+                f"as the primary recommended pick. Do NOT include HTML links inside the article prose."
+            )
             
             import ai_client
-            ai_html = ai_client.generate(prompt, max_tokens=1500, temperature=0.7)
+            ai_html = ai_client.generate(prompt, max_tokens=1600, temperature=0.7)
             
             if ai_html:
-                new_body = _clean_html(ai_html)
-                new_title = keyword.title()
+                parsed_body = _clean_html(ai_html)
                 seo_meta = parse_and_clean_seo_meta(ai_html, keyword, featured["title"], featured.get("product_type", ""))
-                payload_title = new_title
-                print(f"  [Rewrite] AI rewrite successful. New title: {new_title}")
-                
+                # Inject product card & related products widget matching handle category
+                card_html = make_product_card(featured, keyword=keyword)
+                related_html = make_related_products_section(in_stock, featured["handle"], keyword=keyword, handle=art_handle)
+                new_body = f"{card_html}\n{parsed_body}\n{related_html}"
+                print("  [Rewrite] AI rewrite completed successfully with product card and related section.")
             else:
-                print("  [AI Fallback] AI generation failed, using programmatic fallback...")
+                print("  [AI Fallback] AI generation returned empty, using programmatic fallback...")
                 from blog_daily import generate_fallback_blog_post
                 fmt = random.choice(["sizing_guide", "outfit_formula", "buying_guide", "comparison"])
                 fb_html, seo_meta = generate_fallback_blog_post(fmt, featured, keyword, art_title, in_stock, in_stock)
                 new_body = _clean_html(fb_html)
-                new_title = keyword.title()
-                payload_title = new_title
-                
         else:
-            payload_title = art_title
-    else:
-        payload_title = art_title
+            print(f"  [No-AI Refresh] Updating product card and images programmatically...")
+            cleaned_context = clean_article_body_html(new_body)
+            card_html = make_product_card(featured, keyword=art_handle.replace("-", " "))
+            related_html = make_related_products_section(in_stock, featured["handle"], keyword=art_handle.replace("-", " "), handle=art_handle)
+            new_body = f"{card_html}\n{cleaned_context}\n{related_html}"
 
-    # ── Dry-run short-circuit ─────────────────────────────────────────────
     if dry_run:
-        print(f"  [DRY-RUN] would PATCH article {article_id} with swapped products.")
-        feat_title = first_replacement["title"] if first_replacement else (in_stock[0]["title"] if in_stock else None)
-        return {"status": "updated", "replacements": replacements_log, "featured_product": feat_title}
+        print(f"  [DRY-RUN] Would PATCH article {article_id} with updated body HTML.")
+        return {"status": "updated", "replacements": replacements_log, "featured_product": featured["title"]}
 
-    # Save a backup of the original article content before we edit it
+    # Backup original article content
     backup_data = {
         "article_id": article_id,
         "title": art_title,
         "handle": art_handle,
         "body_html": body,
-        "summary_html": article.get("summary_html", ""),
-        "tags": article.get("tags", ""),
-        "image": article.get("image", {}),
         "backup_timestamp": datetime.now().isoformat()
     }
     backup_dir = ROOT / "backup_articles"
     backup_dir.mkdir(exist_ok=True)
     backup_file = backup_dir / f"article_{article_id}_{int(time.time())}.json"
     backup_file.write_text(json.dumps(backup_data, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"    [Backup] Saved original article content to backup_articles/{backup_file.name}")
 
-    # ── PATCH the article (keeps same URL handle, title, author, tags, etc.) ──
-    # Return payload for batch execution
+    # Generate 1200px Discover landscape 3-panel collage (Featured centered)
+    b64_collage = None
+    if featured:
+        cat_rel_picks = [p for p in in_stock if p.get("handle") != featured["handle"] and product_img_url(p) and is_product_compatible(featured, p, topic_context=art_handle)]
+        cat = extract_handle_category(art_handle)
+        if cat:
+            filtered_rel = [p for p in cat_rel_picks if (cat in (p.get("product_type") or "").lower() or cat in (p.get("title") or "").lower()) and is_product_compatible(featured, p, topic_context=art_handle)]
+            if len(filtered_rel) >= 2:
+                cat_rel_picks = filtered_rel
+        collage_bytes = build_discover_landscape_collage(featured, cat_rel_picks)
+        if collage_bytes:
+            b64_collage = base64.b64encode(collage_bytes).decode("utf-8")
+
     ret = {
         "status": "updated",
+        "blog_id": blog_id,
         "gid": article.get("gid", f"gid://shopify/Article/{article_id}"),
         "title": payload_title,
         "body_html": new_body,
         "replacements": replacements_log,
-        "featured_product": first_replacement["title"] if first_replacement else None
+        "featured_product": featured["title"],
+        "featured_img_url": product_img_url(featured),
+        "b64_collage": b64_collage
     }
-    if 'seo_meta' in locals() and seo_meta:
+    if seo_meta:
         ret["seo_title"] = seo_meta["seo_title"]
         ret["meta_desc"] = seo_meta["meta_desc"]
-        
+
     return ret
 
 
@@ -1158,25 +1486,37 @@ def refresh_article(blog: dict, article: dict, all_products: list,
 
 def _execute_article_batch(batch: list):
     if not batch: return
-    
-    mutation_str = "mutation {\n"
+
+    var_defs = []
     variables = {}
+    mutations = []
+
     for i, payload in enumerate(batch):
-        # Build metafields input
+        var_defs.append(f"$artTitle_{i}: String!")
+        var_defs.append(f"$body_{i}: HTML!")
+        variables[f"artTitle_{i}"] = payload.get("title")
+        variables[f"body_{i}"] = payload["body_html"]
+
         metafields_input = ""
         if payload.get("seo_title") and payload.get("meta_desc"):
+            var_defs.append(f"$title_{i}: String!")
+            var_defs.append(f"$desc_{i}: String!")
             variables[f"title_{i}"] = payload["seo_title"]
             variables[f"desc_{i}"] = payload["meta_desc"]
-            metafields_input = f", metafields: [{{namespace: \"global\", key: \"title_tag\", type: \"single_line_text_field\", value: $title_{i}}}, {{namespace: \"global\", key: \"description_tag\", type: \"single_line_text_field\", value: $desc_{i}}}]"
-            
-        variables[f"body_{i}"] = payload["body_html"]
-        variables[f"artTitle_{i}"] = payload.get("title")
-        
-        mutation_str += f'  m{i}: articleUpdate(id: "{payload["gid"]}", article: {{title: $artTitle_{i}, body: $body_{i}{metafields_input}}}) {{ userErrors {{ message }} }}\n'
-        
-    mutation_str += "}"
-    
-    res = _graphql(mutation_str, variables=variables)
+            metafields_input = (
+                f', metafields: ['
+                f'{{namespace: "global", key: "title_tag", type: "single_line_text_field", value: $title_{i}}}, '
+                f'{{namespace: "global", key: "description_tag", type: "single_line_text_field", value: $desc_{i}}}'
+                f']'
+            )
+
+        mutations.append(
+            f'  m{i}: articleUpdate(id: "{payload["gid"]}", article: {{title: $artTitle_{i}, body: $body_{i}{metafields_input}}}) {{ userErrors {{ field message }} }}'
+        )
+
+    query_str = f"mutation({', '.join(var_defs)}) {{\n" + "\n".join(mutations) + "\n}"
+
+    res = _graphql(query_str, variables=variables)
     data = res.get("data", {})
     for i, payload in enumerate(batch):
         errs = data.get(f"m{i}", {}).get("userErrors", [])
@@ -1184,18 +1524,41 @@ def _execute_article_batch(batch: list):
             print(f"  [GraphQL Error] article {payload['gid']}: {errs}")
         else:
             print(f"  ✓ Batch Updated article {payload['gid']}")
+            if payload.get("b64_collage"):
+                gid_num = payload["gid"].split("/")[-1]
+                blog_num = payload.get("blog_id")
+                if blog_num:
+                    url = f"{BASE}/blogs/{blog_num}/articles/{gid_num}.json"
+                    img_payload = {
+                        "article": {
+                            "id": int(gid_num),
+                            "image": {
+                                "attachment": payload["b64_collage"],
+                                "filename": f"discover_collage_{gid_num}.jpg"
+                            }
+                        }
+                    }
+                    _req("put", url, json=img_payload)
+                    print(f"    ✓ Uploaded 1200px Discover landscape 3-panel collage header image to Shopify article {gid_num}")
+
 
 def _execute_author_batch(batch: list):
     if not batch: return
-    
-    mutation_str = "mutation {\n"
+
+    var_defs = []
     variables = {}
+    mutations = []
+
     for i, payload in enumerate(batch):
+        var_defs.append(f"$author_{i}: String!")
         variables[f"author_{i}"] = payload["author"]
-        mutation_str += f'  m{i}: articleUpdate(id: "{payload["gid"]}", article: {{author: $author_{i}}}) {{ userErrors {{ message }} }}\n'
-    mutation_str += "}"
-    
-    res = _graphql(mutation_str, variables=variables)
+        mutations.append(
+            f'  m{i}: articleUpdate(id: "{payload["gid"]}", article: {{author: $author_{i}}}) {{ userErrors {{ field message }} }}'
+        )
+
+    query_str = f"mutation({', '.join(var_defs)}) {{\n" + "\n".join(mutations) + "\n}"
+
+    res = _graphql(query_str, variables=variables)
     data = res.get("data", {})
     for i, payload in enumerate(batch):
         errs = data.get(f"m{i}", {}).get("userErrors", [])
@@ -1208,6 +1571,7 @@ def _execute_author_batch(batch: list):
 def run(limit: int = 0, dry_run: bool = False, article_id: int | None = None,
         force: bool = False, batch_size: int = 20, batch_index: int = 0, no_ai: bool = False,
         fix_images_only: bool = False):
+    is_single_article = bool(article_id)
     mode = "force" if force else ("single" if article_id else "batch")
     print(f"\n{'='*64}")
     print(f"  MeeeShop Blog Refresher — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
@@ -1304,6 +1668,7 @@ def run(limit: int = 0, dry_run: bool = False, article_id: int | None = None,
                 dry_run=dry_run,
                 no_ai=no_ai,
                 fix_images_only=fix_images_only, force=force,
+                is_single_article=is_single_article,
             )
             if result and result.get("status") in ("updated", "images_fixed"):
                 if not dry_run:
@@ -1332,7 +1697,6 @@ def run(limit: int = 0, dry_run: bool = False, article_id: int | None = None,
                          "status": "error", "error": str(exc)})
             import traceback
             traceback.print_exc()
-
 
     if article_batch and not dry_run:
         _execute_article_batch(article_batch)

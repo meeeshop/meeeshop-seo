@@ -31,7 +31,7 @@ from io import BytesIO
 import requests
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
-from PIL import Image
+from PIL import Image, ImageOps
 
 # ── Path Setup ────────────────────────────────────────────────────────────────
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -44,7 +44,15 @@ sys.path.insert(0, str(REPO_ROOT))
 
 import ai_client
 from secrets_manager import inject_to_env, get_secret
-from utils import download_article_content, extract_keywords, generate_collage
+from utils import (
+    download_article_content,
+    extract_keywords,
+    generate_collage,
+    extract_handle_count,
+    enforce_current_year,
+    is_product_compatible,
+    select_styling_matches
+)
 from internal_linker import (
     LinkMap,
     extract_existing_links,
@@ -485,33 +493,6 @@ def inject_internal_links(html_body: str, link_map: LinkMap, article_title: str)
     return modified_html
 
 # ── Collage generation & Shopify Upload ────────────────────────────────────────
-def select_styling_matches(main_product: dict, pool: list, num_matches: int = 2) -> list[dict]:
-    main_type = (main_product.get("product_type") or "").lower()
-    main_id = main_product.get("id")
-    is_top = any(x in main_type for x in ["top", "blouse", "shirt", "tee"])
-    is_bottom = any(x in main_type for x in ["jean", "pant", "skirt", "legging", "short"])
-    is_one_piece = any(x in main_type for x in ["dress", "jumpsuit", "romper"])
-    
-    complementary_pool = []
-    for p in pool:
-        if p.get("id") == main_id or not p.get("images"):
-            continue
-        ptype = (p.get("product_type") or "").lower()
-        if is_top and any(x in ptype for x in ["jean", "pant", "skirt", "jacket", "coat", "cardigan"]):
-            complementary_pool.append(p)
-        elif is_bottom and any(x in ptype for x in ["top", "blouse", "shirt", "tee", "sweater", "jacket", "coat"]):
-            complementary_pool.append(p)
-        elif is_one_piece and any(x in ptype for x in ["jacket", "coat", "cardigan", "accessory", "bag"]):
-            complementary_pool.append(p)
-        else:
-            complementary_pool.append(p)
-            
-    if len(complementary_pool) >= num_matches:
-        return random.sample(complementary_pool, num_matches)
-    
-    fallback_pool = [p for p in pool if p.get("id") != main_id and p.get("images")]
-    return random.sample(fallback_pool, min(num_matches, len(fallback_pool))) if fallback_pool else []
-
 def upload_image_to_shopify(filepath: Path, filename: str) -> str | None:
     print(f"  Uploading {filename} to Shopify Files via GraphQL...")
     graphql_url = f"https://{SHOP}/admin/api/{API_VER}/graphql.json"
@@ -688,7 +669,7 @@ ARTICLE_MODES = [
         "description": "Identify 5-6 current/upcoming trends in this product category. For each trend: what it is, why it's hot right now, how real women can wear it, what to pair it with, and link to specific MeeeShop products.",
         "structure": "Trend intro hook | TOC | Each trend: name + why trending + how to wear + do's & don'ts + MeeeShop pick | Editor's top trend pick | FAQ | Related products",
         "tone": "Fashion editor sharing exclusive intel from the season's shows & street style",
-        "title_examples": ["5 Dress Trends Taking Over Summer 2026", "The 6 Jean Silhouettes Fashion Editors Are Obsessed With Right Now"],
+        "title_examples": ["5 Dress Trends Taking Over Summer {year}", "The 6 Jean Silhouettes Fashion Editors Are Obsessed With Right Now"],
     },
     {
         "id": "styling_rules",
@@ -701,12 +682,12 @@ ARTICLE_MODES = [
     },
     {
         "id": "body_type_guide",
-        "title_pattern": "The Best {ptype} Styles for Every Body Type (2026 Guide)",
+        "title_pattern": "The Best {ptype} Styles for Every Body Type ({year} Guide)",
         "angle": "body-positive-proportion-styling",
         "description": "Modern, body-positive proportion guide. Instead of 'hiding' shapes, teach readers how specific {ptype} cuts/silhouettes work with different proportions. Cover petite, tall, curvy, straight-frame, pear, apple, hourglass.",
         "structure": "Hook (proportion over labels) | TOC | Each body proportion type: what to look for + what to avoid + MeeeShop picks + confidence tip | Universal rules | FAQ | Related products",
         "tone": "Inclusive, empowering stylist who celebrates all bodies",
-        "title_examples": ["The Best Jeans for Every Body Type", "Which Dress Silhouette Flatters YOUR Proportions? A 2026 Guide"],
+        "title_examples": ["The Best Jeans for Every Body Type", "Which Dress Silhouette Flatters YOUR Proportions? A {year} Guide"],
     },
     {
         "id": "one_item_multiple_ways",
@@ -742,7 +723,7 @@ ARTICLE_MODES = [
         "description": "Explore the season's trending colour palette for this product type. Explain colour theory in plain language, how to use the trending shades, which neutrals they pair with, and how to incorporate a pop of colour without looking overwhelming.",
         "structure": "Colour trends hook | TOC | Top 5 trending colours (each: name, what it is, best pairings, avoid with) | Building a colour-cohesive outfit | Colour confidence tips for beginners | FAQ | MeeeShop colour picks",
         "tone": "Colour-obsessed art director turned stylist, approachable and inspiring",
-        "title_examples": ["The 5 Dress Colours Every Stylish Woman Will Wear This Summer", "Butter Yellow, Powder Blue & Beyond: The Color Palette Dominating 2026"],
+        "title_examples": ["The 5 Dress Colours Every Stylish Woman Will Wear This Summer", "Butter Yellow, Powder Blue & Beyond: The Color Palette Dominating {year}"],
     },
     {
         "id": "stain_odour_rescue",
@@ -959,6 +940,8 @@ def _build_article_prompt(main_product: dict, research_data: dict, matching_prod
             .replace("{year}", str(YEAR))
         )
 
+    title_hint = enforce_current_year(title_hint, str(YEAR))
+
     # Research context from trending articles
     research_context = ""
     if articles:
@@ -969,6 +952,8 @@ def _build_article_prompt(main_product: dict, research_data: dict, matching_prod
             snippet = (art.get("full_content") or "")[:2500]
             src = art.get("source", "")
             research_context += f"Ref #{idx+1} [{src}]:\n  Title: {title}\n  Summary: {summary}\n  Snippet: {snippet}\n\n"
+
+    research_context = enforce_current_year(research_context, str(YEAR))
 
     prompt = f"""You are {random.choice(PEN_NAMES)}, an expert fashion editor writing for {BRAND_NAME} — a premium women's clothing boutique based in the USA.
 
@@ -1000,7 +985,7 @@ Long-tail: {', '.join(long_tail[:5])}
 Zero-Search-Volume: {', '.join(zero_search[:5])}
 
 ────────── TREND RESEARCH ──────────
-{research_context if research_context else 'No external trend references available — use your expert fashion knowledge for {MONTH}.'}
+{research_context if research_context else f'No external trend references available — use your expert fashion knowledge for {MONTH}.'}
 
 ────────── MANDATORY EDITORIAL & VISUAL STYLING RULES ──────────
 1. Target audience: Women in the USA, ages 25-55. Speak directly to her.
@@ -1018,6 +1003,26 @@ Zero-Search-Volume: {', '.join(zero_search[:5])}
     - **Comparison / Styling Recipe Cards**: Create side-by-side recipe or match guides with inline style (using border-radius, clean fonts, subtle colors).
 11. LIST FORMATTING (CRITICAL): NEVER write numbered items, tips, or Q&A as a single paragraph of text. ALWAYS use proper HTML list elements:
     - For numbered steps/tips/ideas, use `<ol><li>…</li></ol>`.
+12. OUTFIT / ITEM COUNT ALIGNMENT (CRITICAL): The title/handle specifies {extract_handle_count(original_handle_hint or title_hint)} outfits/items/rules. You MUST structure the body with exactly {extract_handle_count(original_handle_hint or title_hint)} distinct outfit formulas/sections (e.g. 'Outfit 1', 'Outfit 2', ... 'Outfit {extract_handle_count(original_handle_hint or title_hint)}') to match the handle and title count, featuring the hero product and all complementary products provided ({', '.join(m_names)}).
+13. CURRENT YEAR ENFORCEMENT (CRITICAL): The current year is {YEAR}. You MUST write all titles, subheadings, and content specifically for {YEAR}. You MUST NEVER output past years (2024, 2025, 2023, or older). If any research reference mentions an older year, you MUST update it to {YEAR}.
+    - For unordered items/checklists, use `<ul><li>…</li></ul>`.
+    - For the FAQ section, wrap each Q&A in its own `<div>` block. Use a `<strong>` or `<h3>` for the question and a `<p>` for the answer, NEVER inline them like "Q: ... A: ..." in one paragraph.
+    - Example of WRONG format: "Here are tips: 1. Do X 2. Do Y 3. Do Z"
+    - Example of CORRECT format: `<ol><li>Do X</li><li>Do Y</li><li>Do Z</li></ol>`
+
+At the very end, append this block:
+<seometa>
+SEO_TITLE: [50-60 chars, include main keyword near start, MUST use current year {YEAR} or 'for Women', NEVER past years like 2024 or 2025]
+META_DESC: [140-155 chars, benefit-first, end with CTA]
+IMG_ALT: [10-15 words describing the featured image styling scene]
+SUGGESTED_HANDLE: [url-slug-format]
+SUGGESTED_TAGS: [comma-separated list of 6-8 relevant tags]
+ARTICLE_MODE: {mode['id']}
+</seometa>e="background: #faf5f5; border-left: 4px solid #d9534f; padding: 15px 20px; margin: 20px 0; border-radius: 4px;"><strong>Editor's Note:</strong> ...</div>`).
+    - **Comparison / Styling Recipe Cards**: Create side-by-side recipe or match guides with inline style (using border-radius, clean fonts, subtle colors).
+11. LIST FORMATTING (CRITICAL): NEVER write numbered items, tips, or Q&A as a single paragraph of text. ALWAYS use proper HTML list elements:
+    - For numbered steps/tips/ideas, use `<ol><li>…</li></ol>`.
+12. OUTFIT / ITEM COUNT ALIGNMENT (CRITICAL): The title/handle specifies {extract_handle_count(original_handle_hint or title_hint)} outfits/items/rules. You MUST structure the body with exactly {extract_handle_count(original_handle_hint or title_hint)} distinct outfit formulas/sections (e.g. 'Outfit 1', 'Outfit 2', ... 'Outfit {extract_handle_count(original_handle_hint or title_hint)}') to match the handle and title count, featuring the hero product and all complementary products provided ({', '.join(m_names)}).
     - For unordered items/checklists, use `<ul><li>…</li></ul>`.
     - For the FAQ section, wrap each Q&A in its own `<div>` block. Use a `<strong>` or `<h3>` for the question and a `<p>` for the answer, NEVER inline them like "Q: ... A: ..." in one paragraph.
     - Example of WRONG format: "Here are tips: 1. Do X 2. Do Y 3. Do Z"
@@ -1235,9 +1240,9 @@ def generate_fallback_content(
 """
         pairings_html = f"""
 <h2 id="pairings" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">Styled Lookbook: Complete Outfit Recipes</h2>
-<p>To help you integrate this piece into your daily rotation, our editors have put together two gorgeous outfit recipes using MeeeShop favorites:</p>
+<p>To help you integrate this piece into your daily rotation, our editors have put together {len(matching_products) + 1} gorgeous outfit recipes using MeeeShop favorites:</p>
 """
-        for idx, p in enumerate(matching_products[:2]):
+        for idx, p in enumerate(matching_products):
             pair_title = p["title"]
             pair_handle = p.get("handle", "")
             pair_url = f"{STORE_URL}/products/{pair_handle}"
@@ -1370,9 +1375,12 @@ def generate_single_article_content(
         
     rdata = research_cache[ptype]
 
-    # 2. Select styling matches
-    matching_products = select_styling_matches(main_product, all_products_with_images, num_matches=2)
-    print(f"  Styling Pairings: {[p['title'] for p in matching_products]}")
+    # 2. Select styling matches matching outfit count in handle/title
+    target_count_text = original_handle_hint or ptype or ""
+    outfit_count = extract_handle_count(target_count_text)
+    num_matches = max(2, outfit_count - 1)
+    matching_products = select_styling_matches(main_product, all_products_with_images, num_matches=num_matches, topic_context=target_count_text)
+    print(f"  Styling Pairings ({len(matching_products)} products for {outfit_count} outfits/items): {[p['title'] for p in matching_products]}")
 
     # 3. Build AI prompt and generate content
     mode = None
@@ -1413,6 +1421,13 @@ def generate_single_article_content(
     meta_desc = seometa.get("meta_desc") or f"Expert styling guide and care tips for {main_product['title']}."
     img_alt = seometa.get("img_alt") or f"{main_product['title']} styling collage"
     new_tags = seometa.get("suggested_tags") or ["style", "fashion", ptype.lower()]
+
+    # Enforce current year (2026) across all fields
+    new_title = enforce_current_year(new_title, str(YEAR))
+    suggested_handle = enforce_current_year(suggested_handle, str(YEAR))
+    meta_desc = enforce_current_year(meta_desc, str(YEAR))
+    img_alt = enforce_current_year(img_alt, str(YEAR))
+    html_body = enforce_current_year(html_body, str(YEAR))
 
     # 5. Inject product cards and related products section
     card_html = make_product_card(main_product)
