@@ -422,6 +422,7 @@ def fix_article(blog_id: int, blog_title: str, article: dict, catalog_pool: list
                 prod_type = prod_data.get("product_type", "apparel")
         
         qa_html = generate_shoppers_qa(title, prod_title, prod_type)
+        qa_soup = BeautifulSoup(qa_html, "html.parser")
         
         # ALWAYS append Q&A block to the very end of the article body
         soup.append(qa_soup)
@@ -452,13 +453,18 @@ def fix_article(blog_id: int, blog_title: str, article: dict, catalog_pool: list
         main_prod = None
         if main_product_handle:
             main_prod = fetch_product_by_handle(main_product_handle)
-        else:
-            # Fallback: try mapping title keywords to product handles
+
+        if not main_prod and catalog_pool:
+            # Fallback: match from catalog pool
             words = [w.lower() for w in re.split(r"\W+", title) if len(w) > 3]
-            for w in words[:4]:
-                main_prod = fetch_product_by_handle(w)
-                if main_prod:
+            for p in catalog_pool:
+                p_title_lower = p.get("title", "").lower()
+                if any(w in p_title_lower for w in words) and p.get("images"):
+                    main_prod = p
                     break
+            if not main_prod:
+                # Pick any active catalog product with images
+                main_prod = next((p for p in catalog_pool if p.get("images")), None)
                     
         if main_prod and main_prod.get("images"):
             # Only use products that are actually linked in the article body (excluding the main product)
