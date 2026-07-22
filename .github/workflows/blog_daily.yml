@@ -56,10 +56,10 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            COUNT="3"
+            COUNT="2"
             PUBLISH="true"
           else
-            COUNT="${{ github.event.inputs.count || '3' }}"
+            COUNT="${{ github.event.inputs.count || '1' }}"
             PUBLISH="${{ github.event.inputs.publish || 'true' }}"
           fi
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
@@ -68,7 +68,7 @@ jobs:
           if [ "$DRY_RUN" = "true" ]; then
             ARGS="$ARGS --dry-run"
           fi
-          if [ "$PUBLISH" = "true" ]; then
+          if [ "$PUBLISH" = "true" ] || [ "$PUBLISH" = "True" ]; then
             ARGS="$ARGS --publish"
           fi
           if [ "$FORMAT" != "default" ]; then

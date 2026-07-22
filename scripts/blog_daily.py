@@ -1526,7 +1526,7 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
         if article:
             created += 1
         print()
-        time.sleep(1.0)
+        time.sleep(4.0)
 
     result_label = "published live" if publish else "saved as DRAFT"
     print(f"Done — {created}/{count} blog posts {result_label}.")
