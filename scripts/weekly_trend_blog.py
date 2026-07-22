@@ -87,15 +87,8 @@ YEAR  = datetime.now().year
 MONTH = datetime.now().strftime("%B %Y")
 TODAY = datetime.now().strftime("%Y-%m-%d")
 
-# ── Pen names ──────────────────────────────────────────────────────────────────
-PEN_NAMES = [
-    f"Elena Vance, {BRAND_NAME} Lead Stylist",
-    f"Seraphina Croft, {BRAND_NAME} Fashion Editor",
-    f"Audrey Sterling, {BRAND_NAME} Style Director",
-    f"Maya Devereaux, {BRAND_NAME} Fashion Consultant",
-    f"Vivienne Vance, {BRAND_NAME} Senior Stylist",
-    f"Genevieve Thorne, {BRAND_NAME} Trend Forecaster",
-]
+# ── Pen names (shared single source of truth) ──────────────────────────────────
+from eeat_constants import PEN_NAMES, needs_author_update
 
 # ── Flipboard topic map per product category ───────────────────────────────────
 FLIPBOARD_TOPIC_MAP = {

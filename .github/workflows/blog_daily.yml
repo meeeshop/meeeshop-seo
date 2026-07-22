@@ -2,15 +2,12 @@ name: Blog Daily Generator
 
 on:
   schedule:
-    - cron: '0 14 * * 0'  # Sunday 9 AM EST (14:00 UTC)
-    - cron: '0 14 * * 1'  # Monday 9 AM EST (14:00 UTC)
-    - cron: '0 14 * * 3'  # Wednesday 9 AM EST (14:00 UTC)
-    - cron: '0 14 * * 5'  # Friday 9 AM EST (14:00 UTC)
+    - cron: '0 6 * * *'  # Daily at 6:00 AM UTC (1:00 AM EST)
   workflow_dispatch:
     inputs:
       count:
         description: 'Number of blog posts to create'
-        default: '1'
+        default: '3'
         required: false
       dry_run:
         description: 'Dry run (no publishing)'
@@ -18,7 +15,7 @@ on:
         required: false
       publish:
         description: 'Publish immediately (false = save as draft for review)'
-        default: 'false'
+        default: 'true'
         required: false
       format:
         description: 'Force a specific blog format (default: weighted selection)'
@@ -58,17 +55,20 @@ jobs:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          COUNT="${{ github.event.inputs.count || '1' }}"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            COUNT="3"
+            PUBLISH="true"
+          else
+            COUNT="${{ github.event.inputs.count || '3' }}"
+            PUBLISH="${{ github.event.inputs.publish || 'true' }}"
+          fi
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
-          PUBLISH="${{ github.event.inputs.publish || 'false' }}"
           FORMAT="${{ github.event.inputs.format || 'default' }}"
           ARGS="--count $COUNT"
           if [ "$DRY_RUN" = "true" ]; then
             ARGS="$ARGS --dry-run"
           fi
-          # On scheduled runs, always publish immediately.
-          # On manual dispatch, respect the publish input (default: draft for human review).
-          if [ "${{ github.event_name }}" = "schedule" ] || [ "$PUBLISH" = "true" ]; then
+          if [ "$PUBLISH" = "true" ]; then
             ARGS="$ARGS --publish"
           fi
           if [ "$FORMAT" != "default" ]; then
