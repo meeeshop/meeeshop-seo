@@ -109,7 +109,7 @@ def _call_openrouter(prompt: str, max_tokens: int, temperature: float, category:
                     "max_tokens": max_tokens,
                     "temperature": temperature,
                 },
-                timeout=45,
+                timeout=15,
             )
 
             if r.status_code == 429:
@@ -193,9 +193,10 @@ def generate(prompt: str, max_tokens: int = 400, temperature: float = 0.8, categ
                 _last_success_provider = name
                 return text
         except Exception as e:
-            print(f"  [AI:{name}] {e} - trying next...")
+            print(f"  [AI:{name}] {e} - trying next...", flush=True)
+            time.sleep(1.5)
 
-    print("  [AI] all providers failed - returning None")
+    print("  [AI] all providers failed - returning None", flush=True)
     return None
 
 

@@ -40,7 +40,8 @@ from utils import is_product_compatible, select_styling_matches
 ROOT = Path(__file__).resolve().parent.parent
 
 import ai_client
-from blog_daily import generate_fallback_blog_post, get_product_display_name, PEN_NAMES
+from blog_daily import generate_fallback_blog_post, get_product_display_name
+from eeat_constants import PEN_NAMES, needs_author_update
 
 # ── env / credentials ─────────────────────────────────────────────────────────
 from secrets_manager import inject_to_env, get_secret
@@ -1639,10 +1640,10 @@ def run(limit: int = 0, dry_run: bool = False, article_id: int | None = None,
         author_batch = []
         for blog, art in articles_to_check:
             cur_author = (art.get("author") or "").strip()
-            # If author doesn't contain 'meeeshop', update to a valid E-E-A-T named pen name
-            if "meeeshop" not in cur_author.lower():
+            # Only update if author is generic/blank. Existing pen names are NEVER re-randomised.
+            if needs_author_update(cur_author):
                 new_author = random.choice(PEN_NAMES)
-                print(f"  Article '{art.get('title')}' (ID {art.get('id')}) has author '{cur_author}' missing 'MeeeShop'. Updating to E-E-A-T author '{new_author}'...")
+                print(f"  Article '{art.get('title')}' (ID {art.get('id')}) has generic author '{cur_author}'. Updating to E-E-A-T pen name '{new_author}'...")
                 if not dry_run:
                     author_batch.append({"gid": art.get("gid", f"gid://shopify/Article/{art['id']}"), "author": new_author})
                     art["author"] = new_author
@@ -1651,6 +1652,8 @@ def run(limit: int = 0, dry_run: bool = False, article_id: int | None = None,
                         author_batch = []
                 else:
                     print(f"    [DRY-RUN] Would update author to '{new_author}'.")
+            else:
+                pass  # valid pen name or custom name — keep it silently
 
         if author_batch:
             _execute_author_batch(author_batch)

@@ -100,14 +100,7 @@ STORE_URL = get_secret("STORE_BASE_URL")
 YEAR  = datetime.now().year
 MONTH = datetime.now().strftime("%B %Y")
 
-PEN_NAMES = [
-    "Elena Vance, MeeeShop Lead Stylist",
-    "Seraphina Croft, MeeeShop Fashion Editor",
-    "Audrey Sterling, MeeeShop Style Director",
-    "Maya Devereaux, MeeeShop Fashion Consultant",
-    "Vivienne Vance, MeeeShop Senior Stylist",
-    "Genevieve Thorne, MeeeShop Trend Forecaster"
-]
+from eeat_constants import PEN_NAMES  # single source of truth for pen names
 
 # ── Shopify helpers ────────────────────────────────────────────────────────────
 def _req(method, url, **kw):
@@ -1533,7 +1526,7 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
         if article:
             created += 1
         print()
-        time.sleep(1.0)
+        time.sleep(4.0)
 
     result_label = "published live" if publish else "saved as DRAFT"
     print(f"Done — {created}/{count} blog posts {result_label}.")
