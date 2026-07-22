@@ -7,7 +7,7 @@ on:
     inputs:
       count:
         description: 'Number of blog posts to create'
-        default: '3'
+        default: '1'
         required: false
       dry_run:
         description: 'Dry run (no publishing)'
@@ -56,7 +56,7 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            COUNT="2"
+            COUNT="1"
             PUBLISH="true"
           else
             COUNT="${{ github.event.inputs.count || '1' }}"
