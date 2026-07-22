@@ -1,4 +1,4 @@
-﻿name: Google Discover Optimization
+name: Google Discover Optimization
 
 on:
   schedule:
@@ -6,14 +6,14 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Execution mode: fix | dry_run | validate_only'
-        default: 'fix'
+        description: 'Execution mode: dry_run | validate_only | fix'
+        default: 'dry_run'
         required: false
         type: choice
         options:
-          - fix
           - dry_run
           - validate_only
+          - fix
 
 jobs:
   discover-opt:
@@ -39,11 +39,15 @@ jobs:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          MODE="${{ github.event.inputs.mode || 'fix' }}"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            MODE="dry_run"
+          else
+            MODE="${{ github.event.inputs.mode || 'dry_run' }}"
+          fi
           if [ "$MODE" = "validate_only" ]; then
             python scripts/discover_validator.py --all
-          elif [ "$MODE" = "dry_run" ]; then
-            python scripts/discover_fixer.py --dry-run --limit 10
+          elif [ "$MODE" = "fix" ]; then
+            python scripts/discover_fixer.py --limit 5
           else
-            python scripts/discover_fixer.py --limit 10
+            python scripts/discover_fixer.py --dry-run --limit 5
           fi

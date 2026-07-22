@@ -358,11 +358,9 @@ def fix_article(blog_id: int, blog_title: str, article: dict, catalog_pool: list
     h1s = soup.find_all("h1")
     if h1s:
         for h1 in h1s:
-            h2 = soup.new_tag("h2")
-            h2.string = h1.get_text()
-            h1.replace_with(h2)
+            h1.name = "h2"  # Changes tag name in-place; preserves all inner HTML, images, and child nodes intact
         body_changed = True
-        print(f"  [HTML] Converted {len(h1s)} H1 tag(s) to H2(s).")
+        print(f"  [HTML] Converted {len(h1s)} H1 tag(s) to H2(s) (preserved all inner content & images).")
         
     # Overlinking reduction — only flag INLINE text links, not product card widgets
     # Product card widgets contain 'View Product' buttons and price elements; these are
@@ -371,26 +369,26 @@ def fix_article(blog_id: int, blog_title: str, article: dict, catalog_pool: list
     links = soup.find_all("a")
     product_links = [l for l in links if "/products/" in l.get("href", "")]
 
-    # Filter out product card widget links (View Product buttons, price text, empty text)
+    # Filter out product card widget links (View Product buttons, price text, empty text, image links)
     def is_widget_link(tag):
         text = tag.get_text(strip=True).lower()
-        parent_html = str(tag.parent)
         return (
             text in ("", "view product", "shop now", "buy now") or
             "$" in tag.get_text() or
+            tag.find("img") is not None or  # NEVER touch links containing product images
             any(cls in " ".join(tag.get("class", [])) for cls in ["btn", "button", "product-card", "cta"])
         )
 
     inline_product_links = [l for l in product_links if not is_widget_link(l)]
 
     if len(inline_product_links) > PRODUCT_LINK_LIMIT:
-        # Only remove truly excessive inline text links
+        # Only remove href from excessive inline text links — preserve all inner HTML/images intact
         for l in inline_product_links[PRODUCT_LINK_LIMIT:]:
-            span = soup.new_tag("span")
-            span.string = l.get_text()
-            l.replace_with(span)
+            l.name = "span"
+            if "href" in l.attrs:
+                del l["href"]
         body_changed = True
-        print(f"  [HTML] Reduced inline product link count from {len(inline_product_links)} to {PRODUCT_LINK_LIMIT} (widget links preserved).")
+        print(f"  [HTML] Reduced inline product link count from {len(inline_product_links)} to {PRODUCT_LINK_LIMIT} (widget & image links preserved).")
     else:
         print(f"  [HTML] {len(inline_product_links)} inline product links (total {len(product_links)} incl. widgets) — within limit — NO change.")
 
@@ -425,18 +423,10 @@ def fix_article(blog_id: int, blog_title: str, article: dict, catalog_pool: list
         
         qa_html = generate_shoppers_qa(title, prod_title, prod_type)
         
-        # Append before final element or verdict
-        qa_soup = BeautifulSoup(qa_html, "html.parser")
-        
-        # Look for styling widget card or custom section wrapper
-        verdict = soup.find(style=re.compile("background:#f8f6f3|margin:48px 0"))
-        if verdict:
-            verdict.insert_before(qa_soup)
-        else:
-            soup.append(qa_soup)
-            
+        # ALWAYS append Q&A block to the very end of the article body
+        soup.append(qa_soup)
         body_changed = True
-        print("  [HTML] Injected Shoppers' Q&A section answering Why? What? How? questions.")
+        print("  [HTML] Injected Shoppers' Q&A section at end of article.")
         
     if body_changed:
         updates["body_html"] = str(soup)
