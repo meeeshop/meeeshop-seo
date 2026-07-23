@@ -699,7 +699,7 @@ def flip_articles(articles: list, headless: bool, do_reflip: bool = False, refli
                         f.write(driver.page_source)
                 except Exception: pass
                 logging.error("You must run 'python scripts/save_flipboard_session.py' locally to create a valid session file.")
-                return
+                sys.exit(1)
             
         # 2. Flip each article
         for i, art in enumerate(articles, 1):
