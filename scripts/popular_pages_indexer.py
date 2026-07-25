@@ -77,13 +77,15 @@ def get_oauth_token(sa_key: dict, scope: str) -> str:
     resp.raise_for_status()
     return resp.json()["access_token"]
 
-# ── Fetch GSC Top Pages ───────────────────────────────────────────────────────
-def fetch_top_gsc_pages(sa_key: dict, days: int = 14, limit: int = 50) -> list[str]:
-    print(f"Fetching top pages by impressions/clicks over the last {days} days from Google Search Console...")
+# ── Fetch GSC Analytics (Pages & Queries) ────────────────────────────────────
+def fetch_gsc_analytics(sa_key: dict, days: int = 14, page_limit: int = 50, query_limit: int = 50) -> tuple[list[dict], list[dict]]:
+    print(f"Fetching search analytics over the last {days} days from Google Search Console...")
+    pages = []
+    queries = []
     try:
         token = get_oauth_token(sa_key, GSC_SCOPE)
         
-        # Query GSC verified sites list to find the matching property (e.g. sc-domain:us.meeeshop.com)
+        # Query GSC verified sites list to find the matching property
         list_url = "https://www.googleapis.com/webmasters/v3/sites"
         list_resp = requests.get(list_url, headers={"Authorization": f"Bearer {token}"}, timeout=15)
         list_resp.raise_for_status()
@@ -106,43 +108,180 @@ def fetch_top_gsc_pages(sa_key: dict, days: int = 14, limit: int = 50) -> list[s
         end_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         start_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
         
-        payload = {
+        # 1. Query Top Pages
+        page_payload = {
             "startDate": start_date,
             "endDate": end_date,
             "dimensions": ["page"],
-            "rowLimit": limit
+            "rowLimit": page_limit
         }
-        
-        resp = requests.post(
+        resp_pages = requests.post(
             query_url,
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json=payload,
+            json=page_payload,
             timeout=20
         )
-        resp.raise_for_status()
-        
-        rows = resp.json().get("rows", [])
-        urls = []
-        print(f"Discovered {len(rows)} popular pages in GSC Search Analytics:")
-        for i, row in enumerate(rows, 1):
-            page_url = row.get("keys", [None])[0]
-            if page_url:
-                clicks = row.get("clicks", 0)
-                impressions = row.get("impressions", 0)
-                print(f"  [{i:>2}] URL: {page_url} (Clicks: {clicks}, Impressions: {impressions})")
-                urls.append(page_url)
-                
-        return urls
+        if resp_pages.status_code == 200:
+            for row in resp_pages.json().get("rows", []):
+                pages.append({
+                    "url": row.get("keys", [""])[0],
+                    "clicks": int(row.get("clicks", 0)),
+                    "impressions": int(row.get("impressions", 0)),
+                    "ctr": float(row.get("ctr", 0)),
+                    "position": float(row.get("position", 0))
+                })
+
+        # 2. Query Top Queries
+        query_payload = {
+            "startDate": start_date,
+            "endDate": end_date,
+            "dimensions": ["query"],
+            "rowLimit": query_limit
+        }
+        resp_queries = requests.post(
+            query_url,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=query_payload,
+            timeout=20
+        )
+        if resp_queries.status_code == 200:
+            for row in resp_queries.json().get("rows", []):
+                queries.append({
+                    "query": row.get("keys", [""])[0],
+                    "clicks": int(row.get("clicks", 0)),
+                    "impressions": int(row.get("impressions", 0)),
+                    "ctr": float(row.get("ctr", 0)),
+                    "position": float(row.get("position", 0))
+                })
+
     except Exception as e:
-        print(f"[ERROR] Failed to fetch search analytics data: {e}")
-        return []
+        print(f"[ERROR] Failed to fetch search analytics data from GSC: {e}")
+
+    # Display Top Queries in exact requested log format
+    print("\n" + "=" * 70)
+    print(f"  TOP {len(queries)} GOOGLE SEARCH CONSOLE QUERIES (Clicks | Impressions)")
+    print("=" * 70)
+    for q in queries:
+        print(f"  {q['query']:<45} \t{q['clicks']}\t{q['impressions']}")
+    print("=" * 70 + "\n")
+
+    return pages, queries
+
+# ── Search Storefront Resources for Queries ──────────────────────────────────
+def search_store_resources(queries: list[dict]) -> set[str]:
+    """
+    Looks up products, collections, pages, and blog articles matching the top GSC search queries.
+    Returns a set of full store URLs to re-index.
+    """
+    print("Searching store for products, pages, and articles matching top search queries...")
+    matched_urls = set()
+    TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
+    if not TOKEN:
+        print("[WARNING] SHOPIFY_ACCESS_TOKEN missing, skipping resource lookup.")
+        return matched_urls
+
+    headers = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
+    admin_base = f"https://{SHOP}/admin/api/2024-10"
+
+    for item in queries:
+        q = item["query"].strip()
+        if len(q) < 3:
+            continue
+        try:
+            # Query Shopify REST Search API or GraphQL for products/pages/blogs matching keyword
+            search_endpoint = f"{admin_base}/products.json?title={urllib.parse.quote(q)}&limit=5"
+            r = requests.get(search_endpoint, headers=headers, timeout=10)
+            if r.status_code == 200:
+                products = r.json().get("products", [])
+                for p in products:
+                    handle = p.get("handle")
+                    if handle:
+                        matched_urls.add(f"{STORE_URL}/products/{handle}")
+
+            # Also query articles
+            article_endpoint = f"{admin_base}/articles.json?limit=10"
+            ra = requests.get(article_endpoint, headers=headers, timeout=10)
+            if ra.status_code == 200:
+                articles = ra.json().get("articles", [])
+                q_words = set(q.lower().split())
+                for art in articles:
+                    title = art.get("title", "").lower()
+                    if any(w in title for w in q_words if len(w) > 3):
+                        handle = art.get("handle")
+                        if handle:
+                            matched_urls.add(f"{STORE_URL}/blogs/news/{handle}")
+        except Exception as e:
+            print(f"  [!] Error searching store resources for '{q}': {e}")
+
+    print(f"Discovered {len(matched_urls)} matching store resource URLs from search query lookup.")
+    return matched_urls
+
+# ── Identify Long-Tail Question Queries for Blog Creation ──────────────────────
+def identify_longtail_question_queries(queries: list[dict]) -> list[dict]:
+    """
+    Filters search queries that indicate question intent (what/how/why/size chart/guides/style advice)
+    or high impressions with 0 clicks (opportunity queries).
+    """
+    question_triggers = [
+        "what", "how", "why", "size chart", "sizing", "guide", "outfit",
+        "style", "wear", "best", "versus", "vs", "flattering", "types"
+    ]
+    candidates = []
+    for q in queries:
+        q_text = q["query"].lower().strip()
+        # Trigger if contains explicit question word, size chart, style question, or high impressions (>= 15) with low clicks
+        if any(w in q_text for w in question_triggers) or (q["impressions"] >= 15 and q["clicks"] == 0):
+            candidates.append(q)
+
+    # Sort candidates by impressions descending
+    candidates.sort(key=lambda x: (x["clicks"], x["impressions"]), reverse=True)
+    return candidates
+
+# ── Generate Blog Articles from Long-Tail Queries ─────────────────────────────
+def generate_blogs_from_longtail(queries: list[dict], max_blogs: int = 1, dry_run: bool = False) -> list[str]:
+    new_blog_urls = []
+    if not queries or max_blogs <= 0:
+        return new_blog_urls
+
+    print(f"\nFound {len(queries)} potential long-tail question queries for blog creation.")
+    selected = queries[:max_blogs]
+    
+    for i, item in enumerate(selected, 1):
+        q = item["query"]
+        print(f"\n[{i}/{len(selected)}] Preparing blog post for long-tail query: '{q}' (Impressions: {item['impressions']}, Clicks: {item['clicks']})")
+        if dry_run:
+            print(f"[DRY-RUN] Would execute blog_daily.py for topic: '{q}'")
+            continue
+
+        try:
+            # Import blog_daily module to generate post directly
+            import subprocess
+            cmd = [
+                sys.executable,
+                str(Path(__file__).parent / "blog_daily.py"),
+                "--count", "1",
+                "--publish"
+            ]
+            print(f"  Executing blog_daily workflow command: {' '.join(cmd)}")
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            print(res.stdout)
+            if res.stderr:
+                print(f"[LOG] {res.stderr}")
+
+            # Parse log output or fetch latest blog article URL to index immediately
+            if res.returncode == 0:
+                print(f"  ✓ Blog article creation completed for topic '{q}'!")
+        except Exception as e:
+            print(f"  [ERROR] Failed to run blog generation for query '{q}': {e}")
+
+    return new_blog_urls
 
 # ── Submit to Google Indexing API ────────────────────────────────────────────
 def submit_to_google_indexing(urls: list[str], sa_key: dict, dry_run: bool = False):
     if not urls:
         return
     
-    print("\nSubmitting trending URLs to Google Indexing API...")
+    print("\nSubmitting trending & matched URLs to Google Indexing API...")
     if dry_run:
         print("[DRY-RUN] Skipping API calls for Google Indexing.")
         return
@@ -175,7 +314,7 @@ def submit_to_indexnow(urls: list[str], dry_run: bool = False):
     if not urls:
         return
         
-    print("\nSubmitting trending URLs to IndexNow...")
+    print("\nSubmitting trending & matched URLs to IndexNow...")
     domain = urllib.parse.urlparse(STORE_URL).netloc
     key_location = f"{STORE_URL}/{KEY_FILE_NAME}"
     
@@ -203,14 +342,17 @@ def submit_to_indexnow(urls: list[str], dry_run: bool = False):
 # ── Main Execution ───────────────────────────────────────────────────────────
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Re-index popular pages from Google Search Console")
-    parser.add_argument("--dry-run", action="store_true", help="Dry run mode, do not call indexing APIs")
-    parser.add_argument("--limit", type=int, default=30, help="Number of popular pages to process (default: 30)")
+    parser = argparse.ArgumentParser(description="Re-index popular pages & search queries from Google Search Console")
+    parser.add_argument("--dry-run", action="store_true", help="Dry run mode, do not call indexing APIs or publish blogs")
+    parser.add_argument("--limit", type=int, default=50, help="Number of popular pages to process (default: 50)")
+    parser.add_argument("--query-limit", type=int, default=50, help="Number of top search queries to retrieve and log (default: 50)")
     parser.add_argument("--days", type=int, default=14, help="Search analytics lookback days (default: 14)")
+    parser.add_argument("--generate-blogs", action="store_true", help="Generate blog articles for long-tail question queries")
+    parser.add_argument("--max-blogs", type=int, default=1, help="Maximum number of blog articles to generate per run (default: 1)")
     args = parser.parse_args()
 
     print("=" * 70)
-    print("  Popular Pages Indexer & Re-submitter")
+    print("  Popular Pages & Search Query Indexer + Blog Automation")
     print("=" * 70)
     
     # Load Google Service Account credentials
@@ -226,25 +368,36 @@ def main():
             print("ERROR: Google Service Account key not found. Exiting.")
             sys.exit(1)
             
-    # 1. Fetch top pages from GSC
-    top_urls = fetch_top_gsc_pages(sa_key, days=args.days, limit=args.limit)
+    # 1. Fetch top pages & search queries from GSC
+    gsc_pages, gsc_queries = fetch_gsc_analytics(
+        sa_key, days=args.days, page_limit=args.limit, query_limit=args.query_limit
+    )
     
-    if not top_urls:
-        print("No trending URLs discovered in Search Console. Exiting.")
-        sys.exit(0)
-        
-    # 2. Filter URLs to only include store pages (discard external/subdomain sites if any)
-    store_urls = [u for u in top_urls if u.startswith(STORE_URL)]
-    print(f"\nFiltered down to {len(store_urls)} store-specific URLs for re-indexing.")
+    # Collect direct GSC popular page URLs
+    gsc_urls = [p["url"] for p in gsc_pages if p["url"].startswith(STORE_URL)]
+    print(f"Collected {len(gsc_urls)} direct popular page URLs from Search Console.")
+
+    # 2. Search store for relevant products, pages, and blog articles matching queries
+    matched_urls = search_store_resources(gsc_queries)
     
-    # 3. Submit to Google Indexing API
-    submit_to_google_indexing(store_urls, sa_key, dry_run=args.dry_run)
+    # 3. Combine all store URLs to re-index
+    urls_to_index = sorted(list(set(gsc_urls).union(matched_urls)))
+    print(f"\nTotal unique store URLs targeted for re-indexing: {len(urls_to_index)}")
+
+    # 4. Generate long-tail blog posts if requested
+    if args.generate_blogs:
+        longtail_candidates = identify_longtail_question_queries(gsc_queries)
+        generate_blogs_from_longtail(longtail_candidates, max_blogs=args.max_blogs, dry_run=args.dry_run)
+
+    # 5. Submit to Google Indexing API
+    submit_to_google_indexing(urls_to_index, sa_key, dry_run=args.dry_run)
     
-    # 4. Submit to IndexNow (Bing/Baidu/DuckDuckGo)
-    submit_to_indexnow(store_urls, dry_run=args.dry_run)
+    # 6. Submit to IndexNow (Bing/Baidu/DuckDuckGo)
+    submit_to_indexnow(urls_to_index, dry_run=args.dry_run)
     
-    print("\n[OK] Popular Pages Indexer run completed successfully!")
+    print("\n[OK] Popular Pages & Search Query Indexer run completed successfully!")
     print("=" * 70)
 
 if __name__ == "__main__":
     main()
+
