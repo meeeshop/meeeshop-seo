@@ -1464,6 +1464,8 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
             "problem_solver": "stain_odour_rescue"
         }
         wtb_format = mode_mapping.get(fmt, "one_item_multiple_ways")
+        if topic:
+            wtb_format = "trend_report" if random.random() < 0.6 else "shopping_guide_edit"
 
         print(f"[{i+1}/{count}] Format: {fmt} (Mapping to wtb: {wtb_format}) | Keyword: '{keyword}'")
         print(f"  Product: {product['title'][:70]}")
