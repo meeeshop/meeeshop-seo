@@ -219,21 +219,26 @@ def search_store_resources(queries: list[dict]) -> set[str]:
 # ── Identify Long-Tail Question Queries for Blog Creation ──────────────────────
 def identify_longtail_question_queries(queries: list[dict]) -> list[dict]:
     """
-    Filters search queries that indicate question intent (what/how/why/size chart/guides/style advice)
-    or high impressions with 0 clicks (opportunity queries).
+    Filters search queries that indicate question intent (what, how, why, style, outfit, flattering, etc.)
+    or high impressions opportunities, strictly EXCLUDING size chart/sizing queries.
     """
     question_triggers = [
-        "what", "how", "why", "size chart", "sizing", "guide", "outfit",
-        "style", "wear", "best", "versus", "vs", "flattering", "types"
+        "what", "how", "why", "outfit", "style", "wear", "best",
+        "versus", "vs", "flattering", "types", "guide", "look", "combination"
     ]
     candidates = []
     for q in queries:
         q_text = q["query"].lower().strip()
-        # Trigger if contains explicit question word, size chart, style question, or high impressions (>= 15) with low clicks
+        
+        # Explicitly exclude size chart and sizing queries
+        if "size chart" in q_text or "sizing" in q_text or "size" in q_text:
+            continue
+
+        # Trigger if contains question/style triggers or high impressions (>= 15) with 0/low clicks
         if any(w in q_text for w in question_triggers) or (q["impressions"] >= 15 and q["clicks"] == 0):
             candidates.append(q)
 
-    # Sort candidates by impressions descending
+    # Sort candidates by impressions & clicks
     candidates.sort(key=lambda x: (x["clicks"], x["impressions"]), reverse=True)
     return candidates
 
@@ -243,7 +248,7 @@ def generate_blogs_from_longtail(queries: list[dict], max_blogs: int = 1, dry_ru
     if not queries or max_blogs <= 0:
         return new_blog_urls
 
-    print(f"\nFound {len(queries)} potential long-tail question queries for blog creation.")
+    print(f"\nFound {len(queries)} potential long-tail question/trend queries for blog creation.")
     selected = queries[:max_blogs]
     
     for i, item in enumerate(selected, 1):
@@ -254,12 +259,12 @@ def generate_blogs_from_longtail(queries: list[dict], max_blogs: int = 1, dry_ru
             continue
 
         try:
-            # Import blog_daily module to generate post directly
             import subprocess
             cmd = [
                 sys.executable,
                 str(Path(__file__).parent / "blog_daily.py"),
                 "--count", "1",
+                "--topic", q,
                 "--publish"
             ]
             print(f"  Executing blog_daily workflow command: {' '.join(cmd)}")
@@ -268,7 +273,6 @@ def generate_blogs_from_longtail(queries: list[dict], max_blogs: int = 1, dry_ru
             if res.stderr:
                 print(f"[LOG] {res.stderr}")
 
-            # Parse log output or fetch latest blog article URL to index immediately
             if res.returncode == 0:
                 print(f"  ✓ Blog article creation completed for topic '{q}'!")
         except Exception as e:
