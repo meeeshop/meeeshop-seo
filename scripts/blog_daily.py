@@ -1409,10 +1409,12 @@ def generate_keyword_title_and_format(product: dict, format_override: str = None
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
-def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_override: str = None):
+def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_override: str = None, topic: str = None):
     print(f"\n{'='*62}")
     print(f"  MeeeShop Blog Automation — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print(f"  Posts: {count} | Dry-run: {dry_run} | Publish: {publish} | Format: {format_override or 'weighted random'}")
+    if topic:
+        print(f"  Target Search Topic: '{topic}'")
     print(f"{'='*62}\n")
 
     print("Fetching products…")
@@ -1449,6 +1451,8 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
     created = 0
     for i, product in enumerate(chosen):
         keyword, title_hint, fmt = generate_keyword_title_and_format(product, format_override)
+        if topic:
+            keyword = topic
 
         # Map our daily format to weekly_trend_blog's mode IDs
         mode_mapping = {
@@ -1460,6 +1464,8 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
             "problem_solver": "stain_odour_rescue"
         }
         wtb_format = mode_mapping.get(fmt, "one_item_multiple_ways")
+        if topic:
+            wtb_format = "trend_report" if random.random() < 0.6 else "shopping_guide_edit"
 
         print(f"[{i+1}/{count}] Format: {fmt} (Mapping to wtb: {wtb_format}) | Keyword: '{keyword}'")
         print(f"  Product: {product['title'][:70]}")
@@ -1482,20 +1488,21 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
         )
 
         if not content_assets:
-            print("  [ERROR] Content generation failed — skipping article.\n")
+            print(f"  [!] Failed to generate content for product: {product['title']}")
             continue
 
-        html_body = content_assets["html_body"]
-        post_title = content_assets["seo_title"]
-        meta_desc = content_assets["meta_desc"]
-        suggested_handle = content_assets["suggested_handle"]
-        tags = content_assets["tags"]
-        img_url = content_assets["img_url"]
-        img_alt = content_assets["img_alt"]
-        author_name = content_assets["author"]
+        # Destructure generated assets
+        post_title       = content_assets.get("title", f"{product['title']} Guide")
+        html_body        = content_assets.get("html_body", "")
+        tags             = content_assets.get("tags", [])
+        img_url          = content_assets.get("img_url", "")
+        img_alt          = content_assets.get("img_alt", product['title'])
+        meta_desc        = content_assets.get("meta_desc", "")
+        author_name      = content_assets.get("author", "MeeeShop Editorial Team")
+        suggested_handle = content_assets.get("handle", "")
 
         print(f"  SEO title : {post_title}")
-        print(f"  Meta desc : {meta_desc[:80]}…")
+        print(f"  Meta desc : {meta_desc[:60]}…")
         print(f"  IMG ALT   : {img_alt}")
         print(f"  Featured Image : {img_url}")
         print(f"  Author    : {author_name}")
@@ -1552,5 +1559,6 @@ if __name__ == "__main__":
     ap.add_argument("--format",   type=str, default=None,
                     choices=["sizing_guide", "outfit_formula", "buying_guide", "trend_report", "care_guide", "problem_solver"],
                     help="Force a specific blog format (default: weighted choice)")
+    ap.add_argument("--topic",    type=str, default=None, help="Target search topic/query for long-tail blog creation")
     args = ap.parse_args()
-    run(count=args.count, dry_run=args.dry_run, publish=args.publish, format_override=args.format)
+    run(count=args.count, dry_run=args.dry_run, publish=args.publish, format_override=args.format, topic=args.topic)
