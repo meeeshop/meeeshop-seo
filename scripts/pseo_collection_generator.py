@@ -156,47 +156,62 @@ from datetime import datetime, timezone
 
 BASE = f"https://{SHOP}/admin/api/2024-10"
 
-def create_or_update_collection(handle, title, body_html, color, material, ptype):
-    type_singular = ptype[:-1] if ptype.endswith("s") else ptype
-    rules = [
-        {"column": "title", "relation": "contains", "condition": type_singular.title()},
-        {"column": "title", "relation": "contains", "condition": color.title()}
-    ]
-    if material.lower() not in ('casual', 'summer', 'evening'):
-        rules.append({"column": "title", "relation": "contains", "condition": material.title()})
-
+def create_or_update_collection(handle, title, body_html, color, material, ptype, matching_products):
     payload = {
-        "smart_collection": {
+        "custom_collection": {
             "title": title,
             "handle": handle,
             "body_html": body_html,
-            "published_scope": "global",
             "published": True,
-            "published_at": datetime.now(timezone.utc).isoformat(),
-            "disjunctive": False,
-            "rules": rules
+            "published_scope": "global",
+            "published_at": datetime.now(timezone.utc).isoformat()
         }
     }
 
     try:
-        r_check = requests.get(f"{BASE}/smart_collections.json?handle={handle}", headers=HEADERS)
-        existing = r_check.json().get("smart_collections", []) if r_check.status_code == 200 else []
+        # 1. Clean up legacy smart collections with same handle if any exist
+        r_sm = requests.get(f"{BASE}/smart_collections.json?handle={handle}", headers=HEADERS)
+        sm_cols = r_sm.json().get("smart_collections", []) if r_sm.status_code == 200 else []
+        for sm in sm_cols:
+            requests.delete(f"{BASE}/smart_collections/{sm['id']}.json", headers=HEADERS)
+            print(f"  [pSEO] Cleaned up legacy smart collection: {handle} (ID: {sm['id']})")
+
+        # 2. Create or update custom collection
+        r_check = requests.get(f"{BASE}/custom_collections.json?handle={handle}", headers=HEADERS)
+        existing = r_check.json().get("custom_collections", []) if r_check.status_code == 200 else []
 
         if existing:
             cid = existing[0]["id"]
-            r_up = requests.put(f"{BASE}/smart_collections/{cid}.json", headers=HEADERS, json=payload)
+            r_up = requests.put(f"{BASE}/custom_collections/{cid}.json", headers=HEADERS, json=payload)
             if r_up.status_code in (200, 201):
-                data = r_up.json().get("smart_collection", {})
-                print(f"  [pSEO] Updated collection: {title} (ID: {cid}) with global sales channels.")
-            else:
-                print(f"  [pSEO] Warning updating {title}: {r_up.text}")
+                print(f"  [pSEO] Updated custom collection: {title} (ID: {cid}) with global sales channels.")
         else:
-            r_cr = requests.post(f"{BASE}/smart_collections.json", headers=HEADERS, json=payload)
+            r_cr = requests.post(f"{BASE}/custom_collections.json", headers=HEADERS, json=payload)
             if r_cr.status_code in (200, 201):
-                data = r_cr.json().get("smart_collection", {})
-                print(f"  [pSEO] Created collection: {title} (ID: {data.get('id')}) with global sales channels.")
+                cid = r_cr.json().get("custom_collection", {}).get("id")
+                print(f"  [pSEO] Created custom collection: {title} (ID: {cid}) with global sales channels.")
             else:
                 print(f"  [pSEO] Warning creating {title}: {r_cr.text}")
+                return
+
+        # 3. Explicitly link all matching products via collects API
+        r_coll = requests.get(f"{BASE}/collects.json?collection_id={cid}", headers=HEADERS)
+        existing_collects = r_coll.json().get("collects", []) if r_coll.status_code == 200 else []
+        existing_pids = {c["product_id"] for c in existing_collects}
+
+        added_count = 0
+        for p in matching_products:
+            raw_id = p["id"]
+            numeric_pid = int(str(raw_id).split("/")[-1])
+            if numeric_pid not in existing_pids:
+                r_add = requests.post(f"{BASE}/collects.json", headers=HEADERS, json={"collect": {"collection_id": cid, "product_id": numeric_pid}})
+                if r_add.status_code in (200, 201):
+                    added_count += 1
+                    existing_pids.add(numeric_pid)
+
+        total_prods = len(existing_pids)
+        print(f"  [pSEO] ✅ Collection {title} ({handle}) now contains {total_prods} verified products & global sales channels.")
+
     except Exception as e:
         print(f"  [pSEO] Error processing collection {handle}: {e}")
 
@@ -212,7 +227,7 @@ def run_pseo_pipeline(dry_run=False):
         print(f"  • {data['title']} -> {data['count']} matching items")
         if not dry_run:
             html = build_pseo_description(data['title'], data['color'], data['material'], data['type'], data['count'])
-            create_or_update_collection(handle, data['title'], html, data['color'], data['material'], data['type'])
+            create_or_update_collection(handle, data['title'], html, data['color'], data['material'], data['type'], data['products'])
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="pSEO Occasion Hub Generator")
@@ -220,4 +235,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     run_pseo_pipeline(dry_run=args.dry_run)
+
 
