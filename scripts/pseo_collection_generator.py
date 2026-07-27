@@ -36,7 +36,6 @@ API_VER = "2024-10"
 GRAPHQL_URL = f"https://{SHOP}/admin/api/{API_VER}/graphql.json"
 HEADERS = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 
-# Key attribute matrices
 COLORS = ['black', 'white', 'blue', 'green', 'emerald', 'red', 'pink', 'floral', 'print', 'yellow', 'beige', 'navy']
 MATERIALS_OCCASIONS = ['silk', 'linen', 'boho', 'vintage', 'summer', 'evening', 'casual', 'cocktail', 'party', 'workwear', 'knit', 'denim']
 TYPES = ['dresses', 'tops', 'blouses', 'skirts', 'pants', 'jeans', 'jackets', 'sweaters', 'maxi-dresses']
@@ -45,6 +44,27 @@ def run_query(query: str, variables: dict = None) -> dict:
     resp = requests.post(GRAPHQL_URL, headers=HEADERS, json={"query": query, "variables": variables or {}}, timeout=20)
     resp.raise_for_status()
     return resp.json()
+
+def extract_strict_colors(title, variant_nodes):
+    colors = set()
+    t_lower = title.lower()
+    for col in COLORS:
+        if f" {col} " in f" {t_lower} " or f"({col})" in t_lower or f"- {col}" in t_lower or f"_{col}" in t_lower:
+            if "black friday" not in t_lower:
+                colors.add(col)
+                
+    for v in variant_nodes:
+        for opt in v.get("selectedOptions", []):
+            val = (opt.get("value") or "").lower()
+            for col in COLORS:
+                if col in val:
+                    colors.add(col)
+        v_title = (v.get("title") or "").lower()
+        for col in COLORS:
+            if col in v_title:
+                colors.add(col)
+                
+    return colors
 
 def fetch_catalog_products():
     q = """
@@ -58,6 +78,17 @@ def fetch_catalog_products():
             productType
             tags
             totalInventory
+            variants(first: 50) {
+              edges {
+                node {
+                  title
+                  selectedOptions {
+                    name
+                    value
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -69,13 +100,16 @@ def fetch_catalog_products():
     for e in edges:
         p = e["node"]
         if (p.get("totalInventory") or 0) > 0:
+            var_nodes = [v["node"] for v in p.get("variants", {}).get("edges", [])]
+            strict_colors = extract_strict_colors(p["title"], var_nodes)
+            
             products.append({
                 "id": p["id"],
                 "title": p["title"],
                 "handle": p["handle"],
                 "type": (p.get("productType") or "").lower(),
                 "tags": [t.lower() for t in p.get("tags", [])],
-                "search_text": f"{p['title']} {p.get('productType','')} {' '.join(p.get('tags',[]))}".lower()
+                "colors": strict_colors
             })
     return products
 
@@ -88,14 +122,27 @@ def generate_pseo_combinations(products):
                 comb_title = f"Women's {color.title()} {mat.title()} {ptype.title()}"
                 comb_handle = f"womens-{color}-{mat}-{ptype}"
                 
-                # Filter products matching all attributes
+                ptype_stem = ptype[:-1] if ptype.endswith("s") else ptype
+                
                 matching = []
                 for p in products:
-                    txt = p["search_text"]
-                    if color in txt and mat in txt and ptype[:-1] in txt:
-                        matching.append(p)
+                    # 1. Strict Color Match (must exist in title or variant options)
+                    if color not in p["colors"]:
+                        continue
                         
-                # RULE OF 5 GUARDRAIL
+                    # 2. Material / Occasion Match
+                    txt = f"{p['title']} {' '.join(p['tags'])}".lower()
+                    if mat not in txt:
+                        continue
+                        
+                    # 3. Product Type Match
+                    p_type_txt = f"{p['title']} {p['type']} {' '.join(p['tags'])}".lower()
+                    if ptype_stem not in p_type_txt:
+                        continue
+                        
+                    matching.append(p)
+                    
+                # STRICT RULE OF 5 GUARDRAIL
                 if len(matching) >= 5:
                     combinations[comb_handle] = {
                         "title": comb_title,
@@ -108,6 +155,7 @@ def generate_pseo_combinations(products):
                     }
                     
     return combinations
+
 
 def build_pseo_description(title, color, material, ptype, count):
     intro = f"""
@@ -215,19 +263,41 @@ def create_or_update_collection(handle, title, body_html, color, material, ptype
     except Exception as e:
         print(f"  [pSEO] Error processing collection {handle}: {e}")
 
+def cleanup_non_compliant_collections(valid_handles: set):
+    """Delete any pSEO custom collection whose valid product count has dropped below 5 or was created in error."""
+    try:
+        r = requests.get(f"{BASE}/custom_collections.json?limit=250", headers=HEADERS)
+        cols = r.json().get("custom_collections", []) if r.status_code == 200 else []
+        
+        for c in cols:
+            handle = c.get("handle", "")
+            # Only target auto-generated pSEO collection handles matching our formula
+            if handle.startswith("womens-") and ("-dresses" in handle or "-tops" in handle or "-blouses" in handle or "-skirts" in handle or "-pants" in handle or "-jeans" in handle or "-jackets" in handle or "-sweaters" in handle) and handle not in valid_handles:
+                cid = c["id"]
+                title = c.get("title")
+                requests.delete(f"{BASE}/custom_collections/{cid}.json", headers=HEADERS)
+                print(f"  [pSEO Cleanup] 🗑️ Deleted non-compliant collection: '{title}' ({handle}) — insufficient verified variant color matches.")
+    except Exception as e:
+        print(f"Warning during pSEO collection cleanup: {e}")
+
 def run_pseo_pipeline(dry_run=False):
     print("🔍 Fetching active in-stock products for pSEO analysis...")
     products = fetch_catalog_products()
     print(f"  Found {len(products)} active in-stock products.")
     
     combs = generate_pseo_combinations(products)
-    print(f"✅ Identified {len(combs)} pSEO combinations meeting the 5+ item threshold.")
+    print(f"✅ Identified {len(combs)} pSEO combinations meeting the strict 5+ item threshold.")
+    
+    valid_handles = set(combs.keys())
     
     for handle, data in combs.items():
         print(f"  • {data['title']} -> {data['count']} matching items")
         if not dry_run:
             html = build_pseo_description(data['title'], data['color'], data['material'], data['type'], data['count'])
             create_or_update_collection(handle, data['title'], html, data['color'], data['material'], data['type'], data['products'])
+            
+    if not dry_run:
+        cleanup_non_compliant_collections(valid_handles)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="pSEO Occasion Hub Generator")
@@ -235,5 +305,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     run_pseo_pipeline(dry_run=args.dry_run)
+
 
 
