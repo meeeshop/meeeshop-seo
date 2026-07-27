@@ -80,6 +80,7 @@ def generate_outfit_collage(main_product: dict, matching_products: list) -> Path
 from io import BytesIO
 import weekly_trend_blog as wtb
 from internal_linker import LinkMap
+from article_deduplicator import ArticleDeduplicator
 
 # ── credentials ───────────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -1434,6 +1435,10 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
     all_blogs = get_all_blogs()
     print(f"  Available blogs: {[b['title'] for b in all_blogs]}\n")
 
+    # ── Deduplication: load all live article titles + handles once ─────────────
+    dedup = ArticleDeduplicator(BASE, HEADERS)
+    dedup.load_live_index()
+
     # Build internal linker map
     print("[*] Building internal linker map...")
     link_map = wtb.build_linker_map()
@@ -1507,6 +1512,24 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
         print(f"  Featured Image : {img_url}")
         print(f"  Author    : {author_name}")
 
+        # ── Deduplication check before publishing ──────────────────────────────
+        fmt_key = content_assets.get("chosen_mode", fmt)
+        result = dedup.resolve(
+            title=post_title,
+            handle=suggested_handle or "",
+            product_handle=product.get("handle", ""),
+            article_format=fmt_key,
+            dry_run=dry_run,
+        )
+        if result is None:
+            print(f"  [Dedup] Skipping article — same product+format published recently.")
+            continue
+        post_title, suggested_handle = result
+
+        # Update content_assets with resolved title/handle
+        content_assets["title"] = post_title
+        content_assets["handle"] = suggested_handle
+
         # Publish (or save as draft)
         status_label = "live" if publish else "DRAFT (review in Shopify Admin before publishing)"
         print(f"  Status    : {status_label}")
@@ -1532,6 +1555,14 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
 
         if article:
             created += 1
+            # Register published title+handle so same run doesn't duplicate
+            dedup.register(post_title, suggested_handle)
+            # Record product×format cooldown
+            dedup.record_product_format(
+                product.get("handle", ""),
+                fmt_key,
+                dry_run=dry_run
+            )
         print()
         time.sleep(4.0)
 

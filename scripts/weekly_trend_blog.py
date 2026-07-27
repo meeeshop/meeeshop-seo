@@ -65,6 +65,7 @@ from internal_linker import (
     COLLECTION_ID_TO_PRODUCTS,
     fetch_products_for_collection
 )
+from article_deduplicator import ArticleDeduplicator
 
 inject_to_env()
 
@@ -1528,7 +1529,11 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
     
     product_history = load_used_products_history()
     product_history = clean_old_history(product_history, days=7)
-    
+
+    # ── Deduplication: load all live article titles + handles once ─────────────
+    dedup = ArticleDeduplicator(BASE, HEADERS)
+    dedup.load_live_index()
+
     type_pool = list(research.keys())
     random.shuffle(type_pool)
     
@@ -1647,6 +1652,22 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
             print(f"    [Dry Run] Saved HTML preview -> {preview_path.absolute()}")
         else:
             published_live = publish
+            # ── Deduplication check before publishing ───────────────────────
+            dedup_result = dedup.resolve(
+                title=seo_title,
+                handle=suggested_handle,
+                product_handle=main_product.get("handle", ""),
+                article_format=chosen_mode_id,
+                dry_run=False,
+            )
+            if dedup_result is None:
+                print("    [Dedup] Skipping — same product+format published recently.")
+                continue
+            seo_title, suggested_handle = dedup_result
+            result["title"] = seo_title
+            result["handle"] = suggested_handle
+            result["seo_title"] = seo_title
+
             article_payload = {
                 "article": {
                     "title": seo_title,
@@ -1673,6 +1694,13 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
             if r.status_code in (200, 201):
                 art = r.json().get("article", {})
                 print(f"    [Shopify] Success! Article ID: {art.get('id')} | Handle: {art.get('handle')}")
+                # Register so subsequent articles in same run can't collide
+                dedup.register(seo_title, suggested_handle)
+                dedup.record_product_format(
+                    main_product.get("handle", ""),
+                    chosen_mode_id,
+                    dry_run=False
+                )
             else:
                 print(f"    [!] Shopify Upload Failed: {r.status_code} - {r.text}")
                 
