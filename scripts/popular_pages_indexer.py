@@ -20,6 +20,8 @@ from pathlib import Path
 # ── path setup ────────────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from secrets_manager import inject_to_env, get_secret
+from article_deduplicator import ArticleDeduplicator
+from utils import get_category_style_phrase
 
 inject_to_env()
 
@@ -250,10 +252,22 @@ def generate_blogs_from_longtail(queries: list[dict], max_blogs: int = 1, dry_ru
 
     print(f"\nFound {len(queries)} potential long-tail question/trend queries for blog creation.")
     selected = queries[:max_blogs]
-    
+
+    # Initialize deduplication engine against live store
+    TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
+    admin_base = f"https://{SHOP}/admin/api/2024-10"
+    headers = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
+    dedup = ArticleDeduplicator(admin_base, headers)
+    dedup.load_live_index()
+
     for i, item in enumerate(selected, 1):
         q = item["query"]
-        print(f"\n[{i}/{len(selected)}] Preparing blog post for long-tail query: '{q}' (Impressions: {item['impressions']}, Clicks: {item['clicks']})")
+        category_topic = get_category_style_phrase({"title": q, "product_type": q})
+        print(f"\n[{i}/{len(selected)}] Preparing blog post for long-tail query: '{q}' → category topic: '{category_topic}' (Impressions: {item['impressions']}, Clicks: {item['clicks']})")
+
+        if dedup.is_duplicate_title(q) or dedup.is_duplicate_title(category_topic):
+            print(f"  [Dedup] SKIP — Article for search query / topic '{q}' ('{category_topic}') already exists on Shopify.")
+            continue
 
         try:
             import subprocess
@@ -261,7 +275,7 @@ def generate_blogs_from_longtail(queries: list[dict], max_blogs: int = 1, dry_ru
                 sys.executable,
                 str(Path(__file__).parent / "blog_daily.py"),
                 "--count", "1",
-                "--topic", q,
+                "--topic", category_topic,
             ]
             if dry_run:
                 cmd.append("--dry-run")
@@ -276,7 +290,7 @@ def generate_blogs_from_longtail(queries: list[dict], max_blogs: int = 1, dry_ru
 
             if res.returncode == 0:
                 mode_str = "dry-run preview" if dry_run else "published live"
-                print(f"  ✓ Blog article creation ({mode_str}) completed for topic '{q}'!")
+                print(f"  ✓ Blog article creation ({mode_str}) completed for topic '{category_topic}'!")
         except Exception as e:
             print(f"  [ERROR] Failed to run blog generation for query '{q}': {e}")
 

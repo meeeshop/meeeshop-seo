@@ -1036,7 +1036,7 @@ Output ONLY clean HTML body content then the <seometa> block. No markdown fences
    SEO_TITLE: {title_hint}
    SUGGESTED_HANDLE: {original_handle_hint}
 """
-    return prompt, mode
+    return prompt, title_hint, mode
 
 def _parse_seometa(raw: str) -> dict:
     meta = {"seo_title": "", "meta_desc": "", "img_alt": "", "suggested_handle": "", "suggested_tags": []}
@@ -1376,7 +1376,7 @@ def generate_single_article_content(
                 mode = m
                 break
                 
-    prompt, chosen_mode = _build_article_prompt(main_product, rdata, matching_products, mode=mode, original_handle_hint=original_handle_hint)
+    prompt, title_hint, chosen_mode = _build_article_prompt(main_product, rdata, matching_products, mode=mode, original_handle_hint=original_handle_hint)
     
     print(f"  Article Mode: {chosen_mode['id']}")
     print("  Generating new content with AI...")
