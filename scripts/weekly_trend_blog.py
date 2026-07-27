@@ -1626,6 +1626,19 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
         blog = chosen_blog
         print(f"    Routing to blog: '{blog['title']}' (handle: {blog['handle']})")
                 
+        # ── Deduplication check (runs in both dry-run and live mode) ─────────────
+        dedup_result = dedup.resolve(
+            title=seo_title,
+            handle=suggested_handle,
+            product_handle=main_product.get("handle", ""),
+            article_format=chosen_mode_id,
+            dry_run=dry_run,
+        )
+        if dedup_result is None:
+            print("    [Dedup] Skipping — same product+format published recently.")
+            continue
+        seo_title, suggested_handle = dedup_result
+
         result = {
             "title": seo_title,
             "handle": suggested_handle,
@@ -1652,22 +1665,6 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
             print(f"    [Dry Run] Saved HTML preview -> {preview_path.absolute()}")
         else:
             published_live = publish
-            # ── Deduplication check before publishing ───────────────────────
-            dedup_result = dedup.resolve(
-                title=seo_title,
-                handle=suggested_handle,
-                product_handle=main_product.get("handle", ""),
-                article_format=chosen_mode_id,
-                dry_run=False,
-            )
-            if dedup_result is None:
-                print("    [Dedup] Skipping — same product+format published recently.")
-                continue
-            seo_title, suggested_handle = dedup_result
-            result["title"] = seo_title
-            result["handle"] = suggested_handle
-            result["seo_title"] = seo_title
-
             article_payload = {
                 "article": {
                     "title": seo_title,
