@@ -1402,10 +1402,10 @@ def generate_single_article_content(
         words = original_handle_hint.split("-")
         new_title = " ".join(w.capitalize() for w in words if w)
     else:
-        suggested_handle = seometa.get("suggested_handle") or f"style-guide-{main_product['handle']}"
-        new_title = seometa.get("seo_title") or f"How to Wear & Style {main_product['title']}"
-    meta_desc = seometa.get("meta_desc") or f"Expert styling guide and care tips for {main_product['title']}."
-    img_alt = seometa.get("img_alt") or f"{main_product['title']} styling collage"
+        new_title = title_hint
+        suggested_handle = _slugify(new_title)
+    meta_desc = seometa.get("meta_desc") or f"Expert styling guide and care tips for {get_category_style_phrase(main_product)}."
+    img_alt = seometa.get("img_alt") or f"{get_category_style_phrase(main_product)} styling guide"
     new_tags = seometa.get("suggested_tags") or ["style", "fashion", ptype.lower()]
 
     # Enforce current year (2026) across all fields
