@@ -428,21 +428,39 @@ def detect_cat(title, product_type='', tags=''):
     return 'Women\'s Fashion', 'piece'
 
 
-# ── Meta title (Google standard: ≤60 chars) ───────────────────────────────────
+# ── Meta title (Google standard: ≤60 chars, US intent & sizing focused) ────────
 def build_meta_title(title, product_type='', tags=''):
-    cat, _ = detect_cat(title, product_type, tags)
-    # Format: Product Title | Category | Brand (with .com for SEO)
-    full  = f"{title} | {cat} | {BRAND}"
+    cat, word = detect_cat(title, product_type, tags)
+    
+    # Extract style keyword (e.g., Boho, Vintage, Casual, Floral, Summer)
+    style_keywords = {'boho', 'vintage', 'floral', 'summer', 'casual', 'elegant', 'chic', 'retro', 'cozy', 'oversized', 'knit', 'denim', 'linen', 'silk', 'lace', 'print', 'solid'}
+    title_lower = title.lower()
+    tag_lower = (tags or '').lower()
+    found_style = next((s.title() for s in style_keywords if s in title_lower or s in tag_lower), cat)
+    
+    # Dynamic sizing hint based on category
+    sizing = "XS-3XL" if cat in ('Dresses', 'Tops', 'Bottoms', 'Outerwear', 'One-Pieces', 'Skirts') else "One Size"
+    
+    # 1. Preferred High-CTR Long-Tail Format: [Title] - [Style] | US Size [Sizing] | Free Shipping
+    full = f"{title} - {found_style} | US Size {sizing} | Free Shipping"
     if len(full) <= 60:
         return full
-    # Shorten: Product Title | Brand (with .com)
-    short = f"{title} | {BRAND}"
-    if len(short) <= 60:
-        return short
-    # Truncate title to fit
-    max_title = 60 - len(f" | {BRAND}")
-    truncated_title = title[:max_title].rsplit(' ', 1)[0] if ' ' in title[:max_title] else title[:max_title-1]
-    return f"{truncated_title} | {BRAND}"
+        
+    # 2. Medium High-CTR Format: [Title] - US Size [Sizing] | Free US Shipping
+    medium = f"{title} | US Size {sizing} | Free US Shipping"
+    if len(medium) <= 60:
+        return medium
+
+    # 3. Compact High-CTR Format: [Title] | Free US Shipping
+    compact = f"{title} | Free US Shipping"
+    if len(compact) <= 60:
+        return compact
+        
+    # 4. Truncated Title to fit Google's 60-char limit
+    max_title_len = 60 - len(" | Free US Shipping")
+    truncated_title = title[:max_title_len].rsplit(' ', 1)[0] if ' ' in title[:max_title_len] else title[:max_title_len-1]
+    return f"{truncated_title} | Free US Shipping"
+
 
 
 # ── Extract keywords naturally from title/description ──────────────────────────
