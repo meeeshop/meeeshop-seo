@@ -94,6 +94,22 @@ class ArticleDeduplicator:
         t = re.sub(r"-+", "-", t)
         return t.strip("-")[:80]
 
+    def _get(self, url: str, params: dict = None) -> requests.Response:
+        """Robust GET request with exponential backoff on HTTP 429 rate limits."""
+        for attempt in range(5):
+            try:
+                r = requests.get(url, headers=self.headers, params=params, timeout=25)
+                if r.status_code == 429:
+                    wait = int(float(r.headers.get("Retry-After", 4))) + (2 ** attempt)
+                    print(f"  [Dedup] Rate limited (429) on {url} — waiting {wait}s…")
+                    time.sleep(wait)
+                    continue
+                r.raise_for_status()
+                return r
+            except Exception as e:
+                time.sleep(3 * (attempt + 1))
+        raise RuntimeError(f"GET {url} failed after 5 attempts")
+
     # ── Live index loader ──────────────────────────────────────────────────────
     def load_live_index(self, verbose: bool = True) -> int:
         """
@@ -105,11 +121,7 @@ class ArticleDeduplicator:
 
         # Fetch all blogs first
         try:
-            r = requests.get(
-                f"{self.base_url}/blogs.json",
-                headers=self.headers, timeout=20
-            )
-            r.raise_for_status()
+            r = self._get(f"{self.base_url}/blogs.json")
             blogs = r.json().get("blogs", [])
         except Exception as e:
             print(f"  [Dedup] Warning — could not load blogs: {e}")
@@ -125,19 +137,12 @@ class ArticleDeduplicator:
                 if page_info:
                     params["page_info"] = page_info
                 try:
-                    r = requests.get(
-                        f"{self.base_url}/blogs/{blog_id}/articles.json",
-                        headers=self.headers, params=params, timeout=20
-                    )
-                    if r.status_code == 429:
-                        time.sleep(int(float(r.headers.get("Retry-After", 4))))
-                        continue
-                    r.raise_for_status()
+                    r = self._get(f"{self.base_url}/blogs/{blog_id}/articles.json", params=params)
+                    articles = r.json().get("articles", [])
                 except Exception as e:
                     print(f"  [Dedup] Warning — could not load articles for blog '{blog_title}': {e}")
                     break
 
-                articles = r.json().get("articles", [])
                 for art in articles:
                     self._titles.add(self._fingerprint(art.get("title", "")))
                     h = art.get("handle", "")

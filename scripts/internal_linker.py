@@ -388,6 +388,26 @@ def update_article(blog_id: int, article_id: int, body_html: str) -> bool:
 # KEYWORD → URL MAPPING
 # ══════════════════════════════════════════════════════════════════════════════
 
+def is_single_product_article(title: str, handle: str) -> bool:
+    """
+    Returns True if an article handle or title refers to a single specific vendor product
+    (e.g., 'athena-inseam-transform-high-rise-a-wide-jeans-guide' or 'adler-breech-petite-guide').
+    Such legacy articles should NOT be registered as internal link targets.
+    """
+    h = handle.lower()
+    t = title.lower()
+    vendor_signals = ["judy blue", "athena inseam", "adler breech", "aeliana", "howdy tank", "astrid", "open front cardigan", "a-wide jeans"]
+    if any(sig in t or sig.replace(" ", "-") in h for sig in vendor_signals):
+        return True
+
+    words = h.split("-")
+    if len(words) >= 5 and words[-1] in ("guide", "review", "pick", "picks"):
+        if not any(cat in h for cat in ["style-guide", "dresses-style", "jeans-style", "pants-style", "tops-style", "shirts-style", "trends", "fashion-trends"]):
+            return True
+
+    return False
+
+
 class LinkMap:
     """Maps keywords to linkable URLs."""
 
@@ -405,7 +425,9 @@ class LinkMap:
         self._register_keywords(title, url, title, is_collection=True)
 
     def add_article(self, title: str, blog_handle: str, article_handle: str):
-        """Register article keywords."""
+        """Register article keywords (skipping legacy single-product articles)."""
+        if is_single_product_article(title, article_handle):
+            return
         url = f"{SITE}/blogs/{blog_handle}/{article_handle}"
         self._register_keywords(title, url, title, is_collection=False)
 

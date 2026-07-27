@@ -52,7 +52,8 @@ from utils import (
     enforce_current_year,
     is_product_compatible,
     select_styling_matches,
-    get_category_style_phrase
+    get_category_style_phrase,
+    sanitize_title_to_category_phrase
 )
 from internal_linker import (
     LinkMap,
@@ -1402,7 +1403,7 @@ def generate_single_article_content(
         words = original_handle_hint.split("-")
         new_title = " ".join(w.capitalize() for w in words if w)
     else:
-        new_title = title_hint
+        new_title = sanitize_title_to_category_phrase(title_hint, main_product)
         suggested_handle = _slugify(new_title)
     meta_desc = seometa.get("meta_desc") or f"Expert styling guide and care tips for {get_category_style_phrase(main_product)}."
     img_alt = seometa.get("img_alt") or f"{get_category_style_phrase(main_product)} styling guide"

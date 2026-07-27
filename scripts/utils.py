@@ -347,6 +347,37 @@ def get_category_style_phrase(product: dict) -> str:
 
     return "Women's Fashion Staples"
 
+
+def sanitize_title_to_category_phrase(title: str, product: dict) -> str:
+    """
+    Guarantees that an article title NEVER contains a single vendor product name.
+    If a specific vendor product title is detected inside title, converts it to the generic category/style phrase.
+    """
+    if not title or not product:
+        return title or ""
+
+    category_phrase = get_category_style_phrase(product)
+    prod_title = (product.get("title") or "").strip()
+    vendor = (product.get("vendor") or "").strip()
+
+    clean_p = prod_title
+    if vendor and clean_p.lower().startswith(vendor.lower()):
+        clean_p = clean_p[len(vendor):].strip()
+
+    # Remove trailing parenthesis or color details (e.g. '(medium wash)', '(red/blue)')
+    clean_p_base = re.sub(r"\s*\([^)]+\)", "", clean_p).strip()
+
+    if prod_title.lower() in title.lower():
+        title = re.sub(re.escape(prod_title), category_phrase, title, flags=re.IGNORECASE)
+    if clean_p and len(clean_p) > 3 and clean_p.lower() in title.lower():
+        title = re.sub(re.escape(clean_p), category_phrase, title, flags=re.IGNORECASE)
+    if clean_p_base and len(clean_p_base) > 3 and clean_p_base.lower() in title.lower():
+        title = re.sub(re.escape(clean_p_base), category_phrase, title, flags=re.IGNORECASE)
+
+    # Clean up double words or formatting leftover (e.g. 'Guide Guide', 'Women's Jeans Guide')
+    title = re.sub(r"\b(\w+)\s+\1\b", r"\1", title, flags=re.IGNORECASE)
+    return title.strip()
+
 # ---------------------------------------------------------------------------
 # 3. Collage generation — 1200x630 Discover landscape layout
 # ---------------------------------------------------------------------------
