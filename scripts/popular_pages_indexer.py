@@ -265,8 +265,8 @@ def generate_blogs_from_longtail(queries: list[dict], max_blogs: int = 1, dry_ru
         category_topic = get_category_style_phrase({"title": q, "product_type": q})
         print(f"\n[{i}/{len(selected)}] Preparing blog post for long-tail query: '{q}' → category topic: '{category_topic}' (Impressions: {item['impressions']}, Clicks: {item['clicks']})")
 
-        if dedup.is_duplicate_title(q) or dedup.is_duplicate_title(category_topic):
-            print(f"  [Dedup] SKIP — Article for search query / topic '{q}' ('{category_topic}') already exists on Shopify.")
+        if dedup.is_duplicate_title(q) or dedup.is_duplicate_title(category_topic) or dedup.is_duplicate_category_or_topic(q, category_topic):
+            print(f"  [Dedup] SKIP — Article for search query / category topic '{q}' ('{category_topic}') already exists or was covered recently on Shopify.")
             continue
 
         try:

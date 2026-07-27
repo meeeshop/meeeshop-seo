@@ -220,6 +220,34 @@ class ArticleDeduplicator:
         self._save_history()
 
     # ── Title / handle uniqueness ──────────────────────────────────────────────
+    def is_duplicate_category_or_topic(self, topic: str, category_phrase: str = "") -> bool:
+        """
+        Returns True if an article covering the same core category or topic (e.g. 'jeans', 'dresses', 'blazer', 'sweater')
+        is already indexed on the live store or was created during this run.
+        """
+        ignore_words = {
+            "women", "womens", "style", "guide", "best", "the", "for", "and",
+            "outfit", "outfits", "staples", "2026", "2025", "trend", "trends",
+            "fashion", "shopping", "edit", "ideas", "tips", "how", "wear", "with"
+        }
+        search_terms = set()
+        for text in [topic, category_phrase]:
+            if not text:
+                continue
+            words = [w.lower() for w in re.findall(r"\b[a-zA-Z]{3,}\b", text) if w.lower() not in ignore_words]
+            search_terms.update(words)
+
+        if not search_terms:
+            return False
+
+        all_titles = self._titles | self._registered_titles
+        for term in search_terms:
+            for fp in all_titles:
+                if term in fp:
+                    return True
+
+        return False
+
     def is_duplicate_title(self, title: str) -> bool:
         """Return True if a normalised version of this title is already indexed."""
         fp = self._fingerprint(title)

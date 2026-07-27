@@ -1448,7 +1448,19 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
             type_map[ptype] = []
         type_map[ptype].append(p)
 
-    chosen   = random.sample(pool, min(count, len(pool)))
+    # Filter candidate pool to enforce category diversity across runs
+    filtered_pool = []
+    for p in pool:
+        cat_phrase = get_category_style_phrase(p)
+        ptype_val = p.get("product_type", "")
+        if not dedup.is_duplicate_category_or_topic(ptype_val, cat_phrase):
+            filtered_pool.append(p)
+
+    candidate_pool = filtered_pool if filtered_pool else pool
+    if len(filtered_pool) < count:
+        print(f"  [Dedup] Filtered pool has {len(filtered_pool)} fresh categories remaining out of {len(pool)} products.")
+
+    chosen   = random.sample(candidate_pool, min(count, len(candidate_pool)))
 
     created = 0
     for i, product in enumerate(chosen):
