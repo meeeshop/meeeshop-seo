@@ -35,7 +35,8 @@ from utils import (
     generate_collage,
     extract_handle_count,
     is_product_compatible,
-    select_styling_matches
+    select_styling_matches,
+    get_category_style_phrase
 )
 
 def generate_outfit_collage(main_product: dict, matching_products: list) -> Path | None:
@@ -1358,42 +1359,39 @@ def get_clean_product_type(product: dict) -> str:
 
 
 def generate_keyword_title_and_format(product: dict, format_override: str = None) -> tuple[str, str, str]:
-    display_name = get_product_display_name(product)
-    clean_ptype = get_clean_product_type(product)
+    category_phrase = get_category_style_phrase(product)
 
-    # Jeans/denim articles get 2026-trending topic titles
     is_denim = any(x in (product.get("product_type") or "").lower() or (product.get("title") or "").lower()
                    for x in ["jean", "denim"])
 
     options = [
-        (f"{display_name} sizing",
-         f"Is {display_name} True to Size? Sizing & Fit Guide for Women {YEAR}",
+        (f"{category_phrase} sizing guide",
+         f"{category_phrase}: Sizing & Fit Guide for Women {YEAR}",
          "sizing_guide"),
-        (f"how to style {display_name}",
-         f"5 Stunning Outfits You Can Build Around {display_name} in {YEAR}",
+        (f"how to style {category_phrase}",
+         f"5 Stunning Outfits to Build Around {category_phrase} in {YEAR}",
          "outfit_formula"),
-        (f"{display_name} review",
-         f"The Best {display_name} for Women in {YEAR}: Our Editor's Honest Guide",
+        (f"best {category_phrase} for women",
+         f"The Best {category_phrase} for Women in {YEAR}: Our Editor's Guide",
          "buying_guide"),
-        (f"styling {display_name}",
-         f"{MONTH} Women's Fashion Trends: How to Style the {display_name}",
+        (f"{category_phrase} fashion trends",
+         f"{MONTH} Women's Fashion Trends: How to Style {category_phrase}",
          "trend_report"),
-        (f"how to wash {display_name}",
-         f"How to Wash and Care for Your {display_name} ({YEAR} Style Guide)",
+        (f"how to wash {category_phrase}",
+         f"How to Wash & Care for {category_phrase} ({YEAR} Style Guide)",
          "care_guide"),
-        (f"{display_name} styling",
-         f"How to Style the {display_name} for Casual Chic Outfits (Complete {YEAR} Guide)",
+        (f"styling {category_phrase}",
+         f"How to Style {category_phrase} for Casual Chic Outfits ({YEAR} Guide)",
          "problem_solver")
     ]
 
-    # For denim products, add trending 2026 topic options
     if is_denim:
         options += [
-            (f"quiet luxury jeans {display_name}",
-             f"The Quiet Luxury Denim Look: How to Style {display_name} in {YEAR}",
+            (f"quiet luxury {category_phrase}",
+             f"The Quiet Luxury Denim Look: How to Style {category_phrase} in {YEAR}",
              "trend_report"),
-            (f"how to pair {display_name} summer",
-             f"Summer {YEAR} Jeans Outfit Formula: Style {display_name} 5 Ways",
+            (f"how to pair {category_phrase} summer",
+             f"Summer {YEAR} Denim Outfit Formula: Style {category_phrase} 5 Ways",
              "outfit_formula"),
         ]
 
@@ -1402,8 +1400,6 @@ def generate_keyword_title_and_format(product: dict, format_override: str = None
         if matched:
             return matched[0]
 
-    # Weights: sizing_guide (10%), outfit_formula (25%), buying_guide (20%),
-    # trend_report (20%), care_guide (5%), problem_solver (20%)
     base_options = options[:6]
     weights = [0.10, 0.25, 0.20, 0.20, 0.05, 0.20]
     return random.choices(base_options, weights=weights, k=1)[0]

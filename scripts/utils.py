@@ -249,6 +249,104 @@ def select_styling_matches(main_product: dict, pool: list, num_matches: int = 2,
     ]
     return random.sample(general_pool, min(num_matches, len(general_pool))) if general_pool else []
 
+
+def get_category_style_phrase(product: dict) -> str:
+    """
+    Derives a clean, generic, plural category or style phrase from a product title and type.
+    Ensures blog titles cover generic product categories/styles rather than hyper-specific vendor product titles.
+    Examples:
+      'Across the Way Woven Lace Mini Dress' -> 'Woven Lace Mini Dresses'
+      'Judy Blue High Waist Straight Leg Jean' -> 'High-Waist Straight-Leg Jeans'
+      'Emory Park Aeliana Top' -> 'Women's Tops & Blouses'
+    """
+    title = (product.get("title") or "").strip()
+    ptype = (product.get("product_type") or "").strip().lower()
+    t_lower = title.lower()
+
+    # Clean vendor or brand prefix from title if present
+    vendor = (product.get("vendor") or "").strip().lower()
+    clean_title = t_lower
+    if vendor and clean_title.startswith(vendor):
+        clean_title = clean_title[len(vendor):].strip()
+
+    # Subcategory / Style pattern matches (specific to general)
+    subcategories = [
+        ("lace mini dress", "Lace Mini Dresses"),
+        ("lace maxi dress", "Lace Maxi Dresses"),
+        ("woven lace", "Woven Lace Dresses"),
+        ("woven dress", "Woven Dresses"),
+        ("maxi dress", "Maxi Dresses"),
+        ("midi dress", "Midi Dresses"),
+        ("mini dress", "Mini Dresses"),
+        ("casual dress", "Casual Dresses"),
+        ("cocktail dress", "Cocktail Dresses"),
+        ("wrap dress", "Wrap Dresses"),
+        ("sweater dress", "Sweater Dresses"),
+        ("shirt dress", "Shirt Dresses"),
+        ("slip dress", "Slip Dresses"),
+        ("flare jean", "Flare Jeans"),
+        ("flare jeans", "Flare Jeans"),
+        ("wide leg jean", "Wide-Leg Jeans"),
+        ("wide leg jeans", "Wide-Leg Jeans"),
+        ("straight leg jean", "Straight-Leg Jeans"),
+        ("straight leg jeans", "Straight-Leg Jeans"),
+        ("skinny jean", "Skinny Jeans"),
+        ("skinny jeans", "Skinny Jeans"),
+        ("bootcut jean", "Bootcut Jeans"),
+        ("high waist jean", "High-Waist Jeans"),
+        ("high waist", "High-Waist Denim"),
+        ("denim jacket", "Denim Jackets"),
+        ("denim skirt", "Denim Skirts"),
+        ("linen top", "Linen Tops"),
+        ("knit top", "Knit Tops"),
+        ("crop top", "Crop Tops"),
+        ("tank top", "Tank Tops"),
+        ("graphic tee", "Graphic Tees"),
+        ("t-shirt", "T-Shirts & Tees"),
+        ("tee", "T-Shirts & Tees"),
+        ("cardigan", "Cardigans & Sweaters"),
+        ("pullover", "Sweaters & Knits"),
+        ("sweater", "Sweaters & Knits"),
+        ("blouse", "Women's Blouses & Tops"),
+        ("skirt", "Women's Skirts"),
+        ("skort", "Shorts & Skorts"),
+        ("short", "Shorts & Skorts"),
+        ("jort", "Shorts & Jorts"),
+        ("pant", "Women's Pants & Trousers"),
+        ("trouser", "Women's Pants & Trousers"),
+        ("legging", "Women's Pants & Leggings"),
+        ("jacket", "Women's Jackets & Blazers"),
+        ("coat", "Women's Coats & Outerwear"),
+        ("blazer", "Women's Blazers"),
+        ("handbag", "Handbags & Bags"),
+        ("tote", "Tote Bags & Handbags"),
+        ("bag", "Handbags & Accessories"),
+    ]
+
+    for sub_kw, label in subcategories:
+        if sub_kw in clean_title:
+            return label
+
+    # Category fallback
+    if "jean" in ptype or "denim" in ptype or "jean" in t_lower or "denim" in t_lower:
+        return "Women's Jeans"
+    if "dress" in ptype or "dress" in t_lower:
+        return "Women's Dresses"
+    if any(x in ptype or x in t_lower for x in ["top", "blouse", "shirt", "tee"]):
+        return "Women's Tops & Shirts"
+    if any(x in ptype or x in t_lower for x in ["sweater", "cardigan", "knit"]):
+        return "Women's Sweaters & Cardigans"
+    if "skirt" in ptype or "skirt" in t_lower:
+        return "Women's Skirts"
+    if any(x in ptype or x in t_lower for x in ["pant", "trouser", "legging"]):
+        return "Women's Pants & Trousers"
+    if any(x in ptype or x in t_lower for x in ["jacket", "coat", "blazer", "outerwear"]):
+        return "Women's Jackets & Outerwear"
+    if any(x in ptype or x in t_lower for x in ["bag", "handbag", "accessory"]):
+        return "Women's Handbags & Accessories"
+
+    return "Women's Fashion Staples"
+
 # ---------------------------------------------------------------------------
 # 3. Collage generation — 1200x630 Discover landscape layout
 # ---------------------------------------------------------------------------

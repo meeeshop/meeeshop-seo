@@ -51,7 +51,8 @@ from utils import (
     extract_handle_count,
     enforce_current_year,
     is_product_compatible,
-    select_styling_matches
+    select_styling_matches,
+    get_category_style_phrase
 )
 from internal_linker import (
     LinkMap,
@@ -765,17 +766,8 @@ ARTICLE_MODES = [
         "title_examples": ["Pack Like a Pro: The Only 5 Dresses You Need for a 2-Week Trip", "The Travel Jean: What Makes a Jean Perfect for Every Destination"],
     },
     {
-        "id": "handbag_guide",
-        "title_pattern": "The Complete Guide to Choosing & Styling {ptype} for Any Occasion",
-        "angle": "handbag-buying-styling-functionality-guide",
-        "description": "Comprehensive handbag guide covering: how to choose the right size/shape/strap for your body and lifestyle, matching bags to outfits without being matchy-matchy, organisation tips to stop the 'black hole' effect, and which bag styles every woman needs. Applicable to handbags AND clothing accessories.",
-        "structure": "Bag chaos hook | TOC | How to choose by body proportions | The 5 essential bag silhouettes | Outfit-to-bag matching guide | Organisation masterclass | Investment vs. budget picks | FAQ | MeeeShop bag/accessory picks",
-        "tone": "Organised, practical stylist who knows how a great bag completes the look",
-        "title_examples": ["Which Handbag Shape Is Right for You? A Complete Styling Guide", "11 Handbag Rules Every Stylish Woman Should Know"],
-    },
-    {
         "id": "grwm_personal_story",
-        "title_pattern": "Get Ready With Me: How I Built {num} Outfits Around the {main_product}",
+        "title_pattern": "Get Ready With Me: How I Built {num} Outfits Around {ptype}",
         "angle": "personal-story-GRWM-relatable-content",
         "description": "First-person narrative GRWM-style article. The MeeeShop stylist (pen name) shares her personal experience styling the hero product for different real-life situations across a week. Include styling decisions, mishaps, compliments received, and honest tips.",
         "structure": "Personal intro (why this piece caught my eye) | Day-by-day styling diary (Mon-Sat) | Styling lessons learned | Honest review of fit/fabric | How to shop it | FAQ | Related products",
@@ -917,15 +909,11 @@ def _build_article_prompt(main_product: dict, research_data: dict, matching_prod
         words = original_handle_hint.split("-")
         title_hint = " ".join(w.capitalize() for w in words if w)
     else:
-        # Resolve dynamic placeholders in title pattern
-        season = random.choice(_SEASONS)
-        season2 = random.choice([s for s in _SEASONS if s != season])
-        occasion = random.choice(_OCCASIONS)
-        num = random.choice(_NUMS)
+        category_phrase = get_category_style_phrase(main_product)
         title_hint = (
             mode["title_pattern"]
-            .replace("{ptype}", ptype)
-            .replace("{main_product}", main_product["title"])
+            .replace("{ptype}", category_phrase)
+            .replace("{main_product}", category_phrase)
             .replace("{season}", season)
             .replace("{season1}", season)
             .replace("{season2}", season2)
