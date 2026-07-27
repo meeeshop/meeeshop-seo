@@ -152,41 +152,53 @@ def build_pseo_description(title, color, material, ptype, count):
     """
     return intro + faq_schema
 
-def create_or_update_collection(handle, title, body_html):
-    mutation = """
-    mutation collectionCreate($input: CollectionInput!) {
-      collectionCreate(input: $input) {
-        collection {
-          id
-          handle
+from datetime import datetime, timezone
+
+BASE = f"https://{SHOP}/admin/api/2024-10"
+
+def create_or_update_collection(handle, title, body_html, color, material, ptype):
+    type_singular = ptype[:-1] if ptype.endswith("s") else ptype
+    rules = [
+        {"column": "title", "relation": "contains", "condition": type_singular.title()},
+        {"column": "title", "relation": "contains", "condition": color.title()}
+    ]
+    if material.lower() not in ('casual', 'summer', 'evening'):
+        rules.append({"column": "title", "relation": "contains", "condition": material.title()})
+
+    payload = {
+        "smart_collection": {
+            "title": title,
+            "handle": handle,
+            "body_html": body_html,
+            "published_scope": "global",
+            "published": True,
+            "published_at": datetime.now(timezone.utc).isoformat(),
+            "disjunctive": False,
+            "rules": rules
         }
-        userErrors {
-          field
-          message
-        }
-      }
     }
-    """
-    input_data = {
-        "title": title,
-        "handle": handle,
-        "descriptionHtml": body_html,
-        "ruleSet": {
-            "appliedDisjunctively": False,
-            "rules": [
-                {"column": "TAG", "relation": "EQUALS", "condition": "women"}
-            ]
-        }
-    }
+
     try:
-        res = run_query(mutation, {"input": input_data})
-        errors = res.get("data", {}).get("collectionCreate", {}).get("userErrors", [])
-        if errors:
-            print(f"  [pSEO] Notice creating {handle}: {errors[0]['message']}")
+        r_check = requests.get(f"{BASE}/smart_collections.json?handle={handle}", headers=HEADERS)
+        existing = r_check.json().get("smart_collections", []) if r_check.status_code == 200 else []
+
+        if existing:
+            cid = existing[0]["id"]
+            r_up = requests.put(f"{BASE}/smart_collections/{cid}.json", headers=HEADERS, json=payload)
+            if r_up.status_code in (200, 201):
+                data = r_up.json().get("smart_collection", {})
+                print(f"  [pSEO] Updated collection: {title} (ID: {cid}) with global sales channels.")
+            else:
+                print(f"  [pSEO] Warning updating {title}: {r_up.text}")
         else:
-            print(f"  [pSEO] Created collection: {title} ({handle})")
+            r_cr = requests.post(f"{BASE}/smart_collections.json", headers=HEADERS, json=payload)
+            if r_cr.status_code in (200, 201):
+                data = r_cr.json().get("smart_collection", {})
+                print(f"  [pSEO] Created collection: {title} (ID: {data.get('id')}) with global sales channels.")
+            else:
+                print(f"  [pSEO] Warning creating {title}: {r_cr.text}")
     except Exception as e:
-        print(f"  [pSEO] Error creating collection {handle}: {e}")
+        print(f"  [pSEO] Error processing collection {handle}: {e}")
 
 def run_pseo_pipeline(dry_run=False):
     print("🔍 Fetching active in-stock products for pSEO analysis...")
@@ -200,7 +212,7 @@ def run_pseo_pipeline(dry_run=False):
         print(f"  • {data['title']} -> {data['count']} matching items")
         if not dry_run:
             html = build_pseo_description(data['title'], data['color'], data['material'], data['type'], data['count'])
-            create_or_update_collection(handle, data['title'], html)
+            create_or_update_collection(handle, data['title'], html, data['color'], data['material'], data['type'])
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="pSEO Occasion Hub Generator")
@@ -208,3 +220,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     run_pseo_pipeline(dry_run=args.dry_run)
+
