@@ -1493,14 +1493,14 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
             continue
 
         # Destructure generated assets
-        post_title       = content_assets.get("title", f"{product['title']} Guide")
+        post_title       = content_assets.get("seo_title") or content_assets.get("title") or title_hint
         html_body        = content_assets.get("html_body", "")
         tags             = content_assets.get("tags", [])
         img_url          = content_assets.get("img_url", "")
-        img_alt          = content_assets.get("img_alt", product['title'])
+        img_alt          = content_assets.get("img_alt", get_category_style_phrase(product))
         meta_desc        = content_assets.get("meta_desc", "")
         author_name      = content_assets.get("author", "MeeeShop Editorial Team")
-        suggested_handle = content_assets.get("handle", "")
+        suggested_handle = content_assets.get("suggested_handle") or content_assets.get("handle", "")
 
         print(f"  SEO title : {post_title}")
         print(f"  Meta desc : {meta_desc[:60]}…")

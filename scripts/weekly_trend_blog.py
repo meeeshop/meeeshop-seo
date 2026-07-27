@@ -1469,9 +1469,11 @@ def generate_single_article_content(
         img_url = main_product["images"][0]["src"] if main_product.get("images") else None
 
     return {
-        "html_body": html_body,
+        "title": new_title,
         "seo_title": new_title,
+        "html_body": html_body,
         "meta_desc": meta_desc,
+        "handle": suggested_handle,
         "suggested_handle": suggested_handle,
         "tags": new_tags,
         "img_url": img_url,
