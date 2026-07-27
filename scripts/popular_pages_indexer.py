@@ -254,9 +254,6 @@ def generate_blogs_from_longtail(queries: list[dict], max_blogs: int = 1, dry_ru
     for i, item in enumerate(selected, 1):
         q = item["query"]
         print(f"\n[{i}/{len(selected)}] Preparing blog post for long-tail query: '{q}' (Impressions: {item['impressions']}, Clicks: {item['clicks']})")
-        if dry_run:
-            print(f"[DRY-RUN] Would execute blog_daily.py for topic: '{q}'")
-            continue
 
         try:
             import subprocess
@@ -265,8 +262,12 @@ def generate_blogs_from_longtail(queries: list[dict], max_blogs: int = 1, dry_ru
                 str(Path(__file__).parent / "blog_daily.py"),
                 "--count", "1",
                 "--topic", q,
-                "--publish"
             ]
+            if dry_run:
+                cmd.append("--dry-run")
+            else:
+                cmd.append("--publish")
+
             print(f"  Executing blog_daily workflow command: {' '.join(cmd)}")
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
             print(res.stdout)
@@ -274,7 +275,8 @@ def generate_blogs_from_longtail(queries: list[dict], max_blogs: int = 1, dry_ru
                 print(f"[LOG] {res.stderr}")
 
             if res.returncode == 0:
-                print(f"  ✓ Blog article creation completed for topic '{q}'!")
+                mode_str = "dry-run preview" if dry_run else "published live"
+                print(f"  ✓ Blog article creation ({mode_str}) completed for topic '{q}'!")
         except Exception as e:
             print(f"  [ERROR] Failed to run blog generation for query '{q}': {e}")
 
