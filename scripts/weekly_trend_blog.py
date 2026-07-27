@@ -51,7 +51,9 @@ from utils import (
     extract_handle_count,
     enforce_current_year,
     is_product_compatible,
-    select_styling_matches
+    select_styling_matches,
+    get_category_style_phrase,
+    sanitize_title_to_category_phrase
 )
 from internal_linker import (
     LinkMap,
@@ -65,6 +67,7 @@ from internal_linker import (
     COLLECTION_ID_TO_PRODUCTS,
     fetch_products_for_collection
 )
+from article_deduplicator import ArticleDeduplicator
 
 inject_to_env()
 
@@ -764,17 +767,8 @@ ARTICLE_MODES = [
         "title_examples": ["Pack Like a Pro: The Only 5 Dresses You Need for a 2-Week Trip", "The Travel Jean: What Makes a Jean Perfect for Every Destination"],
     },
     {
-        "id": "handbag_guide",
-        "title_pattern": "The Complete Guide to Choosing & Styling {ptype} for Any Occasion",
-        "angle": "handbag-buying-styling-functionality-guide",
-        "description": "Comprehensive handbag guide covering: how to choose the right size/shape/strap for your body and lifestyle, matching bags to outfits without being matchy-matchy, organisation tips to stop the 'black hole' effect, and which bag styles every woman needs. Applicable to handbags AND clothing accessories.",
-        "structure": "Bag chaos hook | TOC | How to choose by body proportions | The 5 essential bag silhouettes | Outfit-to-bag matching guide | Organisation masterclass | Investment vs. budget picks | FAQ | MeeeShop bag/accessory picks",
-        "tone": "Organised, practical stylist who knows how a great bag completes the look",
-        "title_examples": ["Which Handbag Shape Is Right for You? A Complete Styling Guide", "11 Handbag Rules Every Stylish Woman Should Know"],
-    },
-    {
         "id": "grwm_personal_story",
-        "title_pattern": "Get Ready With Me: How I Built {num} Outfits Around the {main_product}",
+        "title_pattern": "Get Ready With Me: How I Built {num} Outfits Around {ptype}",
         "angle": "personal-story-GRWM-relatable-content",
         "description": "First-person narrative GRWM-style article. The MeeeShop stylist (pen name) shares her personal experience styling the hero product for different real-life situations across a week. Include styling decisions, mishaps, compliments received, and honest tips.",
         "structure": "Personal intro (why this piece caught my eye) | Day-by-day styling diary (Mon-Sat) | Styling lessons learned | Honest review of fit/fabric | How to shop it | FAQ | Related products",
@@ -916,15 +910,15 @@ def _build_article_prompt(main_product: dict, research_data: dict, matching_prod
         words = original_handle_hint.split("-")
         title_hint = " ".join(w.capitalize() for w in words if w)
     else:
-        # Resolve dynamic placeholders in title pattern
         season = random.choice(_SEASONS)
         season2 = random.choice([s for s in _SEASONS if s != season])
         occasion = random.choice(_OCCASIONS)
         num = random.choice(_NUMS)
+        category_phrase = get_category_style_phrase(main_product)
         title_hint = (
             mode["title_pattern"]
-            .replace("{ptype}", ptype)
-            .replace("{main_product}", main_product["title"])
+            .replace("{ptype}", category_phrase)
+            .replace("{main_product}", category_phrase)
             .replace("{season}", season)
             .replace("{season1}", season)
             .replace("{season2}", season2)
@@ -1043,7 +1037,7 @@ Output ONLY clean HTML body content then the <seometa> block. No markdown fences
    SEO_TITLE: {title_hint}
    SUGGESTED_HANDLE: {original_handle_hint}
 """
-    return prompt, mode
+    return prompt, title_hint, mode
 
 def _parse_seometa(raw: str) -> dict:
     meta = {"seo_title": "", "meta_desc": "", "img_alt": "", "suggested_handle": "", "suggested_tags": []}
@@ -1334,6 +1328,41 @@ def _clean_html(raw: str) -> str:
     raw = re.sub(r"<seometa>.*?</seometa>", "", raw, flags=re.DOTALL | re.IGNORECASE)
     return raw.strip()
 
+def is_html_content_complete(html_body: str, raw_response: str) -> bool:
+    """
+    Validates whether the generated HTML body contains complete sections for every item listed in its Table of Contents.
+    Returns False if <seometa> is missing or if TOC items are missing corresponding H2/H3 body sections.
+    """
+    if not html_body or len(html_body.strip()) < 600:
+        return False
+
+    if not raw_response or "<seometa>" not in raw_response.lower():
+        return False
+
+    toc_match = re.search(r"Table of Contents.*?(?:</ul>|</ol>|</div>)", html_body, re.DOTALL | re.IGNORECASE)
+    if toc_match:
+        toc_text = toc_match.group(0)
+        toc_items = re.findall(r"<a[^>]*>(.*?)</a>|<li>(.*?)</li>", toc_text, re.IGNORECASE)
+        body_after_toc = html_body[toc_match.end():]
+        for item_tuple in toc_items:
+            item_text = (item_tuple[0] or item_tuple[1] or "").strip()
+            clean_item = re.sub(r"<[^>]+>", "", item_text).strip()
+            if not clean_item or len(clean_item) < 3:
+                continue
+
+            key_words = [w for w in re.findall(r"\b[a-zA-Z0-9]{3,}\b", clean_item) if w.lower() not in ("the", "and", "for", "with", "edit", "looks", "recipes")]
+            if key_words:
+                matched = False
+                for kw in key_words:
+                    if kw.lower() in body_after_toc.lower():
+                        matched = True
+                        break
+                if not matched:
+                    print(f"  [Validation Warning] Article truncated — TOC lists '{clean_item}' but section is missing in body!")
+                    return False
+
+    return True
+
 # ── Unified Content Generation Engine ──────────────────────────────────────────
 def generate_single_article_content(
     main_product: dict,
@@ -1383,15 +1412,16 @@ def generate_single_article_content(
                 mode = m
                 break
                 
-    prompt, chosen_mode = _build_article_prompt(main_product, rdata, matching_products, mode=mode, original_handle_hint=original_handle_hint)
+    prompt, title_hint, chosen_mode = _build_article_prompt(main_product, rdata, matching_products, mode=mode, original_handle_hint=original_handle_hint)
     
     print(f"  Article Mode: {chosen_mode['id']}")
     print("  Generating new content with AI...")
     prompt = prompt.replace("MeeeShop", BRAND_NAME)
-    raw_ai_response = ai_client.generate(prompt, max_tokens=3000, temperature=0.85)
+    raw_ai_response = ai_client.generate(prompt, max_tokens=3500, temperature=0.85)
+    html_body = _clean_html(raw_ai_response or "")
 
-    if not raw_ai_response:
-        print("  [ERROR] AI content generation failed. Running fallback content generation...")
+    if not raw_ai_response or not is_html_content_complete(html_body, raw_ai_response):
+        print("  [Validation Fail] AI content generation was incomplete or truncated. Running robust fallback content generation...")
         raw_ai_response = generate_fallback_content(
             main_product=main_product,
             matching_products=matching_products,
@@ -1399,8 +1429,8 @@ def generate_single_article_content(
             mode=chosen_mode,
             original_handle_hint=original_handle_hint
         )
+        html_body = _clean_html(raw_ai_response)
 
-    html_body = _clean_html(raw_ai_response)
     seometa = _parse_seometa(raw_ai_response)
     
     # 4. Fallbacks and assembly
@@ -1409,10 +1439,10 @@ def generate_single_article_content(
         words = original_handle_hint.split("-")
         new_title = " ".join(w.capitalize() for w in words if w)
     else:
-        suggested_handle = seometa.get("suggested_handle") or f"style-guide-{main_product['handle']}"
-        new_title = seometa.get("seo_title") or f"How to Wear & Style {main_product['title']}"
-    meta_desc = seometa.get("meta_desc") or f"Expert styling guide and care tips for {main_product['title']}."
-    img_alt = seometa.get("img_alt") or f"{main_product['title']} styling collage"
+        new_title = sanitize_title_to_category_phrase(title_hint, main_product)
+        suggested_handle = _slugify(new_title)
+    meta_desc = seometa.get("meta_desc") or f"Expert styling guide and care tips for {get_category_style_phrase(main_product)}."
+    img_alt = seometa.get("img_alt") or f"{get_category_style_phrase(main_product)} styling guide"
     new_tags = seometa.get("suggested_tags") or ["style", "fashion", ptype.lower()]
 
     # Enforce current year (2026) across all fields
@@ -1476,9 +1506,11 @@ def generate_single_article_content(
         img_url = main_product["images"][0]["src"] if main_product.get("images") else None
 
     return {
-        "html_body": html_body,
+        "title": new_title,
         "seo_title": new_title,
+        "html_body": html_body,
         "meta_desc": meta_desc,
+        "handle": suggested_handle,
         "suggested_handle": suggested_handle,
         "tags": new_tags,
         "img_url": img_url,
@@ -1528,7 +1560,11 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
     
     product_history = load_used_products_history()
     product_history = clean_old_history(product_history, days=7)
-    
+
+    # ── Deduplication: load all live article titles + handles once ─────────────
+    dedup = ArticleDeduplicator(BASE, HEADERS)
+    dedup.load_live_index()
+
     type_pool = list(research.keys())
     random.shuffle(type_pool)
     
@@ -1621,6 +1657,19 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
         blog = chosen_blog
         print(f"    Routing to blog: '{blog['title']}' (handle: {blog['handle']})")
                 
+        # ── Deduplication check (runs in both dry-run and live mode) ─────────────
+        dedup_result = dedup.resolve(
+            title=seo_title,
+            handle=suggested_handle,
+            product_handle=main_product.get("handle", ""),
+            article_format=chosen_mode_id,
+            dry_run=dry_run,
+        )
+        if dedup_result is None:
+            print("    [Dedup] Skipping — same product+format published recently.")
+            continue
+        seo_title, suggested_handle = dedup_result
+
         result = {
             "title": seo_title,
             "handle": suggested_handle,
@@ -1673,6 +1722,13 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
             if r.status_code in (200, 201):
                 art = r.json().get("article", {})
                 print(f"    [Shopify] Success! Article ID: {art.get('id')} | Handle: {art.get('handle')}")
+                # Register so subsequent articles in same run can't collide
+                dedup.register(seo_title, suggested_handle)
+                dedup.record_product_format(
+                    main_product.get("handle", ""),
+                    chosen_mode_id,
+                    dry_run=False
+                )
             else:
                 print(f"    [!] Shopify Upload Failed: {r.status_code} - {r.text}")
                 
