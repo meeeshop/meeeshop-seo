@@ -9,6 +9,7 @@ standardized /llms.txt and /llms-full.txt Markdown files for AI search agents.
 import os
 import sys
 import json
+import time
 import argparse
 from pathlib import Path
 import requests
@@ -172,7 +173,7 @@ def generate_llms_txt():
 
     content = "\n".join(lines)
     
-    # Save files
+    # Save files locally
     out_dir = REPO_ROOT
     llms_path = out_dir / "llms.txt"
     llms_full_path = out_dir / "llms-full.txt"
@@ -185,7 +186,144 @@ def generate_llms_txt():
 
     print(f"✅ Successfully generated /llms.txt and /llms-full.txt at {llms_path}")
 
+    # Automatically upload to Shopify CDN & configure URL Redirects
+    try:
+        upload_file_to_shopify_and_redirect(content, "llms.txt")
+        upload_file_to_shopify_and_redirect(content, "llms-full.txt")
+    except Exception as e:
+        print(f"Notice: Shopify upload & redirect setup encountered an exception: {e}")
+
+def upload_file_to_shopify_and_redirect(file_content: str, filename: str) -> str:
+    print(f"Uploading {filename} to Shopify Files & setting URL redirect...")
+    
+    staged_mut = f"""
+    mutation {{
+      stagedUploadsCreate(input: [{{
+        resource: FILE,
+        filename: "{filename}",
+        mimeType: "text/plain",
+        httpMethod: POST
+      }}]) {{
+        stagedTargets {{
+          url
+          resourceUrl
+          parameters {{
+            name
+            value
+          }}
+        }}
+      }}
+    }}
+    """
+    staged_data = run_query(staged_mut)
+    target = staged_data["data"]["stagedUploadsCreate"]["stagedTargets"][0]
+
+    form_data = []
+    for p in target["parameters"]:
+        form_data.append((p["name"], p["value"]))
+    form_data.append(("file", (filename, file_content.encode("utf-8"), "text/plain")))
+    
+    upload_resp = requests.post(target["url"], files=form_data)
+    upload_resp.raise_for_status()
+
+    create_mut = """
+    mutation fileCreate($files: [FileCreateInput!]!) {
+      fileCreate(files: $files) {
+        files {
+          id
+          fileStatus
+        }
+        userErrors {
+          message
+        }
+      }
+    }
+    """
+    variables = {
+        "files": [
+            {
+                "originalSource": target["resourceUrl"],
+                "contentType": "FILE"
+            }
+        ]
+    }
+    create_data = run_query(create_mut, variables)
+    file_id = create_data["data"]["fileCreate"]["files"][0]["id"]
+
+    cdn_url = None
+    for _ in range(15):
+        time.sleep(2)
+        query_file = f"""
+        query {{
+          node(id: "{file_id}") {{
+            ... on GenericFile {{
+              url
+              fileStatus
+            }}
+          }}
+        }}
+        """
+        node_data = run_query(query_file)
+        node = node_data.get("data", {}).get("node", {})
+        if node.get("fileStatus") == "READY":
+            public_url = node.get("url")
+            if public_url:
+                cdn_url = public_url.split("?")[0]
+                break
+
+    if not cdn_url:
+        print(f"Warning: CDN URL compilation timeout for {filename}")
+        return ""
+
+    print(f"  CDN URL for {filename}: {cdn_url}")
+
+    redirect_path = f"/{filename}"
+    query_redirect = f"""
+    query {{
+      urlRedirects(first: 1, query: "path:{redirect_path}") {{
+        edges {{
+          node {{
+            id
+            target
+          }}
+        }}
+      }}
+    }}
+    """
+    try:
+        r_data = run_query(query_redirect)
+        edges = r_data.get("data", {}).get("urlRedirects", {}).get("edges", [])
+        redirect_id = edges[0]["node"]["id"] if edges else None
+        
+        if redirect_id:
+            update_mut = """
+            mutation urlRedirectUpdate($id: ID!, $urlRedirect: UrlRedirectInput!) {
+              urlRedirectUpdate(id: $id, urlRedirect: $urlRedirect) {
+                urlRedirect { id }
+                userErrors { message }
+              }
+            }
+            """
+            run_query(update_mut, {"id": redirect_id, "urlRedirect": {"path": redirect_path, "target": cdn_url}})
+            print(f"  [OK] Updated redirect: {redirect_path} -> {cdn_url}")
+        else:
+            create_mut = """
+            mutation urlRedirectCreate($urlRedirect: UrlRedirectInput!) {
+              urlRedirectCreate(urlRedirect: $urlRedirect) {
+                urlRedirect { id }
+                userErrors { message }
+              }
+            }
+            """
+            run_query(create_mut, {"urlRedirect": {"path": redirect_path, "target": cdn_url}})
+            print(f"  [OK] Created redirect: {redirect_path} -> {cdn_url}")
+    except Exception as e:
+        print(f"  [Warning] Failed to set redirect for {redirect_path}: {e}")
+
+    return cdn_url
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate /llms.txt for ChatGPT & Perplexity")
     args = parser.parse_args()
     generate_llms_txt()
+
