@@ -909,6 +909,10 @@ def _build_article_prompt(main_product: dict, research_data: dict, matching_prod
         words = original_handle_hint.split("-")
         title_hint = " ".join(w.capitalize() for w in words if w)
     else:
+        season = random.choice(_SEASONS)
+        season2 = random.choice([s for s in _SEASONS if s != season])
+        occasion = random.choice(_OCCASIONS)
+        num = random.choice(_NUMS)
         category_phrase = get_category_style_phrase(main_product)
         title_hint = (
             mode["title_pattern"]
