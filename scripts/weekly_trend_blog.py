@@ -1328,6 +1328,41 @@ def _clean_html(raw: str) -> str:
     raw = re.sub(r"<seometa>.*?</seometa>", "", raw, flags=re.DOTALL | re.IGNORECASE)
     return raw.strip()
 
+def is_html_content_complete(html_body: str, raw_response: str) -> bool:
+    """
+    Validates whether the generated HTML body contains complete sections for every item listed in its Table of Contents.
+    Returns False if <seometa> is missing or if TOC items are missing corresponding H2/H3 body sections.
+    """
+    if not html_body or len(html_body.strip()) < 600:
+        return False
+
+    if not raw_response or "<seometa>" not in raw_response.lower():
+        return False
+
+    toc_match = re.search(r"Table of Contents.*?(?:</ul>|</ol>|</div>)", html_body, re.DOTALL | re.IGNORECASE)
+    if toc_match:
+        toc_text = toc_match.group(0)
+        toc_items = re.findall(r"<a[^>]*>(.*?)</a>|<li>(.*?)</li>", toc_text, re.IGNORECASE)
+        body_after_toc = html_body[toc_match.end():]
+        for item_tuple in toc_items:
+            item_text = (item_tuple[0] or item_tuple[1] or "").strip()
+            clean_item = re.sub(r"<[^>]+>", "", item_text).strip()
+            if not clean_item or len(clean_item) < 3:
+                continue
+
+            key_words = [w for w in re.findall(r"\b[a-zA-Z0-9]{3,}\b", clean_item) if w.lower() not in ("the", "and", "for", "with", "edit", "looks", "recipes")]
+            if key_words:
+                matched = False
+                for kw in key_words:
+                    if kw.lower() in body_after_toc.lower():
+                        matched = True
+                        break
+                if not matched:
+                    print(f"  [Validation Warning] Article truncated — TOC lists '{clean_item}' but section is missing in body!")
+                    return False
+
+    return True
+
 # ── Unified Content Generation Engine ──────────────────────────────────────────
 def generate_single_article_content(
     main_product: dict,
@@ -1382,10 +1417,11 @@ def generate_single_article_content(
     print(f"  Article Mode: {chosen_mode['id']}")
     print("  Generating new content with AI...")
     prompt = prompt.replace("MeeeShop", BRAND_NAME)
-    raw_ai_response = ai_client.generate(prompt, max_tokens=3000, temperature=0.85)
+    raw_ai_response = ai_client.generate(prompt, max_tokens=3500, temperature=0.85)
+    html_body = _clean_html(raw_ai_response or "")
 
-    if not raw_ai_response:
-        print("  [ERROR] AI content generation failed. Running fallback content generation...")
+    if not raw_ai_response or not is_html_content_complete(html_body, raw_ai_response):
+        print("  [Validation Fail] AI content generation was incomplete or truncated. Running robust fallback content generation...")
         raw_ai_response = generate_fallback_content(
             main_product=main_product,
             matching_products=matching_products,
@@ -1393,8 +1429,8 @@ def generate_single_article_content(
             mode=chosen_mode,
             original_handle_hint=original_handle_hint
         )
+        html_body = _clean_html(raw_ai_response)
 
-    html_body = _clean_html(raw_ai_response)
     seometa = _parse_seometa(raw_ai_response)
     
     # 4. Fallbacks and assembly

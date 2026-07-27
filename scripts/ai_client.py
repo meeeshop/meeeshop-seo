@@ -109,7 +109,7 @@ def _call_openrouter(prompt: str, max_tokens: int, temperature: float, category:
                     "max_tokens": max_tokens,
                     "temperature": temperature,
                 },
-                timeout=15,
+                timeout=45,
             )
 
             if r.status_code == 429:
