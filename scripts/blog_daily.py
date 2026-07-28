@@ -1457,10 +1457,11 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
             filtered_pool.append(p)
 
     candidate_pool = filtered_pool if filtered_pool else pool
+    random.shuffle(candidate_pool)
     if len(filtered_pool) < count:
         print(f"  [Dedup] Filtered pool has {len(filtered_pool)} fresh categories remaining out of {len(pool)} products.")
 
-    chosen   = random.sample(candidate_pool, min(count, len(candidate_pool)))
+    chosen = candidate_pool[:min(count, len(candidate_pool))]
 
     created = 0
     for i, product in enumerate(chosen):
@@ -1498,7 +1499,8 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
             research_cache={},
             force_format=wtb_format,
             dry_run=dry_run,
-            original_handle_hint=None
+            original_handle_hint=None,
+            deduplicator=dedup
         )
 
         if not content_assets:
@@ -1535,6 +1537,9 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
             print(f"  [Dedup] Skipping article — same product+format published recently.")
             continue
         post_title, suggested_handle = result
+
+        # Register in deduplicator so subsequent loop runs in same execution cycle don't reuse title
+        dedup.register(post_title, suggested_handle)
 
         # Update content_assets with resolved title/handle
         content_assets["title"] = post_title

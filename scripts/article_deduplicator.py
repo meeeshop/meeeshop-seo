@@ -75,12 +75,14 @@ class ArticleDeduplicator:
         """
         Normalise a title for fuzzy comparison:
         - lowercase
+        - strip years (2024/2025/2026)
+        - strip month names (july, jul, august, etc.)
         - remove punctuation
         - collapse whitespace
-        - strip years (e.g. 2024/2025/2026) so same topic with different year still matches
         """
         t = title.lower()
         t = re.sub(r"\b20\d\d\b", "", t)        # strip years
+        t = re.sub(r"\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\b", "", t) # strip months
         t = re.sub(r"[^\w\s]", " ", t)           # remove punctuation
         t = re.sub(r"\s+", " ", t).strip()       # collapse whitespace
         return t
@@ -372,14 +374,15 @@ class ArticleDeduplicator:
                       f"published within last {PRODUCT_FORMAT_COOLDOWN_DAYS} days")
                 return None
 
-        # 2. Make unique
+        # 2. Check title collision: if title is already addressed/indexed, SKIP to avoid duplicate posts
+        if self.is_duplicate_title(title):
+            print(f"  [Dedup] SKIP — Article title/question already addressed: '{title}'")
+            return None
+
+        # 3. Make unique
         orig_title, orig_handle = title, handle
         unique_title, unique_handle = self.make_unique(title, handle)
 
-        if unique_title != orig_title:
-            print(f"  [Dedup] Title collision — renamed:")
-            print(f"          '{orig_title}'")
-            print(f"       →  '{unique_title}'")
         if unique_handle != orig_handle:
             print(f"  [Dedup] Handle collision — renamed:")
             print(f"          '{orig_handle}'")

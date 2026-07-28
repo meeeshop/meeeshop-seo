@@ -1082,7 +1082,7 @@ def generate_fallback_content(
     original_handle_hint: str | None = None
 ) -> str:
     ptype = rdata.get("product_type", "Fashion Staples").strip()
-    prod_title = main_product["title"]
+    category_phrase = get_category_style_phrase(main_product)
     
     if original_handle_hint:
         suggested_handle = original_handle_hint
@@ -1095,8 +1095,8 @@ def generate_fallback_content(
         num = random.choice(_NUMS)
         title = (
             mode["title_pattern"]
-            .replace("{ptype}", ptype)
-            .replace("{main_product}", prod_title)
+            .replace("{ptype}", category_phrase)
+            .replace("{main_product}", category_phrase)
             .replace("{season}", season)
             .replace("{season1}", season)
             .replace("{season2}", season2)
@@ -1465,13 +1465,22 @@ def generate_single_article_content(
     seometa = _parse_seometa(raw_ai_response)
     
     # 4. Fallbacks and assembly
-    if original_handle_hint:
+    if google_question:
+        new_title = google_question
+        suggested_handle = _slugify(google_question)
+    elif original_handle_hint:
         suggested_handle = original_handle_hint
         words = original_handle_hint.split("-")
         new_title = " ".join(w.capitalize() for w in words if w)
     else:
         new_title = sanitize_title_to_category_phrase(title_hint, main_product)
         suggested_handle = _slugify(new_title)
+
+    # Guarantee H1 tag inside html_body matches new_title 100%
+    if "<h1" in html_body.lower():
+        html_body = re.sub(r"<h1>.*?</h1>", f"<h1>{new_title}</h1>", html_body, count=1, flags=re.IGNORECASE | re.DOTALL)
+    else:
+        html_body = f"<h1>{new_title}</h1>\n" + html_body
     meta_desc = seometa.get("meta_desc") or f"Expert styling guide and care tips for {get_category_style_phrase(main_product)}."
     img_alt = seometa.get("img_alt") or f"{get_category_style_phrase(main_product)} styling guide"
     new_tags = seometa.get("suggested_tags") or ["style", "fashion", ptype.lower()]
