@@ -68,6 +68,7 @@ from internal_linker import (
     fetch_products_for_collection
 )
 from article_deduplicator import ArticleDeduplicator
+from google_question_fetcher import GoogleQuestionFetcher
 
 inject_to_env()
 
@@ -895,7 +896,7 @@ def _pick_article_mode(ptype: str) -> dict:
 
 
 # ── AI Prompt Construction ──────────────────────────────────────────────────────
-def _build_article_prompt(main_product: dict, research_data: dict, matching_products: list, mode: dict | None = None, original_handle_hint: str | None = None) -> tuple[str, dict]:
+def _build_article_prompt(main_product: dict, research_data: dict, matching_products: list, mode: dict | None = None, original_handle_hint: str | None = None, google_question: str | None = None) -> tuple[str, dict]:
     ptype = research_data["product_type"]
     kws = research_data["keywords"]
     long_tail = kws.get("long_tail", [])
@@ -906,7 +907,9 @@ def _build_article_prompt(main_product: dict, research_data: dict, matching_prod
     if mode is None:
         mode = _pick_article_mode(ptype)
 
-    if original_handle_hint:
+    if google_question:
+        title_hint = google_question
+    elif original_handle_hint:
         words = original_handle_hint.split("-")
         title_hint = " ".join(w.capitalize() for w in words if w)
     else:
@@ -956,10 +959,15 @@ You MUST review the "TRENDING ARTICLE REFERENCES" below. Do NOT copy their text 
 Mode: {mode['id']}
 Angle: {mode['angle']}
 Title Suggestion: {title_hint}
+Google Search Question: {google_question or 'N/A'}
 Content Brief: {mode['description']}
 Required Structure: {mode['structure']}
 Writing Tone: {mode['tone']}
 Title Examples (for inspiration, do NOT copy): {'; '.join(mode.get('title_examples', []))}
+
+────────── REAL-TIME US GOOGLE SEARCH QUESTION TO ANSWER (CRITICAL) ──────────
+Target Question: "{google_question or title_hint}"
+Instructions: You MUST directly address and answer this search question in the H1 title, opening paragraph, and dedicated body section. Include a 2-3 sentence clear, authoritative Direct Answer box right after the opening paragraph for Google Discover & Featured Snippet eligibility.
 
 ────────── PRODUCT CONTEXT ──────────
 Hero Product: {main_product['title']} (Type: {ptype})
@@ -1404,7 +1412,12 @@ def generate_single_article_content(
     matching_products = select_styling_matches(main_product, all_products_with_images, num_matches=num_matches, topic_context=target_count_text)
     print(f"  Styling Pairings ({len(matching_products)} products for {outfit_count} outfits/items): {[p['title'] for p in matching_products]}")
 
-    # 3. Build AI prompt and generate content
+    # 3. Fetch top unaddressed Google US Search Question
+    question_fetcher = GoogleQuestionFetcher()
+    google_question = question_fetcher.get_next_unaddressed_question(ptype, default_fallback=main_product["title"])
+    print(f"  [Google Trends/Search] Selected unaddressed question for '{ptype}': {google_question}")
+
+    # 4. Build AI prompt and generate content
     mode = None
     if force_format:
         for m in ARTICLE_MODES:
@@ -1412,7 +1425,10 @@ def generate_single_article_content(
                 mode = m
                 break
                 
-    prompt, title_hint, chosen_mode = _build_article_prompt(main_product, rdata, matching_products, mode=mode, original_handle_hint=original_handle_hint)
+    prompt, title_hint, chosen_mode = _build_article_prompt(main_product, rdata, matching_products, mode=mode, original_handle_hint=original_handle_hint, google_question=google_question)
+    
+    # Mark question as addressed
+    question_fetcher.mark_addressed(google_question, category=ptype)
     
     print(f"  Article Mode: {chosen_mode['id']}")
     print("  Generating new content with AI...")

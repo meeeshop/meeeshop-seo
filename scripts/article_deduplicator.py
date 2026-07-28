@@ -253,6 +253,35 @@ class ArticleDeduplicator:
         fp = self._fingerprint(title)
         return fp in self._titles or fp in self._registered_titles
 
+    def is_duplicate_question(self, question: str, modifiers: tuple[str, ...] = None) -> bool:
+        """
+        Smart Question Deduplication:
+        Checks if the question base matches an existing store title.
+        If modifiers are present (e.g., 'over 40', 'for petite'), it ONLY considers it a duplicate
+        if an existing article ALSO contains those exact modifiers.
+        """
+        q_fp = self._fingerprint(question)
+        
+        # Exact title fingerprint match
+        if q_fp in self._titles or q_fp in self._registered_titles:
+            return True
+
+        if modifiers:
+            # Check if any existing title matches the base fingerprint AND contains the modifier
+            for live_fp in (self._titles | self._registered_titles):
+                base_match = True
+                # If all modifier terms are present in live title, then it's a duplicate modifier variation
+                if all(mod in live_fp for mod in modifiers):
+                    return True
+            return False
+
+        # No modifiers: if a simplified base is already covered in titles, treat as duplicate
+        for live_fp in (self._titles | self._registered_titles):
+            if q_fp in live_fp or live_fp in q_fp:
+                return True
+
+        return False
+
     def is_duplicate_handle(self, handle: str) -> bool:
         """Return True if this handle already exists on the live store or this run."""
         h = handle.lower()
