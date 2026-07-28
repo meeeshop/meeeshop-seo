@@ -1330,10 +1330,24 @@ ARTICLE_MODE: {mode['id']}
     return html_body + seometa
 
 def _clean_html(raw: str) -> str:
+    if not raw:
+        return ""
+    # 1. Strip <think>...</think> reasoning blocks (common in DeepSeek / OpenRouter models)
+    raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL | re.IGNORECASE)
     raw = raw.strip()
+
+    # 2. Strip markdown code fences
     raw = re.sub(r"^```html?\s*", "", raw, flags=re.IGNORECASE)
     raw = re.sub(r"\s*```$", "", raw)
+
+    # 3. Strip <seometa>...</seometa> block
     raw = re.sub(r"<seometa>.*?</seometa>", "", raw, flags=re.DOTALL | re.IGNORECASE)
+
+    # 4. Discard any AI meta-reasoning preambles/reflections before the first valid HTML element
+    m = re.search(r"<(?:h1|h2|div|p|article|header|section|table)\b", raw, re.IGNORECASE)
+    if m:
+        raw = raw[m.start():]
+
     return raw.strip()
 
 def is_html_content_complete(html_body: str, raw_response: str) -> bool:
@@ -1380,7 +1394,8 @@ def generate_single_article_content(
     research_cache: dict,
     force_format: str | None = None,
     dry_run: bool = False,
-    original_handle_hint: str | None = None
+    original_handle_hint: str | None = None,
+    deduplicator: ArticleDeduplicator | None = None
 ) -> dict | None:
     """
     Generates all content and assets for a single blog article.
@@ -1414,7 +1429,7 @@ def generate_single_article_content(
 
     # 3. Fetch top unaddressed Google US Search Question
     question_fetcher = GoogleQuestionFetcher()
-    google_question = question_fetcher.get_next_unaddressed_question(ptype, default_fallback=main_product["title"])
+    google_question = question_fetcher.get_next_unaddressed_question(ptype, deduplicator=deduplicator, default_fallback=main_product["title"])
     print(f"  [Google Trends/Search] Selected unaddressed question for '{ptype}': {google_question}")
 
     # 4. Build AI prompt and generate content
