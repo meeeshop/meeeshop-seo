@@ -92,6 +92,12 @@ QUESTION_STEM_PATTERNS = [
     "how to make {product} look expensive"
 ]
 
+# Male / Men's terms to strictly exclude (MeeeShop is 100% Women's Boutique)
+MENS_TERMS = {
+    "men", "mens", "men's", "man", "mans", "man's", "guy", "guys", "male", "males",
+    "boy", "boys", "boy's", "husband", "boyfriend", "father", "dad", "groom", "groomsmen", "groomsman"
+}
+
 # Modifiers that define distinct intent variations
 INTENT_MODIFIERS = [
     # Age
@@ -151,6 +157,17 @@ class GoogleQuestionFetcher:
         if not q.endswith("?") and not q.endswith("."):
             q += "?"
         return q
+
+    @staticmethod
+    def is_for_women_only(question: str) -> bool:
+        """Return True if question contains NO male / men's terms."""
+        if not question:
+            return False
+        words = re.findall(r"\b\w+'?\w*\b", question.lower())
+        for w in words:
+            if w in MENS_TERMS:
+                return False
+        return True
 
     def _get_signature(self, question: str) -> tuple[str, tuple[str, ...]]:
         """
@@ -257,7 +274,7 @@ class GoogleQuestionFetcher:
                     if len(data) > 1 and isinstance(data[1], list):
                         for suggestion in data[1]:
                             norm = self.normalize_question(suggestion)
-                            if norm and norm not in seen:
+                            if norm and self.is_for_women_only(norm) and norm not in seen:
                                 seen.add(norm)
                                 results.append(norm)
             except Exception as e:
@@ -277,6 +294,8 @@ class GoogleQuestionFetcher:
         questions = self.fetch_live_google_questions(product_type, limit=20)
 
         for q in questions:
+            if not self.is_for_women_only(q):
+                continue
             if not self.is_addressed(q, deduplicator):
                 print(f"  [OK] Selected unaddressed Google Question for '{product_type}': {q}")
                 return q
