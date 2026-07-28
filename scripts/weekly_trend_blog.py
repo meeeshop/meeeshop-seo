@@ -1083,6 +1083,7 @@ def generate_fallback_content(
 ) -> str:
     ptype = rdata.get("product_type", "Fashion Staples").strip()
     category_phrase = get_category_style_phrase(main_product)
+    prod_title = category_phrase
     
     if original_handle_hint:
         suggested_handle = original_handle_hint
