@@ -77,12 +77,25 @@ class ArticleDeduplicator:
         - lowercase
         - strip years (2024/2025/2026)
         - strip month names (july, jul, august, etc.)
-        - remove punctuation
-        - collapse whitespace
+        - strip articles (a, an, the)
+        - normalize plurals (shoes -> shoe, uniforms -> uniform, dresses -> dress)
+        - remove punctuation & collapse whitespace
         """
         t = title.lower()
         t = re.sub(r"\b20\d\d\b", "", t)        # strip years
         t = re.sub(r"\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\b", "", t) # strip months
+        t = re.sub(r"\b(a|an|the)\b", " ", t)    # strip articles
+        # Normalize common plural words
+        t = re.sub(r"\bshoes\b", "shoe", t)
+        t = re.sub(r"\buniforms\b", "uniform", t)
+        t = re.sub(r"\bdresses\b", "dress", t)
+        t = re.sub(r"\bjeans\b", "jean", t)
+        t = re.sub(r"\btops\b", "top", t)
+        t = re.sub(r"\bshirts\b", "shirt", t)
+        t = re.sub(r"\bjackets\b", "jacket", t)
+        t = re.sub(r"\bcoats\b", "coat", t)
+        t = re.sub(r"\bblazers\b", "blazer", t)
+        t = re.sub(r"\bsweaters\b", "sweater", t)
         t = re.sub(r"[^\w\s]", " ", t)           # remove punctuation
         t = re.sub(r"\s+", " ", t).strip()       # collapse whitespace
         return t
@@ -135,7 +148,7 @@ class ArticleDeduplicator:
             blog_title = blog.get("title", blog_id)
             page_info  = None
             while True:
-                params: dict = {"limit": 250, "fields": "id,title,handle,published_at"}
+                params: dict = {"limit": 250, "published_status": "any", "fields": "id,title,handle,published_at"}
                 if page_info:
                     params["page_info"] = page_info
                 try:
