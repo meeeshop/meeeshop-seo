@@ -171,22 +171,41 @@ class GoogleQuestionFetcher:
 
         return base, mods
 
-    def is_addressed(self, question: str, deduplicator=None) -> bool:
+    def is_addressed(self, question: str, deduplicator=None, cooldown_days: int = 5) -> bool:
         """
-        Checks if the question (or exact modifier combo) has already been addressed
-        in local history OR live Shopify article titles/handles.
+        Checks if the question (or exact modifier combo) has already been addressed,
+        or if a similar base topic question variation was addressed within the 5-day cooldown window.
         """
         sig = self._get_signature(question)
         sig_str = f"{sig[0]}||{','.join(sig[1])}"
+        now = datetime.now(timezone.utc)
 
-        # 1. Check local history
+        # 1. Exact signature match check in local history
         if sig_str in self.history:
             return True
 
-        # 2. Check ArticleDeduplicator (live Shopify titles/handles)
-        if deduplicator and hasattr(deduplicator, "is_duplicate_question"):
-            if deduplicator.is_duplicate_question(question, modifiers=sig[1]):
-                return True
+        # 2. Base topic 5-day variation cooldown check
+        for entry_sig, entry_data in self.history.items():
+            entry_base = entry_sig.split("||")[0]
+            if entry_base == sig[0]:
+                ts_str = entry_data.get("timestamp")
+                if ts_str:
+                    try:
+                        entry_dt = datetime.fromisoformat(ts_str)
+                        if (now - entry_dt).total_seconds() < (cooldown_days * 86400):
+                            print(f"  [Dedup Cooldown] Base topic '{sig[0]}' addressed within last {cooldown_days} days — skipping variation '{question}'")
+                            return True
+                    except Exception:
+                        pass
+
+        # 3. Check ArticleDeduplicator (live Shopify titles/handles)
+        if deduplicator:
+            if hasattr(deduplicator, "is_duplicate_question"):
+                if deduplicator.is_duplicate_question(question, modifiers=sig[1]):
+                    return True
+            if hasattr(deduplicator, "is_duplicate_title"):
+                if deduplicator.is_duplicate_title(question):
+                    return True
 
         return False
 
