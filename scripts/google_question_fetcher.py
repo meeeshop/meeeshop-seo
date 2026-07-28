@@ -188,32 +188,69 @@ class GoogleQuestionFetcher:
 
         return base, mods
 
+    @staticmethod
+    def _get_stem_family(question: str) -> str:
+        """Categorize a question into its core stem family / angle."""
+        q_lower = question.lower()
+        if any(x in q_lower for x in ["shoes", "shoe", "footwear", "sneakers", "heels", "boots"]):
+            return "shoes_pairing"
+        if "top" in q_lower or ("shirt" in q_lower and "go with" in q_lower):
+            return "tops_pairing"
+        if ("jacket" in q_lower or "coat" in q_lower) and "wear with" in q_lower:
+            return "outerwear_pairing"
+        if "layer" in q_lower:
+            return "layering"
+        if any(x in q_lower for x in ["wash", "clean", "care for", "stain"]):
+            return "care_laundry"
+        if any(x in q_lower for x in ["fit", "size", "shrink", "stretch"]):
+            return "fit_sizing"
+        if any(x in q_lower for x in ["wedding", "work", "business casual", "office"]):
+            return "occasion"
+        if any(x in q_lower for x in ["in style", "out of style", "trend"]):
+            return "trend_longevity"
+        if any(x in q_lower for x in ["curvy", "petite", "belly", "pear", "hourglass"]):
+            return "body_shape"
+        if any(x in q_lower for x in ["over 40", "over 50", "over 60", "30s"]):
+            return "age_style"
+        if any(x in q_lower for x in ["bra", "shapewear", "undergarment"]):
+            return "undergarments"
+        if "how to style" in q_lower:
+            return "general_styling"
+        return "general"
+
     def is_addressed(self, question: str, deduplicator=None, cooldown_days: int = 5) -> bool:
         """
         Checks if the question (or exact modifier combo) has already been addressed,
-        or if a similar base topic question variation was addressed within the 5-day cooldown window.
+        or if a similar base topic or stem family was addressed within the 5-day cooldown window.
         """
         sig = self._get_signature(question)
         sig_str = f"{sig[0]}||{','.join(sig[1])}"
+        stem_fam = self._get_stem_family(question)
         now = datetime.now(timezone.utc)
 
         # 1. Exact signature match check in local history
         if sig_str in self.history:
             return True
 
-        # 2. Base topic 5-day variation cooldown check
+        # 2. Base topic & Stem Family 5-day variation cooldown check
         for entry_sig, entry_data in self.history.items():
             entry_base = entry_sig.split("||")[0]
-            if entry_base == sig[0]:
-                ts_str = entry_data.get("timestamp")
-                if ts_str:
-                    try:
-                        entry_dt = datetime.fromisoformat(ts_str)
-                        if (now - entry_dt).total_seconds() < (cooldown_days * 86400):
+            entry_q = entry_data.get("question", "")
+            entry_stem = self._get_stem_family(entry_q)
+
+            ts_str = entry_data.get("timestamp")
+            if ts_str:
+                try:
+                    entry_dt = datetime.fromisoformat(ts_str)
+                    if (now - entry_dt).total_seconds() < (cooldown_days * 86400):
+                        if entry_base == sig[0]:
                             print(f"  [Dedup Cooldown] Base topic '{sig[0]}' addressed within last {cooldown_days} days — skipping variation '{question}'")
                             return True
-                    except Exception:
-                        pass
+                        if stem_fam != "general" and entry_stem == stem_fam:
+                            print(f"  [Dedup Cooldown] Question stem family '{stem_fam}' addressed within last {cooldown_days} days — skipping '{question}' for stem diversity")
+                            return True
+                except Exception:
+                    pass
 
         # 3. Check ArticleDeduplicator (live Shopify titles/handles)
         if deduplicator:
