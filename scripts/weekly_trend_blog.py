@@ -775,8 +775,9 @@ def make_product_card(product: dict, label: str = "FEATURED FAVORITE") -> str:
     handle = product.get("handle", "")
     url = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=card"
     img = product["images"][0]["src"] if product.get("images") else ""
+    card_alt = f"{title} - US Women's Fashion Outfit Idea"
     
-    img_html = f'<a href="{url}"><img src="{img}" alt="{title}" style="width:200px;height:200px;object-fit:cover;border-radius:8px;" /></a>' if img else ""
+    img_html = f'<a href="{url}"><img src="{img}" alt="{card_alt}" style="width:200px;height:200px;object-fit:cover;border-radius:8px;" /></a>' if img else ""
     
     return f"""
 <div style="background:#f9f9f9;border:1px solid #eee;border-radius:12px;padding:20px;margin:24px 0;display:flex;gap:20px;align-items:center;font-family:sans-serif;">
@@ -798,7 +799,8 @@ def make_related_products_section(products: list) -> str:
         handle = p.get("handle", "")
         url = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=related"
         img = p["images"][0]["src"] if p.get("images") else ""
-        img_html = f'<a href="{url}"><img src="{img}" alt="{title}" style="width:100%;height:180px;object-fit:cover;border-radius:6px;margin-bottom:8px;" /></a>' if img else ""
+        rel_alt = f"{title} - Styled Lookbook Essential"
+        img_html = f'<a href="{url}"><img src="{img}" alt="{rel_alt}" style="width:100%;height:180px;object-fit:cover;border-radius:6px;margin-bottom:8px;" /></a>' if img else ""
         
         cards_html += f"""
 <div style="flex:1;min-width:180px;max-width:220px;text-align:center;font-family:sans-serif;">
@@ -1221,7 +1223,7 @@ At the very end, append this block:
 <seometa>
 SEO_TITLE: [50-60 chars, include main keyword near start, current year or 'for Women']
 META_DESC: [140-155 chars, benefit-first, end with CTA]
-IMG_ALT: [10-15 words describing the featured image styling scene]
+IMG_ALT: [12-18 word visual description of featured outfit collage: include product name, fit/silhouette (e.g. high-waisted, oversized), color palette, and US styling occasion (e.g. casual office, weekend brunch)]
 SUGGESTED_HANDLE: [url-slug-format]
 SUGGESTED_TAGS: [comma-separated list of 6-8 relevant tags]
 ARTICLE_MODE: {mode['id']}
@@ -1744,8 +1746,8 @@ def generate_single_article_content(
                 f.write(collage_bytes)
             
             if not dry_run:
-                ts = int(time.time())
-                filename = f"content_collage_{main_product['id']}_{ts}.jpg"
+                clean_slug = suggested_handle[:45].strip('-')
+                filename = f"{clean_slug}-womens-fashion-outfit-collage.jpg"
                 img_url = upload_image_to_shopify(temp_path, filename)
                 try:
                     temp_path.unlink()
