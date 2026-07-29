@@ -431,6 +431,110 @@ def research_flipboard_per_category(type_map: dict) -> dict:
         }
     return research
 
+def candidate_matches_type(actual_ptype: str, target_category: str) -> bool:
+    act = (actual_ptype or "").lower()
+    tgt = (target_category or "").lower()
+    tgt_stem = tgt[:-1] if tgt.endswith("s") else tgt
+    return tgt_stem in act or tgt in act
+
+def get_product_type_history() -> dict:
+    history_file = SCRIPT_DIR / "addressed_questions_history.json"
+    if history_file.exists():
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("_product_type_history", {})
+        except Exception:
+            pass
+    return {}
+
+def record_product_type_used(ptype: str):
+    history_file = SCRIPT_DIR / "addressed_questions_history.json"
+    data = {}
+    if history_file.exists():
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+
+    pt_hist = data.get("_product_type_history", {})
+    clean = ptype.lower().strip()
+    pt_hist[clean] = datetime.now(timezone.utc).isoformat()
+    data["_product_type_history"] = pt_hist
+
+    try:
+        with open(history_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"  [Warning] Failed to record product type history: {e}")
+
+def select_trending_product_type(type_map: dict, research_data: dict, cooldown_days: int = 7) -> str:
+    """
+    Selects the top-trending product type from live research_data that has NOT been
+    used in the last cooldown_days (7 days).
+    """
+    pt_hist = get_product_type_history()
+    now = datetime.now(timezone.utc)
+    cooldown_cutoff = now - timedelta(days=cooldown_days)
+
+    # 1. Score available product types based on trend research articles
+    scores = {candidate: 0 for candidate in CORE_PRODUCT_TYPES}
+
+    for ptype_name, pdata in research_data.items():
+        arts = pdata.get("articles", [])
+        for art in arts:
+            text = (art.get("title", "") + " " + art.get("summary", "")).lower()
+            for candidate in CORE_PRODUCT_TYPES:
+                kw_stem = candidate[:-1] if candidate.endswith("s") else candidate
+                if kw_stem in text or candidate in text:
+                    scores[candidate] += 1
+
+    # Also map available store product types in type_map
+    for ptype in type_map.keys():
+        pt_l = ptype.lower()
+        for candidate in CORE_PRODUCT_TYPES:
+            if candidate[:-1] in pt_l or candidate in pt_l:
+                scores[candidate] += 2
+
+    # 2. Filter out candidates on 7-day cooldown
+    eligible = []
+    cooldowned = []
+
+    for candidate in CORE_PRODUCT_TYPES:
+        last_used_str = pt_hist.get(candidate)
+        is_on_cooldown = False
+        if last_used_str:
+            try:
+                last_dt = datetime.fromisoformat(last_used_str)
+                if last_dt > cooldown_cutoff:
+                    is_on_cooldown = True
+                    print(f"  [7-Day Cooldown] Product type '{candidate}' used on {last_dt.strftime('%Y-%m-%d')} (cooldown active)")
+            except Exception:
+                pass
+
+        if not is_on_cooldown:
+            eligible.append(candidate)
+        else:
+            cooldowned.append(candidate)
+
+    # If eligible pool is empty (all on cooldown), pick the candidate used longest ago
+    if not eligible:
+        print("  [7-Day Cooldown] All product types on cooldown. Selecting least recently used...")
+        sorted_by_date = sorted(
+            CORE_PRODUCT_TYPES,
+            key=lambda c: pt_hist.get(c, "1970-01-01T00:00:00+00:00")
+        )
+        selected = sorted_by_date[0]
+    else:
+        # Sort eligible candidates by trend score descending
+        eligible.sort(key=lambda c: scores.get(c, 0), reverse=True)
+        selected = eligible[0]
+
+    print(f"  [OK Selected Trend Product Type] '{selected}' (Trend score: {scores.get(selected, 0)})")
+    record_product_type_used(selected)
+    return selected
+
 # ── Link Map Builder (Internal Links) ──────────────────────────────────────────
 def build_linker_map() -> LinkMap:
     print("\n━━ PHASE 3: Building Internal Link Map ━━")
@@ -1606,16 +1710,18 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
     dedup = ArticleDeduplicator(BASE, HEADERS)
     dedup.load_live_index()
 
-    type_pool = list(research.keys())
-    random.shuffle(type_pool)
+    # Select trending product type based on live research & 7-day cooldown
+    selected_ptype = select_trending_product_type(research, research, cooldown_days=7)
     
     results = []
     all_products_with_images = [p for p in all_products if p.get("images")]
     
     for i in range(count):
-        ptype = type_pool[i % len(type_pool)]
+        ptype = selected_ptype
         
-        prods_in_type = [p for p in all_products_with_images if p.get("product_type") == ptype]
+        prods_in_type = [p for p in all_products_with_images if candidate_matches_type(p.get("product_type", ""), ptype)]
+        if not prods_in_type:
+            prods_in_type = [p for p in all_products_with_images if ptype[:-1] in (p.get("product_type") or "").lower()]
         if not prods_in_type:
             prods_in_type = all_products_with_images
         if not prods_in_type:

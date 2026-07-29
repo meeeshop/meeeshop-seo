@@ -325,21 +325,41 @@ class GoogleQuestionFetcher:
 
     def get_next_unaddressed_question(self, product_type: str, deduplicator=None, default_fallback: str = None) -> str:
         """
-        Fetches live questions from Google for product_type, iterates through them,
-        and returns the FIRST question that has not been addressed yet.
+        Fetches live questions from Google for product_type, iterates through them in order,
+        and returns the FIRST question that has NOT been addressed yet by our store.
+        If all live suggestions are addressed, generates a fresh long-tail modifier variation.
         """
-        questions = self.fetch_live_google_questions(product_type, limit=20)
+        questions = self.fetch_live_google_questions(product_type, limit=25)
 
         for q in questions:
             if not self.is_for_women_only(q):
                 continue
-            if not self.is_addressed(q, deduplicator):
-                print(f"  [OK] Selected unaddressed Google Question for '{product_type}': {q}")
-                return q
+            if self.is_addressed(q, deduplicator):
+                print(f"  [Waterfall] Question already addressed by store: '{q}' -> Trying next in line...")
+                continue
+            print(f"  [OK Deduplicated Question] Selected fresh Google question for '{product_type}': {q}")
+            return q
 
-        # If all live suggestions were addressed or API returned empty, return fallback question
-        fallback = default_fallback or f"How to Style {product_type.title()} for Everyday Chic"
-        print(f"  [!] All Google suggestions addressed or empty. Using fallback question: {fallback}")
+        # Waterfall Fallback: Generate fresh long-tail modifier questions if all top queries are addressed
+        clean_ptype = product_type.title()
+        modifier_options = [
+            f"How to Style {clean_ptype} for Women Over 40 in 2026?",
+            f"What Shoes to Wear with {clean_ptype} for Casual Chic Outfits?",
+            f"How Should {clean_ptype} Fit for Petite and Curvy Body Shapes?",
+            f"How to Wash and Care for {clean_ptype} to Prevent Shrinking?",
+            f"What Tops and Jackets Go Best with {clean_ptype} in 2026?",
+            f"Can You Wear {clean_ptype} to Work or Business Casual Settings?",
+            f"How to Layer {clean_ptype} for Transition Weather in 2026?",
+            f"Best Undergarments and Shapewear to Wear Under {clean_ptype}?"
+        ]
+
+        for mod_q in modifier_options:
+            if not self.is_addressed(mod_q, deduplicator):
+                print(f"  [Waterfall Fallback] Selected unaddressed modified question: {mod_q}")
+                return mod_q
+
+        fallback = default_fallback or f"How to Style {clean_ptype} for Everyday Chic in 2026?"
+        print(f"  [!] All suggestions & modifiers addressed. Using fallback question: {fallback}")
         return self.normalize_question(fallback)
 
 
