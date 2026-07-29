@@ -437,6 +437,28 @@ def get_product_type_history() -> dict:
 def record_product_type_used(ptype: str):
     history_file = SCRIPT_DIR / "addressed_questions_history.json"
     data = {}
+def normalize_to_core_stem(ptype: str) -> str:
+    p_lower = (ptype or "").lower().strip()
+    for core in CORE_PRODUCT_TYPES:
+        stem = core[:-1] if core.endswith("s") else core
+        if stem in p_lower or core in p_lower:
+            return core
+    return "tops"
+
+def get_product_type_history() -> dict:
+    history_file = SCRIPT_DIR / "addressed_questions_history.json"
+    if history_file.exists():
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("_product_type_history", {})
+        except Exception:
+            pass
+    return {}
+
+def record_product_type_used(ptype: str):
+    history_file = SCRIPT_DIR / "addressed_questions_history.json"
+    data = {}
     if history_file.exists():
         try:
             with open(history_file, "r", encoding="utf-8") as f:
@@ -445,8 +467,8 @@ def record_product_type_used(ptype: str):
             data = {}
 
     pt_hist = data.get("_product_type_history", {})
-    clean = ptype.lower().strip()
-    pt_hist[clean] = datetime.now(timezone.utc).isoformat()
+    clean_stem = normalize_to_core_stem(ptype)
+    pt_hist[clean_stem] = datetime.now(timezone.utc).isoformat()
     data["_product_type_history"] = pt_hist
 
     try:
@@ -454,6 +476,81 @@ def record_product_type_used(ptype: str):
             json.dump(data, f, indent=2, ensure_ascii=False)
     except Exception as e:
         print(f"  [Warning] Failed to record product type history: {e}")
+
+def get_recommended_products_history() -> dict:
+    history_file = SCRIPT_DIR / "addressed_questions_history.json"
+    if history_file.exists():
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("_recommended_products_history", {})
+        except Exception:
+            pass
+    return {}
+
+def record_recommended_products_used(products: list):
+    history_file = SCRIPT_DIR / "addressed_questions_history.json"
+    data = {}
+    if history_file.exists():
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+
+    rec_hist = data.get("_recommended_products_history", {})
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for p in products:
+        if isinstance(p, dict):
+            pid = str(p.get("id", p.get("title", "")))
+            rec_hist[pid] = now_iso
+
+    data["_recommended_products_history"] = rec_hist
+    try:
+        with open(history_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+def select_styling_matches(main_product: dict, all_products: list, num_matches: int = 2, topic_context: str = "") -> list:
+    """
+    Selects complementary products from all_products for recommendation.
+    Prioritizes products that have NOT been recommended recently to ensure variety across runs.
+    """
+    rec_hist = get_recommended_products_history()
+    main_id = str(main_product.get("id", ""))
+    
+    candidates = [p for p in all_products if str(p.get("id", "")) != main_id]
+    if not candidates:
+        return []
+
+    now = datetime.now(timezone.utc)
+    unrecommended = []
+    recommended_recently = []
+    
+    for p in candidates:
+        pid = str(p.get("id", p.get("title", "")))
+        if pid not in rec_hist:
+            unrecommended.append(p)
+        else:
+            ts_str = rec_hist[pid]
+            try:
+                dt = datetime.fromisoformat(ts_str)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                age_days = (now - dt).days
+                recommended_recently.append((age_days, p))
+            except Exception:
+                unrecommended.append(p)
+
+    random.shuffle(unrecommended)
+    recommended_recently.sort(key=lambda x: x[0], reverse=True)
+    sorted_recent = [x[1] for x in recommended_recently]
+    
+    pool = unrecommended + sorted_recent
+    selected = pool[:min(num_matches, len(pool))]
+    record_recommended_products_used(selected)
+    return selected
 
 def select_trending_product_type(type_map: dict, research_data: dict, cooldown_days: int = 7) -> str:
     """
@@ -478,10 +575,8 @@ def select_trending_product_type(type_map: dict, research_data: dict, cooldown_d
 
     # Also map available store product types in type_map
     for ptype in type_map.keys():
-        pt_l = ptype.lower()
-        for candidate in CORE_PRODUCT_TYPES:
-            if candidate[:-1] in pt_l or candidate in pt_l:
-                scores[candidate] += 2
+        cand_stem = normalize_to_core_stem(ptype)
+        scores[cand_stem] += 2
 
     # 2. Filter out candidates on 7-day cooldown
     eligible = []
@@ -493,11 +588,13 @@ def select_trending_product_type(type_map: dict, research_data: dict, cooldown_d
         if last_used_str:
             try:
                 last_dt = datetime.fromisoformat(last_used_str)
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
                 if last_dt > cooldown_cutoff:
                     is_on_cooldown = True
                     print(f"  [7-Day Cooldown] Product type '{candidate}' used on {last_dt.strftime('%Y-%m-%d')} (cooldown active)")
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"  [Warning] Error parsing cooldown date for '{candidate}': {e}")
 
         if not is_on_cooldown:
             eligible.append(candidate)

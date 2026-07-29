@@ -232,16 +232,28 @@ class GoogleQuestionFetcher:
         if sig_str in self.history:
             return True
 
+        # Extract key words
+        stop_words = {"how", "to", "with", "the", "for", "and", "a", "an", "in", "or", "what", "is", "are", "do", "does", "can", "you", "wear", "style", "2026", "2025"}
+        q_words = set(w for w in re.findall(r"\b[a-zA-Z]{3,}\b", question.lower()) if w not in stop_words)
+
         # 2. Base topic & Stem Family 5-day variation cooldown check
         for entry_sig, entry_data in self.history.items():
             entry_base = entry_sig.split("||")[0]
             entry_q = entry_data.get("question", "")
             entry_stem = self._get_stem_family(entry_q)
 
+            if q_words:
+                entry_words = set(w for w in re.findall(r"\b[a-zA-Z]{3,}\b", entry_q.lower()) if w not in stop_words)
+                if entry_words and q_words.issubset(entry_words):
+                    print(f"  [Dedup History] Question '{question}' key words fully covered in history '{entry_q}'")
+                    return True
+
             ts_str = entry_data.get("timestamp")
             if ts_str:
                 try:
                     entry_dt = datetime.fromisoformat(ts_str)
+                    if entry_dt.tzinfo is None:
+                        entry_dt = entry_dt.replace(tzinfo=timezone.utc)
                     if (now - entry_dt).total_seconds() < (cooldown_days * 86400):
                         if entry_base == sig[0]:
                             print(f"  [Dedup Cooldown] Base topic '{sig[0]}' addressed within last {cooldown_days} days — skipping variation '{question}'")

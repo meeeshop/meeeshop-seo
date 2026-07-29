@@ -271,28 +271,38 @@ class ArticleDeduplicator:
     def is_duplicate_question(self, question: str, modifiers: tuple[str, ...] = None) -> bool:
         """
         Smart Question Deduplication:
-        Checks if the question base matches an existing store title.
-        If modifiers are present (e.g., 'over 40', 'for petite'), it ONLY considers it a duplicate
-        if an existing article ALSO contains those exact modifiers.
+        Checks if the question (or core words/intent) has already been addressed by an existing store title.
         """
         q_fp = self._fingerprint(question)
+        all_live = self._titles | self._registered_titles
         
-        # Exact title fingerprint match
-        if q_fp in self._titles or q_fp in self._registered_titles:
+        # 1. Exact title fingerprint match
+        if q_fp in all_live:
             return True
 
-        if modifiers:
-            # Check if any existing title matches the base fingerprint AND contains the modifier
-            for live_fp in (self._titles | self._registered_titles):
-                base_match = True
-                # If all modifier terms are present in live title, then it's a duplicate modifier variation
-                if all(mod in live_fp for mod in modifiers):
-                    return True
+        # Extract significant words (length >= 3, excluding stop words)
+        stop_words = {"how", "to", "with", "the", "for", "and", "a", "an", "in", "or", "what", "is", "are", "do", "does", "can", "you", "wear", "style", "2026", "2025"}
+        q_words = set(w for w in re.findall(r"\b[a-zA-Z]{3,}\b", q_fp) if w not in stop_words)
+
+        if not q_words:
             return False
 
-        # No modifiers: if a simplified base is already covered in titles, treat as duplicate
-        for live_fp in (self._titles | self._registered_titles):
-            if q_fp in live_fp or live_fp in q_fp:
+        # 2. Check token overlap with live titles
+        for live_fp in all_live:
+            live_words = set(w for w in re.findall(r"\b[a-zA-Z]{3,}\b", live_fp) if w not in stop_words)
+            if not live_words:
+                continue
+
+            # If all key content words of the question are in live title (e.g. 'tops', 'jeans' in 'tops wide leg jeans')
+            overlap = q_words.intersection(live_words)
+            if len(overlap) == len(q_words) and len(q_words) >= 2:
+                print(f"  [Dedup] Question '{question}' key words {q_words} fully covered in live title '{live_fp}'")
+                return True
+
+            # Fuzzy Jaccard Similarity (>= 0.65)
+            union = q_words.union(live_words)
+            if union and (len(overlap) / len(union)) >= 0.65:
+                print(f"  [Dedup] Question '{question}' fuzzy match ({len(overlap)}/{len(union)}) with live title '{live_fp}'")
                 return True
 
         return False
