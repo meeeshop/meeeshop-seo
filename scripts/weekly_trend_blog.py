@@ -208,7 +208,7 @@ def _fetch_flipboard_rss(topic: str) -> list[dict]:
     url = FLIPBOARD_RSS_BASE.format(topic=topic.lower().replace(" ", "-"))
     cutoff = datetime.now(timezone.utc) - timedelta(days=CUTOFF_DAYS)
     try:
-        r = requests.get(url, timeout=15, headers={
+        r = requests.get(url, timeout=5, headers={
             "User-Agent": f"Mozilla/5.0 (compatible; {BRAND_NAME} SEO bot/1.0)"
         })
         if r.status_code != 200:
