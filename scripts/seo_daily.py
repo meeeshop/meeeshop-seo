@@ -497,33 +497,73 @@ def build_meta_desc(title, product_type='', tags='', gsc_keywords=None):
 
 # ── Image alt text (Google standard: descriptive, ≤125 chars) ─────────────────
 def build_alt(title, variant_hint='', idx=0, product_type='', tags='', gsc_keywords=None):
+    """
+    Build highly descriptive, search-intent rich image alt text for US women's fashion.
+    Caps length strictly at 125 chars (Google Image Search standard).
+    Follows Google Search guidelines: natural visual description per image view without word stuffing.
+    """
     cat, word = detect_cat(title, product_type, tags)
     
-    base_alt = f"{title}"
-    if variant_hint and variant_hint.lower() != 'default':
-        base_alt += f" {variant_hint}"
+    parts = [title.strip()]
+    if variant_hint and variant_hint.lower() not in ('default', 'default title', ''):
+        parts.append(f"in {variant_hint.strip()}")
     if idx > 0:
-        base_alt += f" view {idx + 1}"
-    base_alt += f" ({word})"
+        parts.append(f"view {idx + 1}")
     
-    # Add keywords if we have space
+    # Extract natural US female fashion intent descriptors from tags/title
+    tags_str = (tags if isinstance(tags, str) else ", ".join(tags)).lower()
+    full_text = f"{title} {tags_str} {product_type}".lower()
+    
+    intent_descriptors = []
+    if any(k in full_text for k in ['high waist', 'high rise', 'high-waisted']):
+        intent_descriptors.append("High-Waisted")
+    elif any(k in full_text for k in ['curvy', 'plus size', 'tummy control']):
+        intent_descriptors.append("Curvy Fit")
+    elif any(k in full_text for k in ['stretch', 'elastic']):
+        intent_descriptors.append("Comfort Stretch")
+    elif any(k in full_text for k in ['oversized', 'relaxed', 'loose']):
+        intent_descriptors.append("Relaxed Fit")
+
+    if any(k in full_text for k in ['boho', 'bohemian']):
+        intent_descriptors.append("Boho Style")
+    elif any(k in full_text for k in ['office', 'work', 'blazer']):
+        intent_descriptors.append("Casual Office Outfit")
+    elif any(k in full_text for k in ['summer', 'vacation', 'beach', 'resort']):
+        intent_descriptors.append("Summer Outfit Idea")
+    elif any(k in full_text for k in ['fall', 'winter', 'knit']):
+        intent_descriptors.append("Fall Wardrobe Essential")
+
+    base_alt = " ".join(parts)
+    if intent_descriptors and intent_descriptors[0].lower() not in base_alt.lower():
+        base_alt += f" - {intent_descriptors[0]}"
+    
+    # Seamlessly integrate ONE top relevant GSC search term if not already present (no raw comma lists)
     if gsc_keywords:
-        kw_str = ", ".join(gsc_keywords)
-        space_left = 125 - len(base_alt) - len(f" - shop at {DISPLAY_BRAND}") - len(" - ")
-        if space_left > 10:
-            base_alt += f" - {kw_str[:space_left]}"
-            
-    alt = f"{base_alt} - shop at {DISPLAY_BRAND}"
-    return alt[:125].strip()
+        top_kw = (gsc_keywords[0] if isinstance(gsc_keywords, list) and gsc_keywords else str(gsc_keywords)).strip()
+        if top_kw and top_kw.lower() not in base_alt.lower():
+            space_left = 125 - len(base_alt) - len(" - ")
+            if space_left >= len(top_kw):
+                base_alt += f" - {top_kw.title()}"
+
+    if word.lower() not in base_alt.lower() and len(base_alt) <= 110:
+        base_alt += f" ({word})"
+
+    return base_alt[:125].strip().rstrip('-').strip()
 
 
 def build_collection_alt(title):
-    alt = f"{title} collection - shop at {DISPLAY_BRAND}"
+    clean_title = title.strip()
+    alt = f"{clean_title} - US Women's Fashion & Styling Guide Collection"
+    if len(alt) > 125:
+        alt = f"{clean_title} Collection - US Women's Fashion"
     return alt[:125].strip()
 
 
 def build_article_alt(title):
-    alt = f"{title} - fashion tips & styling guides at {DISPLAY_BRAND}"
+    clean_title = title.strip()
+    alt = f"{clean_title} - US Women's Fashion & Outfit Style Guide"
+    if len(alt) > 125:
+        alt = f"{clean_title} - Women's Fashion Style Guide"
     return alt[:125].strip()
 
 
@@ -1124,9 +1164,9 @@ def update_image_alt(pid, iid, alt, src=None, idx=0):
                 slug = f"{slug[:50].strip('-')}-{media_suffix}"
             new_filename = f"{slug}.{ext}"
             
-            # Skip if the current filename already contains the first 30 chars of the new slug
+            # Always replace old filename with the new clean Google-supported filename if different
             current_name = base.rsplit('.', 1)[0].lower()
-            if slug[:30] not in current_name:
+            if base.lower() != new_filename.lower():
                 query_file = """
                 mutation fileUpdate($files: [FileUpdateInput!]!) {
                   fileUpdate(files: $files) {
@@ -2224,7 +2264,7 @@ def main():
         processed_ids.add(p['id'])
 
     # ── Process pages ─────────────────────────────────────────────────────────
-    if pages:
+    if pages and not args.only_images:
         print("\nProcessing pages...")
         for i, page in enumerate(pages, 1):
             if page['id'] in skip_ids:
@@ -2430,7 +2470,7 @@ def main():
                                 img_id = parse_gid(coll_image.get('id'))
                                 media_suffix = str(img_id)[-6:] if img_id else str(int(time.time() * 1000))[-6:]
                                 new_filename = f"{slug[:50].strip('-')}-{media_suffix}.{ext}"
-                                if slug[:30] not in base.lower():
+                                if base.lower() != new_filename.lower():
                                     # Search standard files to find GenericFile/MediaImage ID
                                     file_id = find_file_id_by_filename(base)
                                     if file_id:
@@ -2586,7 +2626,7 @@ def main():
                                 img_id = parse_gid(art_image.get('id'))
                                 media_suffix = str(img_id)[-6:] if img_id else str(int(time.time() * 1000))[-6:]
                                 new_filename = f"{slug[:50].strip('-')}-{media_suffix}.{ext}"
-                                if slug[:30] not in base.lower():
+                                if base.lower() != new_filename.lower():
                                     # Search standard files to find GenericFile/MediaImage ID
                                     file_id = find_file_id_by_filename(base)
                                     if file_id:
