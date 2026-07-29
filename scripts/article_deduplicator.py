@@ -75,12 +75,27 @@ class ArticleDeduplicator:
         """
         Normalise a title for fuzzy comparison:
         - lowercase
-        - remove punctuation
-        - collapse whitespace
-        - strip years (e.g. 2024/2025/2026) so same topic with different year still matches
+        - strip years (2024/2025/2026)
+        - strip month names (july, jul, august, etc.)
+        - strip articles (a, an, the)
+        - normalize plurals (shoes -> shoe, uniforms -> uniform, dresses -> dress)
+        - remove punctuation & collapse whitespace
         """
         t = title.lower()
         t = re.sub(r"\b20\d\d\b", "", t)        # strip years
+        t = re.sub(r"\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\b", "", t) # strip months
+        t = re.sub(r"\b(a|an|the)\b", " ", t)    # strip articles
+        # Normalize common plural words
+        t = re.sub(r"\bshoes\b", "shoe", t)
+        t = re.sub(r"\buniforms\b", "uniform", t)
+        t = re.sub(r"\bdresses\b", "dress", t)
+        t = re.sub(r"\bjeans\b", "jean", t)
+        t = re.sub(r"\btops\b", "top", t)
+        t = re.sub(r"\bshirts\b", "shirt", t)
+        t = re.sub(r"\bjackets\b", "jacket", t)
+        t = re.sub(r"\bcoats\b", "coat", t)
+        t = re.sub(r"\bblazers\b", "blazer", t)
+        t = re.sub(r"\bsweaters\b", "sweater", t)
         t = re.sub(r"[^\w\s]", " ", t)           # remove punctuation
         t = re.sub(r"\s+", " ", t).strip()       # collapse whitespace
         return t
@@ -133,7 +148,7 @@ class ArticleDeduplicator:
             blog_title = blog.get("title", blog_id)
             page_info  = None
             while True:
-                params: dict = {"limit": 250, "fields": "id,title,handle,published_at"}
+                params: dict = {"limit": 250, "published_status": "any", "fields": "id,title,handle,published_at"}
                 if page_info:
                     params["page_info"] = page_info
                 try:
@@ -253,6 +268,45 @@ class ArticleDeduplicator:
         fp = self._fingerprint(title)
         return fp in self._titles or fp in self._registered_titles
 
+    def is_duplicate_question(self, question: str, modifiers: tuple[str, ...] = None) -> bool:
+        """
+        Smart Question Deduplication:
+        Checks if the question (or core words/intent) has already been addressed by an existing store title.
+        """
+        q_fp = self._fingerprint(question)
+        all_live = self._titles | self._registered_titles
+        
+        # 1. Exact title fingerprint match
+        if q_fp in all_live:
+            return True
+
+        # Extract significant words (length >= 3, excluding stop words)
+        stop_words = {"how", "to", "with", "the", "for", "and", "a", "an", "in", "or", "what", "is", "are", "do", "does", "can", "you", "wear", "style", "2026", "2025"}
+        q_words = set(w for w in re.findall(r"\b[a-zA-Z]{3,}\b", q_fp) if w not in stop_words)
+
+        if not q_words:
+            return False
+
+        # 2. Check token overlap with live titles
+        for live_fp in all_live:
+            live_words = set(w for w in re.findall(r"\b[a-zA-Z]{3,}\b", live_fp) if w not in stop_words)
+            if not live_words:
+                continue
+
+            # If all key content words of the question are in live title (e.g. 'tops', 'jeans' in 'tops wide leg jeans')
+            overlap = q_words.intersection(live_words)
+            if len(overlap) == len(q_words) and len(q_words) >= 2:
+                print(f"  [Dedup] Question '{question}' key words {q_words} fully covered in live title '{live_fp}'")
+                return True
+
+            # Fuzzy Jaccard Similarity (>= 0.65)
+            union = q_words.union(live_words)
+            if union and (len(overlap) / len(union)) >= 0.65:
+                print(f"  [Dedup] Question '{question}' fuzzy match ({len(overlap)}/{len(union)}) with live title '{live_fp}'")
+                return True
+
+        return False
+
     def is_duplicate_handle(self, handle: str) -> bool:
         """Return True if this handle already exists on the live store or this run."""
         h = handle.lower()
@@ -343,14 +397,15 @@ class ArticleDeduplicator:
                       f"published within last {PRODUCT_FORMAT_COOLDOWN_DAYS} days")
                 return None
 
-        # 2. Make unique
+        # 2. Check title collision: if title is already addressed/indexed, SKIP to avoid duplicate posts
+        if self.is_duplicate_title(title):
+            print(f"  [Dedup] SKIP — Article title/question already addressed: '{title}'")
+            return None
+
+        # 3. Make unique
         orig_title, orig_handle = title, handle
         unique_title, unique_handle = self.make_unique(title, handle)
 
-        if unique_title != orig_title:
-            print(f"  [Dedup] Title collision — renamed:")
-            print(f"          '{orig_title}'")
-            print(f"       →  '{unique_title}'")
         if unique_handle != orig_handle:
             print(f"  [Dedup] Handle collision — renamed:")
             print(f"          '{orig_handle}'")

@@ -41,7 +41,7 @@ def download_article_content(url: str) -> str:
     """
     try:
         # 1. Try fetching with trafilatura
-        downloaded = trafilatura.fetch_url(url)
+        downloaded = trafilatura.fetch_url(url, timeout=5)
         if downloaded:
             extracted = trafilatura.extract(downloaded, no_fallback=False, include_comments=False, include_tables=True)
             if extracted:
@@ -51,7 +51,7 @@ def download_article_content(url: str) -> str:
                     return text
 
         # 2. Fallback to requests + BeautifulSoup
-        resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0 (compatible; MeeeShop SEO bot/1.0)"})
+        resp = requests.get(url, timeout=5, headers={"User-Agent": "Mozilla/5.0 (compatible; MeeeShop SEO bot/1.0)"})
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
         article = soup.find("article")
@@ -180,19 +180,15 @@ def is_product_compatible(main_product: dict, candidate: dict, topic_context: st
     if main_is_denim and cand_is_one_piece:
         return False
 
-    # 2. Bottoms (Jeans/Pants/Skirts) CANNOT pair with One-Pieces (Dresses)
-    if main_is_bottom and cand_is_one_piece:
+    # 2. Bottoms cannot pair with other bottoms (e.g. Jeans + Shorts)
+    if main_is_bottom and cand_is_bottom:
         return False
 
-    # 3. Tops CANNOT pair with One-Pieces
-    if main_is_top and cand_is_one_piece:
+    # 3. One-pieces (Dresses) cannot pair with other one-pieces (e.g. Dress + Jumpsuit)
+    if main_is_one_piece and cand_is_one_piece:
         return False
 
-    # 4. One-Pieces (Dresses) CANNOT pair with Bottoms or Tops
-    if main_is_one_piece and (cand_is_bottom or cand_is_top):
-        return False
-
-    # 5. Care Guide relevance
+    # 4. Care Guide relevance
     if is_care_guide and main_is_denim:
         if not (cand_is_denim or cand_is_top or any(kw in cand_type or kw in cand_title for kw in OUTERWEAR_KEYWORDS)):
             return False
@@ -200,9 +196,15 @@ def is_product_compatible(main_product: dict, candidate: dict, topic_context: st
     return True
 
 
+def _is_accessory_or_bag(product: dict) -> bool:
+    """Return True if product is a bag, handbag, crossbody, purse, or accessory."""
+    t = f"{(product.get('product_type') or '')} {(product.get('title') or '')}".lower()
+    return any(kw in t for kw in ["bag", "crossbody", "handbag", "tote", "purse", "clutch", "wallet", "accessory"])
+
+
 def select_styling_matches(main_product: dict, pool: list, num_matches: int = 2, topic_context: str = "") -> list[dict]:
     """Select styling match products from pool that are strictly compatible with main_product and topic_context.
-    Guaranteed to return up to num_matches (at least 2-4 products) whenever pool has available products.
+    Guaranteed to return up to num_matches with category diversity (maximum 1 bag/accessory per article).
     """
     main_id = main_product.get("id")
     main_handle = main_product.get("handle", "")
@@ -213,41 +215,47 @@ def select_styling_matches(main_product: dict, pool: list, num_matches: int = 2,
         if p.get("id") != main_id and p.get("handle") != main_handle and p.get("images")
         and is_product_compatible(main_product, p, topic_context)
     ]
+    random.shuffle(compatible_pool)
 
-    topic_lower = (topic_context or "").lower()
-    main_text = f"{(main_product.get('product_type') or '')} {(main_product.get('title') or '')}".lower()
-    is_denim = "denim" in topic_lower or "jean" in topic_lower or "denim" in main_text or "jean" in main_text
-    is_care = any(kw in topic_lower for kw in ["care", "wash", "maintenance", "stain"])
+    # Separate apparel items from bags/accessories to guarantee maximum 1 bag per article
+    apparel_pool = [p for p in compatible_pool if not _is_accessory_or_bag(p)]
+    accessory_pool = [p for p in compatible_pool if _is_accessory_or_bag(p)]
 
-    if is_denim and is_care:
-        denim_matches = [
-            p for p in compatible_pool
-            if "denim" in (p.get("product_type") or "").lower() or "jean" in (p.get("product_type") or "").lower()
-            or "denim" in (p.get("title") or "").lower() or "jean" in (p.get("title") or "").lower()
-        ]
-        if len(denim_matches) >= num_matches:
-            return random.sample(denim_matches, num_matches)
+    selected = []
 
-    if len(compatible_pool) >= num_matches:
-        return random.sample(compatible_pool, num_matches)
+    # 1. Prefer at least 1-2 apparel pieces (tops, dresses, jackets, bottoms)
+    if apparel_pool:
+        take_apparel = min(len(apparel_pool), num_matches - (1 if accessory_pool and num_matches > 1 else 0))
+        selected.extend(random.sample(apparel_pool, take_apparel))
 
-    # Level 2: Relaxed topic constraint, but strictly enforce wear compatibility (no dresses with jeans/bottoms)
+    # 2. Add at most 1 bag/accessory if needed to complete num_matches
+    if len(selected) < num_matches and accessory_pool:
+        selected.append(random.choice(accessory_pool))
+
+    # 3. If still need items, fill from remaining apparel
+    remaining_apparel = [p for p in apparel_pool if p not in selected]
+    while len(selected) < num_matches and remaining_apparel:
+        item = random.choice(remaining_apparel)
+        selected.append(item)
+        remaining_apparel.remove(item)
+
+    if len(selected) >= num_matches:
+        return selected[:num_matches]
+
+    # Level 2: Relaxed pool fallback
     relaxed_pool = [
         p for p in pool
         if p.get("id") != main_id and p.get("handle") != main_handle and p.get("images")
-        and is_product_compatible(main_product, p, topic_context="")
+        and p not in selected
     ]
-    if len(relaxed_pool) >= num_matches:
-        return random.sample(relaxed_pool, num_matches)
-    if relaxed_pool:
-        return relaxed_pool
+    random.shuffle(relaxed_pool)
+    while len(selected) < num_matches and relaxed_pool:
+        p = relaxed_pool.pop()
+        if _is_accessory_or_bag(p) and any(_is_accessory_or_bag(x) for x in selected):
+            continue  # Don't add a 2nd bag
+        selected.append(p)
 
-    # Level 3: General fallback to any in-stock image-backed product excluding main_product
-    general_pool = [
-        p for p in pool
-        if p.get("id") != main_id and p.get("handle") != main_handle and p.get("images")
-    ]
-    return random.sample(general_pool, min(num_matches, len(general_pool))) if general_pool else []
+    return selected[:num_matches]
 
 
 def get_category_style_phrase(product: dict) -> str:

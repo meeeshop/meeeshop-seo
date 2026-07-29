@@ -42,6 +42,7 @@ ROOT = Path(__file__).resolve().parent.parent
 import ai_client
 from blog_daily import generate_fallback_blog_post, get_product_display_name
 from eeat_constants import PEN_NAMES, needs_author_update
+from google_question_fetcher import GoogleQuestionFetcher
 
 # ── env / credentials ─────────────────────────────────────────────────────────
 from secrets_manager import inject_to_env, get_secret
@@ -1401,15 +1402,21 @@ def refresh_article(blog: dict, article: dict, all_products: list,
 
     if needs_rewrite:
         keyword = art_handle.replace("-", " ")
+        ptype = (featured.get("product_type") or "women's fashion").lower()
+        q_fetcher = GoogleQuestionFetcher()
+        google_q = q_fetcher.get_next_unaddressed_question(ptype)
+        print(f"  [Rewrite] Rewriting article for handle '{art_handle}' targeting US question: '{google_q}'")
+        
         if not no_ai:
-            print(f"  [Rewrite] Rewriting article for handle '{art_handle}' using featured product '{featured['title'][:40]}'")
             cleaned_context = clean_article_body_html(new_body)
             prompt = _build_refresh_prompt(art_title, featured, keyword, cleaned_context, art_handle)
             prompt += (
                 f"\nCRITICAL INSTRUCTION: The article MUST focus strictly on '{art_handle.replace('-', ' ')}'. "
+                f"You MUST include a dedicated section addressing the live US Google search question: '{google_q}'. "
                 f"Use featured product '{featured['title']}' (${featured['variants'][0]['price'] if featured.get('variants') else '49'}) "
                 f"as the primary recommended pick. Do NOT include HTML links inside the article prose."
             )
+            q_fetcher.mark_addressed(google_q, category=ptype, article_id=str(article_id))
             
             import ai_client
             ai_html = ai_client.generate(prompt, max_tokens=1600, temperature=0.7)

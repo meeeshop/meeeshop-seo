@@ -1448,19 +1448,21 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
             type_map[ptype] = []
         type_map[ptype].append(p)
 
-    # Filter candidate pool to enforce category diversity across runs
-    filtered_pool = []
-    for p in pool:
-        cat_phrase = get_category_style_phrase(p)
-        ptype_val = p.get("product_type", "")
-        if not dedup.is_duplicate_category_or_topic(ptype_val, cat_phrase):
-            filtered_pool.append(p)
+    # Perform trend research across product categories
+    print("[*] Researching live fashion trends...")
+    research_cache = wtb.research_flipboard_per_category(type_map)
 
-    candidate_pool = filtered_pool if filtered_pool else pool
-    if len(filtered_pool) < count:
-        print(f"  [Dedup] Filtered pool has {len(filtered_pool)} fresh categories remaining out of {len(pool)} products.")
+    # Select active product type based on live research & 7-day cooldown
+    active_ptype = wtb.select_trending_product_type(type_map, research_cache, cooldown_days=7)
+    print(f"[*] Active Product Type for Today's Run: '{active_ptype}'")
 
-    chosen   = random.sample(candidate_pool, min(count, len(candidate_pool)))
+    # Filter pool for products matching the selected trend product type
+    candidate_products = [p for p in pool if wtb.candidate_matches_type(p.get("product_type", ""), active_ptype)]
+    if not candidate_products:
+        candidate_products = pool
+
+    random.shuffle(candidate_products)
+    chosen = candidate_products[:min(count, len(candidate_products))]
 
     created = 0
     for i, product in enumerate(chosen):
@@ -1498,7 +1500,8 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
             research_cache={},
             force_format=wtb_format,
             dry_run=dry_run,
-            original_handle_hint=None
+            original_handle_hint=None,
+            deduplicator=dedup
         )
 
         if not content_assets:
@@ -1535,6 +1538,9 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
             print(f"  [Dedup] Skipping article — same product+format published recently.")
             continue
         post_title, suggested_handle = result
+
+        # Register in deduplicator so subsequent loop runs in same execution cycle don't reuse title
+        dedup.register(post_title, suggested_handle)
 
         # Update content_assets with resolved title/handle
         content_assets["title"] = post_title
