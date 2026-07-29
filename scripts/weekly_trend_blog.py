@@ -1227,7 +1227,7 @@ SUGGESTED_TAGS: [comma-separated list of 6-8 relevant tags]
 ARTICLE_MODE: {mode['id']}
 </seometa>
 
-Output ONLY clean HTML body content then the <seometa> block. No markdown fences. Start with the first HTML tag.
+Output ONLY clean HTML body content starting IMMEDIATELY with the <h1> tag, followed by the <seometa> block at the end. DO NOT output any chain-of-thought, internal reflections, planning thoughts, prompt analysis, or commentary (e.g. 'This is tricky', 'Must have sections', 'We need to satisfy'). No markdown fences. Start directly with <h1>.
 """
     if original_handle_hint:
         prompt += f"""
@@ -1548,10 +1548,17 @@ def _clean_html(raw: str) -> str:
     # 3. Strip <seometa>...</seometa> block
     raw = re.sub(r"<seometa>.*?</seometa>", "", raw, flags=re.DOTALL | re.IGNORECASE)
 
-    # 4. Discard any AI meta-reasoning preambles/reflections before the first valid HTML element
-    m = re.search(r"<(?:h1|h2|div|p|article|header|section|table)\b", raw, re.IGNORECASE)
-    if m:
-        raw = raw[m.start():]
+    # 4. Discard any AI meta-reasoning preambles/reflections before the main <h1> or valid HTML element
+    h1_match = re.search(r"<h1\b", raw, re.IGNORECASE)
+    if h1_match:
+        raw = raw[h1_match.start():]
+    else:
+        m = re.search(r"<(?:h2|div|p|article|header|section|table)\b", raw, re.IGNORECASE)
+        if m:
+            raw = raw[m.start():]
+
+    # 5. Remove any leftover prompt echoes or meta-reasoning paragraphs
+    raw = re.sub(r"^(?:Must have|The requirement:|Actually requirement:|This is tricky:|Conflict\.|We need to satisfy|Let's craft|The rule says).*?\n\n?", "", raw, flags=re.IGNORECASE | re.MULTILINE)
 
     return raw.strip()
 
