@@ -254,12 +254,15 @@ def _fetch_flipboard_search(keyword: str) -> list[dict]:
         r = requests.get(
             FLIPBOARD_SEARCH,
             params={"q": keyword, "locale": "en_US"},
-            timeout=15,
+            timeout=5,
             headers={"User-Agent": f"Mozilla/5.0 (compatible; {BRAND_NAME} SEO bot/1.0)"}
         )
         if r.status_code != 200:
             return []
-        data = r.json()
+        try:
+            data = r.json()
+        except Exception:
+            return []
         items = []
         for section in data.get("sections", []):
             for item in section.get("items", []):
@@ -281,23 +284,17 @@ def _fetch_flipboard_search(keyword: str) -> list[dict]:
                     "topic":     keyword,
                     "source":    f"flipboard-search:{source}",
                 })
-                if len(items) >= 10:
+                if len(items) >= 5:
                     break
-            if len(items) >= 10:
+            if len(items) >= 5:
                 break
         return items
-    except Exception as e:
-        print(f"    [Flipboard Search] {keyword}: {e}")
+    except Exception:
         return []
 
 # ── Google News RSS fallback ───────────────────────────────────────────────────
-def _fetch_google_news(keyword: str, num_sites: int = 3) -> list[dict]:
-    """Query Google News RSS for fashion articles (last 48 h, USA) from trusted sites.
-
-    Uses the public Google News RSS endpoint — no API key needed. Tries a handful
-    of trusted fashion publishers (Who What Wear, Refinery29, etc.) to surface
-    relevant, high-quality trend articles.
-    """
+def _fetch_google_news(keyword: str, num_sites: int = 2) -> list[dict]:
+    """Query Google News RSS for fashion articles (last 48 h, USA) from trusted sites."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=CUTOFF_DAYS)
     results = []
     site_filters = random.sample(GOOGLE_NEWS_FASHION_SITES, min(num_sites, len(GOOGLE_NEWS_FASHION_SITES)))
@@ -308,7 +305,7 @@ def _fetch_google_news(keyword: str, num_sites: int = 3) -> list[dict]:
             r = requests.get(
                 GOOGLE_NEWS_RSS,
                 params={"q": q, "hl": "en-US", "gl": "US", "ceid": "US:en"},
-                timeout=15,
+                timeout=5,
                 headers={"User-Agent": f"Mozilla/5.0 (compatible; {BRAND_NAME} SEO bot/1.0)"},
             )
             if r.status_code != 200:
@@ -320,7 +317,6 @@ def _fetch_google_news(keyword: str, num_sites: int = 3) -> list[dict]:
                 pub_el   = item.find("pubDate")
 
                 title = (title_el.text or "").strip() if title_el is not None else ""
-                # Google News links are redirect URLs — grab the real URL from <link> text
                 link  = (link_el.text or "").strip() if link_el is not None else ""
 
                 if not title or len(title) < 10:
@@ -339,54 +335,46 @@ def _fetch_google_news(keyword: str, num_sites: int = 3) -> list[dict]:
                     "source":      f"google-news:{site_filter}",
                     "full_content": "",
                 })
-                if len(results) >= 8:
+                if len(results) >= 4:
                     break
-            time.sleep(0.4)
-        except Exception as e:
-            print(f"    [Google News] {site_filter} / {keyword}: {e}")
+        except Exception:
+            continue
     return results
+
+# ── Core product type categories ──────────────────────────────────────────────
+CORE_PRODUCT_TYPES = ["dresses", "jeans", "tops", "outerwear", "skirts", "pants", "sweaters", "swimwear", "accessories"]
 
 def research_flipboard_per_category(type_map: dict) -> dict:
     print("\n━━ PHASE 2: Researching Flipboard trends (last 48 hours) ━━")
     research: dict[str, dict] = {}
+    
+    # Loop over the 9 core categories for fast, focused trend research
+    target_categories = CORE_PRODUCT_TYPES
 
-    for ptype, sample_products in type_map.items():
+    for ptype in target_categories:
         ptype_lower = ptype.lower()
         topics_to_query = []
         for key, topics in FLIPBOARD_TOPIC_MAP.items():
             if key in ptype_lower:
-                topics_to_query = topics
+                topics_to_query = topics[:2]
                 break
         if not topics_to_query:
-            topics_to_query = ["womens-fashion", "style"]
+            topics_to_query = ["womens-fashion"]
 
-        print(f"  [{ptype}] Querying Flipboard topics: {topics_to_query}")
+        print(f"  [{ptype}] Researching trend topics: {topics_to_query}")
         all_articles = []
         for topic in topics_to_query:
             rss_articles = _fetch_flipboard_rss(topic)
             all_articles.extend(rss_articles)
-            time.sleep(0.3)
 
-        # ── Flipboard search (Who What Wear / Refinery29 style) ──────────────
-        queries = [
-            f"Who What Wear {ptype_lower}",
-            f"Refinery29 {ptype_lower}",
-            f"women {ptype_lower} style trend"
-        ]
-        flipboard_search_found = 0
-        for q in queries:
-            print(f"    Searching Flipboard for: '{q}'...")
-            search_articles = _fetch_flipboard_search(q)
-            all_articles.extend(search_articles)
-            flipboard_search_found += len(search_articles)
+        # Quick Flipboard search query
+        search_articles = _fetch_flipboard_search(f"Who What Wear {ptype_lower}")
+        all_articles.extend(search_articles)
 
-        # ── Google News fallback when Flipboard search is empty ───────────────
-        if flipboard_search_found == 0:
-            print(f"    [Fallback] Flipboard search empty — trying Google News for: '{ptype_lower}'...")
+        # Google News fallback if Flipboard search empty
+        if not search_articles:
             gn_articles = _fetch_google_news(ptype_lower)
             all_articles.extend(gn_articles)
-            if gn_articles:
-                print(f"    [Google News] Found {len(gn_articles)} articles.")
 
         # Deduplicate
         seen = set()
@@ -397,13 +385,11 @@ def research_flipboard_per_category(type_map: dict) -> dict:
                 seen.add(norm_title)
                 unique.append(a)
 
-        # Slice to target subset for full text download
-        target_articles = unique[:4]
+        # Slice to max 2 articles per category for fast download
+        target_articles = unique[:2]
 
-        # Download content only for the target articles
         for art in target_articles:
             if art.get("link") and not art.get("full_content"):
-                print(f"    [Scraper] Downloading trend reference: '{art['title'][:60]}...'")
                 art["full_content"] = download_article_content(art["link"])
 
         # Extract keywords
@@ -415,14 +401,14 @@ def research_flipboard_per_category(type_map: dict) -> dict:
                 long_tail.extend(kws.get("long_tail", []))
                 zero_search.extend(kws.get("zero_search", []))
 
-        # Always inject specific care/maintenance/stain topics for testing if none found
-        if ptype_lower == "jean" or "jean" in ptype_lower:
-            long_tail.extend(["how to maintain jeans", "how to care for jeans", "how to remove stinky smell", "how to clean stains", "how to remove piling"])
-            zero_search.extend(["remove stinky smell from denim", "clean jeans stain naturally"])
+        matching_sample_prods = []
+        for raw_ptype, p_list in type_map.items():
+            if candidate_matches_type(raw_ptype, ptype):
+                matching_sample_prods.extend(p_list)
 
         research[ptype] = {
             "product_type": ptype,
-            "sample_products": [{"id": p["id"], "title": p["title"], "handle": p["handle"]} for p in sample_products],
+            "sample_products": [{"id": p["id"], "title": p["title"], "handle": p["handle"]} for p in matching_sample_prods[:5]],
             "articles": target_articles,
             "keywords": {
                 "long_tail": list(set(long_tail))[:10],
