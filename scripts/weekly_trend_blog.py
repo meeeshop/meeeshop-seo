@@ -778,7 +778,7 @@ ARTICLE_MODES = [
     },
     {
         "id": "one_item_multiple_ways",
-        "title_pattern": "{num} Ways to Style the {main_product} (Work to Weekend)",
+        "title_pattern": "{num} Ways to Style {ptype} (Work to Weekend)",
         "angle": "one-item-multiple-outfit-challenge",
         "description": "Deep-dive on one specific hero product. Show {num} completely different ways to style it across different occasions, seasons and moods. Include a 'What I packed for a 3-day trip using only this piece' section.",
         "structure": "Hero product spotlight | {num} styled looks each with: occasion + outfit recipe + styling notes + links | Travel packing tip | Seasonal transitions | FAQ | Related products",
@@ -1059,10 +1059,17 @@ Title Examples (for inspiration, do NOT copy): {'; '.join(mode.get('title_exampl
 Target Question: "{google_question or title_hint}"
 Instructions: You MUST directly address and answer this search question in the H1 title, opening paragraph, and dedicated body section. Include a 2-3 sentence clear, authoritative Direct Answer box right after the opening paragraph for Google Discover & Featured Snippet eligibility.
 
-────────── PRODUCT CONTEXT ──────────
-Hero Product: {main_product['title']} (Type: {ptype})
-Complementary Products to naturally mention: {', '.join(m_names)}
+────────── PRODUCT CATEGORY FOCUS (100% GENERIC ARTICLE) ──────────
+Target Product Category: {ptype} for Women
+Recommended Store Items (to be displayed in shop callout blocks at the bottom): {', '.join([main_product['title']] + m_names)}
 Store URL base: {STORE_URL}
+
+CRITICAL MANDATORY RULE (STRICTLY ENFORCED):
+- This article MUST be 100% generic fashion advice about {ptype} for women.
+- NEVER make any single store product the hero, title, or centerpiece of the article or outfit recipes.
+- DO NOT mention specific store product names like "{main_product['title']}" in the main body text or section titles.
+- Describe outfits using generic terms (e.g., "a relaxed linen shirt top", "a cropped blouse with wide-leg jeans", "a silk midi dress").
+- MeeeShop store products will be presented separately in recommended shopping callout blocks at the bottom of the article.
 
 ────────── SEO KEYWORDS ──────────
 Weave these naturally — never stuff them:
@@ -1078,9 +1085,9 @@ Zero-Search-Volume: {', '.join(zero_search[:5])}
 3. Include a Table of Contents (HTML anchor links) after the intro. The Table of Contents MUST be formatted as a structured bulleted list (using `<ul>` and `<li>`) or numbered list (using `<ol>` and `<li>`), wrapped in a styled container (e.g. `<div style="background:#f9f9f9; border:1px solid #eaeaea; padding:15px; border-radius:8px; margin:20px 0;"><p style="font-weight:bold; margin-top:0;">Table of Contents</p><ul style="margin:0; padding-left:20px; line-height:1.6;">...</ul></div>`). Never output it as a single paragraph or plain text.
 4. Use H2 and H3 headers. Every section must provide REAL, actionable value.
 5. Include at least one numbered list OR bullet-point checklist with 5+ items.
-6. Mention the hero product AND at least one complementary product NATURALLY within the article body (not just in promotional sections).
+6. Focus 100% on generic fashion styling advice for {ptype}. Do NOT center the article around any single product name.
 7. End with an FAQ section containing 5-6 specific, realistic questions women ask about this topic, with detailed answers.
-8. DO NOT be generic. Every tip must be specific. "Pair with white sneakers" is boring. "Try the {m_names[0] if m_names else 'MeeeShop top'} in cream for a tonal, editorial moment" is great.
+8. DO NOT be generic in advice. Every tip must be specific in terms of cuts, colors, and fabrics.
 9. Article length: Aim for 900-1200 words of body content (excluding product cards added separately).
 10. PREMIUM HTML STYLING: Make the article visually outstanding and premium. Use these HTML elements:
     - **Styled Blockquotes**: Use `<blockquote>` with elegant borders and styling (e.g. `<blockquote style="border-left: 4px solid #111; padding-left: 20px; font-style: italic; margin: 30px 0; color: #555;">...</blockquote>`).
@@ -1088,7 +1095,7 @@ Zero-Search-Volume: {', '.join(zero_search[:5])}
     - **Comparison / Styling Recipe Cards**: Create side-by-side recipe or match guides with inline style (using border-radius, clean fonts, subtle colors).
 11. LIST FORMATTING (CRITICAL): NEVER write numbered items, tips, or Q&A as a single paragraph of text. ALWAYS use proper HTML list elements:
     - For numbered steps/tips/ideas, use `<ol><li>…</li></ol>`.
-12. OUTFIT / ITEM COUNT ALIGNMENT (CRITICAL): The title/handle specifies {extract_handle_count(original_handle_hint or title_hint)} outfits/items/rules. You MUST structure the body with exactly {extract_handle_count(original_handle_hint or title_hint)} distinct outfit formulas/sections (e.g. 'Outfit 1', 'Outfit 2', ... 'Outfit {extract_handle_count(original_handle_hint or title_hint)}') to match the handle and title count, featuring the hero product and all complementary products provided ({', '.join(m_names)}).
+12. OUTFIT / ITEM COUNT ALIGNMENT (CRITICAL): The title/handle specifies {extract_handle_count(original_handle_hint or title_hint)} outfits/items/rules. You MUST structure the body with generic fashion styling recipes (e.g. Outfit 1: Pair a cropped shirt top with high-waisted wide-leg jeans...).
 13. CURRENT YEAR ENFORCEMENT (CRITICAL): The current year is {YEAR}. You MUST write all titles, subheadings, and content specifically for {YEAR}. You MUST NEVER output past years (2024, 2025, 2023, or older). If any research reference mentions an older year, you MUST update it to {YEAR}.
     - For unordered items/checklists, use `<ul><li>…</li></ul>`.
     - For the FAQ section, wrap each Q&A in its own `<div>` block. Use a `<strong>` or `<h3>` for the question and a `<p>` for the answer, NEVER inline them like "Q: ... A: ..." in one paragraph.
@@ -1583,18 +1590,7 @@ def generate_single_article_content(
     img_alt = enforce_current_year(img_alt, str(YEAR))
     html_body = enforce_current_year(html_body, str(YEAR))
 
-    # 5. Inject product cards and related products section
-    card_html = make_product_card(main_product)
-    toc_match = re.search(r"</ul>", html_body, re.IGNORECASE)
-    if toc_match:
-        pos = toc_match.end()
-        html_body = html_body[:pos] + "\n" + card_html + html_body[pos:]
-    else:
-        p_match = re.search(r"</p>", html_body, re.IGNORECASE)
-        if p_match:
-            pos = p_match.end()
-            html_body = html_body[:pos] + "\n" + card_html + html_body[pos:]
-            
+    # 5. Inject recommended products section at the bottom
     html_body += "\n" + make_related_products_section([main_product] + matching_products)
 
     # 6. Inject natural internal links
