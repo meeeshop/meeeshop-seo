@@ -500,7 +500,7 @@ def build_alt(title, variant_hint='', idx=0, product_type='', tags='', gsc_keywo
     """
     Build highly descriptive, search-intent rich image alt text for US women's fashion.
     Caps length strictly at 125 chars (Google Image Search standard).
-    Omits generic brand suffixes to maximize visual keyword space.
+    Follows Google Search guidelines: natural visual description per image view without word stuffing.
     """
     cat, word = detect_cat(title, product_type, tags)
     
@@ -510,7 +510,7 @@ def build_alt(title, variant_hint='', idx=0, product_type='', tags='', gsc_keywo
     if idx > 0:
         parts.append(f"view {idx + 1}")
     
-    # Extract US female fashion intent descriptors from tags/title
+    # Extract natural US female fashion intent descriptors from tags/title
     tags_str = (tags if isinstance(tags, str) else ", ".join(tags)).lower()
     full_text = f"{title} {tags_str} {product_type}".lower()
     
@@ -537,13 +537,14 @@ def build_alt(title, variant_hint='', idx=0, product_type='', tags='', gsc_keywo
     if intent_descriptors and intent_descriptors[0].lower() not in base_alt.lower():
         base_alt += f" - {intent_descriptors[0]}"
     
-    # Add high-converting GSC search queries if space permits
+    # Seamlessly integrate ONE top relevant GSC search term if not already present (no raw comma lists)
     if gsc_keywords:
-        kw_str = ", ".join(gsc_keywords)
-        space_left = 125 - len(base_alt) - len(" - ")
-        if space_left > 10:
-            base_alt += f" - {kw_str[:space_left].strip()}"
-            
+        top_kw = (gsc_keywords[0] if isinstance(gsc_keywords, list) and gsc_keywords else str(gsc_keywords)).strip()
+        if top_kw and top_kw.lower() not in base_alt.lower():
+            space_left = 125 - len(base_alt) - len(" - ")
+            if space_left >= len(top_kw):
+                base_alt += f" - {top_kw.title()}"
+
     if word.lower() not in base_alt.lower() and len(base_alt) <= 110:
         base_alt += f" ({word})"
 
