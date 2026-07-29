@@ -1321,7 +1321,7 @@ def generate_fallback_content(
     q_lower = (google_question or title).lower()
     if any(x in q_lower for x in ["wash", "clean", "care", "stain", "odour", "laundry"]):
         is_care = True
-    elif any(x in q_lower for x in ["style", "wear", "pair", "outfit", "layer"]):
+    elif any(x in q_lower for x in ["style", "wear", "pair", "outfit", "layer", "clothes", "go with", "match"]):
         is_care = False
     else:
         is_care = mode.get("id") in ("fabric_care_guide", "stain_odour_rescue")
