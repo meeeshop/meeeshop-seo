@@ -1164,9 +1164,9 @@ def update_image_alt(pid, iid, alt, src=None, idx=0):
                 slug = f"{slug[:50].strip('-')}-{media_suffix}"
             new_filename = f"{slug}.{ext}"
             
-            # Skip if the current filename already contains the first 30 chars of the new slug
+            # Always replace old filename with the new clean Google-supported filename if different
             current_name = base.rsplit('.', 1)[0].lower()
-            if slug[:30] not in current_name:
+            if base.lower() != new_filename.lower():
                 query_file = """
                 mutation fileUpdate($files: [FileUpdateInput!]!) {
                   fileUpdate(files: $files) {
@@ -2470,7 +2470,7 @@ def main():
                                 img_id = parse_gid(coll_image.get('id'))
                                 media_suffix = str(img_id)[-6:] if img_id else str(int(time.time() * 1000))[-6:]
                                 new_filename = f"{slug[:50].strip('-')}-{media_suffix}.{ext}"
-                                if slug[:30] not in base.lower():
+                                if base.lower() != new_filename.lower():
                                     # Search standard files to find GenericFile/MediaImage ID
                                     file_id = find_file_id_by_filename(base)
                                     if file_id:
@@ -2626,7 +2626,7 @@ def main():
                                 img_id = parse_gid(art_image.get('id'))
                                 media_suffix = str(img_id)[-6:] if img_id else str(int(time.time() * 1000))[-6:]
                                 new_filename = f"{slug[:50].strip('-')}-{media_suffix}.{ext}"
-                                if slug[:30] not in base.lower():
+                                if base.lower() != new_filename.lower():
                                     # Search standard files to find GenericFile/MediaImage ID
                                     file_id = find_file_id_by_filename(base)
                                     if file_id:
