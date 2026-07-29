@@ -1548,17 +1548,30 @@ def _clean_html(raw: str) -> str:
     # 3. Strip <seometa>...</seometa> block
     raw = re.sub(r"<seometa>.*?</seometa>", "", raw, flags=re.DOTALL | re.IGNORECASE)
 
-    # 4. Discard any AI meta-reasoning preambles/reflections before the main <h1> or valid HTML element
-    h1_match = re.search(r"<h1\b", raw, re.IGNORECASE)
-    if h1_match:
-        raw = raw[h1_match.start():]
+    # 4. Find the true <h1> header of the article (discarding any reasoning monologue before it)
+    h1_matches = list(re.finditer(r"<h1\b[^>]*>(.*?)</h1>", raw, re.DOTALL | re.IGNORECASE))
+    if h1_matches:
+        chosen_h1 = None
+        for m in h1_matches:
+            h1_text = m.group(1)
+            if not any(kw.lower() in h1_text.lower() for kw in ["must obey", "constraint", "requirement", "instruction"]):
+                chosen_h1 = m
+                break
+        if chosen_h1:
+            raw = raw[chosen_h1.start():]
+        else:
+            raw = raw[h1_matches[-1].start():]
     else:
         m = re.search(r"<(?:h2|div|p|article|header|section|table)\b", raw, re.IGNORECASE)
         if m:
             raw = raw[m.start():]
 
-    # 5. Remove any leftover prompt echoes or meta-reasoning paragraphs
-    raw = re.sub(r"^(?:Must have|The requirement:|Actually requirement:|This is tricky:|Conflict\.|We need to satisfy|Let's craft|The rule says).*?\n\n?", "", raw, flags=re.IGNORECASE | re.MULTILINE)
+    # 5. Remove any prompt reflection monologue blocks that start with reasoning phrases
+    reasoning_patterns = [
+        r"^(?:title, then seo meta block|Must obey many constraints|Wait mode:|angle:|Title suggestion:|That seems contradictory|Conflict\.|We need to satisfy|Let's combine:|Let's plan:|Now check constraints:|The instruction:|Actually requirement:|Hero product\?|DO NOT mention|Recommended Store Items|Key points:|Let's think|We'll start).*?\n\n?"
+    ]
+    for pattern in reasoning_patterns:
+        raw = re.sub(pattern, "", raw, flags=re.IGNORECASE | re.MULTILINE)
 
     return raw.strip()
 
