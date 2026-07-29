@@ -1273,13 +1273,17 @@ def generate_fallback_content(
     matching_products: list,
     rdata: dict,
     mode: dict,
-    original_handle_hint: str | None = None
+    original_handle_hint: str | None = None,
+    google_question: str | None = None
 ) -> str:
     ptype = rdata.get("product_type", "Fashion Staples").strip()
     category_phrase = get_category_style_phrase(main_product)
     prod_title = category_phrase
     
-    if original_handle_hint:
+    if google_question:
+        title = google_question
+        suggested_handle = _slugify(google_question)
+    elif original_handle_hint:
         suggested_handle = original_handle_hint
         words = original_handle_hint.split("-")
         title = " ".join(w.capitalize() for w in words if w)
@@ -1314,7 +1318,13 @@ def generate_fallback_content(
                 summary = "Exploring modern trends and versatile styles for the current season."
             ref_summaries.append((art_title, summary))
             
-    is_care = mode.get("id") in ("fabric_care_guide", "stain_odour_rescue")
+    q_lower = (google_question or title).lower()
+    if any(x in q_lower for x in ["wash", "clean", "care", "stain", "odour", "laundry"]):
+        is_care = True
+    elif any(x in q_lower for x in ["style", "wear", "pair", "outfit", "layer"]):
+        is_care = False
+    else:
+        is_care = mode.get("id") in ("fabric_care_guide", "stain_odour_rescue")
     
     if is_care:
         intro_p = f"Maintaining the premium look and feel of your wardrobe staples is essential. The {prod_title} is a key foundation piece, and knowing how to properly care for and wash it ensures it remains in pristine condition for years to come. Whether you're dealing with standard laundry cycles or trying to remove tough stains and odours, this guide has you covered."
@@ -1653,7 +1663,8 @@ def generate_single_article_content(
             matching_products=matching_products,
             rdata=rdata,
             mode=chosen_mode,
-            original_handle_hint=original_handle_hint
+            original_handle_hint=original_handle_hint,
+            google_question=google_question
         )
         html_body = _clean_html(raw_ai_response)
 

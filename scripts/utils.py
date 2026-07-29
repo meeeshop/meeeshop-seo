@@ -41,7 +41,7 @@ def download_article_content(url: str) -> str:
     """
     try:
         # 1. Try fetching with trafilatura
-        downloaded = trafilatura.fetch_url(url)
+        downloaded = trafilatura.fetch_url(url, timeout=5)
         if downloaded:
             extracted = trafilatura.extract(downloaded, no_fallback=False, include_comments=False, include_tables=True)
             if extracted:
@@ -51,7 +51,7 @@ def download_article_content(url: str) -> str:
                     return text
 
         # 2. Fallback to requests + BeautifulSoup
-        resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0 (compatible; MeeeShop SEO bot/1.0)"})
+        resp = requests.get(url, timeout=5, headers={"User-Agent": "Mozilla/5.0 (compatible; MeeeShop SEO bot/1.0)"})
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
         article = soup.find("article")
