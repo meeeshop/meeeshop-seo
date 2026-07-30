@@ -1591,6 +1591,9 @@ def main():
             products.append(prod)
         else:
             print(f"Error: Product handle '{args.handle}' not found.")
+            print(f"\n💡 Note: '{args.handle}' may be a Collection handle.")
+            print(f"   • To process product attributes for products in a brand/collection, use --query (e.g., --query \"tag:'Judy Blue'\").")
+            print(f"   • To process Collection SEO & PAA FAQs for this collection, run: python scripts/bulk_update_collection_seo.py --handle {args.handle}")
             sys.exit(1)
     elif args.query:
         # Strip outer quotes if passed literally by shell escaping

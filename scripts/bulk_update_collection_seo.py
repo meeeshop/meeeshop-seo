@@ -444,15 +444,11 @@ SEO_MAP = {
     }
 }
 
-def update_all_collections():
+def update_all_collections(target_handle: str = None, dry_run: bool = False, force: bool = False):
     # Query all active collections from Shopify
     query = """
-    query getCollections($cursor: String) {
-      collections(first: 250, after: $cursor) {
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
+    query {
+      collections(first: 250) {
         edges {
           node {
             id
@@ -460,10 +456,6 @@ def update_all_collections():
             handle
             productsCount {
               count
-            }
-            seo {
-              title
-              description
             }
           }
         }
@@ -507,15 +499,20 @@ def update_all_collections():
         title = c["title"]
         count = c["productsCount"]["count"] if c.get("productsCount") else 0
         
+        # Filter by target handle if specified
+        if target_handle and handle.lower() != target_handle.lower():
+            continue
+
         # Skip hidden empty collections or special system collection
         if count == 0 and handle not in SEO_MAP:
             continue
         if handle == "all-products_do_not_delete":
             continue
             
-        # Check 60-day stability lock to prevent content churn
-        if paa_pasf_seo_engine and paa_pasf_seo_engine.is_recently_updated(f"collection:{handle}"):
-            print(f"[SKIP LOCK] Collection {handle} updated within last 60 days.")
+        # Check 60-day stability lock to prevent content churn (unless --force)
+        if not force and paa_pasf_seo_engine and paa_pasf_seo_engine.is_recently_updated(f"collection:{handle}"):
+            print(f"[SKIP LOCK] Collection '{handle}' updated within last 60 days.")
+            skipped_count += 1
             continue
 
         seo_data = SEO_MAP.get(handle)
@@ -540,6 +537,16 @@ def update_all_collections():
             seo_title = seo_data["title"]
             seo_desc = seo_data["description"]
             
+        print(f"[TARGET COLLECTION]: {title} ({handle})")
+        print(f"   SEO Title: {seo_title}")
+        print(f"   SEO Desc : {seo_desc}")
+
+        if dry_run:
+            print(f"   [DRY-RUN / DIAGNOSE] Skipping Shopify API mutation.")
+            updated_count += 1
+            print("-" * 60)
+            continue
+
         variables = {
             "input": {
                 "id": gid,
@@ -552,7 +559,6 @@ def update_all_collections():
         
         if paa_pasf_seo_engine:
             paa_pasf_seo_engine.log_entity_update(f"collection:{handle}")
-
         
         res = requests.post(GRAPHQL_ENDPOINT, headers=HEADERS, json={"query": seo_mutation, "variables": variables})
         res_json = res.json()
@@ -562,15 +568,20 @@ def update_all_collections():
             print(f"[ERROR] updating {handle}: {errors}")
         else:
             updated_count += 1
-            print(f"[UPDATED {updated_count}]: {title} ({handle})")
-            print(f"   SEO Title: {seo_title}")
-            print(f"   SEO Desc : {seo_desc}")
+            print(f"   [LIVE UPDATED SUCCESS]")
             print("-" * 60)
             
-        # Mild pause to comply with Shopify API rate limit limits
         time.sleep(0.15)
         
-    print(f"\n[DONE] Finished updating all store collections! Total updated: {updated_count}")
+    print(f"\n[DONE] Finished! Total updated/processed: {updated_count}, Skipped (Locked): {skipped_count}")
+
 
 if __name__ == "__main__":
-    update_all_collections()
+    import argparse
+    parser = argparse.ArgumentParser(description="Bulk Update Shopify Collection SEO Titles & Descriptions with PAA/PASF Engine")
+    parser.add_argument("--handle", type=str, default=None, help="Target specific collection handle (e.g. judy-blue-womens-jeans)")
+    parser.add_argument("--diagnose", action="store_true", help="Preview mode without calling live Shopify mutation")
+    parser.add_argument("--force", action="store_true", help="Ignore 60-day stability lock and force update")
+    args = parser.parse_args()
+
+    update_all_collections(target_handle=args.handle, dry_run=args.diagnose, force=args.force)
