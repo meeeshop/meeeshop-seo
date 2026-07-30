@@ -1461,11 +1461,23 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
     if not candidate_products:
         candidate_products = pool
 
+    # Enforce 15-Day Product Cooldown Rotation
+    try:
+        from fix_duplicate_blog_products import ProductRotationManager
+        rotation_mgr = ProductRotationManager()
+        candidate_products = rotation_mgr.filter_available_products(candidate_products, days=15)
+    except Exception as e:
+        print(f"  [Rotation Notice]: {e}")
+        rotation_mgr = None
+
     random.shuffle(candidate_products)
     chosen = candidate_products[:min(count, len(candidate_products))]
 
     created = 0
     for i, product in enumerate(chosen):
+        if rotation_mgr:
+            rotation_mgr.mark_used(product.get("handle", ""))
+
         keyword, title_hint, fmt = generate_keyword_title_and_format(product, format_override)
         if topic:
             keyword = topic
