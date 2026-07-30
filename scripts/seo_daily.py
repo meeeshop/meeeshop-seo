@@ -1873,10 +1873,10 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
 
         # Allow custom descriptions to bypass complete overwrite, only rewriting if force or missing table/stale return
         is_custom = len(strip_html(body_html)) >= 200 and not ("Discover the" in body_html and "Why Choose" in body_html)
-        if is_custom:
-            needs_body_rewrite = force or not has_table or has_stale_body
-        else:
-            needs_body_rewrite = force or plain_len < 500 or not has_table or has_stale_body or not has_all_markers
+        
+        # Stop unnecessary body rewrites on existing products to avoid spam signals.
+        # Only rewrite if explicitly forced, or if the product has basically no description.
+        needs_body_rewrite = force or plain_len < 50
 
         if needs_body_rewrite:
             missing.append(f"body_html ({plain_len} chars, table={has_table}, stale={has_stale_body}, markers={has_all_markers}, custom={is_custom})")

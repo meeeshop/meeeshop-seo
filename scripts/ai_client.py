@@ -135,7 +135,11 @@ def _call_openrouter(prompt: str, max_tokens: int, temperature: float, category:
 
             print(f"      [OpenRouter] {model}: success", flush=True)
             attempt_logs.append(f"{model}: OK")
-            return r.json()["choices"][0]["message"]["content"].strip()
+            content = r.json().get("choices", [{}])[0].get("message", {}).get("content")
+            if content:
+                return content.strip()
+            attempt_logs.append(f"{model}: empty content")
+            continue
         except Exception as e:
             print(f"      [OpenRouter] {model}: exception - {e}", flush=True)
             attempt_logs.append(f"{model}: exception - {e}")

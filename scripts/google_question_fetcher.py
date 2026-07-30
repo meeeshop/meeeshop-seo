@@ -374,6 +374,44 @@ class GoogleQuestionFetcher:
         print(f"  [!] All suggestions & modifiers addressed. Using fallback question: {fallback}")
         return self.normalize_question(fallback)
 
+    def fetch_pasf_modifiers(self, term: str) -> list[str]:
+        """
+        Queries Google Autocomplete API for search modifier terms (PASF equivalents)
+        for a product type, sub-category, or vendor brand.
+        """
+        clean_term = term.lower().strip()
+        url = (
+            f"http://suggestqueries.google.com/complete/search"
+            f"?client=chrome&gl=us&hl=en&q={urllib.parse.quote(clean_term)}"
+        )
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        modifiers = []
+        seen = set()
+
+        try:
+            res = requests.get(url, headers=headers, timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                if len(data) > 1 and isinstance(data[1], list):
+                    for suggestion in data[1]:
+                        s_clean = suggestion.lower().strip()
+                        # Extract the modifier beyond the main search term
+                        mod = s_clean.replace(clean_term, "").strip()
+                        if mod and self.is_for_women_only(mod) and mod not in seen:
+                            seen.add(mod)
+                            modifiers.append(mod)
+        except Exception as e:
+            print(f"[QuestionFetcher] PASF Query failed for '{term}': {e}")
+
+        # Fallback default modifiers if autocomplete returns few results
+        default_mods = ["size chart", "women", "high rise", "price", "where to buy", "sale", "outfit ideas"]
+        for dm in default_mods:
+            if dm not in seen:
+                modifiers.append(dm)
+
+        return modifiers[:8]
+
+
 
 # Standalone CLI test
 if __name__ == "__main__":

@@ -209,6 +209,16 @@ def select_styling_matches(main_product: dict, pool: list, num_matches: int = 2,
     main_id = main_product.get("id")
     main_handle = main_product.get("handle", "")
 
+    # 15-day cooldown filter for matching products
+    try:
+        from fix_duplicate_blog_products import ProductRotationManager
+        rot = ProductRotationManager()
+        fresh_pool = [p for p in pool if not rot.is_on_cooldown(p.get("handle", ""), days=15)]
+        if len(fresh_pool) >= num_matches + 2:
+            pool = fresh_pool
+    except Exception:
+        pass
+
     # Level 1: Strict topic and style compatibility
     compatible_pool = [
         p for p in pool
