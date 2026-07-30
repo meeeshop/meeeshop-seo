@@ -268,11 +268,11 @@ def fix_duplicate_products(dry_run: bool = False):
                     if old_src and old_src in updated_body:
                         updated_body = updated_body.replace(old_src, new_img)
 
-        print(f"  [FIXING Article {art_id}] '{art['title']}'")
-        print(f"    - Swapping Old Product '{old_handle}' -> New Fresh Product '{new_handle}' ({new_title})")
+        print(f"  [FIXING Article {art_id}] '{art['title']}'", flush=True)
+        print(f"    - Swapping Old Product '{old_handle}' -> New Fresh Product '{new_handle}' ({new_title})", flush=True)
 
         if dry_run:
-            print("    [DRY-RUN] Skipping live Shopify article update.")
+            print("    [DRY-RUN] Skipping live Shopify article update.", flush=True)
             fixed_count += 1
             continue
 
@@ -294,13 +294,13 @@ def fix_duplicate_products(dry_run: bool = False):
             if up_res.status_code in (200, 201):
                 rotation.mark_used(new_handle)
                 fixed_count += 1
-                print("    ✓ Successfully updated article on Shopify!")
+                print(f"    [SUCCESS] Updated article {art_id} on Shopify! (Progress: {fixed_count}/{len(duplicates)})", flush=True)
             else:
-                print(f"    ❌ Update failed (HTTP {up_res.status_code}): {up_res.text[:100]}")
+                print(f"    [FAILED] Update failed (HTTP {up_res.status_code}): {up_res.text[:100]}", flush=True)
         except Exception as e:
-            print(f"    ❌ Error updating article: {e}")
+            print(f"    [ERROR] Error updating article: {e}", flush=True)
 
-    print(f"\n[DONE] Finished product duplicate resolution. Total articles updated: {fixed_count}")
+    print(f"\n[DONE] Finished product duplicate resolution. Total articles updated: {fixed_count}", flush=True)
 
 
 if __name__ == "__main__":
