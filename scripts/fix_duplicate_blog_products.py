@@ -249,13 +249,24 @@ def fix_duplicate_products(dry_run: bool = False):
 
         body = art.get("body_html", "")
 
-        # Swap handle and title in article HTML
+        # Swap product link handle
         updated_body = body.replace(f"/products/{old_handle}", f"/products/{new_handle}")
         updated_body = re.sub(re.escape(old_handle), new_handle, updated_body, flags=re.IGNORECASE)
 
-        if updated_body == body:
-            print(f"  [Skip] Could not match handle '/products/{old_handle}' in body of '{art['title']}'")
-            continue
+        # Get old product title if available in pool
+        old_prod_obj = next((p for p in pool if p.get("handle") == old_handle), None)
+        if old_prod_obj:
+            old_title = old_prod_obj.get("title", "")
+            if old_title and old_title in updated_body:
+                updated_body = updated_body.replace(old_title, new_title)
+            
+            # Swap old product image src with new product image src
+            old_imgs = old_prod_obj.get("images", [])
+            if old_imgs and new_img:
+                for img in old_imgs:
+                    old_src = img.get("src", "")
+                    if old_src and old_src in updated_body:
+                        updated_body = updated_body.replace(old_src, new_img)
 
         print(f"  [FIXING Article {art_id}] '{art['title']}'")
         print(f"    - Swapping Old Product '{old_handle}' -> New Fresh Product '{new_handle}' ({new_title})")
@@ -265,13 +276,19 @@ def fix_duplicate_products(dry_run: bool = False):
             fixed_count += 1
             continue
 
-        # Update article on Shopify
-        payload = {
-            "article": {
-                "id": art_id,
-                "body_html": updated_body
-            }
+        # Prepare article payload
+        article_update = {
+            "id": art_id,
+            "body_html": updated_body
         }
+
+        # If featured image matches old product image, update featured image src
+        if new_img and art.get("image", {}).get("src"):
+            curr_feat_img = art["image"]["src"]
+            if old_prod_obj and any(img.get("src", "") in curr_feat_img for img in old_prod_obj.get("images", [])):
+                article_update["image"] = {"src": new_img, "alt": f"{new_title} - Featured Pick"}
+
+        payload = {"article": article_update}
         try:
             up_res = requests.put(f"{BASE}/blogs/{blog_id}/articles/{art_id}.json", headers=HEADERS, json=payload, timeout=20)
             if up_res.status_code in (200, 201):
