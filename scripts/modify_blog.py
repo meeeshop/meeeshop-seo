@@ -1370,7 +1370,10 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     # ── 4. Check alignment & product category ─────────────────────────────────
     aligned = check_alignment(art_handle, art_title, new_body, product_by_handle)
     has_products = len(extract_product_handles(new_body)) > 0
-    needs_rewrite = not aligned or not has_products or force or is_single_article
+    
+    # Stop unnecessary AI rewrites of existing articles to avoid spam signals.
+    # Only rewrite if explicitly forced or if it's a manual single-article run.
+    needs_rewrite = force or is_single_article
 
     if not needs_rewrite and swaps == 0 and img_swaps == 0:
         print("  Article content is aligned and images are up to date. No changes needed.")
