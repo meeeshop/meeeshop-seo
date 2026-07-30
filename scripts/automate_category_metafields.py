@@ -1713,6 +1713,17 @@ def main():
         products = get_recent_products(yesterday_iso, query_field="created_at")
         print(f"Fetched {len(products)} recently created products.")
         
+    # Auto-run Collection SEO & PAA FAQs update for store collections during batch/mode runs
+    if not args.handle:
+        try:
+            import bulk_update_collection_seo
+            print("\n==================================================")
+            print("Running Collection SEO & PAA Accordions Update...")
+            print("==================================================")
+            bulk_update_collection_seo.update_all_collections(dry_run=args.diagnose, force=args.full)
+        except Exception as e:
+            print(f"  [Collection SEO Notice]: {e}")
+
     if not products:
         print("No products found to process.")
         return
