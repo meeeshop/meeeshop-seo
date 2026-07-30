@@ -595,6 +595,36 @@ def make_product_card(product: dict, keyword: str = "",
 """
 
 
+def make_related_product_card(p: dict, keyword: str = "") -> str:
+    import html
+    raw_title  = p["title"]
+    escaped_title = html.escape(raw_title)
+    price  = p["variants"][0]["price"] if p.get("variants") else "0"
+    h_val  = p.get("handle", "")
+    ptype  = (p.get("product_type") or "women's fashion").lower()
+    url    = f"{STORE_URL}/products/{h_val}?utm_source=blog&utm_medium=related_card&utm_campaign=meeeshop_refresh"
+    img    = product_img_url(p)
+    alt    = f"{raw_title} — shop {keyword or ptype} at MeeeShop"
+    
+    alt_clean = alt.replace('"', "'")
+
+    img_tag = (
+        f'<a href="{url}"><img src="{img}" alt="{alt_clean}" '
+        f'style="width:100%;height:200px;object-fit:cover;border-radius:10px;margin-bottom:12px;" loading="lazy" /></a>'
+        if img else ""
+    )
+    return f"""
+  <div style="flex:1;min-width:180px;max-width:240px;font-family:sans-serif;text-align:center;">
+    {img_tag}
+    <p style="font-size:14px;font-weight:700;color:#1a1a1a;margin:0 0 4px;line-height:1.3;">{escaped_title}</p>
+    <p style="font-size:16px;font-weight:800;color:#1a1a1a;margin:0 0 12px;">${price}</p>
+    <a href="{url}"
+       style="background:#f0ede8;color:#1a1a1a;padding:9px 20px;text-decoration:none;
+              border-radius:6px;font-size:13px;font-weight:600;display:inline-block;">
+      Shop Similar
+    </a>
+  </div>"""
+
 def make_related_products_section(products: list, exclude_handle: str,
                                   keyword: str = "", handle: str = "") -> str:
     import html
@@ -643,33 +673,7 @@ def make_related_products_section(products: list, exclude_handle: str,
 
     cards_html = ""
     for p in picks:
-        raw_title  = p["title"]
-        escaped_title = html.escape(raw_title)
-        price  = p["variants"][0]["price"] if p.get("variants") else "0"
-        h_val  = p.get("handle", "")
-        ptype  = (p.get("product_type") or "women's fashion").lower()
-        url    = f"{STORE_URL}/products/{h_val}?utm_source=blog&utm_medium=related_card&utm_campaign=meeeshop_refresh"
-        img    = product_img_url(p)
-        alt    = f"{raw_title} — shop {keyword or ptype} at MeeeShop"
-        
-        alt_clean = alt.replace('"', "'")
-
-        img_tag = (
-            f'<a href="{url}"><img src="{img}" alt="{alt_clean}" '
-            f'style="width:100%;height:200px;object-fit:cover;border-radius:10px;margin-bottom:12px;" loading="lazy" /></a>'
-            if img else ""
-        )
-        cards_html += f"""
-  <div style="flex:1;min-width:180px;max-width:240px;font-family:sans-serif;text-align:center;">
-    {img_tag}
-    <p style="font-size:14px;font-weight:700;color:#1a1a1a;margin:0 0 4px;line-height:1.3;">{escaped_title}</p>
-    <p style="font-size:16px;font-weight:800;color:#1a1a1a;margin:0 0 12px;">${price}</p>
-    <a href="{url}"
-       style="background:#f0ede8;color:#1a1a1a;padding:9px 20px;text-decoration:none;
-              border-radius:6px;font-size:13px;font-weight:600;display:inline-block;">
-      Shop Similar
-    </a>
-  </div>"""
+        cards_html += make_related_product_card(p, keyword=keyword)
 
     if not cards_html:
         return ""
@@ -1187,17 +1191,26 @@ def swap_products_in_html(body_html: str, replacement_map: dict[str, dict], prod
                 
                 # Check for styled product card container
                 card_container = None
+                card_type = None
                 parent = a.parent
                 while parent and parent.name not in ("body", "html", "[document]"):
                     style = parent.get("style", "") or ""
                     style_clean = style.replace(" ", "").lower()
                     if "background:#f8f6f3" in style_clean: # main product card
                         card_container = parent
+                        card_type = "main"
+                        break
+                    elif "flex:1" in style_clean and ("min-width:180px" in style_clean or "max-width:240px" in style_clean or "max-width:220px" in style_clean):
+                        card_container = parent
+                        card_type = "related"
                         break
                     parent = parent.parent
                 
                 if card_container:
-                    new_card_html = make_product_card(rep)
+                    if card_type == "main":
+                        new_card_html = make_product_card(rep)
+                    else:
+                        new_card_html = make_related_product_card(rep)
                     new_card_soup = BeautifulSoup(new_card_html, "html.parser")
                     card_container.replace_with(new_card_soup)
                     swaps += 1
@@ -1310,8 +1323,18 @@ def refresh_article(blog: dict, article: dict, all_products: list,
 
     # ── 1. Find out-of-stock product handles referenced in this article ───────
     referenced = extract_product_handles(body)
-    oos_in_article = referenced & out_of_stock_handles
-    print(f"  Products referenced: {len(referenced)} | out-of-stock: {len(oos_in_article)}")
+    
+    def needs_replacement(handle):
+        if handle in out_of_stock_handles:
+            return True
+        prod = product_by_handle.get(handle)
+        # Replace if product is in stock but has no image
+        if prod and not product_img_url(prod):
+            return True
+        return False
+        
+    oos_in_article = {h for h in referenced if needs_replacement(h)}
+    print(f"  Products referenced: {len(referenced)} | out-of-stock/missing-image: {len(oos_in_article)}")
 
     # ── 2. Handle Fix Images Only mode ────────────────────────────────────────
     if fix_images_only:
