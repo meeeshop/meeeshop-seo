@@ -455,6 +455,89 @@ def get_product_by_handle(handle):
     res = run_graphql(query, {"handle": handle})
     return res.get("data", {}).get("productByHandle")
 
+def get_collection_products_by_handle(handle):
+    """Retrieve all products inside a collection by collection handle."""
+    query = """
+    query GetCollectionProducts($handle: String!) {
+      collectionByHandle(handle: $handle) {
+        id
+        title
+        handle
+        products(first: 50) {
+          edges {
+            node {
+              id
+              title
+              handle
+              descriptionHtml
+              productType
+              category {
+                id
+                name
+              }
+              metafields(first: 20, keys: [
+                "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
+                "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
+                "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
+                "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
+                "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features"
+              ]) {
+                edges {
+                  node {
+                    id
+                    namespace
+                    key
+                    value
+                  }
+                }
+              }
+              media(first: 50) {
+                edges {
+                  node {
+                    id
+                    alt
+                    mediaContentType
+                    ... on MediaImage {
+                      image {
+                        url
+                      }
+                    }
+                  }
+                }
+              }
+              variants(first: 100) {
+                edges {
+                  node {
+                    id
+                    title
+                    media(first: 1) {
+                      nodes {
+                        id
+                      }
+                    }
+                    selectedOptions {
+                      name
+                      value
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+    res = run_graphql(query, {"handle": handle})
+    col = res.get("data", {}).get("collectionByHandle")
+    if not col:
+        return None, []
+    
+    edges = col.get("products", {}).get("edges", [])
+    prods = [e["node"] for e in edges]
+    return col, prods
+
+
 def get_recent_products(since_iso, query_field="created_at"):
     """Retrieve products since a specific timestamp using a specific date field."""
     query = """
@@ -1585,16 +1668,26 @@ def main():
     # Determine scan list
     products = []
     if args.handle:
-        print(f"Loading single product with handle: {args.handle}")
+        print(f"Loading single product or collection with handle: {args.handle}")
         prod = get_product_by_handle(args.handle)
         if prod:
             products.append(prod)
         else:
-            print(f"Error: Product handle '{args.handle}' not found.")
-            print(f"\n💡 Note: '{args.handle}' may be a Collection handle.")
-            print(f"   • To process product attributes for products in a brand/collection, use --query (e.g., --query \"tag:'Judy Blue'\").")
-            print(f"   • To process Collection SEO & PAA FAQs for this collection, run: python scripts/bulk_update_collection_seo.py --handle {args.handle}")
-            sys.exit(1)
+            col, col_prods = get_collection_products_by_handle(args.handle)
+            if col and col_prods:
+                print(f"✓ Smart Match: '{args.handle}' is a Collection ({col['title']}). Loaded {len(col_prods)} products for category metafield updates.")
+                products.extend(col_prods)
+                
+                # Also run Collection SEO & PAA Accordion update for this collection
+                try:
+                    import bulk_update_collection_seo
+                    print(f"✓ Running Collection SEO & PAA updates for '{col['title']}'...")
+                    bulk_update_collection_seo.update_all_collections(target_handle=args.handle, dry_run=args.diagnose, force=args.full or args.weekly)
+                except Exception as e:
+                    print(f"  [Collection SEO Notice]: {e}")
+            else:
+                print(f"Error: Handle '{args.handle}' is neither a valid Product handle nor a Collection handle.")
+                sys.exit(1)
     elif args.query:
         # Strip outer quotes if passed literally by shell escaping
         clean_query = args.query.strip().strip('"').strip("'")
