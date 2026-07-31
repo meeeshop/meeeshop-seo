@@ -11,6 +11,7 @@ sys.path.insert(0, SCRIPT_DIR)
 
 from secrets_manager import inject_to_env, get_secret
 inject_to_env()
+from google_question_fetcher import GoogleQuestionFetcher
 
 try:
     import paa_pasf_seo_engine
@@ -537,6 +538,9 @@ def update_all_collections(target_handle: str = None, dry_run: bool = False, for
             seo_title = seo_data["title"]
             seo_desc = seo_data["description"]
             
+        seo_title = GoogleQuestionFetcher.remove_disallowed_terms(seo_title, allowed_brand=title)[:60]
+        seo_desc = GoogleQuestionFetcher.remove_disallowed_terms(seo_desc, allowed_brand=title)[:155]
+
         print(f"[TARGET COLLECTION]: {title} ({handle})")
         print(f"   SEO Title: {seo_title}")
         print(f"   SEO Desc : {seo_desc}")

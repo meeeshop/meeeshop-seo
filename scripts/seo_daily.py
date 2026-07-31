@@ -3,7 +3,7 @@ MeeeShop SEO Automation v2.0+
 Google-optimized product, collection, page, and blog SEO with 7-day returns
 
 Workflow modes:
-  --daily   : Products + Pages + Collections + Blog posts updated in last 48hrs
+  --daily   : Products + Pages + Collections + Blog posts added/published in last 24hrs
   --weekly  : All items missed by daily + add missing descriptions
   --force   : Complete store overhaul (normalize all SEO fields)
 
@@ -28,9 +28,15 @@ if sys.stderr.encoding != 'utf-8':
 
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from secrets_manager import inject_to_env, get_secret
 inject_to_env()
 from shopify_graphql import run_graphql, parse_gid
+
+try:
+    from google_question_fetcher import GoogleQuestionFetcher
+except ImportError:
+    from scripts.google_question_fetcher import GoogleQuestionFetcher
 
 STORE  = get_secret("SHOPIFY_STORE")
 TOKEN  = get_secret("SHOPIFY_ACCESS_TOKEN")
@@ -229,8 +235,14 @@ def fetch_google_search_keywords(handle: str, limit: int = 3) -> list[str]:
                 cleaned = []
                 for s in suggestions:
                     s_clean = s.strip().lower()
-                    # Exclude other competitor brands
+                    # Exclude competitor brands, non-US location terms, competitor retailers, and local brick-and-mortar terms
                     if any(ob in s_clean for ob in other_brands):
+                        continue
+                    if GoogleQuestionFetcher.has_non_us_location(s_clean):
+                        continue
+                    if GoogleQuestionFetcher.has_competitor_retailer(s_clean, allowed_brand=brand_found or handle):
+                        continue
+                    if GoogleQuestionFetcher.has_local_intent(s_clean):
                         continue
                     if s_clean not in cleaned:
                         cleaned.append(s_clean)
@@ -240,7 +252,12 @@ def fetch_google_search_keywords(handle: str, limit: int = 3) -> list[str]:
     except Exception as e:
         print(f"  [Google Search] Autocomplete request failed: {e}")
         
-    return generate_long_tail_keywords(handle)[:limit]
+    return [
+        kw for kw in generate_long_tail_keywords(handle) 
+        if not GoogleQuestionFetcher.has_non_us_location(kw) 
+        and not GoogleQuestionFetcher.has_competitor_retailer(kw, allowed_brand=handle)
+        and not GoogleQuestionFetcher.has_local_intent(kw)
+    ][:limit]
 
 
 def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
@@ -306,7 +323,7 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
                 position = row.get("position", 0)
                 ctr = row.get("ctr", 0)
                 impressions = row.get("impressions", 0)
-                if 8.0 <= position <= 20.0 and ctr < 0.05:
+                if 8.0 <= position <= 20.0 and ctr < 0.05 and not GoogleQuestionFetcher.has_non_us_location(query) and not GoogleQuestionFetcher.has_competitor_retailer(query, allowed_brand=handle) and not GoogleQuestionFetcher.has_local_intent(query):
                     candidates.append((query, impressions))
                     
         candidates.sort(key=lambda x: x[1], reverse=True)
@@ -317,6 +334,12 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
             # Fallback if exact page yields no results: search Google Autocomplete Suggest queries
             if handle:
                 queries = fetch_google_search_keywords(handle, limit)
+                queries = [
+                    q for q in queries 
+                    if not GoogleQuestionFetcher.has_non_us_location(q) 
+                    and not GoogleQuestionFetcher.has_competitor_retailer(q, allowed_brand=handle)
+                    and not GoogleQuestionFetcher.has_local_intent(q)
+                ]
                 if queries:
                     print(f"  [Google Search] Suggestions found for handle: {queries}")
         return queries
@@ -405,16 +428,18 @@ def truncate(text, n):
 
 
 # ── Category detection ────────────────────────────────────────────────────────
+APPAREL_CATEGORIES = {'Dresses', 'Tops', 'Bottoms', 'Outerwear', 'Skirts', 'One-Pieces'}
+
 CATEGORIES = {
     ('dress','gown','midi','maxi','sundress','shift'):   ('Dresses',   'dress'),
-    ('top','blouse','shirt','tee','tank','cami','tunic'):('Tops',      'top'),
-    ('jean','pant','short','legging','jogger','trouser'):('Bottoms',   'bottom'),
-    ('jacket','coat','blazer','sweater','hoodie','cardigan','pullover'):
-                                                        ('Outerwear', 'layer'),
+    ('top','blouse','shirt','tee','tank','cami','tunic','sweater','cardigan','pullover','hoodie'):('Tops',      'top'),
+    ('jean','pant','short','shorties','legging','jogger','trouser','bottom','denim'):('Bottoms',   'bottom'),
+    ('jacket','coat','blazer','outerwear','vest','trench'): ('Outerwear', 'layer'),
     ('skirt',):                                         ('Skirts',    'skirt'),
-    ('romper','jumpsuit','bodysuit','playsuit'):         ('One-Pieces','one-piece'),
-    ('bag','purse','handbag','tote','crossbody','sling'):('Bags',      'bag'),
-    ('shoe','boot','heel','sandal','sneaker','flat'):    ('Shoes',     'shoe'),
+    ('romper','jumpsuit','bodysuit','playsuit','set','onesie'): ('One-Pieces','one-piece'),
+    ('bag','purse','handbag','tote','crossbody','sling','backpack','clutch','satchel','wallet','fanny','duffel'):('Bags', 'bag'),
+    ('shoe','boot','heel','sandal','sneaker','flat','mule','slide','footwear','clog'): ('Shoes', 'shoe'),
+    ('hat','cap','beanie','jewelry','necklace','earring','bracelet','ring','belt','sunglasses','scarf','accessory','accessories','headband','hair'): ('Accessories', 'accessory')
 }
 
 def detect_cat(title, product_type='', tags=''):
@@ -444,22 +469,17 @@ def build_meta_title(title, product_type='', tags=''):
     # 1. Preferred High-CTR Long-Tail Format: [Title] - [Style] | US Size [Sizing] | Free Shipping
     full = f"{title} - {found_style} | US Size {sizing} | Free Shipping"
     if len(full) <= 60:
-        return full
+        res = full
+    elif len(f"{title} | US Size {sizing} | Free US Shipping") <= 60:
+        res = f"{title} | US Size {sizing} | Free US Shipping"
+    elif len(f"{title} | Free US Shipping") <= 60:
+        res = f"{title} | Free US Shipping"
+    else:
+        max_title_len = 60 - len(" | Free US Shipping")
+        truncated_title = title[:max_title_len].rsplit(' ', 1)[0] if ' ' in title[:max_title_len] else title[:max_title_len-1]
+        res = f"{truncated_title} | Free US Shipping"
         
-    # 2. Medium High-CTR Format: [Title] - US Size [Sizing] | Free US Shipping
-    medium = f"{title} | US Size {sizing} | Free US Shipping"
-    if len(medium) <= 60:
-        return medium
-
-    # 3. Compact High-CTR Format: [Title] | Free US Shipping
-    compact = f"{title} | Free US Shipping"
-    if len(compact) <= 60:
-        return compact
-        
-    # 4. Truncated Title to fit Google's 60-char limit
-    max_title_len = 60 - len(" | Free US Shipping")
-    truncated_title = title[:max_title_len].rsplit(' ', 1)[0] if ' ' in title[:max_title_len] else title[:max_title_len-1]
-    return f"{truncated_title} | Free US Shipping"
+    return GoogleQuestionFetcher.remove_disallowed_terms(res, allowed_brand=title)[:60]
 
 
 
@@ -492,7 +512,7 @@ def build_meta_desc(title, product_type='', tags='', gsc_keywords=None):
         kw_suffix = f" Perfect for {', '.join(gsc_keywords)}."
         desc = truncate(desc, 155 - len(kw_suffix)) + kw_suffix
         
-    return truncate(desc, 155)
+    return GoogleQuestionFetcher.remove_disallowed_terms(truncate(desc, 155), allowed_brand=title)[:155]
 
 
 # ── Image alt text (Google standard: descriptive, ≤125 chars) ─────────────────
@@ -802,7 +822,7 @@ def build_description(product, force=False, gsc_keywords=None):
     html_body = product.get('body_html', '') or ''
     cat, word = detect_cat(title)
     
-    if cat == 'Bags':
+    if cat not in APPAREL_CATEGORIES:
         html_body = remove_clothing_size_table(html_body)
         
     existing = strip_html(html_body)
@@ -811,7 +831,7 @@ def build_description(product, force=False, gsc_keywords=None):
     if len(existing) >= 200 and not ("Discover the" in html_body and "Why Choose" in html_body):
         # Preserve the custom description, clean return policies
         cleaned_body = clean_return_policy(html_body)
-        if cat == 'Bags':
+        if cat not in APPAREL_CATEGORIES:
             final_body = cleaned_body.strip()
         else:
             if not has_size_table(cleaned_body):
@@ -880,10 +900,10 @@ def build_description(product, force=False, gsc_keywords=None):
         f"Shop {DISPLAY_BRAND} today.</strong></p>"
     )
 
-    # Preserve existing size table verbatim; otherwise build the standard one
+    # Preserve existing size table verbatim; otherwise build standard one for apparel
     existing_table = extract_size_table(html_body)
-    if cat == 'Bags':
-        size_chart = existing_table if existing_table else ''
+    if cat not in APPAREL_CATEGORIES:
+        size_chart = ''
     else:
         if existing_table:
             size_chart = existing_table
@@ -1066,6 +1086,21 @@ def set_seo_metafields_graphql(resource_type: str, resource_id: int, meta_title:
 
     owner_id = make_gid(gql_type, resource_id)
     
+    # 1. Update native resource.seo fields if supported (product, collection, page)
+    try:
+        if gql_type == "product":
+            q_native = "mutation productUpdate($input: ProductInput!) { productUpdate(input: $input) { product { id } userErrors { field message } } }"
+            run_graphql(q_native, {"input": {"id": owner_id, "seo": {"title": meta_title, "description": meta_desc}}})
+        elif gql_type == "collection":
+            q_native = "mutation collectionUpdate($input: CollectionInput!) { collectionUpdate(input: $input) { collection { id } userErrors { field message } } }"
+            run_graphql(q_native, {"input": {"id": owner_id, "seo": {"title": meta_title, "description": meta_desc}}})
+        elif gql_type == "page":
+            q_native = "mutation pageUpdate($input: PageInput!) { pageUpdate(input: $input) { page { id } userErrors { field message } } }"
+            run_graphql(q_native, {"input": {"id": owner_id, "seo": {"title": meta_title, "description": meta_desc}}})
+    except Exception as ne:
+        print(f"[GraphQL Warning] Failed updating native SEO for {owner_id}: {ne}", file=sys.stderr)
+
+    # 2. Update global.title_tag and global.description_tag metafields
     query = """
     mutation metafieldsSet($metafields: [MetafieldsSetInput!]!) {
       metafieldsSet(metafields: $metafields) {
@@ -1766,6 +1801,8 @@ def validate_seo(item, item_type, existing_mfs, gsc_keywords=None):
         and DISPLAY_BRAND in cur_meta_desc
         and 0 < len(cur_meta_desc) <= 155
         and not has_stale_return_policy(cur_meta_desc)
+        and not GoogleQuestionFetcher.has_non_us_location(cur_meta_desc)
+        and not GoogleQuestionFetcher.has_competitor_retailer(cur_meta_desc, allowed_brand=title)
     )
     if not desc_ok:
         new_meta_desc = build_meta_desc(title, ptype, tags, gsc_keywords=gsc_keywords)
@@ -2107,7 +2144,7 @@ def save_update_log(processed_ids: set, stats: dict, mode: str, args, filepath: 
 
 def main():
     ap = argparse.ArgumentParser(description='SEO automation: daily/weekly/force modes')
-    ap.add_argument('--daily',       action='store_true', help='Daily mode: last 48hrs (default)')
+    ap.add_argument('--daily',       action='store_true', help='Daily mode: last 24hrs (default)')
     ap.add_argument('--weekly',      action='store_true', help='Weekly mode: last 7 days, skip recent')
     ap.add_argument('--force',       action='store_true', help='Force mode: entire catalog, normalize all')
     ap.add_argument('--hours',       type=int, default=0,  help='Custom lookback (overrides mode)')
@@ -2143,8 +2180,8 @@ def main():
         print("Processing: Products, Pages, Collections, Blog Posts\n")
     else:
         mode = 'daily'
-        since = (datetime.now(timezone.utc) - timedelta(hours=48)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        print("Mode: DAILY (products created in last 48h; pages/collections created + articles published in last 48h)")
+        since = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        print("Mode: DAILY (products, pages, collections created + articles published in last 24h)")
         print("Processing: Products, Pages, Collections, Blog Posts\n")
 
     print(f"Cutoff: {since or 'none (all resources)'}\n")
@@ -2174,10 +2211,14 @@ def main():
 
     # Calculate lookback hours for GraphQL
     hours = 0
-    if args.hours:
+    if args.handle:
+        hours = 0
+        args.force = True
+        print(f"[Handle Override] Specific handle '{args.handle}' requested — bypassing creation cutoff and recent skip locks.\n")
+    elif args.hours:
         hours = args.hours
     elif mode == 'daily':
-        hours = 48
+        hours = 24
     elif mode == 'weekly':
         hours = 168
 
@@ -2185,7 +2226,7 @@ def main():
     if args.resource in ('all', 'products'):
         print("Fetching products...")
         from shopify_graphql import fetch_products_graphql
-        products = fetch_products_graphql(hours, query_by_updated=False)
+        products = fetch_products_graphql(hours, query_by_updated=False, handle=args.handle)
         if args.handle:
             products = [p for p in products if p.get('handle') == args.handle]
         else:
@@ -2203,7 +2244,7 @@ def main():
     if args.resource in ('all', 'pages') and not args.only_images:
         print("Fetching pages...")
         from shopify_graphql import fetch_pages_graphql
-        pages = fetch_pages_graphql(hours)
+        pages = fetch_pages_graphql(hours, handle=args.handle)
         if args.handle:
             pages = [p for p in pages if p.get('handle') == args.handle]
         print(f"  Found {len(pages)} pages\n")
@@ -2212,7 +2253,7 @@ def main():
     if args.resource in ('all', 'collections'):
         print("Fetching collections...")
         from shopify_graphql import fetch_collections_graphql
-        collections = fetch_collections_graphql(hours)
+        collections = fetch_collections_graphql(hours, handle=args.handle)
         if args.handle:
             collections = [c for c in collections if c.get('handle') == args.handle]
         print(f"  Found {len(collections)} collections\n")
@@ -2284,6 +2325,8 @@ def main():
                 and DISPLAY_BRAND in cur_mdesc
                 and 0 < len(cur_mdesc) <= 155
                 and not has_stale_return_policy(cur_mdesc)
+                and not GoogleQuestionFetcher.has_non_us_location(cur_mdesc)
+                and not GoogleQuestionFetcher.has_competitor_retailer(cur_mdesc, allowed_brand=title)
             )
             mt_ok = (cur_mtitle == expected_mt)
             needs_seo = not mt_ok or not desc_ok
@@ -2362,6 +2405,8 @@ def main():
                 and DISPLAY_BRAND in cur_mdesc
                 and 0 < len(cur_mdesc) <= 155
                 and not has_stale_return_policy(cur_mdesc)
+                and not GoogleQuestionFetcher.has_non_us_location(cur_mdesc)
+                and not GoogleQuestionFetcher.has_competitor_retailer(cur_mdesc, allowed_brand=title)
             )
             mt_ok = (cur_mtitle == expected_mt)
 
@@ -2414,6 +2459,27 @@ def main():
                     ])
                 else:
                     try:
+                        # 1. Update native collection.seo fields
+                        q_update_coll_seo = """
+                        mutation collectionUpdate($input: CollectionInput!) {
+                          collectionUpdate(input: $input) {
+                            collection { id }
+                            userErrors { field message }
+                          }
+                        }
+                        """
+                        var_coll_seo = {
+                            "input": {
+                                "id": f"gid://shopify/Collection/{coll['id']}",
+                                "seo": {
+                                    "title": new_meta_title,
+                                    "description": new_meta_desc
+                                }
+                            }
+                        }
+                        run_graphql(q_update_coll_seo, var_coll_seo)
+
+                        # 2. Update global.title_tag and global.description_tag metafields
                         set_seo_metafields(coll_type, coll['id'], new_meta_title, new_meta_desc, mfs)
                         stats['meta_titles'] += 1
                         stats['meta_descs'] += 1

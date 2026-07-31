@@ -9,12 +9,20 @@ are rate limited (HTTP 429) or unavailable. Ensures 100% workflow execution comp
 import re
 import json
 from typing import List, Dict, Tuple, Optional
+from google_question_fetcher import GoogleQuestionFetcher
 
 
 def generate_fallback_meta_title(entity_name: str, pasf_modifiers: List[str] = None) -> str:
     """Constructs a 50-60 character Meta Title incorporating entity name and top PASF modifiers."""
     clean_entity = entity_name.title().strip()
-    mods = pasf_modifiers or ["Women's", "Fit & Sizing", "Style Guide"]
+    raw_mods = pasf_modifiers or ["Women's", "Fit & Sizing", "Style Guide"]
+    mods = [
+        m for m in raw_mods 
+        if not GoogleQuestionFetcher.has_non_us_location(m) 
+        and not GoogleQuestionFetcher.has_competitor_retailer(m, allowed_brand=entity_name)
+    ]
+    if not mods:
+        mods = ["Women's", "Fit & Sizing", "Style Guide"]
     
     # Priority PASF modifiers
     mod_str = " & ".join([m.title() for m in mods[:2]])
@@ -25,13 +33,20 @@ def generate_fallback_meta_title(entity_name: str, pasf_modifiers: List[str] = N
     if len(title) > 60:
         title = f"{clean_entity} Collection | MeeeShop"
         
-    return title[:60]
+    return GoogleQuestionFetcher.remove_disallowed_terms(title, allowed_brand=entity_name)[:60]
 
 
 def generate_fallback_meta_description(entity_name: str, pasf_modifiers: List[str] = None) -> str:
     """Constructs a 140-155 character Meta Description incorporating entity name and PASF modifiers."""
     clean_entity = entity_name.title().strip()
-    mods = [m.lower() for m in (pasf_modifiers or ["size chart", "prices", "flattering fits"])]
+    raw_mods = [m.lower() for m in (pasf_modifiers or ["size chart", "prices", "flattering fits"])]
+    mods = [
+        m for m in raw_mods 
+        if not GoogleQuestionFetcher.has_non_us_location(m) 
+        and not GoogleQuestionFetcher.has_competitor_retailer(m, allowed_brand=entity_name)
+    ]
+    if not mods:
+        mods = ["size chart", "prices", "flattering fits"]
     
     mod1 = mods[0] if len(mods) > 0 else "size chart"
     mod2 = mods[1] if len(mods) > 1 else "prices"
@@ -46,7 +61,7 @@ def generate_fallback_meta_description(entity_name: str, pasf_modifiers: List[st
             f"Shop women's {clean_entity} at MeeeShop. Check our {mod1}, "
             f"find your perfect fit, and discover trending outfits. Fast US shipping!"
         )
-    return desc[:155]
+    return GoogleQuestionFetcher.remove_disallowed_terms(desc, allowed_brand=entity_name)[:155]
 
 
 def generate_fallback_faq_block(entity_name: str, paa_questions: List[str]) -> str:
