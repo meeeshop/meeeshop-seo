@@ -1,7 +1,7 @@
 name: MeeeShop SEO Automation
 
 # Schedules
-#   daily  -- 6:00 AM UTC every day        -> products/pages/collections/articles added in last 48h
+#   daily  -- 6:00 AM UTC every day        -> products/pages/collections/articles added in last 24h
 #   weekly -- 8:00 AM UTC every Sunday     -> items added in last 7 days
 #
 # Manual dispatch: choose daily / weekly / force.
@@ -25,7 +25,7 @@ on:
         default: 'daily'
         type: choice
         options:
-          - daily    # Last 48 hours
+          - daily    # Last 24 hours
           - weekly   # Last 7 days
           - force    # Full store normalization (all items, batched)
       only_images:
@@ -188,16 +188,38 @@ jobs:
           if [ -n "$RUN_ID" ]; then
             echo "Found run ID: $RUN_ID"
             echo "Listing artifacts for run $RUN_ID..."
-            ARTIFACT_NAME=$(gh api repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts --jq '.artifacts[] | select(.name | startswith("seo-log-")) | .name' 2>/dev/null | head -n 1 || echo "")
-            if [ -n "$ARTIFACT_NAME" ]; then
-              echo "Downloading artifact: $ARTIFACT_NAME"
-              gh run download "$RUN_ID" -n "$ARTIFACT_NAME" --dir tmp_download 2>/dev/null || true
-              if [ -f "tmp_download/seo_update_log.json" ]; then
-                cp tmp_download/seo_update_log.json ./seo_update_log.json
-                echo "Successfully restored seo_update_log.json"
-              else
-                echo "seo_update_log.json not found in downloaded folder"
-              fi
+            ARTIFACT_NAMES=$(gh api repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts --jq '.artifacts[] | select(.name | startswith("seo-log-")) | .name' 2>/dev/null || echo "")
+            if [ -n "$ARTIFACT_NAMES" ]; then
+              mkdir -p tmp_download
+              for ART in $ARTIFACT_NAMES; do
+                echo "Downloading artifact: $ART"
+                gh run download "$RUN_ID" -n "$ART" --dir "tmp_download/$ART" 2>/dev/null || true
+              done
+              python -c "
+import json, glob, os
+merged_logs = []
+seen_ts = set()
+for path in glob.glob('tmp_download/**/seo_update_log.json', recursive=True):
+    try:
+        data = json.loads(open(path, 'r', encoding='utf-8').read())
+        if isinstance(data, list):
+            for entry in data:
+                if isinstance(entry, dict):
+                    ts = entry.get('timestamp')
+                    if ts and ts not in seen_ts:
+                        seen_ts.add(ts)
+                        merged_logs.append(entry)
+                    elif not ts:
+                        merged_logs.append(entry)
+    except Exception as e:
+        print(f'Error reading {path}: {e}')
+if merged_logs:
+    with open('seo_update_log.json', 'w', encoding='utf-8') as f:
+        json.dump(merged_logs, f, indent=2)
+    print(f'Successfully restored and merged {len(merged_logs)} log entry/entries into seo_update_log.json')
+else:
+    print('No valid log entries found in downloaded artifacts')
+"
             else
               echo "No seo-log artifact found for run $RUN_ID"
             fi

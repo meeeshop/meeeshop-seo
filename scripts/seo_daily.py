@@ -3,7 +3,7 @@ MeeeShop SEO Automation v2.0+
 Google-optimized product, collection, page, and blog SEO with 7-day returns
 
 Workflow modes:
-  --daily   : Products + Pages + Collections + Blog posts updated in last 48hrs
+  --daily   : Products + Pages + Collections + Blog posts added/published in last 24hrs
   --weekly  : All items missed by daily + add missing descriptions
   --force   : Complete store overhaul (normalize all SEO fields)
 
@@ -2144,7 +2144,7 @@ def save_update_log(processed_ids: set, stats: dict, mode: str, args, filepath: 
 
 def main():
     ap = argparse.ArgumentParser(description='SEO automation: daily/weekly/force modes')
-    ap.add_argument('--daily',       action='store_true', help='Daily mode: last 48hrs (default)')
+    ap.add_argument('--daily',       action='store_true', help='Daily mode: last 24hrs (default)')
     ap.add_argument('--weekly',      action='store_true', help='Weekly mode: last 7 days, skip recent')
     ap.add_argument('--force',       action='store_true', help='Force mode: entire catalog, normalize all')
     ap.add_argument('--hours',       type=int, default=0,  help='Custom lookback (overrides mode)')
@@ -2180,8 +2180,8 @@ def main():
         print("Processing: Products, Pages, Collections, Blog Posts\n")
     else:
         mode = 'daily'
-        since = (datetime.now(timezone.utc) - timedelta(hours=48)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        print("Mode: DAILY (products created in last 48h; pages/collections created + articles published in last 48h)")
+        since = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        print("Mode: DAILY (products, pages, collections created + articles published in last 24h)")
         print("Processing: Products, Pages, Collections, Blog Posts\n")
 
     print(f"Cutoff: {since or 'none (all resources)'}\n")
@@ -2218,7 +2218,7 @@ def main():
     elif args.hours:
         hours = args.hours
     elif mode == 'daily':
-        hours = 48
+        hours = 24
     elif mode == 'weekly':
         hours = 168
 

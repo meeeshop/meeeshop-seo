@@ -255,7 +255,7 @@ def fetch_collections_graphql(hours: int = 0, handle: Optional[str] = None) -> L
         query_str = f"handle:'{handle}'"
     elif hours > 0:
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        query_str = f"updated_at:>='{cutoff}'"
+        query_str = f"created_at:>='{cutoff}'"
         
     collections = []
     has_next = True
@@ -346,7 +346,7 @@ def fetch_pages_graphql(hours: int = 0, handle: Optional[str] = None) -> List[Di
         query_str = f"handle:'{handle}'"
     elif hours > 0:
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        query_str = f"updated_at:>='{cutoff}'"
+        query_str = f"created_at:>='{cutoff}'"
         
     pages = []
     has_next = True
@@ -474,11 +474,12 @@ def fetch_articles_graphql(hours: int = 0) -> List[Dict]:
             for edge in data.get("edges", []):
                 node = edge["node"]
                 
-                # Filter by hours (updatedAt)
+                # Filter by hours (publishedAt or createdAt)
                 if cutoff:
                     try:
-                        updated_at = datetime.fromisoformat(node["updatedAt"].replace("Z", "+00:00"))
-                        if updated_at < cutoff:
+                        pub_str = node.get("publishedAt") or node.get("createdAt") or node.get("updatedAt")
+                        pub_at = datetime.fromisoformat(pub_str.replace("Z", "+00:00"))
+                        if pub_at < cutoff:
                             continue
                     except Exception:
                         pass
