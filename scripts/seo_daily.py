@@ -2188,7 +2188,11 @@ def main():
 
     # Calculate lookback hours for GraphQL
     hours = 0
-    if args.hours:
+    if args.handle:
+        hours = 0
+        args.force = True
+        print(f"[Handle Override] Specific handle '{args.handle}' requested — bypassing creation cutoff and recent skip locks.\n")
+    elif args.hours:
         hours = args.hours
     elif mode == 'daily':
         hours = 48
@@ -2199,7 +2203,7 @@ def main():
     if args.resource in ('all', 'products'):
         print("Fetching products...")
         from shopify_graphql import fetch_products_graphql
-        products = fetch_products_graphql(hours, query_by_updated=False)
+        products = fetch_products_graphql(hours, query_by_updated=False, handle=args.handle)
         if args.handle:
             products = [p for p in products if p.get('handle') == args.handle]
         else:
@@ -2217,7 +2221,7 @@ def main():
     if args.resource in ('all', 'pages') and not args.only_images:
         print("Fetching pages...")
         from shopify_graphql import fetch_pages_graphql
-        pages = fetch_pages_graphql(hours)
+        pages = fetch_pages_graphql(hours, handle=args.handle)
         if args.handle:
             pages = [p for p in pages if p.get('handle') == args.handle]
         print(f"  Found {len(pages)} pages\n")
@@ -2226,7 +2230,7 @@ def main():
     if args.resource in ('all', 'collections'):
         print("Fetching collections...")
         from shopify_graphql import fetch_collections_graphql
-        collections = fetch_collections_graphql(hours)
+        collections = fetch_collections_graphql(hours, handle=args.handle)
         if args.handle:
             collections = [c for c in collections if c.get('handle') == args.handle]
         print(f"  Found {len(collections)} collections\n")

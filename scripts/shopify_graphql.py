@@ -46,7 +46,7 @@ def parse_gid(gid: str) -> int:
     match = re.search(r'/(\d+)$', gid)
     return int(match.group(1)) if match else 0
 
-def fetch_products_graphql(hours: int = 0, query_by_updated: bool = True) -> List[Dict]:
+def fetch_products_graphql(hours: int = 0, query_by_updated: bool = True, handle: Optional[str] = None) -> List[Dict]:
     """Fetch all active products with their json_ld_schema metafield using GraphQL."""
     query = """
     query ($first: Int!, $after: String, $queryStr: String) {
@@ -120,13 +120,13 @@ def fetch_products_graphql(hours: int = 0, query_by_updated: bool = True) -> Lis
     """
     
     query_parts = ["status:active"]
-    if hours > 0:
+    if handle:
+        query_parts.append(f"handle:'{handle}'")
+    elif hours > 0:
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
         if query_by_updated:
-            # Check both created_at and updated_at to be safe (fixer uses updated_at, validator uses created_at)
             query_parts.append(f"(created_at:>='{cutoff}' OR updated_at:>='{cutoff}')")
         else:
-            # Only query by created_at (daily/weekly SEO mode to catch new dropship imports)
             query_parts.append(f"created_at:>='{cutoff}'")
     
     query_str = " AND ".join(query_parts)
@@ -208,7 +208,7 @@ def fetch_products_graphql(hours: int = 0, query_by_updated: bool = True) -> Lis
         
     return products
 
-def fetch_collections_graphql(hours: int = 0) -> List[Dict]:
+def fetch_collections_graphql(hours: int = 0, handle: Optional[str] = None) -> List[Dict]:
     """Fetch custom and smart collections with their json_ld_schema metafield."""
     query = """
     query ($first: Int!, $after: String, $queryStr: String) {
@@ -251,7 +251,9 @@ def fetch_collections_graphql(hours: int = 0) -> List[Dict]:
     """
     
     query_str = None
-    if hours > 0:
+    if handle:
+        query_str = f"handle:'{handle}'"
+    elif hours > 0:
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
         query_str = f"updated_at:>='{cutoff}'"
         
@@ -302,7 +304,7 @@ def fetch_collections_graphql(hours: int = 0) -> List[Dict]:
         
     return collections
 
-def fetch_pages_graphql(hours: int = 0) -> List[Dict]:
+def fetch_pages_graphql(hours: int = 0, handle: Optional[str] = None) -> List[Dict]:
     """Fetch pages with their json_ld_schema metafield."""
     query = """
     query ($first: Int!, $after: String, $queryStr: String) {
@@ -340,7 +342,9 @@ def fetch_pages_graphql(hours: int = 0) -> List[Dict]:
     """
     
     query_str = None
-    if hours > 0:
+    if handle:
+        query_str = f"handle:'{handle}'"
+    elif hours > 0:
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
         query_str = f"updated_at:>='{cutoff}'"
         
