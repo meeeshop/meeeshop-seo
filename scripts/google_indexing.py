@@ -541,21 +541,13 @@ def deduplicate(urls: list[str], history: SubmissionHistory,
         report.set_dedup(len(urls), 0, len(pending_queue), len(pending_queue[:limit]), False, skip_hours)
         return pending_queue[:limit], new_urls
 
-    # Normal mode: pending first, then new/stale URLs
+    # Normal mode: new discovered URLs get top priority, then fill quota limit from pending queue
     to_submit     = []
     skipped_urls  = []
     skipped_count = 0
 
-    # 1. Pending queue gets priority
-    for url in pending_queue:
-        if len(to_submit) >= limit:
-            break
-        to_submit.append(url)
-
-    # 2. New URLs from this run (not in pending, apply skip_hours check)
+    # 1. Newly discovered URLs from this run get top priority
     for url in urls:
-        if url in to_submit:
-            continue
         if len(to_submit) >= limit:
             break
 
@@ -571,6 +563,13 @@ def deduplicate(urls: list[str], history: SubmissionHistory,
             skipped_count += 1
             skipped_urls.append(url)
         else:
+            to_submit.append(url)
+
+    # 2. Fill remaining quota capacity from pending backlog queue
+    for url in pending_queue:
+        if len(to_submit) >= limit:
+            break
+        if url not in to_submit and url not in skipped_urls:
             to_submit.append(url)
 
     log.info("[DEDUP] Skipped (submitted within %dh) : %d URL(s)", skip_hours, skipped_count)
@@ -646,16 +645,14 @@ def submit_urls_batch(urls: list[str], token: str,
 
             elif status == 429:
                 err = body.get("error", {}).get("message", "Quota exceeded")
-                log.error("%s QUOTA EXCEEDED: %s", prefix, err)
-                log.error("[SUBMIT]   Daily limit (200/day) reached — stopping early")
-                log.error("[SUBMIT]   Remaining %d URL(s) added to pending queue",
-                          total - submitted)
-                report.add_submission(url, url_type, status, False, error=err)
-                not_submitted.append(url)
+                log.warning("%s QUOTA EXCEEDED: %s", prefix, err)
+                log.warning("[SUBMIT]   Daily limit (200/day) reached — stopping early")
+                log.warning("[SUBMIT]   Remaining %d URL(s) added to pending queue",
+                          total - (submitted - 1))
+                report.add_submission(url, url_type, status, False, error=err, skip_reason="quota_exceeded")
                 quota_hit = True
-                failed   += 1
-                # Add remaining URLs (including this one) to pending
-                not_submitted.extend(urls[i:])  # i is 1-indexed, urls is 0-indexed
+                # Add remaining URLs (including this one) to pending without incrementing failed count
+                not_submitted.extend(urls[i - 1:])
                 break
 
             elif status == 403:
