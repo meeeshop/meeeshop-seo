@@ -98,6 +98,35 @@ MENS_TERMS = {
     "boy", "boys", "boy's", "husband", "boyfriend", "father", "dad", "groom", "groomsmen", "groomsman"
 }
 
+# Non-US countries, regions, cities, and currency terms to strictly exclude (Target audience is 100% US)
+NON_US_LOCATION_TERMS = {
+    "uk", "united kingdom", "england", "scotland", "wales", "britain", "british", "great britain",
+    "australia", "australian", "oz", "aus",
+    "canada", "canadian",
+    "new zealand", "nz", "zealand", "kiwi",
+    "ireland", "irish",
+    "europe", "european", "eu",
+    "germany", "german", "france", "french", "italy", "italian", "spain", "spanish",
+    "india", "indian", "japan", "japanese", "china", "chinese", "mexico", "mexican",
+    "asia", "asian", "africa", "african",
+    "london", "sydney", "melbourne", "birmingham", "manchester", "glasgow", "edinburgh",
+    "brisbane", "perth", "adelaide", "toronto", "vancouver", "montreal", "calgary", "ottawa",
+    "auckland", "wellington", "dublin", "paris", "berlin", "tokyo", "rome", "madrid",
+    "gbp", "aud", "cad", "nzd", "eur"
+}
+
+# Competitor retailers & marketplace terms to strictly exclude unless matching brand/vendor name
+COMPETITOR_RETAILER_TERMS = {
+    "amazon", "walmart", "target", "shein", "temu", "next", "nordstrom", "macys", "macy's",
+    "ebay", "zappos", "express", "asos", "boohoo", "fashion nova", "fashionnova", "lulus",
+    "tj maxx", "tjmaxx", "marshalls", "kohls", "kohl's", "old navy", "gap", "h&m", "hm",
+    "zara", "forever 21", "forever21", "urban outfitters", "pacsun", "etsy", "aliexpress",
+    "wish", "poshmark", "mercari", "thredup", "depop", "dillards", "bloomingdales", "saks",
+    "neiman marcus", "jcpenney", "belk", "loft", "ann taylor", "maurices", "charlotte russe",
+    "rue21", "wet seal", "tillys", "buckle", "francesca's", "francescas", "altard state",
+    "altardstate", "red dress boutique", "pink lily", "boho pink", "vici", "vici dolls"
+}
+
 # Modifiers that define distinct intent variations
 INTENT_MODIFIERS = [
     # Age
@@ -111,6 +140,7 @@ INTENT_MODIFIERS = [
     # Material
     "linen", "silk", "cotton", "leather", "satin", "denim"
 ]
+
 
 
 class GoogleQuestionFetcher:
@@ -168,6 +198,107 @@ class GoogleQuestionFetcher:
             if w in MENS_TERMS:
                 return False
         return True
+
+    @staticmethod
+    def has_non_us_location(text: str) -> bool:
+        """Return True if text contains non-US country, region, city, or currency terms."""
+        if not text:
+            return False
+        words = set(re.findall(r"\b\w+'?\w*\b", text.lower()))
+        if words.intersection(NON_US_LOCATION_TERMS):
+            return True
+        t_lower = text.lower()
+        for mw in ["united kingdom", "new zealand", "great britain", "northern ireland"]:
+            if mw in t_lower:
+                return True
+        return False
+
+    @classmethod
+    def remove_non_us_locations(cls, text: str) -> str:
+        """Sanitize text by removing non-US location words and cleaning punctuation/grammar."""
+        if not text:
+            return text
+        cleaned = text
+        for mw in ["united kingdom", "new zealand", "great britain", "northern ireland"]:
+            cleaned = re.sub(r"\b" + re.escape(mw) + r"\b", "", cleaned, flags=re.IGNORECASE)
+        single_words = sorted([w for w in NON_US_LOCATION_TERMS if " " not in w], key=len, reverse=True)
+        pattern = r"\b(?:" + "|".join(re.escape(w) for w in single_words) + r")\b"
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+        
+        # Clean dangling conjunctions and prepositions left behind
+        cleaned = re.sub(r"\b(in|at|from|and|or|&)\s+(?=and|or|&|\b)", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\b(in|at|from|and|or|&)\s*(?=[,.!?|]|$)", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"&\s*\|", "|", cleaned)
+        cleaned = re.sub(r"\s*,\s*,+", ", ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        cleaned = re.sub(r"\s+([,.!?])", r"\1", cleaned)
+        
+        # Deduplicate adjacent comma-separated terms
+        parts = [p.strip() for p in cleaned.split(",") if p.strip()]
+        dedup = []
+        for p in parts:
+            if not dedup or p.lower() != dedup[-1].lower():
+                dedup.append(p)
+        return ", ".join(dedup)
+
+    @staticmethod
+    def has_competitor_retailer(text: str, allowed_brand: str = "") -> bool:
+        """Return True if text contains competitor retailer names (unless matching allowed_brand)."""
+        if not text:
+            return False
+        allowed = allowed_brand.lower().strip() if allowed_brand else ""
+        words = set(re.findall(r"\b\w+'?\w*\b", text.lower()))
+        for term in COMPETITOR_RETAILER_TERMS:
+            if allowed and term in allowed:
+                continue
+            if " " in term:
+                if re.search(r"\b" + re.escape(term) + r"\b", text.lower()):
+                    return True
+            else:
+                if term in words:
+                    return True
+        return False
+
+    @classmethod
+    def remove_competitor_retailers(cls, text: str, allowed_brand: str = "") -> str:
+        """Sanitize text by removing competitor retailer names unless matching allowed_brand."""
+        if not text:
+            return text
+        allowed = allowed_brand.lower().strip() if allowed_brand else ""
+        cleaned = text
+        multi_words = sorted([t for t in COMPETITOR_RETAILER_TERMS if " " in t], key=len, reverse=True)
+        for mw in multi_words:
+            if allowed and mw in allowed:
+                continue
+            cleaned = re.sub(r"\b" + re.escape(mw) + r"\b", "", cleaned, flags=re.IGNORECASE)
+        single_words = sorted([t for t in COMPETITOR_RETAILER_TERMS if " " not in t], key=len, reverse=True)
+        single_filtered = [w for w in single_words if not (allowed and w in allowed)]
+        pattern = r"\b(?:" + "|".join(re.escape(w) for w in single_filtered) + r")\b"
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+        
+        cleaned = re.sub(r"\b(at|on|from|in|by|and|or|&)\s+(?=and|or|&|\b)", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\b(at|on|from|in|by|and|or|&)\s*(?=[,.!?|]|$)", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"&\s*\|", "|", cleaned)
+        cleaned = re.sub(r"\s*,\s*,+", ", ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        cleaned = re.sub(r"\s+([,.!?])", r"\1", cleaned)
+        
+        parts = [p.strip() for p in cleaned.split(",") if p.strip()]
+        dedup = []
+        for p in parts:
+            if not dedup or p.lower() != dedup[-1].lower():
+                dedup.append(p)
+        return ", ".join(dedup)
+
+    @classmethod
+    def remove_disallowed_terms(cls, text: str, allowed_brand: str = "") -> str:
+        """Master sanitizer: removes non-US locations and competitor retailer names while cleaning formatting."""
+        if not text:
+            return text
+        c = cls.remove_non_us_locations(text)
+        c = cls.remove_competitor_retailers(c, allowed_brand)
+        return c
+
 
     def _get_signature(self, question: str) -> tuple[str, tuple[str, ...]]:
         """
@@ -323,7 +454,7 @@ class GoogleQuestionFetcher:
                     if len(data) > 1 and isinstance(data[1], list):
                         for suggestion in data[1]:
                             norm = self.normalize_question(suggestion)
-                            if norm and self.is_for_women_only(norm) and norm not in seen:
+                            if norm and self.is_for_women_only(norm) and not self.has_non_us_location(norm) and not self.has_competitor_retailer(norm, allowed_brand=clean_product) and norm not in seen:
                                 seen.add(norm)
                                 results.append(norm)
             except Exception as e:
@@ -344,7 +475,7 @@ class GoogleQuestionFetcher:
         questions = self.fetch_live_google_questions(product_type, limit=25)
 
         for q in questions:
-            if not self.is_for_women_only(q):
+            if not self.is_for_women_only(q) or self.has_non_us_location(q) or self.has_competitor_retailer(q, allowed_brand=product_type):
                 continue
             if self.is_addressed(q, deduplicator):
                 print(f"  [Waterfall] Question already addressed by store: '{q}' -> Trying next in line...")
@@ -378,6 +509,7 @@ class GoogleQuestionFetcher:
         """
         Queries Google Autocomplete API for search modifier terms (PASF equivalents)
         for a product type, sub-category, or vendor brand.
+        Excludes male terms, non-US location terms, and competitor retailer names.
         """
         clean_term = term.lower().strip()
         url = (
@@ -397,7 +529,7 @@ class GoogleQuestionFetcher:
                         s_clean = suggestion.lower().strip()
                         # Extract the modifier beyond the main search term
                         mod = s_clean.replace(clean_term, "").strip()
-                        if mod and self.is_for_women_only(mod) and mod not in seen:
+                        if mod and self.is_for_women_only(mod) and not self.has_non_us_location(mod) and not self.has_competitor_retailer(mod, allowed_brand=clean_term) and mod not in seen:
                             seen.add(mod)
                             modifiers.append(mod)
         except Exception as e:
@@ -410,6 +542,7 @@ class GoogleQuestionFetcher:
                 modifiers.append(dm)
 
         return modifiers[:8]
+
 
 
 

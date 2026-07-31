@@ -9,6 +9,7 @@ and 60-day update locks to prevent content churn.
 
 import os
 import sys
+import re
 import json
 import time
 from datetime import datetime, timezone
@@ -91,10 +92,18 @@ def generate_optimized_collection_seo(entity_name: str, pasf_modifiers: List[str
     """Generates Meta Title (50-60 chars) and Meta Description (140-155 chars) using PASF modifiers."""
     if not pasf_modifiers:
         pasf_modifiers = fetcher.fetch_pasf_modifiers(entity_name)
+    
+    # Strictly filter out non-US location terms and competitor retailer names
+    pasf_modifiers = [
+        m for m in pasf_modifiers 
+        if not fetcher.has_non_us_location(m) and not fetcher.has_competitor_retailer(m, allowed_brand=entity_name)
+    ]
         
     mod_str = ", ".join(pasf_modifiers[:4])
     prompt = (
-        f"You are a Shopify SEO Specialist. Write a Meta Title and Meta Description for a women's boutique collection: '{entity_name}'.\n"
+        f"You are a Shopify SEO Specialist. Write a Meta Title and Meta Description for a US women's boutique collection: '{entity_name}'.\n"
+        f"Target Audience: STRICTLY United States (US) customers only. DO NOT include any non-US country, region, or city names (such as UK, Australia, Canada, NZ, Europe, London, etc.).\n"
+        f"DO NOT mention any competitor marketplace or retailer names (such as Amazon, Next, Walmart, Target, Shein, Nordstrom, eBay, etc.) unless it matches the brand/vendor name '{entity_name}'.\n"
         f"Incorporate these popular search modifiers naturally: {mod_str}.\n"
         f"Format requirements:\n"
         f"- Meta Title: 50 to 60 characters, include brand/type and key search term, end with '| MeeeShop'.\n"
@@ -113,15 +122,18 @@ def generate_optimized_collection_seo(entity_name: str, pasf_modifiers: List[str
                 title = data.get("meta_title", "").strip()
                 desc = data.get("meta_description", "").strip()
                 if title and desc:
+                    title = fetcher.remove_disallowed_terms(title, allowed_brand=entity_name)
+                    desc = fetcher.remove_disallowed_terms(desc, allowed_brand=entity_name)
                     return title[:60], desc[:155]
         except Exception as e:
             print(f"  [AI Parse Warning] Failed parsing AI response for '{entity_name}': {e}")
 
     # Fallback to rule-based template engine if AI fails or rate limits
     print(f"  [Fallback Engine] Generating deterministic Meta Title/Desc for '{entity_name}'")
-    fb_title = fallback_engine.generate_fallback_meta_title(entity_name, pasf_modifiers)
-    fb_desc = fallback_engine.generate_fallback_meta_description(entity_name, pasf_modifiers)
+    fb_title = fetcher.remove_disallowed_terms(fallback_engine.generate_fallback_meta_title(entity_name, pasf_modifiers), allowed_brand=entity_name)
+    fb_desc = fetcher.remove_disallowed_terms(fallback_engine.generate_fallback_meta_description(entity_name, pasf_modifiers), allowed_brand=entity_name)
     return fb_title, fb_desc
+
 
 
 def generate_collection_faq_accordion(entity_name: str) -> Tuple[str, Dict]:

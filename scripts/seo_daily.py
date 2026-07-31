@@ -28,9 +28,15 @@ if sys.stderr.encoding != 'utf-8':
 
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from secrets_manager import inject_to_env, get_secret
 inject_to_env()
 from shopify_graphql import run_graphql, parse_gid
+
+try:
+    from google_question_fetcher import GoogleQuestionFetcher
+except ImportError:
+    from scripts.google_question_fetcher import GoogleQuestionFetcher
 
 STORE  = get_secret("SHOPIFY_STORE")
 TOKEN  = get_secret("SHOPIFY_ACCESS_TOKEN")
@@ -229,8 +235,12 @@ def fetch_google_search_keywords(handle: str, limit: int = 3) -> list[str]:
                 cleaned = []
                 for s in suggestions:
                     s_clean = s.strip().lower()
-                    # Exclude other competitor brands
+                    # Exclude competitor brands, non-US location terms, and competitor retailers
                     if any(ob in s_clean for ob in other_brands):
+                        continue
+                    if GoogleQuestionFetcher.has_non_us_location(s_clean):
+                        continue
+                    if GoogleQuestionFetcher.has_competitor_retailer(s_clean, allowed_brand=brand_found or handle):
                         continue
                     if s_clean not in cleaned:
                         cleaned.append(s_clean)
@@ -240,7 +250,11 @@ def fetch_google_search_keywords(handle: str, limit: int = 3) -> list[str]:
     except Exception as e:
         print(f"  [Google Search] Autocomplete request failed: {e}")
         
-    return generate_long_tail_keywords(handle)[:limit]
+    return [
+        kw for kw in generate_long_tail_keywords(handle) 
+        if not GoogleQuestionFetcher.has_non_us_location(kw) 
+        and not GoogleQuestionFetcher.has_competitor_retailer(kw, allowed_brand=handle)
+    ][:limit]
 
 
 def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
@@ -306,7 +320,7 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
                 position = row.get("position", 0)
                 ctr = row.get("ctr", 0)
                 impressions = row.get("impressions", 0)
-                if 8.0 <= position <= 20.0 and ctr < 0.05:
+                if 8.0 <= position <= 20.0 and ctr < 0.05 and not GoogleQuestionFetcher.has_non_us_location(query) and not GoogleQuestionFetcher.has_competitor_retailer(query, allowed_brand=handle):
                     candidates.append((query, impressions))
                     
         candidates.sort(key=lambda x: x[1], reverse=True)
@@ -317,6 +331,11 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
             # Fallback if exact page yields no results: search Google Autocomplete Suggest queries
             if handle:
                 queries = fetch_google_search_keywords(handle, limit)
+                queries = [
+                    q for q in queries 
+                    if not GoogleQuestionFetcher.has_non_us_location(q) 
+                    and not GoogleQuestionFetcher.has_competitor_retailer(q, allowed_brand=handle)
+                ]
                 if queries:
                     print(f"  [Google Search] Suggestions found for handle: {queries}")
         return queries
@@ -444,22 +463,17 @@ def build_meta_title(title, product_type='', tags=''):
     # 1. Preferred High-CTR Long-Tail Format: [Title] - [Style] | US Size [Sizing] | Free Shipping
     full = f"{title} - {found_style} | US Size {sizing} | Free Shipping"
     if len(full) <= 60:
-        return full
+        res = full
+    elif len(f"{title} | US Size {sizing} | Free US Shipping") <= 60:
+        res = f"{title} | US Size {sizing} | Free US Shipping"
+    elif len(f"{title} | Free US Shipping") <= 60:
+        res = f"{title} | Free US Shipping"
+    else:
+        max_title_len = 60 - len(" | Free US Shipping")
+        truncated_title = title[:max_title_len].rsplit(' ', 1)[0] if ' ' in title[:max_title_len] else title[:max_title_len-1]
+        res = f"{truncated_title} | Free US Shipping"
         
-    # 2. Medium High-CTR Format: [Title] - US Size [Sizing] | Free US Shipping
-    medium = f"{title} | US Size {sizing} | Free US Shipping"
-    if len(medium) <= 60:
-        return medium
-
-    # 3. Compact High-CTR Format: [Title] | Free US Shipping
-    compact = f"{title} | Free US Shipping"
-    if len(compact) <= 60:
-        return compact
-        
-    # 4. Truncated Title to fit Google's 60-char limit
-    max_title_len = 60 - len(" | Free US Shipping")
-    truncated_title = title[:max_title_len].rsplit(' ', 1)[0] if ' ' in title[:max_title_len] else title[:max_title_len-1]
-    return f"{truncated_title} | Free US Shipping"
+    return GoogleQuestionFetcher.remove_disallowed_terms(res, allowed_brand=title)[:60]
 
 
 
@@ -492,7 +506,7 @@ def build_meta_desc(title, product_type='', tags='', gsc_keywords=None):
         kw_suffix = f" Perfect for {', '.join(gsc_keywords)}."
         desc = truncate(desc, 155 - len(kw_suffix)) + kw_suffix
         
-    return truncate(desc, 155)
+    return GoogleQuestionFetcher.remove_disallowed_terms(truncate(desc, 155), allowed_brand=title)[:155]
 
 
 # ── Image alt text (Google standard: descriptive, ≤125 chars) ─────────────────
@@ -2284,6 +2298,8 @@ def main():
                 and DISPLAY_BRAND in cur_mdesc
                 and 0 < len(cur_mdesc) <= 155
                 and not has_stale_return_policy(cur_mdesc)
+                and not GoogleQuestionFetcher.has_non_us_location(cur_mdesc)
+                and not GoogleQuestionFetcher.has_competitor_retailer(cur_mdesc, allowed_brand=title)
             )
             mt_ok = (cur_mtitle == expected_mt)
             needs_seo = not mt_ok or not desc_ok
@@ -2362,6 +2378,8 @@ def main():
                 and DISPLAY_BRAND in cur_mdesc
                 and 0 < len(cur_mdesc) <= 155
                 and not has_stale_return_policy(cur_mdesc)
+                and not GoogleQuestionFetcher.has_non_us_location(cur_mdesc)
+                and not GoogleQuestionFetcher.has_competitor_retailer(cur_mdesc, allowed_brand=title)
             )
             mt_ok = (cur_mtitle == expected_mt)
 
@@ -2414,6 +2432,27 @@ def main():
                     ])
                 else:
                     try:
+                        # 1. Update native collection.seo fields
+                        q_update_coll_seo = """
+                        mutation collectionUpdate($input: CollectionInput!) {
+                          collectionUpdate(input: $input) {
+                            collection { id }
+                            userErrors { field message }
+                          }
+                        }
+                        """
+                        var_coll_seo = {
+                            "input": {
+                                "id": f"gid://shopify/Collection/{coll['id']}",
+                                "seo": {
+                                    "title": new_meta_title,
+                                    "description": new_meta_desc
+                                }
+                            }
+                        }
+                        run_graphql(q_update_coll_seo, var_coll_seo)
+
+                        # 2. Update global.title_tag and global.description_tag metafields
                         set_seo_metafields(coll_type, coll['id'], new_meta_title, new_meta_desc, mfs)
                         stats['meta_titles'] += 1
                         stats['meta_descs'] += 1
