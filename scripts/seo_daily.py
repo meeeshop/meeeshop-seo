@@ -235,12 +235,14 @@ def fetch_google_search_keywords(handle: str, limit: int = 3) -> list[str]:
                 cleaned = []
                 for s in suggestions:
                     s_clean = s.strip().lower()
-                    # Exclude competitor brands, non-US location terms, and competitor retailers
+                    # Exclude competitor brands, non-US location terms, competitor retailers, and local brick-and-mortar terms
                     if any(ob in s_clean for ob in other_brands):
                         continue
                     if GoogleQuestionFetcher.has_non_us_location(s_clean):
                         continue
                     if GoogleQuestionFetcher.has_competitor_retailer(s_clean, allowed_brand=brand_found or handle):
+                        continue
+                    if GoogleQuestionFetcher.has_local_intent(s_clean):
                         continue
                     if s_clean not in cleaned:
                         cleaned.append(s_clean)
@@ -254,6 +256,7 @@ def fetch_google_search_keywords(handle: str, limit: int = 3) -> list[str]:
         kw for kw in generate_long_tail_keywords(handle) 
         if not GoogleQuestionFetcher.has_non_us_location(kw) 
         and not GoogleQuestionFetcher.has_competitor_retailer(kw, allowed_brand=handle)
+        and not GoogleQuestionFetcher.has_local_intent(kw)
     ][:limit]
 
 
@@ -320,7 +323,7 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
                 position = row.get("position", 0)
                 ctr = row.get("ctr", 0)
                 impressions = row.get("impressions", 0)
-                if 8.0 <= position <= 20.0 and ctr < 0.05 and not GoogleQuestionFetcher.has_non_us_location(query) and not GoogleQuestionFetcher.has_competitor_retailer(query, allowed_brand=handle):
+                if 8.0 <= position <= 20.0 and ctr < 0.05 and not GoogleQuestionFetcher.has_non_us_location(query) and not GoogleQuestionFetcher.has_competitor_retailer(query, allowed_brand=handle) and not GoogleQuestionFetcher.has_local_intent(query):
                     candidates.append((query, impressions))
                     
         candidates.sort(key=lambda x: x[1], reverse=True)
@@ -335,6 +338,7 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
                     q for q in queries 
                     if not GoogleQuestionFetcher.has_non_us_location(q) 
                     and not GoogleQuestionFetcher.has_competitor_retailer(q, allowed_brand=handle)
+                    and not GoogleQuestionFetcher.has_local_intent(q)
                 ]
                 if queries:
                     print(f"  [Google Search] Suggestions found for handle: {queries}")

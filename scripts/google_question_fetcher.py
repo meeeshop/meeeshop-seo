@@ -127,6 +127,13 @@ COMPETITOR_RETAILER_TERMS = {
     "altardstate", "red dress boutique", "pink lily", "boho pink", "vici", "vici dolls"
 }
 
+# Brick-and-mortar / physical store local intent terms to strictly exclude (MeeeShop is 100% online)
+LOCAL_BRICK_MORTAR_TERMS = {
+    "near me", "near my location", "nearby", "in my area", "store locator",
+    "physical store", "brick and mortar", "local store", "store near me",
+    "boutique near me", "shop near me", "outlet near me", "pickup near me"
+}
+
 # Modifiers that define distinct intent variations
 INTENT_MODIFIERS = [
     # Age
@@ -290,13 +297,49 @@ class GoogleQuestionFetcher:
                 dedup.append(p)
         return ", ".join(dedup)
 
+    @staticmethod
+    def has_local_intent(text: str) -> bool:
+        """Return True if text contains local brick-and-mortar search terms like 'near me'."""
+        if not text:
+            return False
+        t_lower = text.lower()
+        for term in LOCAL_BRICK_MORTAR_TERMS:
+            if re.search(r"\b" + re.escape(term) + r"\b", t_lower):
+                return True
+        return False
+
+    @classmethod
+    def remove_local_intent(cls, text: str) -> str:
+        """Sanitize text by removing 'near me' and local physical store terms."""
+        if not text:
+            return text
+        cleaned = text
+        sorted_terms = sorted(list(LOCAL_BRICK_MORTAR_TERMS), key=len, reverse=True)
+        for term in sorted_terms:
+            cleaned = re.sub(r"\b" + re.escape(term) + r"\b", "", cleaned, flags=re.IGNORECASE)
+        
+        cleaned = re.sub(r"\b(at|on|from|in|by|and|or|&)\s+(?=and|or|&|\b)", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\b(at|on|from|in|by|and|or|&)\s*(?=[,.!?|]|$)", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"&\s*\|", "|", cleaned)
+        cleaned = re.sub(r"\s*,\s*,+", ", ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        cleaned = re.sub(r"\s+([,.!?])", r"\1", cleaned)
+        
+        parts = [p.strip() for p in cleaned.split(",") if p.strip()]
+        dedup = []
+        for p in parts:
+            if not dedup or p.lower() != dedup[-1].lower():
+                dedup.append(p)
+        return ", ".join(dedup)
+
     @classmethod
     def remove_disallowed_terms(cls, text: str, allowed_brand: str = "") -> str:
-        """Master sanitizer: removes non-US locations and competitor retailer names while cleaning formatting."""
+        """Master sanitizer: removes non-US locations, competitor retailers, and local 'near me' terms."""
         if not text:
             return text
         c = cls.remove_non_us_locations(text)
         c = cls.remove_competitor_retailers(c, allowed_brand)
+        c = cls.remove_local_intent(c)
         return c
 
 
