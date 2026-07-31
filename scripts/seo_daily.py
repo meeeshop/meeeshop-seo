@@ -428,16 +428,18 @@ def truncate(text, n):
 
 
 # ── Category detection ────────────────────────────────────────────────────────
+APPAREL_CATEGORIES = {'Dresses', 'Tops', 'Bottoms', 'Outerwear', 'Skirts', 'One-Pieces'}
+
 CATEGORIES = {
     ('dress','gown','midi','maxi','sundress','shift'):   ('Dresses',   'dress'),
-    ('top','blouse','shirt','tee','tank','cami','tunic'):('Tops',      'top'),
-    ('jean','pant','short','legging','jogger','trouser'):('Bottoms',   'bottom'),
-    ('jacket','coat','blazer','sweater','hoodie','cardigan','pullover'):
-                                                        ('Outerwear', 'layer'),
+    ('top','blouse','shirt','tee','tank','cami','tunic','sweater','cardigan','pullover','hoodie'):('Tops',      'top'),
+    ('jean','pant','short','shorties','legging','jogger','trouser','bottom','denim'):('Bottoms',   'bottom'),
+    ('jacket','coat','blazer','outerwear','vest','trench'): ('Outerwear', 'layer'),
     ('skirt',):                                         ('Skirts',    'skirt'),
-    ('romper','jumpsuit','bodysuit','playsuit'):         ('One-Pieces','one-piece'),
-    ('bag','purse','handbag','tote','crossbody','sling'):('Bags',      'bag'),
-    ('shoe','boot','heel','sandal','sneaker','flat'):    ('Shoes',     'shoe'),
+    ('romper','jumpsuit','bodysuit','playsuit','set','onesie'): ('One-Pieces','one-piece'),
+    ('bag','purse','handbag','tote','crossbody','sling','backpack','clutch','satchel','wallet','fanny','duffel'):('Bags', 'bag'),
+    ('shoe','boot','heel','sandal','sneaker','flat','mule','slide','footwear','clog'): ('Shoes', 'shoe'),
+    ('hat','cap','beanie','jewelry','necklace','earring','bracelet','ring','belt','sunglasses','scarf','accessory','accessories','headband','hair'): ('Accessories', 'accessory')
 }
 
 def detect_cat(title, product_type='', tags=''):
@@ -820,7 +822,7 @@ def build_description(product, force=False, gsc_keywords=None):
     html_body = product.get('body_html', '') or ''
     cat, word = detect_cat(title)
     
-    if cat == 'Bags':
+    if cat not in APPAREL_CATEGORIES:
         html_body = remove_clothing_size_table(html_body)
         
     existing = strip_html(html_body)
@@ -829,7 +831,7 @@ def build_description(product, force=False, gsc_keywords=None):
     if len(existing) >= 200 and not ("Discover the" in html_body and "Why Choose" in html_body):
         # Preserve the custom description, clean return policies
         cleaned_body = clean_return_policy(html_body)
-        if cat == 'Bags':
+        if cat not in APPAREL_CATEGORIES:
             final_body = cleaned_body.strip()
         else:
             if not has_size_table(cleaned_body):
@@ -898,10 +900,10 @@ def build_description(product, force=False, gsc_keywords=None):
         f"Shop {DISPLAY_BRAND} today.</strong></p>"
     )
 
-    # Preserve existing size table verbatim; otherwise build the standard one
+    # Preserve existing size table verbatim; otherwise build standard one for apparel
     existing_table = extract_size_table(html_body)
-    if cat == 'Bags':
-        size_chart = existing_table if existing_table else ''
+    if cat not in APPAREL_CATEGORIES:
+        size_chart = ''
     else:
         if existing_table:
             size_chart = existing_table
