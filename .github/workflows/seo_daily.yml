@@ -195,31 +195,31 @@ jobs:
                 echo "Downloading artifact: $ART"
                 gh run download "$RUN_ID" -n "$ART" --dir "tmp_download/$ART" 2>/dev/null || true
               done
-              python -c "
-import json, glob, os
-merged_logs = []
-seen_ts = set()
-for path in glob.glob('tmp_download/**/seo_update_log.json', recursive=True):
-    try:
-        data = json.loads(open(path, 'r', encoding='utf-8').read())
-        if isinstance(data, list):
-            for entry in data:
-                if isinstance(entry, dict):
-                    ts = entry.get('timestamp')
-                    if ts and ts not in seen_ts:
-                        seen_ts.add(ts)
-                        merged_logs.append(entry)
-                    elif not ts:
-                        merged_logs.append(entry)
-    except Exception as e:
-        print(f'Error reading {path}: {e}')
-if merged_logs:
-    with open('seo_update_log.json', 'w', encoding='utf-8') as f:
-        json.dump(merged_logs, f, indent=2)
-    print(f'Successfully restored and merged {len(merged_logs)} log entry/entries into seo_update_log.json')
-else:
-    print('No valid log entries found in downloaded artifacts')
-"
+              python3 - << 'EOF'
+          import json, glob, os
+          merged_logs = []
+          seen_ts = set()
+          for path in glob.glob('tmp_download/**/seo_update_log.json', recursive=True):
+              try:
+                  data = json.loads(open(path, 'r', encoding='utf-8').read())
+                  if isinstance(data, list):
+                      for entry in data:
+                          if isinstance(entry, dict):
+                              ts = entry.get('timestamp')
+                              if ts and ts not in seen_ts:
+                                  seen_ts.add(ts)
+                                  merged_logs.append(entry)
+                              elif not ts:
+                                  merged_logs.append(entry)
+              except Exception as e:
+                  print(f'Error reading {path}: {e}')
+          if merged_logs:
+              with open('seo_update_log.json', 'w', encoding='utf-8') as f:
+                  json.dump(merged_logs, f, indent=2)
+              print(f'Successfully restored and merged {len(merged_logs)} log entry/entries into seo_update_log.json')
+          else:
+              print('No valid log entries found in downloaded artifacts')
+          EOF
             else
               echo "No seo-log artifact found for run $RUN_ID"
             fi
