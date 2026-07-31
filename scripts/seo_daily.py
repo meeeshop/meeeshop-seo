@@ -1080,6 +1080,21 @@ def set_seo_metafields_graphql(resource_type: str, resource_id: int, meta_title:
 
     owner_id = make_gid(gql_type, resource_id)
     
+    # 1. Update native resource.seo fields if supported (product, collection, page)
+    try:
+        if gql_type == "product":
+            q_native = "mutation productUpdate($input: ProductInput!) { productUpdate(input: $input) { product { id } userErrors { field message } } }"
+            run_graphql(q_native, {"input": {"id": owner_id, "seo": {"title": meta_title, "description": meta_desc}}})
+        elif gql_type == "collection":
+            q_native = "mutation collectionUpdate($input: CollectionInput!) { collectionUpdate(input: $input) { collection { id } userErrors { field message } } }"
+            run_graphql(q_native, {"input": {"id": owner_id, "seo": {"title": meta_title, "description": meta_desc}}})
+        elif gql_type == "page":
+            q_native = "mutation pageUpdate($input: PageInput!) { pageUpdate(input: $input) { page { id } userErrors { field message } } }"
+            run_graphql(q_native, {"input": {"id": owner_id, "seo": {"title": meta_title, "description": meta_desc}}})
+    except Exception as ne:
+        print(f"[GraphQL Warning] Failed updating native SEO for {owner_id}: {ne}", file=sys.stderr)
+
+    # 2. Update global.title_tag and global.description_tag metafields
     query = """
     mutation metafieldsSet($metafields: [MetafieldsSetInput!]!) {
       metafieldsSet(metafields: $metafields) {
@@ -1780,6 +1795,8 @@ def validate_seo(item, item_type, existing_mfs, gsc_keywords=None):
         and DISPLAY_BRAND in cur_meta_desc
         and 0 < len(cur_meta_desc) <= 155
         and not has_stale_return_policy(cur_meta_desc)
+        and not GoogleQuestionFetcher.has_non_us_location(cur_meta_desc)
+        and not GoogleQuestionFetcher.has_competitor_retailer(cur_meta_desc, allowed_brand=title)
     )
     if not desc_ok:
         new_meta_desc = build_meta_desc(title, ptype, tags, gsc_keywords=gsc_keywords)

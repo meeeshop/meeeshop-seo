@@ -55,6 +55,10 @@ env:
   PYTHON_VERSION: "3.12"
   BATCH_SIZE: "150"
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
 
   # -------------------------------------------------------------------
@@ -180,14 +184,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Finding latest successful run of MeeeShop SEO Automation..."
-          RUN_ID=$(gh run list --workflow "seo_daily.yml" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          RUN_ID=$(gh run list --workflow "seo_daily.yml" --status success --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || echo "")
           if [ -n "$RUN_ID" ]; then
             echo "Found run ID: $RUN_ID"
             echo "Listing artifacts for run $RUN_ID..."
-            ARTIFACT_NAME=$(gh api repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts --jq '.artifacts[] | select(.name | startswith("seo-log-")) | .name' | head -n 1)
+            ARTIFACT_NAME=$(gh api repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts --jq '.artifacts[] | select(.name | startswith("seo-log-")) | .name' 2>/dev/null | head -n 1 || echo "")
             if [ -n "$ARTIFACT_NAME" ]; then
               echo "Downloading artifact: $ARTIFACT_NAME"
-              gh run download "$RUN_ID" -n "$ARTIFACT_NAME" --dir tmp_download
+              gh run download "$RUN_ID" -n "$ARTIFACT_NAME" --dir tmp_download 2>/dev/null || true
               if [ -f "tmp_download/seo_update_log.json" ]; then
                 cp tmp_download/seo_update_log.json ./seo_update_log.json
                 echo "Successfully restored seo_update_log.json"
@@ -198,7 +202,7 @@ jobs:
               echo "No seo-log artifact found for run $RUN_ID"
             fi
           else
-            echo "No successful previous runs found."
+            echo "No successful previous runs found or API access limited."
           fi
 
       - name: Run SEO automation
