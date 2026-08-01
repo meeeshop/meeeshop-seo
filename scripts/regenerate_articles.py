@@ -830,6 +830,30 @@ def regenerate_single_article(
             
     return log_entry
 
+def is_article_mismatched(title: str, body_html: str) -> bool | None:
+    """Uses LLM to detect if there is a mismatch between the title and content. Returns None on failure."""
+    text_content = re.sub(r"<[^>]+>", " ", body_html or "").strip()
+    text_sample = text_content[:1500]
+    
+    prompt = (
+        f"You are a Quality Assurance editor analyzing a Shopify blog post.\n"
+        f"Title: \"{title}\"\n"
+        f"Body Text Sample: \"{text_sample}\"\n\n"
+        f"Does the body text focus on or answer the topic of the title? (For example, if the title is about removing smells, but the body is entirely about styling jeans/dresses, that is a MISMATCH).\n"
+        f"Answer with exactly one word: 'YES' (it matches) or 'NO' (there is a mismatch). Do not add any other words or punctuation."
+    )
+    try:
+        resp = ai_client.generate(prompt, max_tokens=5, temperature=0.0)
+        if resp:
+            answer = resp.strip().upper().replace(".", "").replace('?', '').replace('!', '').replace('"', '').replace("'", "")
+            print(f"  [QA Check] Semantic Match Analysis: '{answer}' (Title: '{title}')")
+            return "NO" in answer
+        else:
+            return None
+    except Exception as e:
+        print(f"  [QA Check] [Warning] Failed to check semantic mismatch: {e}")
+        return None
+
 def main():
     parser = argparse.ArgumentParser(description="Regenerate content for existing Shopify blog articles.")
     parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing to Shopify.")
@@ -851,7 +875,7 @@ def main():
     print(f"\n{'='*70}")
     print(f"  MeeeShop Article Regenerator — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print(f"  Mode: {'DRY RUN' if args.dry_run else 'LIVE'}")
-    print(f"  Scope: {'ALL articles' if args.force else (f'Article ID: {args.article_id}' if args.article_id else 'Default (not implemented yet)')}")
+    print(f"  Scope: {'ALL articles' if args.force else (f'Article ID: {args.article_id}' if args.article_id else 'Mismatched articles only (auto-scan)')}")
     if args.force:
         print(f"  Batch: {args.batch_index} of size {args.batch_size}")
     if args.force_format:
@@ -885,7 +909,28 @@ def main():
         articles_to_process = all_articles[start_index:end_index]
         print(f"Processing batch {args.batch_index}: articles {start_index} to {end_index-1} out of {len(all_articles)} total.")
     else:
-        sys.exit("ERROR: Please specify --force to process all articles or --article-id to process a single article.")
+        # Default behavior: Find mismatched articles from all articles
+        print("[*] Scanning all articles for semantic title-body mismatches...")
+        mismatched_articles = []
+        consecutive_failures = 0
+        for art in all_articles:
+            mismatched = is_article_mismatched(art["title"], art["body_html"])
+            if mismatched is None:
+                consecutive_failures += 1
+                if consecutive_failures >= 3:
+                    print("\n[!] ERROR: AI providers are completely rate-limited or failing. Aborting scan to avoid spamming APIs.")
+                    break
+                print("  [QA Check] API failure/rate-limit. Sleeping 5 seconds before next retry...")
+                time.sleep(5)
+                continue
+            else:
+                consecutive_failures = 0 # reset on success
+                
+            if mismatched:
+                print(f"  [MISMATCH DETECTED] Title: '{art['title']}'")
+                mismatched_articles.append(art)
+        articles_to_process = mismatched_articles
+        print(f"Found {len(articles_to_process)} mismatched article(s) to process.")
 
     if not articles_to_process:
         print("No articles selected for processing in this run.")

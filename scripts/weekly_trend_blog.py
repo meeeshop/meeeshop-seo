@@ -31,7 +31,7 @@ from io import BytesIO
 import requests
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
-from PIL import Image
+from PIL import Image, ImageOps
 
 # ── Path Setup ────────────────────────────────────────────────────────────────
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -44,7 +44,17 @@ sys.path.insert(0, str(REPO_ROOT))
 
 import ai_client
 from secrets_manager import inject_to_env, get_secret
-from utils import download_article_content, extract_keywords, generate_collage
+from utils import (
+    download_article_content,
+    extract_keywords,
+    generate_collage,
+    extract_handle_count,
+    enforce_current_year,
+    is_product_compatible,
+    select_styling_matches,
+    get_category_style_phrase,
+    sanitize_title_to_category_phrase
+)
 from internal_linker import (
     LinkMap,
     extract_existing_links,
@@ -57,6 +67,8 @@ from internal_linker import (
     COLLECTION_ID_TO_PRODUCTS,
     fetch_products_for_collection
 )
+from article_deduplicator import ArticleDeduplicator
+from google_question_fetcher import GoogleQuestionFetcher
 
 inject_to_env()
 
@@ -67,7 +79,10 @@ API_VER = "2024-10"
 BASE    = f"https://{SHOP}/admin/api/{API_VER}"
 HEADERS = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 STORE_URL = get_secret("STORE_BASE_URL") or f"https://{SHOP}"
-BRAND_NAME = os.getenv("BRAND_NAME", "your-brand")
+try:
+    BRAND_NAME = get_secret("BRAND_NAME")
+except KeyError:
+    BRAND_NAME = "MeeeShop"
 
 if not TOKEN:
     sys.exit("ERROR: SHOPIFY_ACCESS_TOKEN not set.")
@@ -76,15 +91,8 @@ YEAR  = datetime.now().year
 MONTH = datetime.now().strftime("%B %Y")
 TODAY = datetime.now().strftime("%Y-%m-%d")
 
-# ── Pen names ──────────────────────────────────────────────────────────────────
-PEN_NAMES = [
-    f"Elena Vance, {BRAND_NAME} Lead Stylist",
-    f"Seraphina Croft, {BRAND_NAME} Fashion Editor",
-    f"Audrey Sterling, {BRAND_NAME} Style Director",
-    f"Maya Devereaux, {BRAND_NAME} Fashion Consultant",
-    f"Vivienne Vance, {BRAND_NAME} Senior Stylist",
-    f"Genevieve Thorne, {BRAND_NAME} Trend Forecaster",
-]
+# ── Pen names (shared single source of truth) ──────────────────────────────────
+from eeat_constants import PEN_NAMES, needs_author_update
 
 # ── Flipboard topic map per product category ───────────────────────────────────
 FLIPBOARD_TOPIC_MAP = {
@@ -200,7 +208,7 @@ def _fetch_flipboard_rss(topic: str) -> list[dict]:
     url = FLIPBOARD_RSS_BASE.format(topic=topic.lower().replace(" ", "-"))
     cutoff = datetime.now(timezone.utc) - timedelta(days=CUTOFF_DAYS)
     try:
-        r = requests.get(url, timeout=15, headers={
+        r = requests.get(url, timeout=5, headers={
             "User-Agent": f"Mozilla/5.0 (compatible; {BRAND_NAME} SEO bot/1.0)"
         })
         if r.status_code != 200:
@@ -246,12 +254,15 @@ def _fetch_flipboard_search(keyword: str) -> list[dict]:
         r = requests.get(
             FLIPBOARD_SEARCH,
             params={"q": keyword, "locale": "en_US"},
-            timeout=15,
+            timeout=5,
             headers={"User-Agent": f"Mozilla/5.0 (compatible; {BRAND_NAME} SEO bot/1.0)"}
         )
         if r.status_code != 200:
             return []
-        data = r.json()
+        try:
+            data = r.json()
+        except Exception:
+            return []
         items = []
         for section in data.get("sections", []):
             for item in section.get("items", []):
@@ -273,23 +284,17 @@ def _fetch_flipboard_search(keyword: str) -> list[dict]:
                     "topic":     keyword,
                     "source":    f"flipboard-search:{source}",
                 })
-                if len(items) >= 10:
+                if len(items) >= 5:
                     break
-            if len(items) >= 10:
+            if len(items) >= 5:
                 break
         return items
-    except Exception as e:
-        print(f"    [Flipboard Search] {keyword}: {e}")
+    except Exception:
         return []
 
 # ── Google News RSS fallback ───────────────────────────────────────────────────
-def _fetch_google_news(keyword: str, num_sites: int = 3) -> list[dict]:
-    """Query Google News RSS for fashion articles (last 48 h, USA) from trusted sites.
-
-    Uses the public Google News RSS endpoint — no API key needed. Tries a handful
-    of trusted fashion publishers (Who What Wear, Refinery29, etc.) to surface
-    relevant, high-quality trend articles.
-    """
+def _fetch_google_news(keyword: str, num_sites: int = 2) -> list[dict]:
+    """Query Google News RSS for fashion articles (last 48 h, USA) from trusted sites."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=CUTOFF_DAYS)
     results = []
     site_filters = random.sample(GOOGLE_NEWS_FASHION_SITES, min(num_sites, len(GOOGLE_NEWS_FASHION_SITES)))
@@ -300,7 +305,7 @@ def _fetch_google_news(keyword: str, num_sites: int = 3) -> list[dict]:
             r = requests.get(
                 GOOGLE_NEWS_RSS,
                 params={"q": q, "hl": "en-US", "gl": "US", "ceid": "US:en"},
-                timeout=15,
+                timeout=5,
                 headers={"User-Agent": f"Mozilla/5.0 (compatible; {BRAND_NAME} SEO bot/1.0)"},
             )
             if r.status_code != 200:
@@ -312,7 +317,6 @@ def _fetch_google_news(keyword: str, num_sites: int = 3) -> list[dict]:
                 pub_el   = item.find("pubDate")
 
                 title = (title_el.text or "").strip() if title_el is not None else ""
-                # Google News links are redirect URLs — grab the real URL from <link> text
                 link  = (link_el.text or "").strip() if link_el is not None else ""
 
                 if not title or len(title) < 10:
@@ -331,54 +335,46 @@ def _fetch_google_news(keyword: str, num_sites: int = 3) -> list[dict]:
                     "source":      f"google-news:{site_filter}",
                     "full_content": "",
                 })
-                if len(results) >= 8:
+                if len(results) >= 4:
                     break
-            time.sleep(0.4)
-        except Exception as e:
-            print(f"    [Google News] {site_filter} / {keyword}: {e}")
+        except Exception:
+            continue
     return results
+
+# ── Core product type categories ──────────────────────────────────────────────
+CORE_PRODUCT_TYPES = ["dresses", "jeans", "tops", "outerwear", "skirts", "pants", "sweaters", "swimwear", "accessories"]
 
 def research_flipboard_per_category(type_map: dict) -> dict:
     print("\n━━ PHASE 2: Researching Flipboard trends (last 48 hours) ━━")
     research: dict[str, dict] = {}
+    
+    # Loop over the 9 core categories for fast, focused trend research
+    target_categories = CORE_PRODUCT_TYPES
 
-    for ptype, sample_products in type_map.items():
+    for ptype in target_categories:
         ptype_lower = ptype.lower()
         topics_to_query = []
         for key, topics in FLIPBOARD_TOPIC_MAP.items():
             if key in ptype_lower:
-                topics_to_query = topics
+                topics_to_query = topics[:2]
                 break
         if not topics_to_query:
-            topics_to_query = ["womens-fashion", "style"]
+            topics_to_query = ["womens-fashion"]
 
-        print(f"  [{ptype}] Querying Flipboard topics: {topics_to_query}")
+        print(f"  [{ptype}] Researching trend topics: {topics_to_query}")
         all_articles = []
         for topic in topics_to_query:
             rss_articles = _fetch_flipboard_rss(topic)
             all_articles.extend(rss_articles)
-            time.sleep(0.3)
 
-        # ── Flipboard search (Who What Wear / Refinery29 style) ──────────────
-        queries = [
-            f"Who What Wear {ptype_lower}",
-            f"Refinery29 {ptype_lower}",
-            f"women {ptype_lower} style trend"
-        ]
-        flipboard_search_found = 0
-        for q in queries:
-            print(f"    Searching Flipboard for: '{q}'...")
-            search_articles = _fetch_flipboard_search(q)
-            all_articles.extend(search_articles)
-            flipboard_search_found += len(search_articles)
+        # Quick Flipboard search query
+        search_articles = _fetch_flipboard_search(f"Who What Wear {ptype_lower}")
+        all_articles.extend(search_articles)
 
-        # ── Google News fallback when Flipboard search is empty ───────────────
-        if flipboard_search_found == 0:
-            print(f"    [Fallback] Flipboard search empty — trying Google News for: '{ptype_lower}'...")
+        # Google News fallback if Flipboard search empty
+        if not search_articles:
             gn_articles = _fetch_google_news(ptype_lower)
             all_articles.extend(gn_articles)
-            if gn_articles:
-                print(f"    [Google News] Found {len(gn_articles)} articles.")
 
         # Deduplicate
         seen = set()
@@ -389,13 +385,11 @@ def research_flipboard_per_category(type_map: dict) -> dict:
                 seen.add(norm_title)
                 unique.append(a)
 
-        # Slice to target subset for full text download
-        target_articles = unique[:4]
+        # Slice to max 2 articles per category for fast download
+        target_articles = unique[:2]
 
-        # Download content only for the target articles
         for art in target_articles:
             if art.get("link") and not art.get("full_content"):
-                print(f"    [Scraper] Downloading trend reference: '{art['title'][:60]}...'")
                 art["full_content"] = download_article_content(art["link"])
 
         # Extract keywords
@@ -407,14 +401,14 @@ def research_flipboard_per_category(type_map: dict) -> dict:
                 long_tail.extend(kws.get("long_tail", []))
                 zero_search.extend(kws.get("zero_search", []))
 
-        # Always inject specific care/maintenance/stain topics for testing if none found
-        if ptype_lower == "jean" or "jean" in ptype_lower:
-            long_tail.extend(["how to maintain jeans", "how to care for jeans", "how to remove stinky smell", "how to clean stains", "how to remove piling"])
-            zero_search.extend(["remove stinky smell from denim", "clean jeans stain naturally"])
+        matching_sample_prods = []
+        for raw_ptype, p_list in type_map.items():
+            if candidate_matches_type(raw_ptype, ptype):
+                matching_sample_prods.extend(p_list)
 
         research[ptype] = {
             "product_type": ptype,
-            "sample_products": [{"id": p["id"], "title": p["title"], "handle": p["handle"]} for p in sample_products],
+            "sample_products": [{"id": p["id"], "title": p["title"], "handle": p["handle"]} for p in matching_sample_prods[:5]],
             "articles": target_articles,
             "keywords": {
                 "long_tail": list(set(long_tail))[:10],
@@ -422,6 +416,207 @@ def research_flipboard_per_category(type_map: dict) -> dict:
             }
         }
     return research
+
+def candidate_matches_type(actual_ptype: str, target_category: str) -> bool:
+    act = (actual_ptype or "").lower()
+    tgt = (target_category or "").lower()
+    tgt_stem = tgt[:-1] if tgt.endswith("s") else tgt
+    return tgt_stem in act or tgt in act
+
+def get_product_type_history() -> dict:
+    history_file = SCRIPT_DIR / "addressed_questions_history.json"
+    if history_file.exists():
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("_product_type_history", {})
+        except Exception:
+            pass
+    return {}
+
+def record_product_type_used(ptype: str):
+    history_file = SCRIPT_DIR / "addressed_questions_history.json"
+    data = {}
+def normalize_to_core_stem(ptype: str) -> str:
+    p_lower = (ptype or "").lower().strip()
+    for core in CORE_PRODUCT_TYPES:
+        stem = core[:-1] if core.endswith("s") else core
+        if stem in p_lower or core in p_lower:
+            return core
+    return "tops"
+
+def get_product_type_history() -> dict:
+    history_file = SCRIPT_DIR / "addressed_questions_history.json"
+    if history_file.exists():
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("_product_type_history", {})
+        except Exception:
+            pass
+    return {}
+
+def record_product_type_used(ptype: str):
+    history_file = SCRIPT_DIR / "addressed_questions_history.json"
+    data = {}
+    if history_file.exists():
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+
+    pt_hist = data.get("_product_type_history", {})
+    clean_stem = normalize_to_core_stem(ptype)
+    pt_hist[clean_stem] = datetime.now(timezone.utc).isoformat()
+    data["_product_type_history"] = pt_hist
+
+    try:
+        with open(history_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"  [Warning] Failed to record product type history: {e}")
+
+def get_recommended_products_history() -> dict:
+    history_file = SCRIPT_DIR / "addressed_questions_history.json"
+    if history_file.exists():
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("_recommended_products_history", {})
+        except Exception:
+            pass
+    return {}
+
+def record_recommended_products_used(products: list):
+    history_file = SCRIPT_DIR / "addressed_questions_history.json"
+    data = {}
+    if history_file.exists():
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+
+    rec_hist = data.get("_recommended_products_history", {})
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for p in products:
+        if isinstance(p, dict):
+            pid = str(p.get("id", p.get("title", "")))
+            rec_hist[pid] = now_iso
+
+    data["_recommended_products_history"] = rec_hist
+    try:
+        with open(history_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+def select_styling_matches(main_product: dict, all_products: list, num_matches: int = 2, topic_context: str = "") -> list:
+    """
+    Selects complementary products from all_products for recommendation.
+    Prioritizes products that have NOT been recommended recently to ensure variety across runs.
+    """
+    rec_hist = get_recommended_products_history()
+    main_id = str(main_product.get("id", ""))
+    
+    candidates = [p for p in all_products if str(p.get("id", "")) != main_id]
+    if not candidates:
+        return []
+
+    now = datetime.now(timezone.utc)
+    unrecommended = []
+    recommended_recently = []
+    
+    for p in candidates:
+        pid = str(p.get("id", p.get("title", "")))
+        if pid not in rec_hist:
+            unrecommended.append(p)
+        else:
+            ts_str = rec_hist[pid]
+            try:
+                dt = datetime.fromisoformat(ts_str)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                age_days = (now - dt).days
+                recommended_recently.append((age_days, p))
+            except Exception:
+                unrecommended.append(p)
+
+    random.shuffle(unrecommended)
+    recommended_recently.sort(key=lambda x: x[0], reverse=True)
+    sorted_recent = [x[1] for x in recommended_recently]
+    
+    pool = unrecommended + sorted_recent
+    selected = pool[:min(num_matches, len(pool))]
+    record_recommended_products_used(selected)
+    return selected
+
+def select_trending_product_type(type_map: dict, research_data: dict, cooldown_days: int = 7) -> str:
+    """
+    Selects the top-trending product type from live research_data that has NOT been
+    used in the last cooldown_days (7 days).
+    """
+    pt_hist = get_product_type_history()
+    now = datetime.now(timezone.utc)
+    cooldown_cutoff = now - timedelta(days=cooldown_days)
+
+    # 1. Score available product types based on trend research articles
+    scores = {candidate: 0 for candidate in CORE_PRODUCT_TYPES}
+
+    for ptype_name, pdata in research_data.items():
+        arts = pdata.get("articles", [])
+        for art in arts:
+            text = (art.get("title", "") + " " + art.get("summary", "")).lower()
+            for candidate in CORE_PRODUCT_TYPES:
+                kw_stem = candidate[:-1] if candidate.endswith("s") else candidate
+                if kw_stem in text or candidate in text:
+                    scores[candidate] += 1
+
+    # Also map available store product types in type_map
+    for ptype in type_map.keys():
+        cand_stem = normalize_to_core_stem(ptype)
+        scores[cand_stem] += 2
+
+    # 2. Filter out candidates on 7-day cooldown
+    eligible = []
+    cooldowned = []
+
+    for candidate in CORE_PRODUCT_TYPES:
+        last_used_str = pt_hist.get(candidate)
+        is_on_cooldown = False
+        if last_used_str:
+            try:
+                last_dt = datetime.fromisoformat(last_used_str)
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+                if last_dt > cooldown_cutoff:
+                    is_on_cooldown = True
+                    print(f"  [7-Day Cooldown] Product type '{candidate}' used on {last_dt.strftime('%Y-%m-%d')} (cooldown active)")
+            except Exception as e:
+                print(f"  [Warning] Error parsing cooldown date for '{candidate}': {e}")
+
+        if not is_on_cooldown:
+            eligible.append(candidate)
+        else:
+            cooldowned.append(candidate)
+
+    # If eligible pool is empty (all on cooldown), pick the candidate used longest ago
+    if not eligible:
+        print("  [7-Day Cooldown] All product types on cooldown. Selecting least recently used...")
+        sorted_by_date = sorted(
+            CORE_PRODUCT_TYPES,
+            key=lambda c: pt_hist.get(c, "1970-01-01T00:00:00+00:00")
+        )
+        selected = sorted_by_date[0]
+    else:
+        # Sort eligible candidates by trend score descending
+        eligible.sort(key=lambda c: scores.get(c, 0), reverse=True)
+        selected = eligible[0]
+
+    print(f"  [OK Selected Trend Product Type] '{selected}' (Trend score: {scores.get(selected, 0)})")
+    record_product_type_used(selected)
+    return selected
 
 # ── Link Map Builder (Internal Links) ──────────────────────────────────────────
 def build_linker_map() -> LinkMap:
@@ -482,33 +677,6 @@ def inject_internal_links(html_body: str, link_map: LinkMap, article_title: str)
     return modified_html
 
 # ── Collage generation & Shopify Upload ────────────────────────────────────────
-def select_styling_matches(main_product: dict, pool: list, num_matches: int = 2) -> list[dict]:
-    main_type = (main_product.get("product_type") or "").lower()
-    main_id = main_product.get("id")
-    is_top = any(x in main_type for x in ["top", "blouse", "shirt", "tee"])
-    is_bottom = any(x in main_type for x in ["jean", "pant", "skirt", "legging", "short"])
-    is_one_piece = any(x in main_type for x in ["dress", "jumpsuit", "romper"])
-    
-    complementary_pool = []
-    for p in pool:
-        if p.get("id") == main_id or not p.get("images"):
-            continue
-        ptype = (p.get("product_type") or "").lower()
-        if is_top and any(x in ptype for x in ["jean", "pant", "skirt", "jacket", "coat", "cardigan"]):
-            complementary_pool.append(p)
-        elif is_bottom and any(x in ptype for x in ["top", "blouse", "shirt", "tee", "sweater", "jacket", "coat"]):
-            complementary_pool.append(p)
-        elif is_one_piece and any(x in ptype for x in ["jacket", "coat", "cardigan", "accessory", "bag"]):
-            complementary_pool.append(p)
-        else:
-            complementary_pool.append(p)
-            
-    if len(complementary_pool) >= num_matches:
-        return random.sample(complementary_pool, num_matches)
-    
-    fallback_pool = [p for p in pool if p.get("id") != main_id and p.get("images")]
-    return random.sample(fallback_pool, min(num_matches, len(fallback_pool))) if fallback_pool else []
-
 def upload_image_to_shopify(filepath: Path, filename: str) -> str | None:
     print(f"  Uploading {filename} to Shopify Files via GraphQL...")
     graphql_url = f"https://{SHOP}/admin/api/{API_VER}/graphql.json"
@@ -607,8 +775,9 @@ def make_product_card(product: dict, label: str = "FEATURED FAVORITE") -> str:
     handle = product.get("handle", "")
     url = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=card"
     img = product["images"][0]["src"] if product.get("images") else ""
+    card_alt = f"{title} - US Women's Fashion Outfit Idea"
     
-    img_html = f'<a href="{url}"><img src="{img}" alt="{title}" style="width:200px;height:200px;object-fit:cover;border-radius:8px;" /></a>' if img else ""
+    img_html = f'<a href="{url}"><img src="{img}" alt="{card_alt}" style="width:200px;height:200px;object-fit:cover;border-radius:8px;" /></a>' if img else ""
     
     return f"""
 <div style="background:#f9f9f9;border:1px solid #eee;border-radius:12px;padding:20px;margin:24px 0;display:flex;gap:20px;align-items:center;font-family:sans-serif;">
@@ -630,7 +799,8 @@ def make_related_products_section(products: list) -> str:
         handle = p.get("handle", "")
         url = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=related"
         img = p["images"][0]["src"] if p.get("images") else ""
-        img_html = f'<a href="{url}"><img src="{img}" alt="{title}" style="width:100%;height:180px;object-fit:cover;border-radius:6px;margin-bottom:8px;" /></a>' if img else ""
+        rel_alt = f"{title} - Styled Lookbook Essential"
+        img_html = f'<a href="{url}"><img src="{img}" alt="{rel_alt}" style="width:100%;height:180px;object-fit:cover;border-radius:6px;margin-bottom:8px;" /></a>' if img else ""
         
         cards_html += f"""
 <div style="flex:1;min-width:180px;max-width:220px;text-align:center;font-family:sans-serif;">
@@ -685,7 +855,7 @@ ARTICLE_MODES = [
         "description": "Identify 5-6 current/upcoming trends in this product category. For each trend: what it is, why it's hot right now, how real women can wear it, what to pair it with, and link to specific MeeeShop products.",
         "structure": "Trend intro hook | TOC | Each trend: name + why trending + how to wear + do's & don'ts + MeeeShop pick | Editor's top trend pick | FAQ | Related products",
         "tone": "Fashion editor sharing exclusive intel from the season's shows & street style",
-        "title_examples": ["5 Dress Trends Taking Over Summer 2026", "The 6 Jean Silhouettes Fashion Editors Are Obsessed With Right Now"],
+        "title_examples": ["5 Dress Trends Taking Over Summer {year}", "The 6 Jean Silhouettes Fashion Editors Are Obsessed With Right Now"],
     },
     {
         "id": "styling_rules",
@@ -698,16 +868,16 @@ ARTICLE_MODES = [
     },
     {
         "id": "body_type_guide",
-        "title_pattern": "The Best {ptype} Styles for Every Body Type (2026 Guide)",
+        "title_pattern": "The Best {ptype} Styles for Every Body Type ({year} Guide)",
         "angle": "body-positive-proportion-styling",
         "description": "Modern, body-positive proportion guide. Instead of 'hiding' shapes, teach readers how specific {ptype} cuts/silhouettes work with different proportions. Cover petite, tall, curvy, straight-frame, pear, apple, hourglass.",
         "structure": "Hook (proportion over labels) | TOC | Each body proportion type: what to look for + what to avoid + MeeeShop picks + confidence tip | Universal rules | FAQ | Related products",
         "tone": "Inclusive, empowering stylist who celebrates all bodies",
-        "title_examples": ["The Best Jeans for Every Body Type", "Which Dress Silhouette Flatters YOUR Proportions? A 2026 Guide"],
+        "title_examples": ["The Best Jeans for Every Body Type", "Which Dress Silhouette Flatters YOUR Proportions? A {year} Guide"],
     },
     {
         "id": "one_item_multiple_ways",
-        "title_pattern": "{num} Ways to Style the {main_product} (Work to Weekend)",
+        "title_pattern": "{num} Ways to Style {ptype} (Work to Weekend)",
         "angle": "one-item-multiple-outfit-challenge",
         "description": "Deep-dive on one specific hero product. Show {num} completely different ways to style it across different occasions, seasons and moods. Include a 'What I packed for a 3-day trip using only this piece' section.",
         "structure": "Hero product spotlight | {num} styled looks each with: occasion + outfit recipe + styling notes + links | Travel packing tip | Seasonal transitions | FAQ | Related products",
@@ -739,7 +909,7 @@ ARTICLE_MODES = [
         "description": "Explore the season's trending colour palette for this product type. Explain colour theory in plain language, how to use the trending shades, which neutrals they pair with, and how to incorporate a pop of colour without looking overwhelming.",
         "structure": "Colour trends hook | TOC | Top 5 trending colours (each: name, what it is, best pairings, avoid with) | Building a colour-cohesive outfit | Colour confidence tips for beginners | FAQ | MeeeShop colour picks",
         "tone": "Colour-obsessed art director turned stylist, approachable and inspiring",
-        "title_examples": ["The 5 Dress Colours Every Stylish Woman Will Wear This Summer", "Butter Yellow, Powder Blue & Beyond: The Color Palette Dominating 2026"],
+        "title_examples": ["The 5 Dress Colours Every Stylish Woman Will Wear This Summer", "Butter Yellow, Powder Blue & Beyond: The Color Palette Dominating {year}"],
     },
     {
         "id": "stain_odour_rescue",
@@ -787,17 +957,8 @@ ARTICLE_MODES = [
         "title_examples": ["Pack Like a Pro: The Only 5 Dresses You Need for a 2-Week Trip", "The Travel Jean: What Makes a Jean Perfect for Every Destination"],
     },
     {
-        "id": "handbag_guide",
-        "title_pattern": "The Complete Guide to Choosing & Styling {ptype} for Any Occasion",
-        "angle": "handbag-buying-styling-functionality-guide",
-        "description": "Comprehensive handbag guide covering: how to choose the right size/shape/strap for your body and lifestyle, matching bags to outfits without being matchy-matchy, organisation tips to stop the 'black hole' effect, and which bag styles every woman needs. Applicable to handbags AND clothing accessories.",
-        "structure": "Bag chaos hook | TOC | How to choose by body proportions | The 5 essential bag silhouettes | Outfit-to-bag matching guide | Organisation masterclass | Investment vs. budget picks | FAQ | MeeeShop bag/accessory picks",
-        "tone": "Organised, practical stylist who knows how a great bag completes the look",
-        "title_examples": ["Which Handbag Shape Is Right for You? A Complete Styling Guide", "11 Handbag Rules Every Stylish Woman Should Know"],
-    },
-    {
         "id": "grwm_personal_story",
-        "title_pattern": "Get Ready With Me: How I Built {num} Outfits Around the {main_product}",
+        "title_pattern": "Get Ready With Me: How I Built {num} Outfits Around {ptype}",
         "angle": "personal-story-GRWM-relatable-content",
         "description": "First-person narrative GRWM-style article. The MeeeShop stylist (pen name) shares her personal experience styling the hero product for different real-life situations across a week. Include styling decisions, mishaps, compliments received, and honest tips.",
         "structure": "Personal intro (why this piece caught my eye) | Day-by-day styling diary (Mon-Sat) | Styling lessons learned | Honest review of fit/fabric | How to shop it | FAQ | Related products",
@@ -924,7 +1085,7 @@ def _pick_article_mode(ptype: str) -> dict:
 
 
 # ── AI Prompt Construction ──────────────────────────────────────────────────────
-def _build_article_prompt(main_product: dict, research_data: dict, matching_products: list, mode: dict | None = None, original_handle_hint: str | None = None) -> tuple[str, dict]:
+def _build_article_prompt(main_product: dict, research_data: dict, matching_products: list, mode: dict | None = None, original_handle_hint: str | None = None, google_question: str | None = None) -> tuple[str, dict]:
     ptype = research_data["product_type"]
     kws = research_data["keywords"]
     long_tail = kws.get("long_tail", [])
@@ -935,19 +1096,21 @@ def _build_article_prompt(main_product: dict, research_data: dict, matching_prod
     if mode is None:
         mode = _pick_article_mode(ptype)
 
-    if original_handle_hint:
+    if google_question:
+        title_hint = google_question
+    elif original_handle_hint:
         words = original_handle_hint.split("-")
         title_hint = " ".join(w.capitalize() for w in words if w)
     else:
-        # Resolve dynamic placeholders in title pattern
         season = random.choice(_SEASONS)
         season2 = random.choice([s for s in _SEASONS if s != season])
         occasion = random.choice(_OCCASIONS)
         num = random.choice(_NUMS)
+        category_phrase = get_category_style_phrase(main_product)
         title_hint = (
             mode["title_pattern"]
-            .replace("{ptype}", ptype)
-            .replace("{main_product}", main_product["title"])
+            .replace("{ptype}", category_phrase)
+            .replace("{main_product}", category_phrase)
             .replace("{season}", season)
             .replace("{season1}", season)
             .replace("{season2}", season2)
@@ -955,6 +1118,8 @@ def _build_article_prompt(main_product: dict, research_data: dict, matching_prod
             .replace("{num}", num)
             .replace("{year}", str(YEAR))
         )
+
+    title_hint = enforce_current_year(title_hint, str(YEAR))
 
     # Research context from trending articles
     research_context = ""
@@ -966,6 +1131,8 @@ def _build_article_prompt(main_product: dict, research_data: dict, matching_prod
             snippet = (art.get("full_content") or "")[:2500]
             src = art.get("source", "")
             research_context += f"Ref #{idx+1} [{src}]:\n  Title: {title}\n  Summary: {summary}\n  Snippet: {snippet}\n\n"
+
+    research_context = enforce_current_year(research_context, str(YEAR))
 
     prompt = f"""You are {random.choice(PEN_NAMES)}, an expert fashion editor writing for {BRAND_NAME} — a premium women's clothing boutique based in the USA.
 
@@ -981,15 +1148,27 @@ You MUST review the "TRENDING ARTICLE REFERENCES" below. Do NOT copy their text 
 Mode: {mode['id']}
 Angle: {mode['angle']}
 Title Suggestion: {title_hint}
+Google Search Question: {google_question or 'N/A'}
 Content Brief: {mode['description']}
 Required Structure: {mode['structure']}
 Writing Tone: {mode['tone']}
 Title Examples (for inspiration, do NOT copy): {'; '.join(mode.get('title_examples', []))}
 
-────────── PRODUCT CONTEXT ──────────
-Hero Product: {main_product['title']} (Type: {ptype})
-Complementary Products to naturally mention: {', '.join(m_names)}
+────────── REAL-TIME US GOOGLE SEARCH QUESTION TO ANSWER (CRITICAL) ──────────
+Target Question: "{google_question or title_hint}"
+Instructions: You MUST directly address and answer this search question in the H1 title, opening paragraph, and dedicated body section. Include a 2-3 sentence clear, authoritative Direct Answer box right after the opening paragraph for Google Discover & Featured Snippet eligibility.
+
+────────── PRODUCT CATEGORY FOCUS (100% GENERIC ARTICLE) ──────────
+Target Product Category: {ptype} for Women
+Recommended Store Items (to be displayed in shop callout blocks at the bottom): {', '.join([main_product['title']] + m_names)}
 Store URL base: {STORE_URL}
+
+CRITICAL MANDATORY RULE (STRICTLY ENFORCED):
+- This article MUST be 100% generic fashion advice about {ptype} for women.
+- NEVER make any single store product the hero, title, or centerpiece of the article or outfit recipes.
+- DO NOT mention specific store product names like "{main_product['title']}" in the main body text or section titles.
+- Describe outfits using generic terms (e.g., "a relaxed linen shirt top", "a cropped blouse with wide-leg jeans", "a silk midi dress").
+- MeeeShop store products will be presented separately in recommended shopping callout blocks at the bottom of the article.
 
 ────────── SEO KEYWORDS ──────────
 Weave these naturally — never stuff them:
@@ -997,7 +1176,7 @@ Long-tail: {', '.join(long_tail[:5])}
 Zero-Search-Volume: {', '.join(zero_search[:5])}
 
 ────────── TREND RESEARCH ──────────
-{research_context if research_context else 'No external trend references available — use your expert fashion knowledge for {MONTH}.'}
+{research_context if research_context else f'No external trend references available — use your expert fashion knowledge for {MONTH}.'}
 
 ────────── MANDATORY EDITORIAL & VISUAL STYLING RULES ──────────
 1. Target audience: Women in the USA, ages 25-55. Speak directly to her.
@@ -1005,9 +1184,9 @@ Zero-Search-Volume: {', '.join(zero_search[:5])}
 3. Include a Table of Contents (HTML anchor links) after the intro. The Table of Contents MUST be formatted as a structured bulleted list (using `<ul>` and `<li>`) or numbered list (using `<ol>` and `<li>`), wrapped in a styled container (e.g. `<div style="background:#f9f9f9; border:1px solid #eaeaea; padding:15px; border-radius:8px; margin:20px 0;"><p style="font-weight:bold; margin-top:0;">Table of Contents</p><ul style="margin:0; padding-left:20px; line-height:1.6;">...</ul></div>`). Never output it as a single paragraph or plain text.
 4. Use H2 and H3 headers. Every section must provide REAL, actionable value.
 5. Include at least one numbered list OR bullet-point checklist with 5+ items.
-6. Mention the hero product AND at least one complementary product NATURALLY within the article body (not just in promotional sections).
+6. Focus 100% on generic fashion styling advice for {ptype}. Do NOT center the article around any single product name.
 7. End with an FAQ section containing 5-6 specific, realistic questions women ask about this topic, with detailed answers.
-8. DO NOT be generic. Every tip must be specific. "Pair with white sneakers" is boring. "Try the {m_names[0] if m_names else 'MeeeShop top'} in cream for a tonal, editorial moment" is great.
+8. DO NOT be generic in advice. Every tip must be specific in terms of cuts, colors, and fabrics.
 9. Article length: Aim for 900-1200 words of body content (excluding product cards added separately).
 10. PREMIUM HTML STYLING: Make the article visually outstanding and premium. Use these HTML elements:
     - **Styled Blockquotes**: Use `<blockquote>` with elegant borders and styling (e.g. `<blockquote style="border-left: 4px solid #111; padding-left: 20px; font-style: italic; margin: 30px 0; color: #555;">...</blockquote>`).
@@ -1015,6 +1194,26 @@ Zero-Search-Volume: {', '.join(zero_search[:5])}
     - **Comparison / Styling Recipe Cards**: Create side-by-side recipe or match guides with inline style (using border-radius, clean fonts, subtle colors).
 11. LIST FORMATTING (CRITICAL): NEVER write numbered items, tips, or Q&A as a single paragraph of text. ALWAYS use proper HTML list elements:
     - For numbered steps/tips/ideas, use `<ol><li>…</li></ol>`.
+12. OUTFIT / ITEM COUNT ALIGNMENT (CRITICAL): The title/handle specifies {extract_handle_count(original_handle_hint or title_hint)} outfits/items/rules. You MUST structure the body with generic fashion styling recipes (e.g. Outfit 1: Pair a cropped shirt top with high-waisted wide-leg jeans...).
+13. CURRENT YEAR ENFORCEMENT (CRITICAL): The current year is {YEAR}. You MUST write all titles, subheadings, and content specifically for {YEAR}. You MUST NEVER output past years (2024, 2025, 2023, or older). If any research reference mentions an older year, you MUST update it to {YEAR}.
+    - For unordered items/checklists, use `<ul><li>…</li></ul>`.
+    - For the FAQ section, wrap each Q&A in its own `<div>` block. Use a `<strong>` or `<h3>` for the question and a `<p>` for the answer, NEVER inline them like "Q: ... A: ..." in one paragraph.
+    - Example of WRONG format: "Here are tips: 1. Do X 2. Do Y 3. Do Z"
+    - Example of CORRECT format: `<ol><li>Do X</li><li>Do Y</li><li>Do Z</li></ol>`
+
+At the very end, append this block:
+<seometa>
+SEO_TITLE: [50-60 chars, include main keyword near start, MUST use current year {YEAR} or 'for Women', NEVER past years like 2024 or 2025]
+META_DESC: [140-155 chars, benefit-first, end with CTA]
+IMG_ALT: [10-15 words describing the featured image styling scene]
+SUGGESTED_HANDLE: [url-slug-format]
+SUGGESTED_TAGS: [comma-separated list of 6-8 relevant tags]
+ARTICLE_MODE: {mode['id']}
+</seometa>e="background: #faf5f5; border-left: 4px solid #d9534f; padding: 15px 20px; margin: 20px 0; border-radius: 4px;"><strong>Editor's Note:</strong> ...</div>`).
+    - **Comparison / Styling Recipe Cards**: Create side-by-side recipe or match guides with inline style (using border-radius, clean fonts, subtle colors).
+11. LIST FORMATTING (CRITICAL): NEVER write numbered items, tips, or Q&A as a single paragraph of text. ALWAYS use proper HTML list elements:
+    - For numbered steps/tips/ideas, use `<ol><li>…</li></ol>`.
+12. OUTFIT / ITEM COUNT ALIGNMENT (CRITICAL): The title/handle specifies {extract_handle_count(original_handle_hint or title_hint)} outfits/items/rules. You MUST structure the body with exactly {extract_handle_count(original_handle_hint or title_hint)} distinct outfit formulas/sections (e.g. 'Outfit 1', 'Outfit 2', ... 'Outfit {extract_handle_count(original_handle_hint or title_hint)}') to match the handle and title count, featuring the hero product and all complementary products provided ({', '.join(m_names)}).
     - For unordered items/checklists, use `<ul><li>…</li></ul>`.
     - For the FAQ section, wrap each Q&A in its own `<div>` block. Use a `<strong>` or `<h3>` for the question and a `<p>` for the answer, NEVER inline them like "Q: ... A: ..." in one paragraph.
     - Example of WRONG format: "Here are tips: 1. Do X 2. Do Y 3. Do Z"
@@ -1024,13 +1223,13 @@ At the very end, append this block:
 <seometa>
 SEO_TITLE: [50-60 chars, include main keyword near start, current year or 'for Women']
 META_DESC: [140-155 chars, benefit-first, end with CTA]
-IMG_ALT: [10-15 words describing the featured image styling scene]
+IMG_ALT: [12-18 word visual description of featured outfit collage: include product name, fit/silhouette (e.g. high-waisted, oversized), color palette, and US styling occasion (e.g. casual office, weekend brunch)]
 SUGGESTED_HANDLE: [url-slug-format]
 SUGGESTED_TAGS: [comma-separated list of 6-8 relevant tags]
 ARTICLE_MODE: {mode['id']}
 </seometa>
 
-Output ONLY clean HTML body content then the <seometa> block. No markdown fences. Start with the first HTML tag.
+Output ONLY clean HTML body content starting IMMEDIATELY with the <h1> tag, followed by the <seometa> block at the end. DO NOT output any chain-of-thought, internal reflections, planning thoughts, prompt analysis, or commentary (e.g. 'This is tricky', 'Must have sections', 'We need to satisfy'). No markdown fences. Start directly with <h1>.
 """
     if original_handle_hint:
         prompt += f"""
@@ -1042,7 +1241,7 @@ Output ONLY clean HTML body content then the <seometa> block. No markdown fences
    SEO_TITLE: {title_hint}
    SUGGESTED_HANDLE: {original_handle_hint}
 """
-    return prompt, mode
+    return prompt, title_hint, mode
 
 def _parse_seometa(raw: str) -> dict:
     meta = {"seo_title": "", "meta_desc": "", "img_alt": "", "suggested_handle": "", "suggested_tags": []}
@@ -1076,12 +1275,17 @@ def generate_fallback_content(
     matching_products: list,
     rdata: dict,
     mode: dict,
-    original_handle_hint: str | None = None
+    original_handle_hint: str | None = None,
+    google_question: str | None = None
 ) -> str:
     ptype = rdata.get("product_type", "Fashion Staples").strip()
-    prod_title = main_product["title"]
+    category_phrase = get_category_style_phrase(main_product)
+    prod_title = category_phrase
     
-    if original_handle_hint:
+    if google_question:
+        title = google_question
+        suggested_handle = _slugify(google_question)
+    elif original_handle_hint:
         suggested_handle = original_handle_hint
         words = original_handle_hint.split("-")
         title = " ".join(w.capitalize() for w in words if w)
@@ -1092,8 +1296,8 @@ def generate_fallback_content(
         num = random.choice(_NUMS)
         title = (
             mode["title_pattern"]
-            .replace("{ptype}", ptype)
-            .replace("{main_product}", prod_title)
+            .replace("{ptype}", category_phrase)
+            .replace("{main_product}", category_phrase)
             .replace("{season}", season)
             .replace("{season1}", season)
             .replace("{season2}", season2)
@@ -1116,7 +1320,13 @@ def generate_fallback_content(
                 summary = "Exploring modern trends and versatile styles for the current season."
             ref_summaries.append((art_title, summary))
             
-    is_care = mode.get("id") in ("fabric_care_guide", "stain_odour_rescue")
+    q_lower = (google_question or title).lower()
+    if any(x in q_lower for x in ["wash", "clean", "care", "stain", "odour", "laundry"]):
+        is_care = True
+    elif any(x in q_lower for x in ["style", "wear", "pair", "outfit", "layer", "clothes", "go with", "match"]):
+        is_care = False
+    else:
+        is_care = mode.get("id") in ("fabric_care_guide", "stain_odour_rescue")
     
     if is_care:
         intro_p = f"Maintaining the premium look and feel of your wardrobe staples is essential. The {prod_title} is a key foundation piece, and knowing how to properly care for and wash it ensures it remains in pristine condition for years to come. Whether you're dealing with standard laundry cycles or trying to remove tough stains and odours, this guide has you covered."
@@ -1232,9 +1442,9 @@ def generate_fallback_content(
 """
         pairings_html = f"""
 <h2 id="pairings" style="font-size:20px; margin-top:30px; border-bottom:1px solid #eee; padding-bottom:8px;">Styled Lookbook: Complete Outfit Recipes</h2>
-<p>To help you integrate this piece into your daily rotation, our editors have put together two gorgeous outfit recipes using MeeeShop favorites:</p>
+<p>To help you integrate this piece into your daily rotation, our editors have put together {len(matching_products) + 1} gorgeous outfit recipes using MeeeShop favorites:</p>
 """
-        for idx, p in enumerate(matching_products[:2]):
+        for idx, p in enumerate(matching_products):
             pair_title = p["title"]
             pair_handle = p.get("handle", "")
             pair_url = f"{STORE_URL}/products/{pair_handle}"
@@ -1327,11 +1537,80 @@ ARTICLE_MODE: {mode['id']}
     return html_body + seometa
 
 def _clean_html(raw: str) -> str:
+    if not raw:
+        return ""
+    # 1. Strip <think>...</think> reasoning blocks (common in DeepSeek / OpenRouter models)
+    raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL | re.IGNORECASE)
     raw = raw.strip()
+
+    # 2. Strip markdown code fences
     raw = re.sub(r"^```html?\s*", "", raw, flags=re.IGNORECASE)
     raw = re.sub(r"\s*```$", "", raw)
+
+    # 3. Strip <seometa>...</seometa> block
     raw = re.sub(r"<seometa>.*?</seometa>", "", raw, flags=re.DOTALL | re.IGNORECASE)
+
+    # 4. Find the true <h1> header of the article (discarding any reasoning monologue before it)
+    h1_matches = list(re.finditer(r"<h1\b[^>]*>(.*?)</h1>", raw, re.DOTALL | re.IGNORECASE))
+    if h1_matches:
+        chosen_h1 = None
+        for m in h1_matches:
+            h1_text = m.group(1)
+            if not any(kw.lower() in h1_text.lower() for kw in ["must obey", "constraint", "requirement", "instruction"]):
+                chosen_h1 = m
+                break
+        if chosen_h1:
+            raw = raw[chosen_h1.start():]
+        else:
+            raw = raw[h1_matches[-1].start():]
+    else:
+        m = re.search(r"<(?:h2|div|p|article|header|section|table)\b", raw, re.IGNORECASE)
+        if m:
+            raw = raw[m.start():]
+
+    # 5. Remove any prompt reflection monologue blocks that start with reasoning phrases
+    reasoning_patterns = [
+        r"^(?:title, then seo meta block|Must obey many constraints|Wait mode:|angle:|Title suggestion:|That seems contradictory|Conflict\.|We need to satisfy|Let's combine:|Let's plan:|Now check constraints:|The instruction:|Actually requirement:|Hero product\?|DO NOT mention|Recommended Store Items|Key points:|Let's think|We'll start).*?\n\n?"
+    ]
+    for pattern in reasoning_patterns:
+        raw = re.sub(pattern, "", raw, flags=re.IGNORECASE | re.MULTILINE)
+
     return raw.strip()
+
+def is_html_content_complete(html_body: str, raw_response: str) -> bool:
+    """
+    Validates whether the generated HTML body contains complete sections for every item listed in its Table of Contents.
+    Returns False if <seometa> is missing or if TOC items are missing corresponding H2/H3 body sections.
+    """
+    if not html_body or len(html_body.strip()) < 600:
+        return False
+
+    if not raw_response or "<seometa>" not in raw_response.lower():
+        return False
+
+    toc_match = re.search(r"Table of Contents.*?(?:</ul>|</ol>|</div>)", html_body, re.DOTALL | re.IGNORECASE)
+    if toc_match:
+        toc_text = toc_match.group(0)
+        toc_items = re.findall(r"<a[^>]*>(.*?)</a>|<li>(.*?)</li>", toc_text, re.IGNORECASE)
+        body_after_toc = html_body[toc_match.end():]
+        for item_tuple in toc_items:
+            item_text = (item_tuple[0] or item_tuple[1] or "").strip()
+            clean_item = re.sub(r"<[^>]+>", "", item_text).strip()
+            if not clean_item or len(clean_item) < 3:
+                continue
+
+            key_words = [w for w in re.findall(r"\b[a-zA-Z0-9]{3,}\b", clean_item) if w.lower() not in ("the", "and", "for", "with", "edit", "looks", "recipes")]
+            if key_words:
+                matched = False
+                for kw in key_words:
+                    if kw.lower() in body_after_toc.lower():
+                        matched = True
+                        break
+                if not matched:
+                    print(f"  [Validation Warning] Article truncated — TOC lists '{clean_item}' but section is missing in body!")
+                    return False
+
+    return True
 
 # ── Unified Content Generation Engine ──────────────────────────────────────────
 def generate_single_article_content(
@@ -1342,7 +1621,8 @@ def generate_single_article_content(
     research_cache: dict,
     force_format: str | None = None,
     dry_run: bool = False,
-    original_handle_hint: str | None = None
+    original_handle_hint: str | None = None,
+    deduplicator: ArticleDeduplicator | None = None
 ) -> dict | None:
     """
     Generates all content and assets for a single blog article.
@@ -1367,11 +1647,19 @@ def generate_single_article_content(
         
     rdata = research_cache[ptype]
 
-    # 2. Select styling matches
-    matching_products = select_styling_matches(main_product, all_products_with_images, num_matches=2)
-    print(f"  Styling Pairings: {[p['title'] for p in matching_products]}")
+    # 2. Select styling matches matching outfit count in handle/title
+    target_count_text = original_handle_hint or ptype or ""
+    outfit_count = extract_handle_count(target_count_text)
+    num_matches = max(2, outfit_count - 1)
+    matching_products = select_styling_matches(main_product, all_products_with_images, num_matches=num_matches, topic_context=target_count_text)
+    print(f"  Styling Pairings ({len(matching_products)} products for {outfit_count} outfits/items): {[p['title'] for p in matching_products]}")
 
-    # 3. Build AI prompt and generate content
+    # 3. Fetch top unaddressed Google US Search Question
+    question_fetcher = GoogleQuestionFetcher()
+    google_question = question_fetcher.get_next_unaddressed_question(ptype, deduplicator=deduplicator, default_fallback=main_product["title"])
+    print(f"  [Google Trends/Search] Selected unaddressed question for '{ptype}': {google_question}")
+
+    # 4. Build AI prompt and generate content
     mode = None
     if force_format:
         for m in ARTICLE_MODES:
@@ -1379,50 +1667,60 @@ def generate_single_article_content(
                 mode = m
                 break
                 
-    prompt, chosen_mode = _build_article_prompt(main_product, rdata, matching_products, mode=mode, original_handle_hint=original_handle_hint)
+    prompt, title_hint, chosen_mode = _build_article_prompt(main_product, rdata, matching_products, mode=mode, original_handle_hint=original_handle_hint, google_question=google_question)
+    
+    # Mark question as addressed
+    question_fetcher.mark_addressed(google_question, category=ptype)
     
     print(f"  Article Mode: {chosen_mode['id']}")
     print("  Generating new content with AI...")
     prompt = prompt.replace("MeeeShop", BRAND_NAME)
-    raw_ai_response = ai_client.generate(prompt, max_tokens=3000, temperature=0.85)
+    raw_ai_response = ai_client.generate(prompt, max_tokens=3500, temperature=0.85)
+    html_body = _clean_html(raw_ai_response or "")
 
-    if not raw_ai_response:
-        print("  [ERROR] AI content generation failed. Running fallback content generation...")
+    if not raw_ai_response or not is_html_content_complete(html_body, raw_ai_response):
+        print("  [Validation Fail] AI content generation was incomplete or truncated. Running robust fallback content generation...")
         raw_ai_response = generate_fallback_content(
             main_product=main_product,
             matching_products=matching_products,
             rdata=rdata,
             mode=chosen_mode,
-            original_handle_hint=original_handle_hint
+            original_handle_hint=original_handle_hint,
+            google_question=google_question
         )
+        html_body = _clean_html(raw_ai_response)
 
-    html_body = _clean_html(raw_ai_response)
     seometa = _parse_seometa(raw_ai_response)
     
     # 4. Fallbacks and assembly
-    if original_handle_hint:
+    if google_question:
+        new_title = google_question
+        suggested_handle = _slugify(google_question)
+    elif original_handle_hint:
         suggested_handle = original_handle_hint
         words = original_handle_hint.split("-")
         new_title = " ".join(w.capitalize() for w in words if w)
     else:
-        suggested_handle = seometa.get("suggested_handle") or f"style-guide-{main_product['handle']}"
-        new_title = seometa.get("seo_title") or f"How to Wear & Style {main_product['title']}"
-    meta_desc = seometa.get("meta_desc") or f"Expert styling guide and care tips for {main_product['title']}."
-    img_alt = seometa.get("img_alt") or f"{main_product['title']} styling collage"
+        new_title = sanitize_title_to_category_phrase(title_hint, main_product)
+        suggested_handle = _slugify(new_title)
+
+    # Guarantee H1 tag inside html_body matches new_title 100%
+    if "<h1" in html_body.lower():
+        html_body = re.sub(r"<h1>.*?</h1>", f"<h1>{new_title}</h1>", html_body, count=1, flags=re.IGNORECASE | re.DOTALL)
+    else:
+        html_body = f"<h1>{new_title}</h1>\n" + html_body
+    meta_desc = seometa.get("meta_desc") or f"Expert styling guide and care tips for {get_category_style_phrase(main_product)}."
+    img_alt = seometa.get("img_alt") or f"{get_category_style_phrase(main_product)} styling guide"
     new_tags = seometa.get("suggested_tags") or ["style", "fashion", ptype.lower()]
 
-    # 5. Inject product cards and related products section
-    card_html = make_product_card(main_product)
-    toc_match = re.search(r"</ul>", html_body, re.IGNORECASE)
-    if toc_match:
-        pos = toc_match.end()
-        html_body = html_body[:pos] + "\n" + card_html + html_body[pos:]
-    else:
-        p_match = re.search(r"</p>", html_body, re.IGNORECASE)
-        if p_match:
-            pos = p_match.end()
-            html_body = html_body[:pos] + "\n" + card_html + html_body[pos:]
-            
+    # Enforce current year (2026) across all fields
+    new_title = enforce_current_year(new_title, str(YEAR))
+    suggested_handle = enforce_current_year(suggested_handle, str(YEAR))
+    meta_desc = enforce_current_year(meta_desc, str(YEAR))
+    img_alt = enforce_current_year(img_alt, str(YEAR))
+    html_body = enforce_current_year(html_body, str(YEAR))
+
+    # 5. Inject recommended products section at the bottom
     html_body += "\n" + make_related_products_section([main_product] + matching_products)
 
     # 6. Inject natural internal links
@@ -1448,8 +1746,8 @@ def generate_single_article_content(
                 f.write(collage_bytes)
             
             if not dry_run:
-                ts = int(time.time())
-                filename = f"content_collage_{main_product['id']}_{ts}.jpg"
+                clean_slug = suggested_handle[:45].strip('-')
+                filename = f"{clean_slug}-womens-fashion-outfit-collage.jpg"
                 img_url = upload_image_to_shopify(temp_path, filename)
                 try:
                     temp_path.unlink()
@@ -1465,9 +1763,11 @@ def generate_single_article_content(
         img_url = main_product["images"][0]["src"] if main_product.get("images") else None
 
     return {
-        "html_body": html_body,
+        "title": new_title,
         "seo_title": new_title,
+        "html_body": html_body,
         "meta_desc": meta_desc,
+        "handle": suggested_handle,
         "suggested_handle": suggested_handle,
         "tags": new_tags,
         "img_url": img_url,
@@ -1517,17 +1817,23 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
     
     product_history = load_used_products_history()
     product_history = clean_old_history(product_history, days=7)
-    
-    type_pool = list(research.keys())
-    random.shuffle(type_pool)
+
+    # ── Deduplication: load all live article titles + handles once ─────────────
+    dedup = ArticleDeduplicator(BASE, HEADERS)
+    dedup.load_live_index()
+
+    # Select trending product type based on live research & 7-day cooldown
+    selected_ptype = select_trending_product_type(research, research, cooldown_days=7)
     
     results = []
     all_products_with_images = [p for p in all_products if p.get("images")]
     
     for i in range(count):
-        ptype = type_pool[i % len(type_pool)]
+        ptype = selected_ptype
         
-        prods_in_type = [p for p in all_products_with_images if p.get("product_type") == ptype]
+        prods_in_type = [p for p in all_products_with_images if candidate_matches_type(p.get("product_type", ""), ptype)]
+        if not prods_in_type:
+            prods_in_type = [p for p in all_products_with_images if ptype[:-1] in (p.get("product_type") or "").lower()]
         if not prods_in_type:
             prods_in_type = all_products_with_images
         if not prods_in_type:
@@ -1610,6 +1916,19 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
         blog = chosen_blog
         print(f"    Routing to blog: '{blog['title']}' (handle: {blog['handle']})")
                 
+        # ── Deduplication check (runs in both dry-run and live mode) ─────────────
+        dedup_result = dedup.resolve(
+            title=seo_title,
+            handle=suggested_handle,
+            product_handle=main_product.get("handle", ""),
+            article_format=chosen_mode_id,
+            dry_run=dry_run,
+        )
+        if dedup_result is None:
+            print("    [Dedup] Skipping — same product+format published recently.")
+            continue
+        seo_title, suggested_handle = dedup_result
+
         result = {
             "title": seo_title,
             "handle": suggested_handle,
@@ -1662,6 +1981,13 @@ def generate_weekly_blogs(research: dict, all_products: list, link_map: LinkMap,
             if r.status_code in (200, 201):
                 art = r.json().get("article", {})
                 print(f"    [Shopify] Success! Article ID: {art.get('id')} | Handle: {art.get('handle')}")
+                # Register so subsequent articles in same run can't collide
+                dedup.register(seo_title, suggested_handle)
+                dedup.record_product_format(
+                    main_product.get("handle", ""),
+                    chosen_mode_id,
+                    dry_run=False
+                )
             else:
                 print(f"    [!] Shopify Upload Failed: {r.status_code} - {r.text}")
                 

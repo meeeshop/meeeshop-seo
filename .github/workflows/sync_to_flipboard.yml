@@ -2,8 +2,8 @@ name: Daily Flipboard Syndication
 
 on:
   schedule:
-    # Run every day at 08:00 UTC
-    - cron: '0 8 * * *'
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
   
   workflow_dispatch:
     inputs:
@@ -19,6 +19,11 @@ on:
         default: '7'
       limit:
         description: 'Max articles to flip'
+        required: false
+        type: string
+        default: '10'
+      reflip_limit:
+        description: 'Max trending articles to flip'
         required: false
         type: string
         default: '10'
@@ -55,8 +60,9 @@ jobs:
           
           DAYS="${{ github.event.inputs.days || '7' }}"
           LIMIT="${{ github.event.inputs.limit || '10' }}"
+          REFLIP_LIMIT="${{ github.event.inputs.reflip_limit || '10' }}"
           
-          python scripts/sync_to_flipboard.py --days $DAYS --limit $LIMIT $DRY_RUN_FLAG
+          python scripts/sync_to_flipboard.py --days $DAYS --limit $LIMIT --reflip-limit $REFLIP_LIMIT $DRY_RUN_FLAG
 
       - name: Upload Debug Artifacts
         if: always()

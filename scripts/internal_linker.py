@@ -43,6 +43,7 @@ if sys.platform.startswith("win"):
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from secrets_manager import inject_to_env, get_secret
+from ai_client import generate
 
 inject_to_env()
 
@@ -387,6 +388,26 @@ def update_article(blog_id: int, article_id: int, body_html: str) -> bool:
 # KEYWORD → URL MAPPING
 # ══════════════════════════════════════════════════════════════════════════════
 
+def is_single_product_article(title: str, handle: str) -> bool:
+    """
+    Returns True if an article handle or title refers to a single specific vendor product
+    (e.g., 'athena-inseam-transform-high-rise-a-wide-jeans-guide' or 'adler-breech-petite-guide').
+    Such legacy articles should NOT be registered as internal link targets.
+    """
+    h = handle.lower()
+    t = title.lower()
+    vendor_signals = ["judy blue", "athena inseam", "adler breech", "aeliana", "howdy tank", "astrid", "open front cardigan", "a-wide jeans"]
+    if any(sig in t or sig.replace(" ", "-") in h for sig in vendor_signals):
+        return True
+
+    words = h.split("-")
+    if len(words) >= 5 and words[-1] in ("guide", "review", "pick", "picks"):
+        if not any(cat in h for cat in ["style-guide", "dresses-style", "jeans-style", "pants-style", "tops-style", "shirts-style", "trends", "fashion-trends"]):
+            return True
+
+    return False
+
+
 class LinkMap:
     """Maps keywords to linkable URLs."""
 
@@ -404,7 +425,9 @@ class LinkMap:
         self._register_keywords(title, url, title, is_collection=True)
 
     def add_article(self, title: str, blog_handle: str, article_handle: str):
-        """Register article keywords."""
+        """Register article keywords (skipping legacy single-product articles)."""
+        if is_single_product_article(title, article_handle):
+            return
         url = f"{SITE}/blogs/{blog_handle}/{article_handle}"
         self._register_keywords(title, url, title, is_collection=False)
 
@@ -631,11 +654,18 @@ def build_link_map() -> LinkMap:
     logger.info("Building link map...")
     link_map = LinkMap()
 
-    # NOTE: Product pages are excluded from inline text linking because products
-    # are already showcased at the bottom of articles in the "Shop the Look" widget
-    # and product cards. This also makes the linker run much faster by skipping
-    # paginated requests for the entire product catalog.
-    logger.info("  Skipping product text links registration (priority to collections)")
+    # Add products for direct link matching
+    logger.info("  Fetching products...")
+    try:
+        products = fetch_all_products()
+        for product in products:
+            title = product.get("title", "")
+            handle = product.get("handle", "")
+            if title and handle:
+                link_map.add_product(title, handle)
+        logger.info(f"    Added {len(products)} products")
+    except Exception as e:
+        logger.error(f"Failed to fetch products: {e}")
 
     # Add collections
     logger.info("  Fetching collections...")
@@ -667,6 +697,41 @@ def build_link_map() -> LinkMap:
 
     logger.info(f"Link map built: {len(link_map.keyword_to_urls)} unique keywords")
     return link_map
+
+
+def filter_suggestions_with_ai(article_text: str, suggestions: List[Dict]) -> List[Dict]:
+    """Use AI to prune and rank suggestions based on natural flow and context."""
+    if not suggestions:
+        return []
+    
+    items = []
+    for idx, sug in enumerate(suggestions):
+        items.append(f"{idx}: Keyword '{sug['keyword']}' -> Target '{sug['url']}'")
+        
+    prompt = (
+        f"You are an expert copywriter and SEO optimizer.\n"
+        f"Review this blog article excerpt and a list of proposed internal link insertions. "
+        f"Determine which of the proposed links are highly contextually relevant and read naturally "
+        f"in the text. Return only a comma-separated list of the indices (e.g. '0, 2') of the "
+        f"good suggestions. Keep only the best ones.\n\n"
+        f"Article:\n{article_text[:1500]}\n\n"
+        f"Proposed Links:\n" + "\n".join(items) + "\n\n"
+        f"Good Indices:"
+    )
+    
+    try:
+        response = generate(prompt, max_tokens=50, temperature=0.2)
+        if response:
+            valid_indices = []
+            for item in response.split(","):
+                clean_item = "".join(filter(str.isdigit, item))
+                if clean_item:
+                    valid_indices.append(int(clean_item))
+            filtered = [suggestions[i] for i in valid_indices if i < len(suggestions)]
+            return filtered
+    except Exception as e:
+        logger.warning(f"AI filtering failed: {e}. Falling back to default suggestions.")
+    return suggestions
 
 
 def process_articles(mode: str, apply: bool, batch_size: int = None, batch_index: int = None, max_links_per_article: int = 3):
@@ -715,8 +780,25 @@ def process_articles(mode: str, apply: bool, batch_size: int = None, batch_index
             # Find existing links to avoid re-linking
             existing_links = extract_existing_links(body_html)
 
+            # Check existing links for 404s
+            broken_links = []
+            for link in existing_links:
+                full_link = link if link.startswith("http") else f"{SITE.rstrip('/')}{link}"
+                try:
+                    r = requests.head(full_link, allow_redirects=True, timeout=5)
+                    if r.status_code == 404:
+                        logger.warning(f"  [404 Alert] Found broken link in article '{article_title}': {link}")
+                        broken_links.append(link)
+                except Exception as e:
+                    logger.debug(f"Failed to check link {link}: {e}")
+
             # Find unlinked keywords
             suggestions = find_unlinked_keywords(body_html, existing_links, link_map, article_context=article_title)
+
+            # AI-assisted filtering
+            if suggestions and (get_secret("GEMINI_API_KEY") or get_secret("GROQ_API_KEY") or get_secret("OPENROUTER_API_KEY")):
+                logger.info(f"Article '{article_title}': running AI check on {len(suggestions)} suggestions")
+                suggestions = filter_suggestions_with_ai(body_html, suggestions)
 
             modified_html = body_html
             injected_count = 0
@@ -837,7 +919,8 @@ def process_articles(mode: str, apply: bool, batch_size: int = None, batch_index
                     "blog_name": blog_title,
                     "links_injected": links_injected,
                     "links_skipped": links_skipped,
-                    "widget_added": widget_added
+                    "widget_added": widget_added,
+                    "broken_links_detected": broken_links
                 }
                 detailed_log.append(article_log)
 

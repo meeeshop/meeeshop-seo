@@ -3,7 +3,7 @@ MeeeShop SEO Automation v2.0+
 Google-optimized product, collection, page, and blog SEO with 7-day returns
 
 Workflow modes:
-  --daily   : Products + Pages + Collections + Blog posts updated in last 48hrs
+  --daily   : Products + Pages + Collections + Blog posts added/published in last 24hrs
   --weekly  : All items missed by daily + add missing descriptions
   --force   : Complete store overhaul (normalize all SEO fields)
 
@@ -28,9 +28,15 @@ if sys.stderr.encoding != 'utf-8':
 
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from secrets_manager import inject_to_env, get_secret
 inject_to_env()
 from shopify_graphql import run_graphql, parse_gid
+
+try:
+    from google_question_fetcher import GoogleQuestionFetcher
+except ImportError:
+    from scripts.google_question_fetcher import GoogleQuestionFetcher
 
 STORE  = get_secret("SHOPIFY_STORE")
 TOKEN  = get_secret("SHOPIFY_ACCESS_TOKEN")
@@ -229,8 +235,14 @@ def fetch_google_search_keywords(handle: str, limit: int = 3) -> list[str]:
                 cleaned = []
                 for s in suggestions:
                     s_clean = s.strip().lower()
-                    # Exclude other competitor brands
+                    # Exclude competitor brands, non-US location terms, competitor retailers, and local brick-and-mortar terms
                     if any(ob in s_clean for ob in other_brands):
+                        continue
+                    if GoogleQuestionFetcher.has_non_us_location(s_clean):
+                        continue
+                    if GoogleQuestionFetcher.has_competitor_retailer(s_clean, allowed_brand=brand_found or handle):
+                        continue
+                    if GoogleQuestionFetcher.has_local_intent(s_clean):
                         continue
                     if s_clean not in cleaned:
                         cleaned.append(s_clean)
@@ -240,7 +252,12 @@ def fetch_google_search_keywords(handle: str, limit: int = 3) -> list[str]:
     except Exception as e:
         print(f"  [Google Search] Autocomplete request failed: {e}")
         
-    return generate_long_tail_keywords(handle)[:limit]
+    return [
+        kw for kw in generate_long_tail_keywords(handle) 
+        if not GoogleQuestionFetcher.has_non_us_location(kw) 
+        and not GoogleQuestionFetcher.has_competitor_retailer(kw, allowed_brand=handle)
+        and not GoogleQuestionFetcher.has_local_intent(kw)
+    ][:limit]
 
 
 def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
@@ -306,7 +323,7 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
                 position = row.get("position", 0)
                 ctr = row.get("ctr", 0)
                 impressions = row.get("impressions", 0)
-                if 8.0 <= position <= 20.0 and ctr < 0.05:
+                if 8.0 <= position <= 20.0 and ctr < 0.05 and not GoogleQuestionFetcher.has_non_us_location(query) and not GoogleQuestionFetcher.has_competitor_retailer(query, allowed_brand=handle) and not GoogleQuestionFetcher.has_local_intent(query):
                     candidates.append((query, impressions))
                     
         candidates.sort(key=lambda x: x[1], reverse=True)
@@ -317,6 +334,12 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
             # Fallback if exact page yields no results: search Google Autocomplete Suggest queries
             if handle:
                 queries = fetch_google_search_keywords(handle, limit)
+                queries = [
+                    q for q in queries 
+                    if not GoogleQuestionFetcher.has_non_us_location(q) 
+                    and not GoogleQuestionFetcher.has_competitor_retailer(q, allowed_brand=handle)
+                    and not GoogleQuestionFetcher.has_local_intent(q)
+                ]
                 if queries:
                     print(f"  [Google Search] Suggestions found for handle: {queries}")
         return queries
@@ -405,16 +428,18 @@ def truncate(text, n):
 
 
 # ── Category detection ────────────────────────────────────────────────────────
+APPAREL_CATEGORIES = {'Dresses', 'Tops', 'Bottoms', 'Outerwear', 'Skirts', 'One-Pieces'}
+
 CATEGORIES = {
     ('dress','gown','midi','maxi','sundress','shift'):   ('Dresses',   'dress'),
-    ('top','blouse','shirt','tee','tank','cami','tunic'):('Tops',      'top'),
-    ('jean','pant','short','legging','jogger','trouser'):('Bottoms',   'bottom'),
-    ('jacket','coat','blazer','sweater','hoodie','cardigan','pullover'):
-                                                        ('Outerwear', 'layer'),
+    ('top','blouse','shirt','tee','tank','cami','tunic','sweater','cardigan','pullover','hoodie'):('Tops',      'top'),
+    ('jean','pant','short','shorties','legging','jogger','trouser','bottom','denim'):('Bottoms',   'bottom'),
+    ('jacket','coat','blazer','outerwear','vest','trench'): ('Outerwear', 'layer'),
     ('skirt',):                                         ('Skirts',    'skirt'),
-    ('romper','jumpsuit','bodysuit','playsuit'):         ('One-Pieces','one-piece'),
-    ('bag','purse','handbag','tote','crossbody','sling'):('Bags',      'bag'),
-    ('shoe','boot','heel','sandal','sneaker','flat'):    ('Shoes',     'shoe'),
+    ('romper','jumpsuit','bodysuit','playsuit','set','onesie'): ('One-Pieces','one-piece'),
+    ('bag','purse','handbag','tote','crossbody','sling','backpack','clutch','satchel','wallet','fanny','duffel'):('Bags', 'bag'),
+    ('shoe','boot','heel','sandal','sneaker','flat','mule','slide','footwear','clog'): ('Shoes', 'shoe'),
+    ('hat','cap','beanie','jewelry','necklace','earring','bracelet','ring','belt','sunglasses','scarf','accessory','accessories','headband','hair'): ('Accessories', 'accessory')
 }
 
 def detect_cat(title, product_type='', tags=''):
@@ -428,21 +453,34 @@ def detect_cat(title, product_type='', tags=''):
     return 'Women\'s Fashion', 'piece'
 
 
-# ── Meta title (Google standard: ≤60 chars) ───────────────────────────────────
+# ── Meta title (Google standard: ≤60 chars, US intent & sizing focused) ────────
 def build_meta_title(title, product_type='', tags=''):
-    cat, _ = detect_cat(title, product_type, tags)
-    # Format: Product Title | Category | Brand (with .com for SEO)
-    full  = f"{title} | {cat} | {BRAND}"
+    cat, word = detect_cat(title, product_type, tags)
+    
+    # Extract style keyword (e.g., Boho, Vintage, Casual, Floral, Summer)
+    style_keywords = {'boho', 'vintage', 'floral', 'summer', 'casual', 'elegant', 'chic', 'retro', 'cozy', 'oversized', 'knit', 'denim', 'linen', 'silk', 'lace', 'print', 'solid'}
+    title_lower = title.lower()
+    tag_lower = (tags or '').lower()
+    found_style = next((s.title() for s in style_keywords if s in title_lower or s in tag_lower), cat)
+    
+    # Dynamic sizing hint based on category
+    sizing = "XS-3XL" if cat in ('Dresses', 'Tops', 'Bottoms', 'Outerwear', 'One-Pieces', 'Skirts') else "One Size"
+    
+    # 1. Preferred High-CTR Long-Tail Format: [Title] - [Style] | US Size [Sizing] | Free Shipping
+    full = f"{title} - {found_style} | US Size {sizing} | Free Shipping"
     if len(full) <= 60:
-        return full
-    # Shorten: Product Title | Brand (with .com)
-    short = f"{title} | {BRAND}"
-    if len(short) <= 60:
-        return short
-    # Truncate title to fit
-    max_title = 60 - len(f" | {BRAND}")
-    truncated_title = title[:max_title].rsplit(' ', 1)[0] if ' ' in title[:max_title] else title[:max_title-1]
-    return f"{truncated_title} | {BRAND}"
+        res = full
+    elif len(f"{title} | US Size {sizing} | Free US Shipping") <= 60:
+        res = f"{title} | US Size {sizing} | Free US Shipping"
+    elif len(f"{title} | Free US Shipping") <= 60:
+        res = f"{title} | Free US Shipping"
+    else:
+        max_title_len = 60 - len(" | Free US Shipping")
+        truncated_title = title[:max_title_len].rsplit(' ', 1)[0] if ' ' in title[:max_title_len] else title[:max_title_len-1]
+        res = f"{truncated_title} | Free US Shipping"
+        
+    return GoogleQuestionFetcher.remove_disallowed_terms(res, allowed_brand=title)[:60]
+
 
 
 # ── Extract keywords naturally from title/description ──────────────────────────
@@ -474,38 +512,78 @@ def build_meta_desc(title, product_type='', tags='', gsc_keywords=None):
         kw_suffix = f" Perfect for {', '.join(gsc_keywords)}."
         desc = truncate(desc, 155 - len(kw_suffix)) + kw_suffix
         
-    return truncate(desc, 155)
+    return GoogleQuestionFetcher.remove_disallowed_terms(truncate(desc, 155), allowed_brand=title)[:155]
 
 
 # ── Image alt text (Google standard: descriptive, ≤125 chars) ─────────────────
 def build_alt(title, variant_hint='', idx=0, product_type='', tags='', gsc_keywords=None):
+    """
+    Build highly descriptive, search-intent rich image alt text for US women's fashion.
+    Caps length strictly at 125 chars (Google Image Search standard).
+    Follows Google Search guidelines: natural visual description per image view without word stuffing.
+    """
     cat, word = detect_cat(title, product_type, tags)
     
-    base_alt = f"{title}"
-    if variant_hint and variant_hint.lower() != 'default':
-        base_alt += f" {variant_hint}"
+    parts = [title.strip()]
+    if variant_hint and variant_hint.lower() not in ('default', 'default title', ''):
+        parts.append(f"in {variant_hint.strip()}")
     if idx > 0:
-        base_alt += f" view {idx + 1}"
-    base_alt += f" ({word})"
+        parts.append(f"view {idx + 1}")
     
-    # Add keywords if we have space
+    # Extract natural US female fashion intent descriptors from tags/title
+    tags_str = (tags if isinstance(tags, str) else ", ".join(tags)).lower()
+    full_text = f"{title} {tags_str} {product_type}".lower()
+    
+    intent_descriptors = []
+    if any(k in full_text for k in ['high waist', 'high rise', 'high-waisted']):
+        intent_descriptors.append("High-Waisted")
+    elif any(k in full_text for k in ['curvy', 'plus size', 'tummy control']):
+        intent_descriptors.append("Curvy Fit")
+    elif any(k in full_text for k in ['stretch', 'elastic']):
+        intent_descriptors.append("Comfort Stretch")
+    elif any(k in full_text for k in ['oversized', 'relaxed', 'loose']):
+        intent_descriptors.append("Relaxed Fit")
+
+    if any(k in full_text for k in ['boho', 'bohemian']):
+        intent_descriptors.append("Boho Style")
+    elif any(k in full_text for k in ['office', 'work', 'blazer']):
+        intent_descriptors.append("Casual Office Outfit")
+    elif any(k in full_text for k in ['summer', 'vacation', 'beach', 'resort']):
+        intent_descriptors.append("Summer Outfit Idea")
+    elif any(k in full_text for k in ['fall', 'winter', 'knit']):
+        intent_descriptors.append("Fall Wardrobe Essential")
+
+    base_alt = " ".join(parts)
+    if intent_descriptors and intent_descriptors[0].lower() not in base_alt.lower():
+        base_alt += f" - {intent_descriptors[0]}"
+    
+    # Seamlessly integrate ONE top relevant GSC search term if not already present (no raw comma lists)
     if gsc_keywords:
-        kw_str = ", ".join(gsc_keywords)
-        space_left = 125 - len(base_alt) - len(f" - shop at {DISPLAY_BRAND}") - len(" - ")
-        if space_left > 10:
-            base_alt += f" - {kw_str[:space_left]}"
-            
-    alt = f"{base_alt} - shop at {DISPLAY_BRAND}"
-    return alt[:125].strip()
+        top_kw = (gsc_keywords[0] if isinstance(gsc_keywords, list) and gsc_keywords else str(gsc_keywords)).strip()
+        if top_kw and top_kw.lower() not in base_alt.lower():
+            space_left = 125 - len(base_alt) - len(" - ")
+            if space_left >= len(top_kw):
+                base_alt += f" - {top_kw.title()}"
+
+    if word.lower() not in base_alt.lower() and len(base_alt) <= 110:
+        base_alt += f" ({word})"
+
+    return base_alt[:125].strip().rstrip('-').strip()
 
 
 def build_collection_alt(title):
-    alt = f"{title} collection - shop at {DISPLAY_BRAND}"
+    clean_title = title.strip()
+    alt = f"{clean_title} - US Women's Fashion & Styling Guide Collection"
+    if len(alt) > 125:
+        alt = f"{clean_title} Collection - US Women's Fashion"
     return alt[:125].strip()
 
 
 def build_article_alt(title):
-    alt = f"{title} - fashion tips & styling guides at {DISPLAY_BRAND}"
+    clean_title = title.strip()
+    alt = f"{clean_title} - US Women's Fashion & Outfit Style Guide"
+    if len(alt) > 125:
+        alt = f"{clean_title} - Women's Fashion Style Guide"
     return alt[:125].strip()
 
 
@@ -744,7 +822,7 @@ def build_description(product, force=False, gsc_keywords=None):
     html_body = product.get('body_html', '') or ''
     cat, word = detect_cat(title)
     
-    if cat == 'Bags':
+    if cat not in APPAREL_CATEGORIES:
         html_body = remove_clothing_size_table(html_body)
         
     existing = strip_html(html_body)
@@ -753,7 +831,7 @@ def build_description(product, force=False, gsc_keywords=None):
     if len(existing) >= 200 and not ("Discover the" in html_body and "Why Choose" in html_body):
         # Preserve the custom description, clean return policies
         cleaned_body = clean_return_policy(html_body)
-        if cat == 'Bags':
+        if cat not in APPAREL_CATEGORIES:
             final_body = cleaned_body.strip()
         else:
             if not has_size_table(cleaned_body):
@@ -822,10 +900,10 @@ def build_description(product, force=False, gsc_keywords=None):
         f"Shop {DISPLAY_BRAND} today.</strong></p>"
     )
 
-    # Preserve existing size table verbatim; otherwise build the standard one
+    # Preserve existing size table verbatim; otherwise build standard one for apparel
     existing_table = extract_size_table(html_body)
-    if cat == 'Bags':
-        size_chart = existing_table if existing_table else ''
+    if cat not in APPAREL_CATEGORIES:
+        size_chart = ''
     else:
         if existing_table:
             size_chart = existing_table
@@ -1008,6 +1086,21 @@ def set_seo_metafields_graphql(resource_type: str, resource_id: int, meta_title:
 
     owner_id = make_gid(gql_type, resource_id)
     
+    # 1. Update native resource.seo fields if supported (product, collection, page)
+    try:
+        if gql_type == "product":
+            q_native = "mutation productUpdate($input: ProductInput!) { productUpdate(input: $input) { product { id } userErrors { field message } } }"
+            run_graphql(q_native, {"input": {"id": owner_id, "seo": {"title": meta_title, "description": meta_desc}}})
+        elif gql_type == "collection":
+            q_native = "mutation collectionUpdate($input: CollectionInput!) { collectionUpdate(input: $input) { collection { id } userErrors { field message } } }"
+            run_graphql(q_native, {"input": {"id": owner_id, "seo": {"title": meta_title, "description": meta_desc}}})
+        elif gql_type == "page":
+            q_native = "mutation pageUpdate($input: PageInput!) { pageUpdate(input: $input) { page { id } userErrors { field message } } }"
+            run_graphql(q_native, {"input": {"id": owner_id, "seo": {"title": meta_title, "description": meta_desc}}})
+    except Exception as ne:
+        print(f"[GraphQL Warning] Failed updating native SEO for {owner_id}: {ne}", file=sys.stderr)
+
+    # 2. Update global.title_tag and global.description_tag metafields
     query = """
     mutation metafieldsSet($metafields: [MetafieldsSetInput!]!) {
       metafieldsSet(metafields: $metafields) {
@@ -1106,9 +1199,9 @@ def update_image_alt(pid, iid, alt, src=None, idx=0):
                 slug = f"{slug[:50].strip('-')}-{media_suffix}"
             new_filename = f"{slug}.{ext}"
             
-            # Skip if the current filename already contains the first 30 chars of the new slug
+            # Always replace old filename with the new clean Google-supported filename if different
             current_name = base.rsplit('.', 1)[0].lower()
-            if slug[:30] not in current_name:
+            if base.lower() != new_filename.lower():
                 query_file = """
                 mutation fileUpdate($files: [FileUpdateInput!]!) {
                   fileUpdate(files: $files) {
@@ -1708,6 +1801,8 @@ def validate_seo(item, item_type, existing_mfs, gsc_keywords=None):
         and DISPLAY_BRAND in cur_meta_desc
         and 0 < len(cur_meta_desc) <= 155
         and not has_stale_return_policy(cur_meta_desc)
+        and not GoogleQuestionFetcher.has_non_us_location(cur_meta_desc)
+        and not GoogleQuestionFetcher.has_competitor_retailer(cur_meta_desc, allowed_brand=title)
     )
     if not desc_ok:
         new_meta_desc = build_meta_desc(title, ptype, tags, gsc_keywords=gsc_keywords)
@@ -1815,10 +1910,10 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
 
         # Allow custom descriptions to bypass complete overwrite, only rewriting if force or missing table/stale return
         is_custom = len(strip_html(body_html)) >= 200 and not ("Discover the" in body_html and "Why Choose" in body_html)
-        if is_custom:
-            needs_body_rewrite = force or not has_table or has_stale_body
-        else:
-            needs_body_rewrite = force or plain_len < 500 or not has_table or has_stale_body or not has_all_markers
+        
+        # Stop unnecessary body rewrites on existing products to avoid spam signals.
+        # Only rewrite if explicitly forced, or if the product has basically no description.
+        needs_body_rewrite = force or plain_len < 50
 
         if needs_body_rewrite:
             missing.append(f"body_html ({plain_len} chars, table={has_table}, stale={has_stale_body}, markers={has_all_markers}, custom={is_custom})")
@@ -2049,7 +2144,7 @@ def save_update_log(processed_ids: set, stats: dict, mode: str, args, filepath: 
 
 def main():
     ap = argparse.ArgumentParser(description='SEO automation: daily/weekly/force modes')
-    ap.add_argument('--daily',       action='store_true', help='Daily mode: last 48hrs (default)')
+    ap.add_argument('--daily',       action='store_true', help='Daily mode: last 24hrs (default)')
     ap.add_argument('--weekly',      action='store_true', help='Weekly mode: last 7 days, skip recent')
     ap.add_argument('--force',       action='store_true', help='Force mode: entire catalog, normalize all')
     ap.add_argument('--hours',       type=int, default=0,  help='Custom lookback (overrides mode)')
@@ -2085,8 +2180,8 @@ def main():
         print("Processing: Products, Pages, Collections, Blog Posts\n")
     else:
         mode = 'daily'
-        since = (datetime.now(timezone.utc) - timedelta(hours=48)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        print("Mode: DAILY (products created in last 48h; pages/collections created + articles published in last 48h)")
+        since = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        print("Mode: DAILY (products, pages, collections created + articles published in last 24h)")
         print("Processing: Products, Pages, Collections, Blog Posts\n")
 
     print(f"Cutoff: {since or 'none (all resources)'}\n")
@@ -2116,10 +2211,14 @@ def main():
 
     # Calculate lookback hours for GraphQL
     hours = 0
-    if args.hours:
+    if args.handle:
+        hours = 0
+        args.force = True
+        print(f"[Handle Override] Specific handle '{args.handle}' requested — bypassing creation cutoff and recent skip locks.\n")
+    elif args.hours:
         hours = args.hours
     elif mode == 'daily':
-        hours = 48
+        hours = 24
     elif mode == 'weekly':
         hours = 168
 
@@ -2127,7 +2226,7 @@ def main():
     if args.resource in ('all', 'products'):
         print("Fetching products...")
         from shopify_graphql import fetch_products_graphql
-        products = fetch_products_graphql(hours, query_by_updated=False)
+        products = fetch_products_graphql(hours, query_by_updated=False, handle=args.handle)
         if args.handle:
             products = [p for p in products if p.get('handle') == args.handle]
         else:
@@ -2145,7 +2244,7 @@ def main():
     if args.resource in ('all', 'pages') and not args.only_images:
         print("Fetching pages...")
         from shopify_graphql import fetch_pages_graphql
-        pages = fetch_pages_graphql(hours)
+        pages = fetch_pages_graphql(hours, handle=args.handle)
         if args.handle:
             pages = [p for p in pages if p.get('handle') == args.handle]
         print(f"  Found {len(pages)} pages\n")
@@ -2154,7 +2253,7 @@ def main():
     if args.resource in ('all', 'collections'):
         print("Fetching collections...")
         from shopify_graphql import fetch_collections_graphql
-        collections = fetch_collections_graphql(hours)
+        collections = fetch_collections_graphql(hours, handle=args.handle)
         if args.handle:
             collections = [c for c in collections if c.get('handle') == args.handle]
         print(f"  Found {len(collections)} collections\n")
@@ -2206,7 +2305,7 @@ def main():
         processed_ids.add(p['id'])
 
     # ── Process pages ─────────────────────────────────────────────────────────
-    if pages:
+    if pages and not args.only_images:
         print("\nProcessing pages...")
         for i, page in enumerate(pages, 1):
             if page['id'] in skip_ids:
@@ -2226,6 +2325,8 @@ def main():
                 and DISPLAY_BRAND in cur_mdesc
                 and 0 < len(cur_mdesc) <= 155
                 and not has_stale_return_policy(cur_mdesc)
+                and not GoogleQuestionFetcher.has_non_us_location(cur_mdesc)
+                and not GoogleQuestionFetcher.has_competitor_retailer(cur_mdesc, allowed_brand=title)
             )
             mt_ok = (cur_mtitle == expected_mt)
             needs_seo = not mt_ok or not desc_ok
@@ -2304,6 +2405,8 @@ def main():
                 and DISPLAY_BRAND in cur_mdesc
                 and 0 < len(cur_mdesc) <= 155
                 and not has_stale_return_policy(cur_mdesc)
+                and not GoogleQuestionFetcher.has_non_us_location(cur_mdesc)
+                and not GoogleQuestionFetcher.has_competitor_retailer(cur_mdesc, allowed_brand=title)
             )
             mt_ok = (cur_mtitle == expected_mt)
 
@@ -2356,6 +2459,27 @@ def main():
                     ])
                 else:
                     try:
+                        # 1. Update native collection.seo fields
+                        q_update_coll_seo = """
+                        mutation collectionUpdate($input: CollectionInput!) {
+                          collectionUpdate(input: $input) {
+                            collection { id }
+                            userErrors { field message }
+                          }
+                        }
+                        """
+                        var_coll_seo = {
+                            "input": {
+                                "id": f"gid://shopify/Collection/{coll['id']}",
+                                "seo": {
+                                    "title": new_meta_title,
+                                    "description": new_meta_desc
+                                }
+                            }
+                        }
+                        run_graphql(q_update_coll_seo, var_coll_seo)
+
+                        # 2. Update global.title_tag and global.description_tag metafields
                         set_seo_metafields(coll_type, coll['id'], new_meta_title, new_meta_desc, mfs)
                         stats['meta_titles'] += 1
                         stats['meta_descs'] += 1
@@ -2412,7 +2536,7 @@ def main():
                                 img_id = parse_gid(coll_image.get('id'))
                                 media_suffix = str(img_id)[-6:] if img_id else str(int(time.time() * 1000))[-6:]
                                 new_filename = f"{slug[:50].strip('-')}-{media_suffix}.{ext}"
-                                if slug[:30] not in base.lower():
+                                if base.lower() != new_filename.lower():
                                     # Search standard files to find GenericFile/MediaImage ID
                                     file_id = find_file_id_by_filename(base)
                                     if file_id:
@@ -2568,7 +2692,7 @@ def main():
                                 img_id = parse_gid(art_image.get('id'))
                                 media_suffix = str(img_id)[-6:] if img_id else str(int(time.time() * 1000))[-6:]
                                 new_filename = f"{slug[:50].strip('-')}-{media_suffix}.{ext}"
-                                if slug[:30] not in base.lower():
+                                if base.lower() != new_filename.lower():
                                     # Search standard files to find GenericFile/MediaImage ID
                                     file_id = find_file_id_by_filename(base)
                                     if file_id:

@@ -24,7 +24,7 @@ on:
           - weekly
           - force
       handle:
-        description: 'Product handle (optional, overrides mode)'
+        description: 'Collection or Product handle (optional, e.g. judy-blue-womens-jeans)'
         required: false
         default: ''
         type: string

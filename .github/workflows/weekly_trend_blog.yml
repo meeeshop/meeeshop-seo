@@ -68,6 +68,7 @@ jobs:
       - name: Run Weekly Trend Blog Generator
         env:
           PYTHONUTF8: "1"
+          PYTHONUNBUFFERED: "1"
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |

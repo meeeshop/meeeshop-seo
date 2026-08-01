@@ -13,6 +13,7 @@ import re
 import time
 import requests
 import secrets_manager
+import gzip
 import json # Import json for pretty printing
 
 # ── Configuration & Credentials ───────────────────────────────────────────────
@@ -80,19 +81,22 @@ def upload_to_shopify_files(filepath):
     print("\nUploading feed to Shopify CDN...")
     graphql_url = f"https://{STORE_DOMAIN}/admin/api/{API_VER}/graphql.json"
     
+    filename = os.path.basename(filepath)
+    mime_type = "application/gzip" if filepath.endswith(".gz") else "text/plain"
+
     # 1. Check for existing file and delete it so the new URL stays clean
     # We are deleting files with the exact name, but Shopify might append GUIDs.
     # This step is primarily to clean up any previous exact matches.
-    query_existing = """
-    query {
-      files(first: 10, query: "filename:google_merchant_feed.txt") {
-        edges {
-          node {
+    query_existing = f"""
+    query {{
+      files(first: 10, query: "filename:{filename}") {{
+        edges {{
+          node {{
             id
-          }
-        }
-      }
-    }
+          }}
+        }}
+      }}
+    }}
     """
     resp = requests.post(graphql_url, headers=HEADERS, json={"query": query_existing})
     resp.raise_for_status() # Ensure HTTP errors are caught
@@ -133,24 +137,26 @@ def upload_to_shopify_files(filepath):
         time.sleep(3) # Wait for deletion to propagate
         
     # 2. Request Staged Upload
-    staged_mut = """
-    mutation {
-      stagedUploadsCreate(input: [{
+    file_size = str(os.path.getsize(filepath))
+    staged_mut = f"""
+    mutation {{
+      stagedUploadsCreate(input: [{{
         resource: FILE,
-        filename: "google_merchant_feed.txt",
-        mimeType: "text/plain",
-        httpMethod: POST
-      }]) {
-        stagedTargets {
+        filename: "{filename}",
+        mimeType: "{mime_type}",
+        httpMethod: POST,
+        fileSize: "{file_size}"
+      }}]) {{
+        stagedTargets {{
           url
           resourceUrl
-          parameters {
+          parameters {{
             name
             value
-          }
-        }
-      }
-    }
+          }}
+        }}
+      }}
+    }}
     """
     resp = requests.post(graphql_url, headers=HEADERS, json={"query": staged_mut})
     resp.raise_for_status() # Ensure HTTP errors are caught
@@ -488,12 +494,22 @@ def generate_feed():
             
             # Price mapping
             price = f"{variant.get('price')} USD"
-            
+             
             # GTIN validation
-            gtin_value = variant.get("barcode", "")
-            # Common GTIN lengths are 8, 12, 13, 14. If it's not one of these, send empty.
-            if gtin_value and not (len(gtin_value) in [8, 12, 13, 14] and gtin_value.isdigit()):
-                gtin_value = ""
+            gtin_value = variant.get("barcode", "") or ""
+            gtin_value = gtin_value.strip()
+            if gtin_value:
+                if not (len(gtin_value) in [8, 12, 13, 14] and gtin_value.isdigit()):
+                    gtin_value = ""
+                else:
+                    # Validate GS1 check digit
+                    padded = gtin_value.zfill(14)
+                    odd_sum = sum(int(padded[i]) for i in range(0, 13, 2))
+                    even_sum = sum(int(padded[i]) for i in range(1, 13, 2))
+                    total = odd_sum * 3 + even_sum
+                    check_digit = (10 - (total % 10)) % 10
+                    if check_digit != int(padded[13]):
+                        gtin_value = ""  # Clear invalid GTIN to prevent disapproval
 
             # Find Color and Size dynamically from variant options
             color = ""
@@ -542,8 +558,9 @@ def generate_feed():
             })
             
     # Write to TSV file
-    print(f"Writing {len(rows)} variants to {OUTPUT_FILE} (TSV format)...")
-    with open(OUTPUT_FILE, mode="w", newline="", encoding="utf-8") as f:
+    output_gz = OUTPUT_FILE + ".gz"
+    print(f"Writing {len(rows)} variants to {output_gz} (TSV format, gzipped)...")
+    with gzip.open(output_gz, mode="wt", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=feed_headers, delimiter='\t')
         writer.writeheader()
         writer.writerows(rows)
@@ -551,7 +568,7 @@ def generate_feed():
     print("✅ Google Merchant Feed generated successfully.")
 
     # Upload to Shopify
-    upload_to_shopify_files(OUTPUT_FILE)
+    upload_to_shopify_files(output_gz)
 
 if __name__ == "__main__":
     import sys

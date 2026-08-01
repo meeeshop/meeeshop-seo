@@ -27,17 +27,22 @@ Usage:
   python scripts/modify_blog.py --force --batch-size 20 --batch-index 0  # batch 0 of N
 """
 
-import os, sys, re, time, random, json, argparse
+import os, sys, re, time, random, json, argparse, base64
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
+from io import BytesIO
 from bs4 import BeautifulSoup
+from PIL import Image, ImageOps
 
 import requests
+from utils import is_product_compatible, select_styling_matches
 ROOT = Path(__file__).resolve().parent.parent
 
 import ai_client
-from blog_daily import generate_fallback_blog_post, get_product_display_name, PEN_NAMES
+from blog_daily import generate_fallback_blog_post, get_product_display_name
+from eeat_constants import PEN_NAMES, needs_author_update
+from google_question_fetcher import GoogleQuestionFetcher
 
 # ── env / credentials ─────────────────────────────────────────────────────────
 from secrets_manager import inject_to_env, get_secret
@@ -72,25 +77,73 @@ def _req(method: str, url: str, **kw):
     raise RuntimeError(f"{method.upper()} {url} failed after 5 attempts")
 
 
+def _graphql(query: str, variables: dict = None) -> dict:
+    for attempt in range(5):
+        try:
+            payload = {"query": query}
+            if variables:
+                payload["variables"] = variables
+            r = getattr(requests, "post")(f"{BASE.replace('/api/'+API_VER, '/api/'+API_VER+'/graphql.json')}", headers=HEADERS, json=payload, timeout=45)
+            if r.status_code == 429:
+                wait = 4
+                print(f"    [GraphQL rate-limit] sleeping {wait}s…")
+                time.sleep(wait)
+                continue
+            r.raise_for_status()
+            res = r.json()
+            if "errors" in res and res["errors"]:
+                print("    [GraphQL Errors]:", res["errors"])
+                # Sometimes a query has errors but also data, but typically it's bad.
+                if attempt == 4: raise RuntimeError(f"GraphQL Errors: {res['errors']}")
+            return res
+        except requests.exceptions.ConnectionError:
+            time.sleep(3 * (attempt + 1))
+    raise RuntimeError(f"GraphQL POST failed after 5 attempts")
+
+
 # ── Product fetching ──────────────────────────────────────────────────────────
 def fetch_all_products() -> list:
-    """Fetch all products with inventory info (up to 250 per page)."""
-    products, page_info = [], None
-    while True:
-        params = {
-            "limit": 250,
-            "fields": "id,title,handle,product_type,variants,images,tags,body_html",
+    """Fetch all products using GraphQL and map to REST-like dicts."""
+    query = """
+    query($cursor: String) {
+      products(first: 250, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        edges {
+          node {
+            legacyResourceId title handle productType tags
+            variants(first: 10) {
+              edges { node { price inventoryQuantity inventoryPolicy } }
+            }
+            images(first: 10) {
+              edges { node { url } }
+            }
+          }
         }
-        if page_info:
-            params["page_info"] = page_info
-        r = _req("get", f"{BASE}/products.json", params=params)
-        r.raise_for_status()
-        batch = r.json().get("products", [])
-        products.extend(batch)
-        link = r.headers.get("Link", "")
-        m = re.search(r'<[^>]*page_info=([^&>]+)[^>]*>;\s*rel="next"', link)
-        if m:
-            page_info = m.group(1)
+      }
+    }
+    """
+    products = []
+    cursor = None
+    while True:
+        res = _graphql(query, variables={"cursor": cursor})
+        data = res.get("data", {}).get("products", {})
+        for edge in data.get("edges", []):
+            node = edge["node"]
+            variants = [{"price": v["node"]["price"], "inventory_quantity": v["node"]["inventoryQuantity"], "inventory_policy": v["node"]["inventoryPolicy"]} for v in node.get("variants", {}).get("edges", [])]
+            images = [{"src": img["node"]["url"]} for img in node.get("images", {}).get("edges", [])]
+            products.append({
+                "id": int(node["legacyResourceId"]),
+                "title": node.get("title"),
+                "handle": node.get("handle"),
+                "product_type": node.get("productType"),
+                "tags": ", ".join(node.get("tags", [])),
+                "variants": variants,
+                "images": images
+            })
+        
+        page_info = data.get("pageInfo", {})
+        if page_info.get("hasNextPage"):
+            cursor = page_info.get("endCursor")
         else:
             break
     return products
@@ -116,45 +169,92 @@ def split_products(products: list) -> tuple[list, list]:
 
 
 def find_best_replacement(out_product: dict, in_stock: list) -> dict | None:
-    """Find best in-stock replacement: same product_type first (must have image), then any with image."""
+    """Find best in-stock replacement: same product_type (must have image, different product)."""
     ptype = (out_product.get("product_type") or "").lower()
-    # Same type with image
-    same = [p for p in in_stock if (p.get("product_type") or "").lower() == ptype and p.get("images")]
+    out_handle = out_product.get("handle")
+    # Same type with image, different product
+    same = [
+        p for p in in_stock 
+        if (p.get("product_type") or "").lower() == ptype 
+        and p.get("images") 
+        and p.get("handle") != out_handle
+    ]
     if same:
         return random.choice(same)
-    # Any in-stock with image
-    with_img = [p for p in in_stock if p.get("images")]
-    return random.choice(with_img) if with_img else None
+    return None
 
 
 # ── Blog / article fetching ───────────────────────────────────────────────────
 def fetch_all_blogs() -> list:
-    r = _req("get", f"{BASE}/blogs.json")
-    r.raise_for_status()
-    return r.json().get("blogs", [])
+    query = """
+    query {
+      blogs(first: 10) {
+        edges {
+          node {
+            id title handle
+          }
+        }
+      }
+    }
+    """
+    res = _graphql(query)
+    blogs = []
+    for edge in res.get("data", {}).get("blogs", {}).get("edges", []):
+        node = edge["node"]
+        # Extract numeric ID from gid://shopify/Blog/123
+        gid = node["id"]
+        num_id = int(gid.split("/")[-1])
+        blogs.append({"id": num_id, "title": node.get("title"), "handle": node.get("handle")})
+    return blogs
 
 
 def fetch_articles_for_blog(blog_id: int, limit: int = 50) -> list:
-    """Fetch articles for one blog, oldest first."""
-    articles = []
-    page_info = None
-    while len(articles) < limit:
-        params = {
-            "limit": min(50, limit - len(articles)),
-            "fields": "id,title,handle,body_html,image,tags,summary_html,published_at,author",
+    query = """
+    query($id: ID!, $cursor: String, $first: Int) {
+      blog(id: $id) {
+        articles(first: $first, after: $cursor) {
+          pageInfo { hasNextPage endCursor }
+          edges {
+            node {
+              id title handle body tags publishedAt
+              image { url }
+              author { name }
+            }
+          }
         }
-        if page_info:
-            params["page_info"] = page_info
-        r = _req("get", f"{BASE}/blogs/{blog_id}/articles.json", params=params)
-        r.raise_for_status()
-        batch = r.json().get("articles", [])
-        if not batch:
-            break
-        articles.extend(batch)
-        link = r.headers.get("Link", "")
-        m = re.search(r'<[^>]*page_info=([^&>]+)[^>]*>;\s*rel="next"', link)
-        if m:
-            page_info = m.group(1)
+      }
+    }
+    """
+    articles = []
+    cursor = None
+    gid = f"gid://shopify/Blog/{blog_id}"
+    while len(articles) < limit:
+        first = min(50, limit - len(articles))
+        res = _graphql(query, variables={"id": gid, "first": first, "cursor": cursor})
+        blog_data = res.get("data", {}).get("blog", {})
+        if not blog_data: break
+        arts_data = blog_data.get("articles", {})
+        for edge in arts_data.get("edges", []):
+            node = edge["node"]
+            num_id = int(node["id"].split("/")[-1])
+            author_name = node.get("author", {}).get("name", "") if node.get("author") else ""
+            img_dict = {"src": node["image"]["url"]} if node.get("image") else None
+            tags_str = ", ".join(node.get("tags", []))
+            articles.append({
+                "id": num_id,
+                "title": node.get("title"),
+                "handle": node.get("handle"),
+                "body_html": node.get("body", ""),
+                "tags": tags_str,
+                "published_at": node.get("publishedAt"),
+                "author": author_name,
+                "image": img_dict,
+                "gid": node["id"]
+            })
+        
+        page_info = arts_data.get("pageInfo", {})
+        if page_info.get("hasNextPage"):
+            cursor = page_info.get("endCursor")
         else:
             break
     return articles
@@ -187,12 +287,183 @@ def has_product_card(html: str) -> bool:
 # ── Image helpers (same as blog_daily.py) ────────────────────────────────────
 def product_img_url(product: dict) -> str | None:
     imgs = product.get("images", [])
-    return imgs[0]["src"] if imgs else None
+    if not imgs:
+        return None
+    src = imgs[0].get("src", "")
+    if not src:
+        return None
+    if src.startswith("//"):
+        src = "https:" + src
+    return src
+
+
+def build_discover_landscape_collage(featured_prod: dict, related_prods: list) -> bytes | None:
+    """
+    Build a 1200x630 landscape Google Discover eligible 3-panel collage image.
+    - Center image (Featured product): TALLER (380x600 tile) with a clean solid white/cream border.
+    - Side images (Left & Right related products): SHORTER (360x500 tile), vertically centered.
+    - Plain cream/white background (#f8f6f3).
+    """
+    feat_url = product_img_url(featured_prod)
+    if not feat_url:
+        return None
+
+    rel_urls = [product_img_url(p) for p in related_prods if product_img_url(p)]
+    left_url = rel_urls[0] if len(rel_urls) > 0 else feat_url
+    right_url = rel_urls[1] if len(rel_urls) > 1 else (rel_urls[0] if len(rel_urls) > 0 else feat_url)
+
+    CANVAS_W = 1200
+    CANVAS_H = 630
+
+    BG_COLOR = (248, 246, 243)     # #f8f6f3 cream background
+    BORDER_COLOR = (255, 255, 255) # white border around center featured image
+
+    bg = Image.new("RGB", (CANVAS_W, CANVAS_H), BG_COLOR)
+
+    # 1. Left image (Shorter - 360x500)
+    try:
+        r = requests.get(left_url, timeout=15)
+        r.raise_for_status()
+        raw = Image.open(BytesIO(r.content)).convert("RGB")
+        fitted_left = ImageOps.fit(raw, (360, 500), method=Image.Resampling.LANCZOS)
+        bg.paste(fitted_left, (20, (CANVAS_H - 500) // 2))
+    except Exception as exc:
+        print(f"  [Collage Warning] Failed to load left image {left_url}: {exc}")
+
+    # 2. Right image (Shorter - 360x500)
+    try:
+        r = requests.get(right_url, timeout=15)
+        r.raise_for_status()
+        raw = Image.open(BytesIO(r.content)).convert("RGB")
+        fitted_right = ImageOps.fit(raw, (360, 500), method=Image.Resampling.LANCZOS)
+        bg.paste(fitted_right, (820, (CANVAS_H - 500) // 2))
+    except Exception as exc:
+        print(f"  [Collage Warning] Failed to load right image {right_url}: {exc}")
+
+    # 3. Center featured image (TALLER - 380x600 with white/cream border)
+    try:
+        r = requests.get(feat_url, timeout=15)
+        r.raise_for_status()
+        raw = Image.open(BytesIO(r.content)).convert("RGB")
+        
+        # Fit inner image into 368x588 tile
+        feat_img = ImageOps.fit(raw, (368, 588), method=Image.Resampling.LANCZOS)
+        
+        # Add 6px solid white border around featured image (total tile 380x600)
+        bordered_feat = ImageOps.expand(feat_img, border=6, fill=BORDER_COLOR)
+        
+        # Paste centered in center column
+        bg.paste(bordered_feat, (410, (CANVAS_H - 600) // 2))
+    except Exception as exc:
+        print(f"  [Collage Warning] Failed to load featured image {feat_url}: {exc}")
+
+    buf = BytesIO()
+    bg.save(buf, format="JPEG", quality=92, optimize=True)
+    return buf.getvalue()
+
+
+def extract_handle_count(handle: str) -> int:
+    """Extract item/outfit count from handle if specified (e.g., '5-stunning-outfits' -> 5). Default is 3."""
+    m = re.search(r'\b(\d+)\b', handle or "")
+    if m:
+        num = int(m.group(1))
+        if 2 <= num <= 10:
+            return num
+    return 3
+
+
+def extract_handle_keywords(handle: str) -> list[str]:
+    """Extract key material, style, and garment keywords from handle."""
+    h = (handle or "").lower().replace("_", "-")
+    tokens = set(re.findall(r'\b[a-z0-9]+\b', h))
+    keywords = []
+    modifiers = ["denim", "linen", "lace", "leather", "silk", "cotton", "knit", 
+                 "off-shoulder", "puff", "sleeves", "smocked", "midi", "maxi", "mini", 
+                 "wrap", "a-line", "curvy", "plus-size", "summer", "work"]
+    for mod in modifiers:
+        if mod in tokens or mod in h:
+            keywords.append(mod)
+    cat = extract_handle_category(handle)
+    if cat and cat not in keywords:
+        keywords.append(cat)
+    return keywords
+
+
+def extract_handle_category(handle: str) -> str:
+    h = (handle or "").lower().replace("_", "-")
+    words = set(re.findall(r'\b[a-z0-9]+\b', h))
+    if any(w in words or w in h for w in ["skirt", "skirts"]):
+        return "skirt"
+    if any(w in words or w in h for w in ["dress", "dresses", "gown", "gowns", "frock"]):
+        return "dress"
+    if any(w in words or w in h for w in ["jean", "jeans", "denim"]):
+        return "jean"
+    if any(w in words or w in h for w in ["top", "tops", "blouse", "blouses", "shirt", "shirts", "tee", "tees", "tank", "tanks"]):
+        return "top"
+    if any(w in words or w in h for w in ["pant", "pants", "trouser", "trousers", "slacks", "leggings"]):
+        return "pant"
+    if any(w in words or w in h for w in ["jacket", "jackets", "blazer", "blazers", "coat", "coats", "outerwear"]):
+        return "jacket"
+    if any(w in words or w in h for w in ["sweater", "sweaters", "cardigan", "cardigans", "knitwear"]):
+        return "sweater"
+    return ""
+
+
+def find_matching_product_for_handle(handle: str, in_stock: list, exclude_handles: set = None) -> dict | None:
+    if not in_stock:
+        return None
+    exclude = exclude_handles or set()
+    valid_pool = [p for p in in_stock if p.get("handle") not in exclude and product_img_url(p)]
+    if not valid_pool:
+        valid_pool = [p for p in in_stock if product_img_url(p)]
+        if not valid_pool:
+            return None
+
+    cat = extract_handle_category(handle)
+    keywords = extract_handle_keywords(handle)
+
+    scored = []
+    for p in valid_pool:
+        ptype = (p.get("product_type") or "").lower()
+        title = (p.get("title") or "").lower()
+        tags  = (p.get("tags") or "").lower()
+        text  = f"{ptype} {title} {tags}"
+
+        score = 0
+        for kw in keywords:
+            if kw in text:
+                score += 3 if (kw in ptype or kw in title) else 1
+
+        # Additional bonus for exact multi-keyword combinations (e.g. denim + dress)
+        if "denim" in keywords and "dress" in keywords and "denim" in text and "dress" in text:
+            score += 10
+
+        # Mismatch penalties
+        if cat == "skirt" and ("set" in title or "top" in ptype or "dress" in ptype or "top" in title or "dress" in title):
+            score -= 15
+        if cat == "dress" and ("skirt" in ptype or "top" in ptype or "pant" in ptype):
+            score -= 15
+        if cat == "top" and ("skirt" in ptype or "dress" in ptype or "pant" in ptype):
+            score -= 15
+        if cat == "jean" and ("dress" in ptype or "top" in ptype):
+            score -= 15
+
+        if score > 0:
+            scored.append((score, p))
+
+    if scored:
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top_score = scored[0][0]
+        top_candidates = [p for s, p in scored if s == top_score]
+        return random.choice(top_candidates)
+
+    return random.choice(valid_pool)
+
 
 def fix_article_images(html_str: str, product_by_handle: dict[str, dict]) -> tuple[str, int]:
     """
-    Parse article body, find any links to products, and if they contain an image,
-    ensure the image src matches the latest live product image.
+    Parse article body, find any links to products, and ensure all product images
+    are present, valid HTTPS URLs, and up-to-date with live Shopify data.
     Returns (updated_html, swap_count).
     """
     if not html_str:
@@ -204,7 +475,7 @@ def fix_article_images(html_str: str, product_by_handle: dict[str, dict]) -> tup
         return html_str, 0
         
     swaps = 0
-    # Find all <a> tags that link to products
+    # 1. Update existing images inside <a> links pointing to /products/
     for a in root.find_all("a"):
         href = a.get("href", "")
         m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
@@ -212,20 +483,61 @@ def fix_article_images(html_str: str, product_by_handle: dict[str, dict]) -> tup
             handle = m.group(1)
             product = product_by_handle.get(handle)
             if product:
-                # Find img inside
-                img = a.find("img")
-                if img:
-                    current_src = img.get("src", "")
-                    new_src = product_img_url(product)
-                    # We compare the base URL without query parameters for a cleaner check
-                    if new_src:
-                        new_src_base = new_src.split('?')[0]
-                        current_src_base = current_src.split('?')[0] if current_src else ""
-                        if current_src_base != new_src_base:
+                new_src = product_img_url(product)
+                if new_src:
+                    img = a.find("img")
+                    if img:
+                        current_src = img.get("src", "")
+                        new_base = new_src.split('?')[0]
+                        curr_base = current_src.split('?')[0] if current_src else ""
+                        if curr_base != new_base or not current_src.startswith("http"):
                             img["src"] = new_src
                             swaps += 1
+                    else:
+                        # Skip if parent div or ancestor div ALREADY contains an img
+                        parent_div = a.parent
+                        has_img = False
+                        p = parent_div
+                        while p and p.name not in ("body", "html", "[document]"):
+                            if p.name == "div" and p.find("img"):
+                                has_img = True
+                                break
+                            p = p.parent
+                        if not has_img and parent_div and parent_div.name == "div":
+                            raw_title = product.get("title", "")
+                            ptype = (product.get("product_type") or "women's fashion").lower()
+                            alt = f"{raw_title} — {ptype} for women at MeeeShop".replace('"', "'")
+                            url = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=featured_card&utm_campaign=meeeshop_refresh"
+                            img_html = f'<a href="{url}"><img src="{new_src}" alt="{alt}" style="width:220px;height:220px;object-fit:cover;border-radius:10px;flex-shrink:0;" loading="lazy" /></a>'
+                            new_img_soup = BeautifulSoup(img_html, "html.parser")
+                            parent_div.insert(0, new_img_soup)
+                            swaps += 1
 
-    # Reconstruct the inner HTML
+    # 2. Check all card divs containing product links that lack images
+    for div in root.find_all("div"):
+        style = (div.get("style", "") or "").replace(" ", "").lower()
+        if any(pat in style for pat in ["background:", "border:", "display:flex", "padding:"]):
+            # Prevent double image: skip if div or ancestor/descendant div already has an img
+            if div.find("img") or div.find_parent(lambda p: p.name == "div" and p.find("img")):
+                continue
+            a_tag = div.find("a", href=re.compile(r'/products/([a-z0-9_-]+)', re.IGNORECASE))
+            if a_tag:
+                m = re.search(r'/products/([a-z0-9_-]+)', a_tag.get("href", ""), re.IGNORECASE)
+                if m:
+                    handle = m.group(1)
+                    product = product_by_handle.get(handle)
+                    if product:
+                        new_src = product_img_url(product)
+                        if new_src:
+                            raw_title = product.get("title", "")
+                            ptype = (product.get("product_type") or "women's fashion").lower()
+                            alt = f"{raw_title} — {ptype} for women at MeeeShop".replace('"', "'")
+                            url = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=featured_card&utm_campaign=meeeshop_refresh"
+                            img_html = f'<a href="{url}"><img src="{new_src}" alt="{alt}" style="width:220px;height:220px;object-fit:cover;border-radius:10px;flex-shrink:0;" loading="lazy" /></a>'
+                            new_img_soup = BeautifulSoup(img_html, "html.parser")
+                            div.insert(0, new_img_soup)
+                            swaps += 1
+
     res = "".join(str(c) for c in root.contents)
     return res.strip(), swaps
 
@@ -283,34 +595,26 @@ def make_product_card(product: dict, keyword: str = "",
 """
 
 
-def make_related_products_section(products: list, exclude_handle: str,
-                                  keyword: str = "") -> str:
+def make_related_product_card(p: dict, keyword: str = "") -> str:
     import html
-    pool = [p for p in products if p.get("handle") != exclude_handle and is_in_stock(p)]
-    if not pool:
-        pool = [p for p in products if p.get("handle") != exclude_handle]
-    picks = random.sample(pool, min(3, len(pool)))
+    raw_title  = p["title"]
+    escaped_title = html.escape(raw_title)
+    price  = p["variants"][0]["price"] if p.get("variants") else "0"
+    h_val  = p.get("handle", "")
+    ptype  = (p.get("product_type") or "women's fashion").lower()
+    url    = f"{STORE_URL}/products/{h_val}?utm_source=blog&utm_medium=related_card&utm_campaign=meeeshop_refresh"
+    img    = product_img_url(p)
+    alt    = f"{raw_title} — shop {keyword or ptype} at MeeeShop"
+    
+    alt_clean = alt.replace('"', "'")
 
-    cards_html = ""
-    for p in picks:
-        raw_title  = p["title"]
-        escaped_title = html.escape(raw_title)
-        price  = p["variants"][0]["price"] if p.get("variants") else "0"
-        handle = p.get("handle", "")
-        ptype  = (p.get("product_type") or "women's fashion").lower()
-        url    = f"{STORE_URL}/products/{handle}?utm_source=blog&utm_medium=related_card&utm_campaign=meeeshop_refresh"
-        img    = product_img_url(p)
-        alt    = f"{raw_title} — shop {keyword or ptype} at MeeeShop"
-        
-        alt_clean = alt.replace('"', "'")
-
-        img_tag = (
-            f'<a href="{url}"><img src="{img}" alt="{alt_clean}" '
-            f'style="width:100%;height:200px;object-fit:cover;border-radius:10px;margin-bottom:12px;" loading="lazy" /></a>'
-            if img else ""
-        )
-        cards_html += f"""
-  <div style="flex:1;min-width:200px;max-width:260px;font-family:sans-serif;text-align:center;">
+    img_tag = (
+        f'<a href="{url}"><img src="{img}" alt="{alt_clean}" '
+        f'style="width:100%;height:200px;object-fit:cover;border-radius:10px;margin-bottom:12px;" loading="lazy" /></a>'
+        if img else ""
+    )
+    return f"""
+  <div style="flex:1;min-width:180px;max-width:240px;font-family:sans-serif;text-align:center;">
     {img_tag}
     <p style="font-size:14px;font-weight:700;color:#1a1a1a;margin:0 0 4px;line-height:1.3;">{escaped_title}</p>
     <p style="font-size:16px;font-weight:800;color:#1a1a1a;margin:0 0 12px;">${price}</p>
@@ -321,15 +625,65 @@ def make_related_products_section(products: list, exclude_handle: str,
     </a>
   </div>"""
 
+def make_related_products_section(products: list, exclude_handle: str,
+                                  keyword: str = "", handle: str = "") -> str:
+    import html
+    count = extract_handle_count(handle or keyword)
+    cat = extract_handle_category(handle or keyword)
+    keywords = extract_handle_keywords(handle or keyword)
+
+    main_prod_matches = [p for p in products if p.get("handle") == exclude_handle]
+    main_product = main_prod_matches[0] if main_prod_matches else {"handle": exclude_handle, "product_type": cat or keyword}
+
+    pool = [p for p in products if p.get("handle") != exclude_handle and is_in_stock(p) and product_img_url(p) and is_product_compatible(main_product, p, topic_context=handle or keyword)]
+
+    # Score candidates based on keyword relevance
+    scored = []
+    for p in pool:
+        ptype = (p.get("product_type") or "").lower()
+        title = (p.get("title") or "").lower()
+        tags  = (p.get("tags") or "").lower()
+        text  = f"{ptype} {title} {tags}"
+
+        score = 0
+        for kw in keywords:
+            if kw in text:
+                score += 3 if (kw in ptype or kw in title) else 1
+
+        if "denim" in keywords and "dress" in keywords and "denim" in text and "dress" in text:
+            score += 10
+
+        if cat == "skirt" and ("set" in title or "top" in ptype or "dress" in ptype or "top" in title or "dress" in title):
+            score -= 15
+        if cat == "dress" and ("skirt" in ptype or "top" in ptype or "pant" in ptype):
+            score -= 15
+
+        if score > 0:
+            scored.append((score, p))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    high_picks = [p for s, p in scored[:count * 2]]
+
+    if len(high_picks) >= count:
+        picks = random.sample(high_picks, count)
+    else:
+        remaining_needed = count - len(high_picks)
+        rest = [p for p in pool if p not in high_picks and is_product_compatible(main_product, p, topic_context=handle or keyword)]
+        picks = high_picks + random.sample(rest, min(remaining_needed, len(rest)))
+
+    cards_html = ""
+    for p in picks:
+        cards_html += make_related_product_card(p, keyword=keyword)
+
     if not cards_html:
         return ""
 
     return f"""
 <div style="margin:48px 0;padding:32px;background:#fafafa;border-radius:14px;border:1px solid #eee;">
   <h2 style="font-size:20px;font-weight:700;color:#1a1a1a;margin:0 0 24px;text-align:center;">
-    You Might Also Love
+    Shop The Look — {count} Featured Picks
   </h2>
-  <div style="display:flex;flex-wrap:wrap;gap:24px;justify-content:center;">
+  <div style="display:flex;flex-wrap:wrap;gap:20px;justify-content:center;">
     {cards_html}
   </div>
 </div>
@@ -363,10 +717,10 @@ EEAT_RULES = (
     "❌ BAD: 'Accessorize to complete the outfit.' (too vague)\n"
     "❌ BAD: 'Add a bag to elevate the look.' (generic filler)\n\n"
 
-    "═══ 2026 TREND CONTEXT (Weave in naturally — sourced from Flipboard #Style 8.4M followers) ═══\n"
+    f"═══ {datetime.now().year} TREND CONTEXT (Weave in naturally — sourced from Flipboard #Style 8.4M followers) ═══\n"
     "Reference real trends where relevant but do NOT force every trend into every article:\n"
-    "• Quiet luxury: 'No logos, no distressing — clean dark wash denim with a tucked-in linen shirt is the 2026 quiet luxury formula.'\n"
-    "• Cigarette/stovepipe silhouette replacing wide-leg as dominant denim cut in 2026.\n"
+    f"• Quiet luxury: 'No logos, no distressing — clean dark wash denim with a tucked-in linen shirt is the {datetime.now().year} quiet luxury formula.'\n"
+    f"• Cigarette/stovepipe silhouette replacing wide-leg as dominant denim cut in {datetime.now().year}.\n"
     "• Dark indigo clean wash over distressed/light wash — reads more expensive instantly.\n"
     "• Linen top + dark wash jean = the heat-proof chic summer formula trending on Flipboard.\n"
     "• All-black outfits even in summer — trending on Flipboard #Style with 8.4M followers.\n"
@@ -389,55 +743,26 @@ EEAT_RULES = (
 )
 
 SEED_KEYWORDS = [
-    # 2026 Trending — sourced from Flipboard #Style (8.4M followers) & Who What Wear
-    "women's fashion 2026", "summer outfit ideas for women 2026",
+    # Dynamic Trending — sourced from Flipboard #Style (8.4M followers) & Who What Wear
+    f"women's fashion {datetime.now().year}", f"summer outfit ideas for women {datetime.now().year}",
     "affordable women's clothing USA", "summer dress outfits for women",
     "women's jeans styles guide", "casual chic outfits women",
     "cute outfits under $50", "stylish women's tops",
     "best dresses for women", "women's summer wardrobe essentials",
     "affordable boutique fashion USA", "work outfits for women",
     "best tops to wear with jeans", "women's date night outfit ideas",
-    # Jeans-specific trending 2026 (Flipboard #Jeans 66K followers)
-    "how to style jeans 2026", "dark wash jeans outfits",
+    # Jeans-specific trending (Flipboard #Jeans 66K followers)
+    f"how to style jeans {datetime.now().year}", "dark wash jeans outfits",
     "quiet luxury jeans women", "cigarette jeans styling tips",
     "barrel leg jeans vs wide leg", "linen top with jeans outfit",
     "blazer with jeans outfit ideas", "how to look taller in jeans",
     # Care & How-To (high search intent)
     "how to wash jeans without fading", "how to remove stains from jeans",
     "how to remove smell from clothes", "how to fix pilling on clothes",
-    # Summer 2026 (Flipboard #SummerFashion 73.9K followers)
+    # Summer (Flipboard #SummerFashion 73.9K followers)
     "linen top with jeans outfit", "summer denim outfit ideas",
-    "all black summer outfit women", "women's capsule wardrobe 2026",
+    "all black summer outfit women", f"women's capsule wardrobe {datetime.now().year}",
 ]
-
-
-def _lsi_keywords(ptype: str) -> list[str]:
-    ptype_lsi = {
-        "dress":      ["summer dress outfits", "flattering dresses women", "midi dress",
-                       "linen dresses 2026", "casual dress outfit ideas"],
-        "jean":       ["jeans for women 2026", "best fitting jeans", "high waist jeans",
-                       "dark wash jeans outfits", "cigarette jeans styling", "quiet luxury denim",
-                       "barrel leg jeans", "linen top with jeans outfit", "denim trends 2026"],
-        "top":        ["tops for women", "blouse styles", "work tops", "casual tops women",
-                       "linen tops summer 2026"],
-        "blouse":     ["blouse outfits", "women's blouse styles", "office blouse", "summer blouse ideas"],
-        "skirt":      ["skirt outfits women", "midi skirt", "how to wear skirts", "asymmetric skirt 2026"],
-        "pant":       ["women's pants guide", "wide leg pants", "work pants women", "trouser trends 2026"],
-        "jacket":     ["women's jacket outfits", "blazer women", "casual jacket", "blazer jeans combo"],
-        "coat":       ["women's coat styles", "trench coat women", "coat outfit ideas"],
-        "sweater":    ["cozy sweater outfits", "sweater styles", "fall fashion women"],
-        "cardigan":   ["cardigan outfits", "layering cardigan", "cozy fashion"],
-        "swimwear":   ["swimsuit styles women", "one piece swimsuit", "flattering swimwear"],
-        "activewear": ["workout outfit women", "athleisure look", "gym clothes women"],
-        "accessory":  ["women's accessories", "how to accessorize", "fashion accessories"],
-    }
-    base = ["women's outfit ideas", "stylish women USA", "affordable fashion", "USA boutique fashion"]
-    extras = []
-    for k, v in ptype_lsi.items():
-        if k in ptype.lower():
-            extras = v
-            break
-    return list(dict.fromkeys(extras + base))[:8]
 
 
 # ── Handle-aware content blueprint map ───────────────────────────────────────
@@ -449,7 +774,7 @@ HANDLE_CONTENT_RULES: dict[str, dict] = {
                                                   "The Single Roll Cuff", "The Double Roll Cuff",
                                                   "The Pin Roll Cuff",
                                                   "What Tops Work Best With Each Cuff Style (tuck in or crop?)",
-                                                  "2026 Styling Tip: Cigarette Jeans + Cropped Linen Top — The Cuffed Look"],
+                                                  f"{datetime.now().year} Styling Tip: Cigarette Jeans + Cropped Linen Top — The Cuffed Look"],
                             "tone": "step-by-step how-to, practical"},
     "sizing-guide":        {"topic": "jeans sizing guide for women",
                             "required_sections": ["How to Measure Yourself for Jeans",
@@ -464,7 +789,7 @@ HANDLE_CONTENT_RULES: dict[str, dict] = {
                                                   "The Tuck-In Effect: How a Cropped or Tucked Top Creates Leg Length",
                                                   "Monochrome Dressing for Height Illusion",
                                                   "Vertical Stripes and Elongating Details on Tops",
-                                                  "2026 Pro Tip: Cigarette Jeans + Fitted Ribbed Top = Longest-Looking Legs"],
+                                                  f"{datetime.now().year} Pro Tip: Cigarette Jeans + Fitted Ribbed Top = Longest-Looking Legs"],
                             "tone": "empowering, styling expert"},
     "how-to-pair":         {"topic": "how to pair jeans with outfits",
                             "required_sections": ["The Foundation: Choosing the Right Jeans Wash for the Vibe",
@@ -472,7 +797,7 @@ HANDLE_CONTENT_RULES: dict[str, dict] = {
                                                   "Office Formula: Blazer + Fitted Top + Straight-Leg Jeans",
                                                   "Evening Formula: Silk Blouse + Cigarette Jeans + Statement Earrings",
                                                   "Weekend Formula: Oversized Tee + Barrel Leg + Tote Bag",
-                                                  "The Quiet Luxury Jeans Look for 2026"],
+                                                  f"The Quiet Luxury Jeans Look for {datetime.now().year}"],
                             "tone": "outfit formula, editorial"},
     "what-to-pair":        {"topic": "what to pair with jeans",
                             "required_sections": ["Tops That Always Work With Jeans (tuck-in vs untucked vs knotted)",
@@ -496,7 +821,7 @@ HANDLE_CONTENT_RULES: dict[str, dict] = {
                                                   "Baking Soda Treatment",
                                                   "Vodka Spritz Hack",
                                                   "Steam vs Dry Air Out",
-                                                  "Prevention: The Wash-Less Denim Movement 2026"],
+                                                  f"Prevention: The Wash-Less Denim Movement {datetime.now().year}"],
                             "tone": "practical, problem-solver"},
     "remove-stain":        {"topic": "how to remove stains from jeans and clothes",
                             "required_sections": ["Act Fast: The First 60 Seconds Rule",
@@ -510,156 +835,13 @@ HANDLE_CONTENT_RULES: dict[str, dict] = {
 }
 
 
-def _get_handle_rules(article_handle: str) -> dict | None:
-    """Return handle-specific content rules if the handle matches a known pattern."""
-    handle_lower = (article_handle or "").lower()
-    for pattern, rules in HANDLE_CONTENT_RULES.items():
-        if pattern in handle_lower:
-            return rules
-    return None
-
-
-def _build_refresh_prompt(article_title: str, product: dict, keyword: str,
-                          existing_body: str, article_handle: str = "") -> str:
-    title  = product["title"]
-    ptype  = (product.get("product_type") or "women's fashion").lower()
-    price  = product["variants"][0]["price"] if product.get("variants") else "49"
-    lsi    = _lsi_keywords(ptype)
-    lsi_str = ", ".join(f'"{k}"' for k in lsi)
-
-    # Summarise existing content briefly to steer the rewrite
-    existing_text = re.sub(r"<[^>]+>", " ", existing_body or "")[:600].strip()
-
-    # ── Handle-aware content blueprint ────────────────────────────────────────
-    # If the article handle matches a known how-to/guide pattern, inject
-    # explicit structural requirements so the content MATCHES the URL handle.
-    # This fixes the handle/content mismatch reported after daily/weekly refreshes.
-    handle_rules = _get_handle_rules(article_handle)
-    handle_section = ""
-    if handle_rules:
-        sections_list = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(handle_rules["required_sections"]))
-        handle_section = (
-            f"\n\n⚠️  CRITICAL — HANDLE/CONTENT ALIGNMENT (SEO REQUIREMENT):\n"
-            f"The URL handle for this article is: '{article_handle}'\n"
-            f"This URL handle tells Google and readers the article is about: '{handle_rules['topic']}'\n"
-            f"The article body MUST deliver exactly this promised content or Google will downrank it.\n"
-            f"Tone for this article: {handle_rules['tone']}\n"
-            f"REQUIRED H2 sections (cover ALL of these, in a logical order):\n{sections_list}\n"
-            f"The featured product ({title}) should be woven in as a RECOMMENDATION within this guide, "
-            f"NOT as the primary focus. The guide topic is the primary focus.\n"
-            f"2026 FRESHNESS ANGLES to include naturally:\n"
-            f"  - Reference 'quiet luxury' denim aesthetic: dark wash + tucked linen top, no logos, clean lines\n"
-            f"  - Mention cigarette/stovepipe jeans as the 2026 trending silhouette\n"
-            f"  - Reference linen tops + jeans as the trending summer formula (heat-proof + chic)\n"
-            f"  - Mention dark indigo/clean wash denim as the elevated 2026 choice\n"
-        )
-    else:
-        # For articles without a specific handle match, add general 2026 freshness
-        handle_section = (
-            f"\n\n2026 TREND FRESHNESS (weave in naturally, 1-2 references):\n"
-            f"  - Quiet luxury styling: clean lines, no logos, elevated basics\n"
-            f"  - Summer 2026 colour palette: dark indigo denim, linen textures, earth tones\n"
-            f"  - The office-to-evening formula: oversized blazer + fitted top + straight-leg jeans\n"
-            f"  - Heat-proof summer styling: linen tops, breathable fabrics, cropped layers\n"
-        )
-
-    return (
-        f"You are a fashion editor at MeeeShop, a USA women's clothing boutique.\n"
-        f"TASK: Completely rewrite the body of this existing blog post for {MONTH}.\n"
-        f"Keep the title EXACTLY as-is: \"{article_title}\"\n"
-        f"Featured product (in-stock): {title} — ${price}\n"
-        f"Product type: {ptype}\n"
-        f"Article URL handle: {article_handle or '(unknown)'}\n\n"
-        f"Existing content summary (do NOT copy, use as context only):\n{existing_text}\n"
-        f"{handle_section}\n\n"
-        f"{EEAT_RULES}"
-        f"SEO rules:\n"
-        f"- Target keyword '{keyword}': use 3-4 times — in first paragraph, H2 subheadings, body, conclusion\n"
-        f"- LSI keywords (weave in naturally, at least 2 in H2 subheadings): {lsi_str}\n"
-        f"- Do NOT write or include any HTML links (<a> tags) to the product page or MeeeShop anywhere in the body text. The product card and shop-the-look widgets will be programmatically injected by the developer, so manual linking inside the article is redundant and violates SEO guidelines by looking spammy.\n"
-        f"- Limit mentions of the product title '{title}' to a maximum of 2 times in the entire body. When referring to the product subsequent times, use pronouns or generic terms (e.g., 'this dress', 'the top', 'it', 'this piece') instead of repeating the full product name.\n"
-        f"- Do NOT include the <h1> tag — that is the article title already, start with <p>\n"
-        f"- Use <h2>, <h3>, <p>, <ul>, <li> for structure\n"
-        f"- Include sizing notes, styling tips, outfit ideas specific to the article topic and product\n"
-        f"- End with a warm CTA recommendation and price (do NOT include HTML links)\n"
-        f"- Answer a real problem women face: '{handle_rules['topic'] if handle_rules else f'shopping for {ptype}'}' \n"
-        f"- To avoid programmatic footprints, vary your structure. Occasionally include a "
-        f"<blockquote style='border-left: 3px solid #ccc; padding-left: 10px; margin: 15px 0; font-style: italic;'> "
-        f"for a 'Stylist Tip', or a styled callout box. Make the flow feel like a hand-written editorial, not a template.\n\n"
-        f"Store info: Free US shipping on orders $50+. 7-day returns. Sizes XS-3X.\n\n"
-        f"Target: 800-950 words. Output ONLY clean HTML — no markdown, no code fences.\n"
-        f"\n\nAt the very end of your response, after the HTML content, you MUST append a `<seometa>` section "
-        f"containing the SEO metadata. The format MUST be exactly like this (use these exact keys):\n"
-        f"<seometa>\n"
-        f"SEO_TITLE: [50-60 chars, handle topic keyword near start, year or 'for Women', compelling]\n"
-        f"META_DESC: [140-155 chars, action-oriented, includes handle topic keyword, free shipping mention, ends with CTA]\n"
-        f"IMG_ALT: [descriptive ALT text for featured image, 10-15 words, includes topic keyword + 'women' + product type, no quotes]\n"
-        f"</seometa>\n"
-        f"Make sure there are no other text or markdown code fences enclosing the <seometa> block."
-    )
-
-
-def parse_and_clean_seo_meta(raw_seo_text: str, keyword: str, product_title: str, ptype: str) -> dict:
-    """
-    Parse SEO title, meta description, and image ALT text from the extracted text block.
-    Falls back to deterministic values if parsing fails or fields are missing.
-    """
-    seo_title = meta_desc = img_alt = ""
-
-    if raw_seo_text:
-        for line in raw_seo_text.splitlines():
-            line = line.strip()
-            if line.upper().startswith("SEO_TITLE:"):
-                seo_title = line.split(":", 1)[1].strip().strip('"')
-            elif line.upper().startswith("META_DESC:"):
-                meta_desc = line.split(":", 1)[1].strip().strip('"')
-            elif line.upper().startswith("IMG_ALT:"):
-                img_alt = line.split(":", 1)[1].strip().strip('"')
-
-    # Deterministic fallbacks — always valid even if AI fails
-    if not seo_title or len(seo_title) > 70:
-        seo_title = f"{keyword.title()} — MeeeShop {YEAR}"[:60]
-    if not meta_desc or len(meta_desc) > 165:
-        meta_desc = (
-            f"Discover the best {ptype} for women in {YEAR}. "
-            f"Shop {product_title} at MeeeShop — free US shipping on orders $50+, "
-            f"easy 7-day returns, sizes XS–3X."
-        )[:155]
-    if not img_alt:
-        img_alt = f"{product_title} — {ptype} for women, {YEAR} fashion guide at MeeeShop"
-
-    return {"seo_title": seo_title, "meta_desc": meta_desc, "img_alt": img_alt}
-
-
-def set_article_seo_metafields(blog_id: int, article_id: int,
-                                seo_title: str, meta_desc: str):
-    metafields = [
-        {"namespace": "global", "key": "title_tag",       "value": seo_title, "type": "single_line_text_field"},
-        {"namespace": "global", "key": "description_tag", "value": meta_desc, "type": "single_line_text_field"},
-    ]
-    for mf in metafields:
-        # Try to find existing metafield to update (upsert pattern)
-        existing = fetch_article_metafields(blog_id, article_id)
-        existing_mf = next((m for m in existing
-                            if m.get("namespace") == "global" and m.get("key") == mf["key"]), None)
-        if existing_mf:
-            r = _req("put",
-                     f"{BASE}/blogs/{blog_id}/articles/{article_id}/metafields/{existing_mf['id']}.json",
-                     json={"metafield": {"id": existing_mf["id"], "value": mf["value"]}})
-        else:
-            r = _req("post",
-                     f"{BASE}/blogs/{blog_id}/articles/{article_id}/metafields.json",
-                     json={"metafield": mf})
-        if r.status_code in (200, 201):
-            print(f"    SEO metafield: {mf['key']} = {mf['value'][:60]}")
-        else:
-            print(f"    SEO metafield FAILED ({mf['key']}): {r.status_code} {r.text[:100]}")
-
-
 def _clean_html(raw: str) -> str:
     raw = raw.strip()
     raw = re.sub(r"^```html?\s*", "", raw, flags=re.IGNORECASE)
-    return re.sub(r"\s*```$", "", raw).strip()
+    raw = re.sub(r"\s*```$", "", raw).strip()
+    # Remove <seometa>...</seometa> block so SEO title/meta desc text never appears in reader-facing body HTML
+    raw = re.sub(r"<seometa>[\s\S]*?</seometa>", "", raw, flags=re.IGNORECASE).strip()
+    return raw
 
 
 # ── Replace out-of-stock product links in HTML ────────────────────────────────
@@ -791,6 +973,7 @@ def swap_products_in_html(body_html: str, replacement_map: dict[str, dict], prod
     swaps = 0
 
     # 1. First find and replace product card containers
+    replaced_containers = set()
     for a in soup.find_all("a"):
         href = a.get("href", "")
         m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
@@ -801,17 +984,30 @@ def swap_products_in_html(body_html: str, replacement_map: dict[str, dict], prod
                 
                 # Check for styled product card container
                 card_container = None
+                card_type = None
                 parent = a.parent
                 while parent and parent.name not in ("body", "html", "[document]"):
                     style = parent.get("style", "") or ""
                     style_clean = style.replace(" ", "").lower()
                     if "background:#f8f6f3" in style_clean: # main product card
                         card_container = parent
+                        card_type = "main"
+                        break
+                    elif "flex:1" in style_clean and ("min-width:180px" in style_clean or "max-width:240px" in style_clean or "max-width:220px" in style_clean):
+                        card_container = parent
+                        card_type = "related"
                         break
                     parent = parent.parent
                 
                 if card_container:
-                    new_card_html = make_product_card(rep)
+                    if id(card_container) in replaced_containers:
+                        continue
+                    replaced_containers.add(id(card_container))
+                    
+                    if card_type == "main":
+                        new_card_html = make_product_card(rep)
+                    else:
+                        new_card_html = make_related_product_card(rep)
                     new_card_soup = BeautifulSoup(new_card_html, "html.parser")
                     card_container.replace_with(new_card_soup)
                     swaps += 1
@@ -859,16 +1055,58 @@ def swap_products_in_html(body_html: str, replacement_map: dict[str, dict], prod
     return str(soup), swaps
 
 
+def check_alignment(handle: str, title: str, html_content: str, product_by_handle: dict[str, dict] = None) -> bool:
+    if not handle or not html_content:
+        return True
+    raw_words = handle.replace('-', ' ').replace('_', ' ').split()
+    stop_words = {"how", "to", "the", "a", "an", "is", "for", "with", "what", "where", "why", "on", "in", "of", "and", "or", "you", "need", "your", "best", "most"}
+    significant_words = [w.lower() for w in raw_words if w.lower() not in stop_words and len(w) > 2]
+    if not significant_words:
+        return True
+    
+    # 1. Check if the Title aligns with the handle
+    title_text = title.lower()
+    found_in_title = sum(1 for word in significant_words if word in title_text)
+    if (found_in_title / len(significant_words)) < 0.4:
+        return False
+    
+    # 2. Check if the Body aligns with the handle
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html_content, "html.parser")
+    body_text = soup.get_text().lower()
+    body_words = set(re.findall(r'\b\w+\b', body_text))
+    
+    found_in_body = sum(1 for word in significant_words if word in body_words)
+    if (found_in_body / len(significant_words)) < 0.5:
+        return False
+
+    # 3. Check Product Category alignment
+    cat = extract_handle_category(handle)
+    if cat and product_by_handle:
+        handles_in_body = extract_product_handles(html_content)
+        if handles_in_body:
+            matched_cat = False
+            for h in handles_in_body:
+                prod = product_by_handle.get(h)
+                if prod:
+                    ptype = (prod.get("product_type") or "").lower()
+                    pname = (prod.get("title") or "").lower()
+                    ptags = (prod.get("tags") or "").lower()
+                    if cat in ptype or cat in pname or cat in ptags:
+                        matched_cat = True
+                        break
+            if not matched_cat:
+                print(f"  [Alignment Check] Handle category '{cat}' does NOT match referenced products in body.")
+                return False
+                
+    return True
+
 # ── Main article refresh logic ────────────────────────────────────────────────
 def refresh_article(blog: dict, article: dict, all_products: list,
                     in_stock: list, out_of_stock_handles: set[str],
                     product_by_handle: dict[str, dict],
-                    dry_run: bool = False, no_ai: bool = False,
+                    dry_run: bool = False,
                     **kwargs) -> dict | None:
-    """
-    Refresh one article by replacing out-of-stock products with in-stock ones of the same type.
-    Does NOT rewrite the article content or change the handle & title.
-    """
     blog_id    = blog["id"]
     article_id = article["id"]
     art_title  = article["title"]
@@ -880,125 +1118,196 @@ def refresh_article(blog: dict, article: dict, all_products: list,
 
     # ── 1. Find out-of-stock product handles referenced in this article ───────
     referenced = extract_product_handles(body)
-    oos_in_article = referenced & out_of_stock_handles
-    print(f"  Products referenced: {len(referenced)} | out-of-stock: {len(oos_in_article)}")
+    
+    def needs_replacement(handle):
+        if handle in out_of_stock_handles:
+            return True
+        prod = product_by_handle.get(handle)
+        # Replace if product is completely deleted from store
+        if not prod:
+            return True
+        # Replace if product is in stock but has no image
+        if not product_img_url(prod):
+            return True
+        return False
+        
+    oos_in_article = {h for h in referenced if needs_replacement(h)}
+    print(f"  Products referenced: {len(referenced)} | out-of-stock/missing-image: {len(oos_in_article)}")
 
-    if not oos_in_article:
-        # Run fix_article_images to ensure any existing images are up-to-date
-        new_body, swaps = fix_article_images(body, product_by_handle)
-        if swaps > 0:
-            print(f"  [Fix Images] Fixed {swaps} broken/outdated product images.")
-            if dry_run:
-                print(f"  [DRY-RUN] would PATCH article {article_id} with fixed images.")
-                return {"status": "images_fixed", "swaps": swaps}
-            
-            payload = {
-                "article": {
-                    "id": article_id,
-                    "body_html": new_body
-                }
-            }
-            r = _req("put", f"{BASE}/blogs/{blog_id}/articles/{article_id}.json", json=payload)
-            if r.status_code in (200, 201):
-                print(f"  PATCHED  : article {article_id} images updated successfully")
-                return {"status": "images_fixed", "swaps": swaps}
-            else:
-                print(f"  PATCH FAILED {r.status_code}: {r.text[:200]}")
-                return None
-        else:
-            print("  No out-of-stock products or outdated images found. No changes needed.")
-            return {"status": "no_changes_needed", "swaps": 0}
-
-    # Build replacement map for out-of-stock handles
+    # ── 3. Find out-of-stock replacements or category-aligned product ─────────
     replacement_map: dict[str, dict] = {}
     replacements_log: list[dict] = []
     first_replacement: dict | None = None
 
     for handle in oos_in_article:
         old_product = product_by_handle.get(handle)
-        if not old_product:
-            continue
-        replacement = find_best_replacement(old_product, in_stock)
+        replacement = find_matching_product_for_handle(art_handle, in_stock)
         if replacement:
             replacement_map[handle] = replacement
             if first_replacement is None:
                 first_replacement = replacement
             replacements_log.append({
                 "old_handle": handle,
-                "old_title":  old_product["title"],
+                "old_title":  old_product["title"] if old_product else handle,
                 "new_handle": replacement["handle"],
                 "new_title":  replacement["title"],
             })
-            print(f"    Replacing '{old_product['title'][:40]}' → '{replacement['title'][:40]}'")
-        else:
-            print(f"    No replacement found for '{handle}'")
+            print(f"    Replacing '{old_product['title'][:40] if old_product else handle}' → '{replacement['title'][:40]}'")
 
-    if not replacement_map:
-        print("  SKIP — No replacements could be determined for out-of-stock products.")
-        return None
-
-    # Swap product links and styled card containers in HTML
+    # Swap product links & styled cards in HTML
     new_body, swaps = swap_products_in_html(body, replacement_map, product_by_handle)
-    
-    # Run image fixes on top of the swapped HTML to ensure images are fresh
     new_body, img_swaps = fix_article_images(new_body, product_by_handle)
 
     if swaps == 0 and img_swaps == 0:
-        print("  No replacements or changes made in HTML. Skipping.")
+        print("  Article content is aligned and images are up to date. No changes needed.")
         return {"status": "no_changes_needed", "swaps": 0}
 
-    print(f"  HTML Swaps made: {swaps} | Image updates: {img_swaps}")
+    print(f"  HTML Swaps: {swaps} | Image updates: {img_swaps}")
 
-    # ── Dry-run short-circuit ─────────────────────────────────────────────
     if dry_run:
-        print(f"  [DRY-RUN] would PATCH article {article_id} with swapped products.")
-        return {"replacements": replacements_log, "featured_product": first_replacement["title"]}
+        print(f"  [DRY-RUN] Would PATCH article {article_id} with updated body HTML.")
+        return {"status": "updated", "replacements": replacements_log, "featured_product": None}
 
-    # Save a backup of the original article content before we edit it
+    # Backup original article content
     backup_data = {
         "article_id": article_id,
         "title": art_title,
         "handle": art_handle,
         "body_html": body,
-        "summary_html": article.get("summary_html", ""),
-        "tags": article.get("tags", ""),
-        "image": article.get("image", {}),
         "backup_timestamp": datetime.now().isoformat()
     }
     backup_dir = ROOT / "backup_articles"
     backup_dir.mkdir(exist_ok=True)
     backup_file = backup_dir / f"article_{article_id}_{int(time.time())}.json"
     backup_file.write_text(json.dumps(backup_data, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"    [Backup] Saved original article content to backup_articles/{backup_file.name}")
 
-    # ── PATCH the article (keeps same URL handle, title, author, tags, etc.) ──
-    payload = {
+    # Perform update via GraphQL
+    mut_query = """
+    mutation blogArticleUpdate($id: ID!, $article: ArticleUpdateInput!) {
+      blogArticleUpdate(id: $id, article: $article) {
+        article { id handle title }
+        userErrors { field message }
+      }
+    }
+    """
+    vars = {
+        "id": article.get("gid", f"gid://shopify/Article/{article_id}"),
         "article": {
-            "id":           article_id,
-            "body_html":    new_body,
+            "bodyHtml": new_body
         }
     }
 
-    r = _req("put", f"{BASE}/blogs/{blog_id}/articles/{article_id}.json", json=payload)
-    if r.status_code not in (200, 201):
-        print(f"  PATCH FAILED {r.status_code}: {r.text[:200]}")
-        return None
+    res = _graphql(mut_query, vars)
+    errors = res.get("data", {}).get("blogArticleUpdate", {}).get("userErrors", [])
+    if errors:
+        print(f"  ERROR updating article {article_id}: {errors}")
+        return {"status": "error", "error": str(errors)}
 
-    print(f"  PATCHED  : article {article_id} updated successfully with in-stock products.")
-    return {"replacements": replacements_log, "featured_product": first_replacement["title"]}
+    print(f"  Successfully updated article {article_id}.")
+    
+    return {
+        "status": "updated",
+        "gid": article.get("gid", f"gid://shopify/Article/{article_id}"),
+        "title": art_title,
+        "body_html": new_body,
+        "replacements": replacements_log,
+        "featured_product": None
+    }
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
-def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
-        force: bool = False, batch_size: int = 20, batch_index: int = 0, no_ai: bool = False,
-        fix_images_only: bool = False):
-    mode = "force" if force else ("single" if article_id else "batch")
-    print(f"\n{'='*64}")
+
+def _execute_article_batch(batch: list):
+    if not batch: return
+
+    var_defs = []
+    variables = {}
+    mutations = []
+
+    for i, payload in enumerate(batch):
+        var_defs.append(f"$artTitle_{i}: String!")
+        var_defs.append(f"$body_{i}: HTML!")
+        variables[f"artTitle_{i}"] = payload.get("title")
+        variables[f"body_{i}"] = payload["body_html"]
+
+        metafields_input = ""
+        if payload.get("seo_title") and payload.get("meta_desc"):
+            var_defs.append(f"$title_{i}: String!")
+            var_defs.append(f"$desc_{i}: String!")
+            variables[f"title_{i}"] = payload["seo_title"]
+            variables[f"desc_{i}"] = payload["meta_desc"]
+            metafields_input = (
+                f', metafields: ['
+                f'{{namespace: "global", key: "title_tag", type: "single_line_text_field", value: $title_{i}}}, '
+                f'{{namespace: "global", key: "description_tag", type: "single_line_text_field", value: $desc_{i}}}'
+                f']'
+            )
+
+        mutations.append(
+            f'  m{i}: articleUpdate(id: "{payload["gid"]}", article: {{title: $artTitle_{i}, body: $body_{i}{metafields_input}}}) {{ userErrors {{ field message }} }}'
+        )
+
+    query_str = f"mutation({', '.join(var_defs)}) {{\n" + "\n".join(mutations) + "\n}"
+
+    res = _graphql(query_str, variables=variables)
+    data = res.get("data", {})
+    for i, payload in enumerate(batch):
+        errs = data.get(f"m{i}", {}).get("userErrors", [])
+        if errs:
+            print(f"  [GraphQL Error] article {payload['gid']}: {errs}")
+        else:
+            print(f"  ✓ Batch Updated article {payload['gid']}")
+            if payload.get("b64_collage"):
+                gid_num = payload["gid"].split("/")[-1]
+                blog_num = payload.get("blog_id")
+                if blog_num:
+                    url = f"{BASE}/blogs/{blog_num}/articles/{gid_num}.json"
+                    img_payload = {
+                        "article": {
+                            "id": int(gid_num),
+                            "image": {
+                                "attachment": payload["b64_collage"],
+                                "filename": f"discover_collage_{gid_num}.jpg"
+                            }
+                        }
+                    }
+                    _req("put", url, json=img_payload)
+                    print(f"    ✓ Uploaded 1200px Discover landscape 3-panel collage header image to Shopify article {gid_num}")
+
+
+def _execute_author_batch(batch: list):
+    if not batch: return
+
+    var_defs = []
+    variables = {}
+    mutations = []
+
+    for i, payload in enumerate(batch):
+        var_defs.append(f"$author_{i}: String!")
+        variables[f"author_{i}"] = payload["author"]
+        mutations.append(
+            f'  m{i}: articleUpdate(id: "{payload["gid"]}", article: {{author: $author_{i}}}) {{ userErrors {{ field message }} }}'
+        )
+
+    query_str = f"mutation({', '.join(var_defs)}) {{\n" + "\n".join(mutations) + "\n}"
+
+    res = _graphql(query_str, variables=variables)
+    data = res.get("data", {})
+    for i, payload in enumerate(batch):
+        errs = data.get(f"m{i}", {}).get("userErrors", [])
+        if errs:
+            print(f"  [GraphQL Error] author update {payload['gid']}: {errs}")
+        else:
+            print(f"    ✓ Updated author {payload['gid']} to {payload['author']}")
+
+
+def run(limit: int = 0, dry_run: bool = False, article_id: int | None = None):
+    is_single_article = bool(article_id)
+    mode = "single" if article_id else "all"
+    print(f"\\n{'='*64}")
     print(f"  MeeeShop Blog Refresher — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"  Mode: {mode} | Limit: {limit} | Dry-run: {dry_run} | No-AI: {no_ai} | Fix Images Only: {fix_images_only}")
-    if force:
-        print(f"  Batch: {batch_index} (size {batch_size})")
-    print(f"{'='*64}\n")
+    print(f"  Mode: {mode} | Limit: {limit} | Dry-run: {dry_run}")
+    print(f"{'='*64}\\n")
 
     # ── Products ──────────────────────────────────────────────────────────────
     print("Fetching all products…")
@@ -1041,57 +1350,63 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
 
         all_articles.sort(key=lambda x: x[1].get("published_at") or "")
 
-        if force:
-            # Slice this batch out of the full sorted list
-            start = batch_index * batch_size
-            end   = start + batch_size
-            work_items = all_articles[start:end]
-            print(f"  Force batch {batch_index}: articles {start}–{end-1} of {len(all_articles)} total")
-        else:
-            work_items = all_articles[:limit]
+        work_items = all_articles if limit <= 0 else all_articles[:limit]
 
     print(f"Articles to refresh: {len(work_items)}\n")
 
     # ── Check and update authors for all articles in the store ──────────────────
-    print("Checking article authors...")
-    articles_to_check = work_items if article_id else all_articles
-    for blog, art in articles_to_check:
-        cur_author = (art.get("author") or "").strip()
-        # If author is empty or generic, update to a valid E-E-A-T named pen name
-        if not cur_author or any(g in cur_author.lower() for g in ["meeeshop", "author", "staff", "writer", "admin"]):
-            new_author = random.choice(PEN_NAMES)
-            print(f"  Article '{art.get('title')}' (ID {art.get('id')}) has generic/empty author '{cur_author}'. Updating to E-E-A-T author '{new_author}'...")
-            if not dry_run:
-                payload = {"article": {"id": art["id"], "author": new_author}}
-                r = _req("put", f"{BASE}/blogs/{blog['id']}/articles/{art['id']}.json", json=payload)
-                if r.status_code in (200, 201):
-                    print("    ✓ Updated successfully.")
+    if True:
+        print("Checking article authors...")
+        articles_to_check = work_items if article_id else all_articles
+        author_batch = []
+        for blog, art in articles_to_check:
+            cur_author = (art.get("author") or "").strip()
+            # Only update if author is generic/blank. Existing pen names are NEVER re-randomised.
+            if needs_author_update(cur_author):
+                new_author = random.choice(PEN_NAMES)
+                print(f"  Article '{art.get('title')}' (ID {art.get('id')}) has generic author '{cur_author}'. Updating to E-E-A-T pen name '{new_author}'...")
+                if not dry_run:
+                    author_batch.append({"gid": art.get("gid", f"gid://shopify/Article/{art['id']}"), "author": new_author})
                     art["author"] = new_author
+                    if len(author_batch) >= 10:
+                        _execute_author_batch(author_batch)
+                        author_batch = []
                 else:
-                    print(f"    ✗ Update failed: {r.status_code} {r.text[:200]}")
-                time.sleep(1.0)
+                    print(f"    [DRY-RUN] Would update author to '{new_author}'.")
             else:
-                print(f"    [DRY-RUN] Would update author to '{new_author}'.")
+                pass  # valid pen name or custom name — keep it silently
+
+        if author_batch:
+            _execute_author_batch(author_batch)
 
     # ── Process each article ──────────────────────────────────────────────────
     updated = skipped = 0
     log = []
+    article_batch = []
 
     for blog, article in work_items:
         try:
             result = refresh_article(
                 blog, article, all_products,
                 in_stock, out_of_stock_handles, product_by_handle,
-                dry_run=dry_run,
-                no_ai=no_ai,
-                fix_images_only=fix_images_only,
+                dry_run=dry_run
             )
-            if result:
+            if result and result.get("status") in ("updated", "images_fixed"):
+                if not dry_run:
+                    article_batch.append(result)
+                    if len(article_batch) >= 5:
+                        _execute_article_batch(article_batch)
+                        article_batch = []
+                        
                 updated += 1
                 log.append({"id": article["id"], "title": article["title"],
                              "status": "updated", "dry_run": dry_run,
                              "replacements": result.get("replacements", []),
                              "featured_product": result.get("featured_product")})
+            elif result and result.get("status") == "no_changes_needed":
+                skipped += 1
+                log.append({"id": article["id"], "title": article["title"],
+                             "status": "skipped"})
             else:
                 skipped += 1
                 log.append({"id": article["id"], "title": article["title"],
@@ -1103,7 +1418,9 @@ def run(limit: int = 5, dry_run: bool = False, article_id: int | None = None,
                          "status": "error", "error": str(exc)})
             import traceback
             traceback.print_exc()
-        time.sleep(1.5)  # polite rate-limiting
+
+    if article_batch and not dry_run:
+        _execute_article_batch(article_batch)
 
     # ── Summary ───────────────────────────────────────────────────────────────
     print(f"\n{'='*64}")
@@ -1127,22 +1444,12 @@ if __name__ == "__main__":
 
     ap = argparse.ArgumentParser(description="MeeeShop weekly blog refresher")
     ap.add_argument("--dry-run",     action="store_true", help="Print plan, no Shopify writes")
-    ap.add_argument("--limit",       type=int, default=5,  help="Max articles per run (default 5; ignored in --force)")
+    ap.add_argument("--limit",       type=int, default=0,  help="Max articles per run (default 0 for all; ignored in --force)")
     ap.add_argument("--article-id",  type=int, default=None, help="Refresh one specific article by ID")
-    ap.add_argument("--force",       action="store_true", help="Update ALL articles (use with --batch-size/--batch-index)")
-    ap.add_argument("--batch-size",  type=int, default=20, help="Articles per batch in force mode (default 20)")
-    ap.add_argument("--batch-index", type=int, default=0,  help="Which batch to process (0-based)")
-    ap.add_argument("--no-ai",       action="store_true", help="Perform refresh programmatically without AI calls")
-    ap.add_argument("--fix-images-only", action="store_true", help="Only fix broken product images in articles without other modifications")
     args = ap.parse_args()
 
     run(
         limit=args.limit,
         dry_run=args.dry_run,
         article_id=args.article_id,
-        force=args.force,
-        batch_size=args.batch_size,
-        batch_index=args.batch_index,
-        no_ai=args.no_ai,
-        fix_images_only=args.fix_images_only,
     )
