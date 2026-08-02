@@ -50,6 +50,7 @@ QUESTION_STEM_PATTERNS = [
     "how to size {product}",
     "how to shrink {product}",
     "how to stretch {product}",
+    "why does {product} fit weird",
     # 3. Care, Cleaning & Maintenance
     "how to wash {product}",
     "how to clean {product}",
@@ -60,14 +61,18 @@ QUESTION_STEM_PATTERNS = [
     "is {product} see through",
     "does {product} wrinkle",
     "does {product} shrink",
+    "what to look for when buying {product}",
     # 5. Occasions & Suitability
     "can you wear {product} to a wedding",
     "is {product} business casual",
     "can you wear {product} to work",
+    "where to wear {product}",
+    "when is the best time to wear {product}",
     # 6. Trends & Longevity
     "is {product} still in style in 2026",
     "is {product} out of style",
     "best alternative to {product}",
+    "why is {product} trending",
     # 7. Body Shape & Flattering Fits
     "what {product} looks best on curvy",
     "what {product} looks best on petite",
@@ -84,12 +89,14 @@ QUESTION_STEM_PATTERNS = [
     "what to wear with {product} in 60 degree weather",
     "how to style {product} in fall",
     "how to style {product} in winter",
+    "when to switch to {product} for winter",
     # 11. Undergarments & Wardrobe Hacks
     "what bra to wear with {product}",
     "best shapewear under {product}",
     # 12. Budget, Quality & Shopping Comparisons
     "affordable boutique {product} under 50",
-    "how to make {product} look expensive"
+    "how to make {product} look expensive",
+    "why is {product} so popular"
 ]
 
 # Male / Men's terms to strictly exclude (MeeeShop is 100% Women's Boutique)
@@ -509,11 +516,13 @@ class GoogleQuestionFetcher:
 
         return results
 
-    def get_next_unaddressed_question(self, product_type: str, deduplicator=None, default_fallback: str = None) -> str:
+    def get_next_unaddressed_question(self, product_type: str, deduplicator=None, default_fallback: str = None) -> tuple[str, str]:
         """
         Fetches live questions from Google for product_type, iterates through them in order,
-        and returns the FIRST question that has NOT been addressed yet by our store.
+        and returns the FIRST question that has NOT been addressed yet by our store,
+        along with its stem_family.
         If all live suggestions are addressed, generates a fresh long-tail modifier variation.
+        If all are exhausted, returns (None, "exhausted").
         """
         questions = self.fetch_live_google_questions(product_type, limit=25)
 
@@ -524,7 +533,7 @@ class GoogleQuestionFetcher:
                 print(f"  [Waterfall] Question already addressed by store: '{q}' -> Trying next in line...")
                 continue
             print(f"  [OK Deduplicated Question] Selected fresh Google question for '{product_type}': {q}")
-            return q
+            return q, self._get_stem_family(q)
 
         # Waterfall Fallback: Generate fresh long-tail modifier questions if all top queries are addressed
         clean_ptype = product_type.title()
@@ -535,18 +544,19 @@ class GoogleQuestionFetcher:
             f"How to Wash and Care for {clean_ptype} to Prevent Shrinking?",
             f"What Tops and Jackets Go Best with {clean_ptype} in 2026?",
             f"Can You Wear {clean_ptype} to Work or Business Casual Settings?",
-            f"How to Layer {clean_ptype} for Transition Weather in 2026?",
-            f"Best Undergarments and Shapewear to Wear Under {clean_ptype}?"
+            f"Where to Wear {clean_ptype} for Maximum Versatility?",
+            f"Why is {clean_ptype} So Popular Right Now?",
+            f"When is the Best Time to Switch to {clean_ptype}?",
+            f"What to Look for When Buying High-Quality {clean_ptype}?"
         ]
 
         for mod_q in modifier_options:
             if not self.is_addressed(mod_q, deduplicator):
                 print(f"  [Waterfall Fallback] Selected unaddressed modified question: {mod_q}")
-                return mod_q
+                return mod_q, self._get_stem_family(mod_q)
 
-        fallback = default_fallback or f"How to Style {clean_ptype} for Everyday Chic in 2026?"
-        print(f"  [!] All suggestions & modifiers addressed. Using fallback question: {fallback}")
-        return self.normalize_question(fallback)
+        print(f"  [!] All suggestions & modifiers addressed. Exhausted.")
+        return None, "exhausted"
 
     def fetch_pasf_modifiers(self, term: str) -> list[str]:
         """
