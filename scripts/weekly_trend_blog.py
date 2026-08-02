@@ -208,7 +208,7 @@ def _fetch_flipboard_rss(topic: str) -> list[dict]:
     url = FLIPBOARD_RSS_BASE.format(topic=topic.lower().replace(" ", "-"))
     cutoff = datetime.now(timezone.utc) - timedelta(days=CUTOFF_DAYS)
     try:
-        r = requests.get(url, timeout=5, headers={
+        r = requests.get(url, timeout=15, headers={
             "User-Agent": f"Mozilla/5.0 (compatible; {BRAND_NAME} SEO bot/1.0)"
         })
         if r.status_code != 200:
@@ -254,7 +254,7 @@ def _fetch_flipboard_search(keyword: str) -> list[dict]:
         r = requests.get(
             FLIPBOARD_SEARCH,
             params={"q": keyword, "locale": "en_US"},
-            timeout=5,
+            timeout=15,
             headers={"User-Agent": f"Mozilla/5.0 (compatible; {BRAND_NAME} SEO bot/1.0)"}
         )
         if r.status_code != 200:
@@ -305,7 +305,7 @@ def _fetch_google_news(keyword: str, num_sites: int = 2) -> list[dict]:
             r = requests.get(
                 GOOGLE_NEWS_RSS,
                 params={"q": q, "hl": "en-US", "gl": "US", "ceid": "US:en"},
-                timeout=5,
+                timeout=15,
                 headers={"User-Agent": f"Mozilla/5.0 (compatible; {BRAND_NAME} SEO bot/1.0)"},
             )
             if r.status_code != 200:
@@ -1156,7 +1156,10 @@ Title Examples (for inspiration, do NOT copy): {'; '.join(mode.get('title_exampl
 
 ────────── REAL-TIME US GOOGLE SEARCH QUESTION TO ANSWER (CRITICAL) ──────────
 Target Question: "{google_question or title_hint}"
-Instructions: You MUST directly address and answer this search question in the H1 title, opening paragraph, and dedicated body section. Include a 2-3 sentence clear, authoritative Direct Answer box right after the opening paragraph for Google Discover & Featured Snippet eligibility.
+Instructions: 
+1. You MUST directly address and uniquely answer this specific search question in the H1 title, opening paragraph, and throughout the body sections. 
+2. The "Required Structure" below is just a baseline guideline. You MUST adapt and customize the headings and flow to directly answer the Target Question, rather than relying on a rigid, generic template. Do NOT output a generic article that ignores the specific question.
+3. Include a 2-3 sentence clear, authoritative Direct Answer box right after the opening paragraph for Google Discover & Featured Snippet eligibility.
 
 ────────── PRODUCT CATEGORY FOCUS (100% GENERIC ARTICLE) ──────────
 Target Product Category: {ptype} for Women
@@ -1179,7 +1182,7 @@ Zero-Search-Volume: {', '.join(zero_search[:5])}
 {research_context if research_context else f'No external trend references available — use your expert fashion knowledge for {MONTH}.'}
 
 ────────── MANDATORY EDITORIAL & VISUAL STYLING RULES ──────────
-1. Target audience: Women in the USA, ages 25-55. Speak directly to her.
+1. Target audience: Women in the USA, ages 25-55. Speak directly to her. All advice must be practical and help women in their real-life decisions about clothing & accessories.
 2. Open with a STRONG hook — surprising stat, relatable pain point, bold statement, or intriguing question. NO generic 'In today's world...' openers.
 3. Include a Table of Contents (HTML anchor links) after the intro. The Table of Contents MUST be formatted as a structured bulleted list (using `<ul>` and `<li>`) or numbered list (using `<ol>` and `<li>`), wrapped in a styled container (e.g. `<div style="background:#f9f9f9; border:1px solid #eaeaea; padding:15px; border-radius:8px; margin:20px 0;"><p style="font-weight:bold; margin-top:0;">Table of Contents</p><ul style="margin:0; padding-left:20px; line-height:1.6;">...</ul></div>`). Never output it as a single paragraph or plain text.
 4. Use H2 and H3 headers. Every section must provide REAL, actionable value.
@@ -1656,21 +1659,51 @@ def generate_single_article_content(
 
     # 3. Fetch top unaddressed Google US Search Question
     question_fetcher = GoogleQuestionFetcher()
-    google_question = question_fetcher.get_next_unaddressed_question(ptype, deduplicator=deduplicator, default_fallback=main_product["title"])
-    print(f"  [Google Trends/Search] Selected unaddressed question for '{ptype}': {google_question}")
-
-    # 4. Build AI prompt and generate content
+    google_question, stem_family = question_fetcher.get_next_unaddressed_question(ptype, deduplicator=deduplicator, default_fallback=main_product["title"])
+    
+    # 4. Handle exhausted questions (Trending Fallback)
     mode = None
-    if force_format:
-        for m in ARTICLE_MODES:
-            if m["id"] == force_format:
-                mode = m
-                break
+    if stem_family == "exhausted":
+        print(f"  [Google Trends/Search] Questions exhausted for '{ptype}'. Falling back to trending news.")
+        google_question = None
+        force_format = "trend_report"
+        if rdata.get("articles"):
+            trending_article = random.choice(rdata["articles"])
+            title_hint = f"A Fresh Take: {trending_article.get('title', 'Trending Fashion News')}"
+        else:
+            title_hint = f"Why We Can't Stop Thinking About {ptype.title()} in {YEAR}"
+    else:
+        print(f"  [Google Trends/Search] Selected unaddressed question for '{ptype}': {google_question}")
+        
+        # Map stem family to mode dynamically if no forced format
+        stem_to_mode = {
+            "care_laundry": "fabric_care_guide",
+            "fit_sizing": "body_type_guide",
+            "shoes_pairing": "one_item_multiple_ways",
+            "tops_pairing": "one_item_multiple_ways",
+            "outerwear_pairing": "one_item_multiple_ways",
+            "layering": "one_item_multiple_ways",
+            "occasion": "occasion_styling",
+            "body_shape": "body_type_guide",
+            "age_style": "age_specific_styling",
+            "undergarments": "stain_odour_rescue",  # closest fit
+            "trend_longevity": "trend_report",
+            "general_styling": "one_item_multiple_ways",
+            "general": "shopping_guide_edit"
+        }
+        force_format = stem_to_mode.get(stem_family, "shopping_guide_edit")
+
+    # 5. Build AI prompt and generate content
+    for m in ARTICLE_MODES:
+        if m["id"] == force_format:
+            mode = m
+            break
                 
     prompt, title_hint, chosen_mode = _build_article_prompt(main_product, rdata, matching_products, mode=mode, original_handle_hint=original_handle_hint, google_question=google_question)
     
     # Mark question as addressed
-    question_fetcher.mark_addressed(google_question, category=ptype)
+    if google_question:
+        question_fetcher.mark_addressed(google_question, category=ptype)
     
     print(f"  Article Mode: {chosen_mode['id']}")
     print("  Generating new content with AI...")

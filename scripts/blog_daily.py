@@ -1359,51 +1359,47 @@ def get_clean_product_type(product: dict) -> str:
     return ptype if ptype else "apparel"
 
 
-def generate_keyword_title_and_format(product: dict, format_override: str = None) -> tuple[str, str, str]:
+def generate_keyword_title_and_format(product: dict, stem_family: str, format_override: str = None) -> tuple[str, str, str]:
     category_phrase = get_category_style_phrase(product)
 
-    is_denim = any(x in (product.get("product_type") or "").lower() or (product.get("title") or "").lower()
-                   for x in ["jean", "denim"])
+    # Map stem family directly to formats
+    stem_to_format = {
+        "care_laundry": "care_guide",
+        "fit_sizing": "sizing_guide",
+        "shoes_pairing": "outfit_formula",
+        "tops_pairing": "outfit_formula",
+        "outerwear_pairing": "outfit_formula",
+        "layering": "outfit_formula",
+        "occasion": "outfit_formula",
+        "body_shape": "sizing_guide",
+        "age_style": "outfit_formula",
+        "undergarments": "problem_solver",
+        "trend_longevity": "trend_report",
+        "general_styling": "outfit_formula",
+        "general": "buying_guide"
+    }
 
-    options = [
-        (f"{category_phrase} sizing guide",
-         f"{category_phrase}: Sizing & Fit Guide for Women {YEAR}",
-         "sizing_guide"),
-        (f"how to style {category_phrase}",
-         f"5 Stunning Outfits to Build Around {category_phrase} in {YEAR}",
-         "outfit_formula"),
-        (f"best {category_phrase} for women",
-         f"The Best {category_phrase} for Women in {YEAR}: Our Editor's Guide",
-         "buying_guide"),
-        (f"{category_phrase} fashion trends",
-         f"{MONTH} Women's Fashion Trends: How to Style {category_phrase}",
-         "trend_report"),
-        (f"how to wash {category_phrase}",
-         f"How to Wash & Care for {category_phrase} ({YEAR} Style Guide)",
-         "care_guide"),
-        (f"styling {category_phrase}",
-         f"How to Style {category_phrase} for Casual Chic Outfits ({YEAR} Guide)",
-         "problem_solver")
-    ]
-
-    if is_denim:
-        options += [
-            (f"quiet luxury {category_phrase}",
-             f"The Quiet Luxury Denim Look: How to Style {category_phrase} in {YEAR}",
-             "trend_report"),
-            (f"how to pair {category_phrase} summer",
-             f"Summer {YEAR} Denim Outfit Formula: Style {category_phrase} 5 Ways",
-             "outfit_formula"),
-        ]
-
+    fmt = stem_to_format.get(stem_family, "buying_guide")
     if format_override:
-        matched = [opt for opt in options if opt[2] == format_override]
-        if matched:
-            return matched[0]
+        fmt = format_override
 
-    base_options = options[:6]
-    weights = [0.10, 0.25, 0.20, 0.20, 0.05, 0.20]
-    return random.choices(base_options, weights=weights, k=1)[0]
+    # Basic title generation fallback (will be refined by AI anyway)
+    title_hint = f"How to Answer Your Top Questions About {category_phrase} in {YEAR}"
+    if fmt == "care_guide":
+        title_hint = f"How to Wash & Care for {category_phrase} ({YEAR} Style Guide)"
+    elif fmt == "sizing_guide":
+        title_hint = f"{category_phrase}: Sizing & Fit Guide for Women {YEAR}"
+    elif fmt == "outfit_formula":
+        title_hint = f"5 Stunning Outfits to Build Around {category_phrase} in {YEAR}"
+    elif fmt == "trend_report":
+        title_hint = f"{MONTH} Women's Fashion Trends: How to Style {category_phrase}"
+    elif fmt == "buying_guide":
+        title_hint = f"The Best {category_phrase} for Women in {YEAR}: Our Editor's Guide"
+    elif fmt == "problem_solver":
+        title_hint = f"How to Style {category_phrase} for Casual Chic Outfits ({YEAR} Guide)"
+
+    # We don't generate the keyword here anymore because the fetcher provides the exact keyword question
+    return "", title_hint, fmt
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -1478,24 +1474,23 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
         if rotation_mgr:
             rotation_mgr.mark_used(product.get("handle", ""))
 
-        keyword, title_hint, fmt = generate_keyword_title_and_format(product, format_override)
-        if topic:
-            keyword = topic
-
-        # Map our daily format to weekly_trend_blog's mode IDs
-        mode_mapping = {
-            "sizing_guide": "body_type_guide",
-            "outfit_formula": "one_item_multiple_ways",
-            "buying_guide": "shopping_guide_edit",
-            "trend_report": "trend_report",
-            "care_guide": "fabric_care_guide",
-            "problem_solver": "stain_odour_rescue"
-        }
-        wtb_format = mode_mapping.get(fmt, "one_item_multiple_ways")
+        wtb_format = None
+        if format_override:
+            # Map our daily format to weekly_trend_blog's mode IDs if provided
+            mode_mapping = {
+                "sizing_guide": "body_type_guide",
+                "outfit_formula": "one_item_multiple_ways",
+                "buying_guide": "shopping_guide_edit",
+                "trend_report": "trend_report",
+                "care_guide": "fabric_care_guide",
+                "problem_solver": "stain_odour_rescue"
+            }
+            wtb_format = mode_mapping.get(format_override, "one_item_multiple_ways")
+        
         if topic:
             wtb_format = "trend_report" if random.random() < 0.6 else "shopping_guide_edit"
 
-        print(f"[{i+1}/{count}] Format: {fmt} (Mapping to wtb: {wtb_format}) | Keyword: '{keyword}'")
+        print(f"[{i+1}/{count}] Delegating to weekly_trend_blog engine (format_override: {wtb_format})")
         print(f"  Product: {product['title'][:70]}")
         print(f"  Type   : {product.get('product_type', 'unknown')}")
 
@@ -1521,7 +1516,7 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
             continue
 
         # Destructure generated assets
-        raw_title        = content_assets.get("seo_title") or content_assets.get("title") or title_hint
+        raw_title        = content_assets.get("seo_title") or content_assets.get("title") or "MeeeShop Editorial"
         post_title       = sanitize_title_to_category_phrase(raw_title, product)
         html_body        = content_assets.get("html_body", "")
         tags             = content_assets.get("tags", [])
@@ -1538,7 +1533,7 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
         print(f"  Author    : {author_name}")
 
         # ── Deduplication check before publishing ──────────────────────────────
-        fmt_key = content_assets.get("chosen_mode", fmt)
+        fmt_key = content_assets.get("chosen_mode", "shopping_guide_edit")
         result = dedup.resolve(
             title=post_title,
             handle=suggested_handle or "",
