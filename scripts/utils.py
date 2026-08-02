@@ -41,7 +41,7 @@ def download_article_content(url: str) -> str:
     """
     try:
         # 1. Try fetching with trafilatura
-        downloaded = trafilatura.fetch_url(url, timeout=5)
+        downloaded = trafilatura.fetch_url(url)
         if downloaded:
             extracted = trafilatura.extract(downloaded, no_fallback=False, include_comments=False, include_tables=True)
             if extracted:
