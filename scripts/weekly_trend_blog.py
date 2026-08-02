@@ -208,7 +208,7 @@ def _fetch_flipboard_rss(topic: str) -> list[dict]:
     url = FLIPBOARD_RSS_BASE.format(topic=topic.lower().replace(" ", "-"))
     cutoff = datetime.now(timezone.utc) - timedelta(days=CUTOFF_DAYS)
     try:
-        r = requests.get(url, timeout=5, headers={
+        r = requests.get(url, timeout=15, headers={
             "User-Agent": f"Mozilla/5.0 (compatible; {BRAND_NAME} SEO bot/1.0)"
         })
         if r.status_code != 200:
@@ -254,7 +254,7 @@ def _fetch_flipboard_search(keyword: str) -> list[dict]:
         r = requests.get(
             FLIPBOARD_SEARCH,
             params={"q": keyword, "locale": "en_US"},
-            timeout=5,
+            timeout=15,
             headers={"User-Agent": f"Mozilla/5.0 (compatible; {BRAND_NAME} SEO bot/1.0)"}
         )
         if r.status_code != 200:
@@ -305,7 +305,7 @@ def _fetch_google_news(keyword: str, num_sites: int = 2) -> list[dict]:
             r = requests.get(
                 GOOGLE_NEWS_RSS,
                 params={"q": q, "hl": "en-US", "gl": "US", "ceid": "US:en"},
-                timeout=5,
+                timeout=15,
                 headers={"User-Agent": f"Mozilla/5.0 (compatible; {BRAND_NAME} SEO bot/1.0)"},
             )
             if r.status_code != 200:
