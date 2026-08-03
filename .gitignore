@@ -1,17 +1,38 @@
 # Secrets — never commit these
 .env
+.env.*
+*.env
+.env.local
+.env.*.local
+key.txt
+*.key
+*.pem
 .enc.txt
 client_secret.json
+client_secret*.json
+credentials.json
 youtube_token.pickle
 google_sa_key.json
 *_sa_key.json
+decrypted_secrets.json
+secrets.yaml
+config.json
 
-# Generated files
+# Generated files & debug logs/screenshots
 bg_music.mp3
 bg_music.wav
 *.mp4
 *.m4a
 *.log
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.html
+login_test_failure.*
+flipboard_error_*
+auto_login_failure.png
 tmp_*/
 __pycache__/
 *.pyc
@@ -26,9 +47,12 @@ theme_liquid_backup.liquid
 backup_articles/
 
 test.env
-client_secret*.json
-credentials.json
 *.pickle
 *.json
+!secrets.enc
+!article.json
+!blog_featured_products_history.json
+!category_metafields_preview.json
+!indexing_history.json
+!indexnow_history.json
 scratch/
-
