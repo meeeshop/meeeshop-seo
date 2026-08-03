@@ -107,6 +107,8 @@ if not all([SHOP_TOKEN, FLIPBOARD_EMAIL, FLIPBOARD_PASSWORD, SHOP]):
     logging.error("Missing one or more required secrets: SHOPIFY_STORE, SHOPIFY_ACCESS_TOKEN, FLIPBOARD_EMAIL, FLIPBOARD_PASSWORD")
     sys.exit(1)
 
+UTM_TRACKING = "utm_source=flipboard&utm_medium=syndication&utm_campaign=flipboard_daily"
+
 # ── Shopify Helpers ───────────────────────────────────────────────────────────
 def fetch_articles(days: int, limit: int) -> list:
     """Fetch articles from all Shopify blogs."""
@@ -130,7 +132,7 @@ def fetch_articles(days: int, limit: int) -> list:
         
         articles_batch = r.json().get("articles", [])
         for art in articles_batch:
-            art["_full_url"] = f"{STORE_URL}/blogs/{blog_handle}/{art['handle']}"
+            art["_full_url"] = f"{STORE_URL}/blogs/{blog_handle}/{art['handle']}?{UTM_TRACKING}"
             art["_blog_id"] = blog_id
             all_articles.append(art)
             
@@ -173,7 +175,7 @@ def fetch_old_articles(limit: int) -> list:
             continue
             
         for art in articles_batch:
-            art["_full_url"] = f"{STORE_URL}/blogs/{blog_handle}/{art['handle']}"
+            art["_full_url"] = f"{STORE_URL}/blogs/{blog_handle}/{art['handle']}?{UTM_TRACKING}"
             art["_blog_id"] = blog_id
             all_articles.append(art)
             
