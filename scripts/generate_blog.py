@@ -74,10 +74,20 @@ def fetch_shopify_data(session, store_url):
                 "image_url": img_url
             })
             
-        coll_resp = session.get(f"{store_url}/admin/api/2023-10/custom_collections.json?limit=5")
+        coll_resp = session.get(f"{store_url}/admin/api/2023-10/custom_collections.json?published_status=published&limit=10")
         if coll_resp.status_code == 200:
             collections_data = coll_resp.json().get('custom_collections', [])
             for c in collections_data:
+                handle = c.get('handle')
+                collections.append({
+                    "title": c.get('title'),
+                    "url": f"/collections/{handle}"
+                })
+                
+        smart_coll_resp = session.get(f"{store_url}/admin/api/2023-10/smart_collections.json?published_status=published&limit=10")
+        if smart_coll_resp.status_code == 200:
+            smart_collections_data = smart_coll_resp.json().get('smart_collections', [])
+            for c in smart_collections_data:
                 handle = c.get('handle')
                 collections.append({
                     "title": c.get('title'),
@@ -375,12 +385,12 @@ Return ONLY a valid JSON object in this exact format (no markdown, no backticks,
     
     context = ""
     if collections:
-        context += "Here are some of our store collections you can subtly interlink in the text:\n"
+        context += "Here are our EXACT store collections. You MUST ONLY link to these specific URLs when mentioning categories. DO NOT hallucinate, guess, or invent collection URLs:\n"
         for c in collections:
             context += f"- {c['title']} (URL: {c['url']})\n"
             
     if products:
-        context += "\nHere are 3 of our products to list casually at the very end of the article (under a 'Related Finds' or similar section). Do not explicitly recommend them, just mention them neutrally:\n"
+        context += "\nHere are 3 of our products to list casually at the very end of the article (under a 'Related Finds' or similar section). Do not explicitly recommend them, just mention them neutrally. DO NOT hallucinate product URLs:\n"
         for p in products:
             context += f"- {p['title']} (URL: {p['url']})\n"
             
