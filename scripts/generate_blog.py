@@ -84,7 +84,7 @@ def fetch_shopify_data(session, store_url):
         
     return products, collections
 
-def publish_shopify_article(session, store_url, blog_id, title, html_content, author, draft=True):
+def publish_shopify_article(session, store_url, blog_id, title, html_content, author, image_bytes=None, draft=True):
     url = f"{store_url}/admin/api/2023-10/blogs/{blog_id}/articles.json"
     tags = "AI_Generated, Needs_Review" if draft else ""
     payload = {
@@ -96,6 +96,15 @@ def publish_shopify_article(session, store_url, blog_id, title, html_content, au
             "published": not draft
         }
     }
+    
+    if image_bytes:
+        import base64
+        b64_img = base64.b64encode(image_bytes).decode('utf-8')
+        payload["article"]["image"] = {
+            "attachment": b64_img,
+            "alt": f"Illustration for {title}"
+        }
+
     resp = session.post(url, json=payload)
     resp.raise_for_status()
     return resp.json()['article']
@@ -126,6 +135,30 @@ def process_existing_drafts(session, store_url, blog_id):
             }
             update_url = f"{store_url}/admin/api/2023-10/blogs/{blog_id}/articles/{article['id']}.json"
             session.put(update_url, json=payload)
+
+def generate_article_image(client, topic):
+    print(f"Generating feature image for topic: '{topic}'...")
+    try:
+        image_prompt = (
+            f"High quality editorial lifestyle photography for a women's fashion and lifestyle blog. "
+            f"Topic: {topic}. "
+            f"Vibrant colors, highly detailed, cinematic lighting, 16:9 aspect ratio, suitable for a premium Google Discover banner. "
+            f"No text, no watermarks, realistic and relatable."
+        )
+        response = client.models.generate_images(
+            model='imagen-3.0-generate-001',
+            prompt=image_prompt,
+            config=dict(
+                number_of_images=1,
+                aspect_ratio='16:9',
+                output_mime_type='image/jpeg'
+            )
+        )
+        if response.generated_images:
+            return response.generated_images[0].image.image_bytes
+    except Exception as e:
+        print(f"Warning: Failed to generate feature image: {e}")
+    return None
 
 def call_gemini_with_backoff(client, model_name, prompt, retries=3):
     for attempt in range(retries):
@@ -285,9 +318,13 @@ def main():
     print("Generating blog content with Gemini...")
     title, html_content = generate_blog_content(gemini_key, products, collections)
     
+    # Initialize the genai client for image generation
+    client = genai.Client(api_key=gemini_key)
+    image_bytes = generate_article_image(client, title)
+    
     print(f"Publishing new draft article: '{title}'...")
     author = "Editorial Team"
-    article = publish_shopify_article(session, shopify_store, blog_id, title, html_content, author, draft=True)
+    article = publish_shopify_article(session, shopify_store, blog_id, title, html_content, author, image_bytes=image_bytes, draft=True)
     
     print(f"✅ Draft created successfully! Article ID: {article['id']}")
 
