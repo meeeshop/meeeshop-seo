@@ -143,13 +143,14 @@ def process_existing_drafts(session, store_url, blog_id):
 def get_best_image_models(client):
     try:
         models_iterable = client.models.list()
-        # Find 'imagen' models (which are used for image generation)
-        available_models = [m.name for m in models_iterable if "imagen" in m.name.lower()]
+        # Include both 'imagen' and 'image' models (like gemini-3.1-flash-image)
+        available_models = [m.name for m in models_iterable if "imagen" in m.name.lower() or "image" in m.name.lower()]
         
         priority = [
-            "imagen-4.0-ultra-generate-001",
+            "gemini-3.1-flash-image",
+            "gemini-3-pro-image",
+            "gemini-2.5-flash-image",
             "imagen-4.0-generate-001",
-            "imagen-4.0-fast-generate-001",
             "imagen-3.0-generate-001"
         ]
         
@@ -171,7 +172,7 @@ def get_best_image_models(client):
     except Exception as e:
         print(f"Warning: Failed to list image models: {e}")
         
-    return ['imagen-4.0-generate-001', 'imagen-3.0-generate-001']
+    return ['gemini-3.1-flash-image', 'imagen-4.0-generate-001']
 
 def generate_article_image(client, topic):
     print(f"Generating feature image for topic: '{topic}'...")
@@ -187,20 +188,40 @@ def generate_article_image(client, topic):
     for model_name in models_to_try:
         print(f"Trying image generation with model: {model_name}")
         try:
-            response = client.models.generate_images(
-                model=model_name,
-                prompt=image_prompt,
-                config=dict(
-                    number_of_images=1,
-                    aspect_ratio='16:9',
-                    output_mime_type='image/jpeg'
+            # First try the legacy generate_images method
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                response = client.models.generate_images(
+                    model=model_name,
+                    prompt=image_prompt,
+                    config=dict(
+                        number_of_images=1,
+                        aspect_ratio='16:9',
+                        output_mime_type='image/jpeg'
+                    )
                 )
-            )
-            if response.generated_images:
-                print(f"Successfully generated image using {model_name}")
+            if hasattr(response, 'generated_images') and response.generated_images:
+                print(f"Successfully generated image using {model_name} (generate_images)")
                 return response.generated_images[0].image.image_bytes
         except Exception as e:
-            print(f"Warning: Failed with {model_name}: {e}")
+            print(f"generate_images failed for {model_name} (Error: {e}). Trying new generate_content API...")
+            try:
+                # Fallback to the new generate_content method for newer models
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=image_prompt
+                )
+                
+                # In the new SDK, if it outputs an image, it usually attaches it as inline_data
+                if hasattr(response, 'candidates') and response.candidates:
+                    for part in response.candidates[0].content.parts:
+                        if hasattr(part, 'inline_data') and part.inline_data:
+                            print(f"Successfully generated image using {model_name} (generate_content)")
+                            return part.inline_data.data
+                print(f"No image data returned from generate_content for {model_name}")
+            except Exception as e2:
+                print(f"generate_content also failed for {model_name}: {e2}")
             
     print("All available AI image models failed.")
     return None
