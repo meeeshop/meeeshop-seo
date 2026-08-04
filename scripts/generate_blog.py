@@ -140,7 +140,7 @@ def process_existing_drafts(session, store_url, blog_id):
             update_url = f"{store_url}/admin/api/2023-10/blogs/{blog_id}/articles/{article['id']}.json"
             session.put(update_url, json=payload)
 
-def get_best_image_model(client):
+def get_best_image_models(client):
     try:
         models_iterable = client.models.list()
         # Find 'imagen' models (which are used for image generation)
@@ -153,42 +153,56 @@ def get_best_image_model(client):
             "imagen-3.0-generate-001"
         ]
         
+        ordered_models = []
         for p in priority:
             for m in available_models:
                 if p in m:
-                    print(f"Auto-selected image model: {m}")
-                    return m.replace('models/', '')
-                    
-        if available_models:
-            return available_models[0].replace('models/', '')
+                    model_id = m.replace('models/', '')
+                    if model_id not in ordered_models:
+                        ordered_models.append(model_id)
+                        
+        for m in available_models:
+            model_id = m.replace('models/', '')
+            if model_id not in ordered_models:
+                ordered_models.append(model_id)
+                
+        if ordered_models:
+            return ordered_models
     except Exception as e:
         print(f"Warning: Failed to list image models: {e}")
         
-    return 'imagen-4.0-generate-001'
+    return ['imagen-4.0-generate-001', 'imagen-3.0-generate-001']
 
 def generate_article_image(client, topic):
     print(f"Generating feature image for topic: '{topic}'...")
-    try:
-        model_name = get_best_image_model(client)
-        image_prompt = (
-            f"High quality editorial lifestyle photography for a women's fashion and lifestyle blog. "
-            f"Topic: {topic}. "
-            f"Vibrant colors, highly detailed, cinematic lighting, 16:9 aspect ratio, suitable for a premium Google Discover banner. "
-            f"No text, no watermarks, realistic and relatable."
-        )
-        response = client.models.generate_images(
-            model=model_name,
-            prompt=image_prompt,
-            config=dict(
-                number_of_images=1,
-                aspect_ratio='16:9',
-                output_mime_type='image/jpeg'
+    models_to_try = get_best_image_models(client)
+    
+    image_prompt = (
+        f"High quality editorial lifestyle photography for a women's fashion and lifestyle blog. "
+        f"Topic: {topic}. "
+        f"Vibrant colors, highly detailed, cinematic lighting, 16:9 aspect ratio, suitable for a premium Google Discover banner. "
+        f"No text, no watermarks, realistic and relatable."
+    )
+    
+    for model_name in models_to_try:
+        print(f"Trying image generation with model: {model_name}")
+        try:
+            response = client.models.generate_images(
+                model=model_name,
+                prompt=image_prompt,
+                config=dict(
+                    number_of_images=1,
+                    aspect_ratio='16:9',
+                    output_mime_type='image/jpeg'
+                )
             )
-        )
-        if response.generated_images:
-            return response.generated_images[0].image.image_bytes
-    except Exception as e:
-        print(f"Warning: Failed to generate feature image: {e}")
+            if response.generated_images:
+                print(f"Successfully generated image using {model_name}")
+                return response.generated_images[0].image.image_bytes
+        except Exception as e:
+            print(f"Warning: Failed with {model_name}: {e}")
+            
+    print("All available AI image models failed.")
     return None
 
 def create_product_collage(products):
