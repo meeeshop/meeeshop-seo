@@ -4,6 +4,8 @@ import json
 import time
 import random
 import requests
+import io
+from PIL import Image
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from google import genai
@@ -65,9 +67,11 @@ def fetch_shopify_data(session, store_url):
             
         for p in featured:
             handle = p.get('handle')
+            img_url = p.get('image', {}).get('src') if p.get('image') else None
             products.append({
                 "title": p.get('title'),
-                "url": f"/products/{handle}"
+                "url": f"/products/{handle}",
+                "image_url": img_url
             })
             
         coll_resp = session.get(f"{store_url}/admin/api/2023-10/custom_collections.json?limit=5")
@@ -186,6 +190,49 @@ def generate_article_image(client, topic):
     except Exception as e:
         print(f"Warning: Failed to generate feature image: {e}")
     return None
+
+def create_product_collage(products):
+    print("Generating fallback product collage...")
+    image_urls = [p['image_url'] for p in products if p.get('image_url')]
+    if not image_urls:
+        print("No product images available for collage.")
+        return None
+        
+    images = []
+    target_height = 600
+    for url in image_urls[:3]:
+        try:
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200:
+                img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
+                aspect = img.width / img.height
+                new_width = int(target_height * aspect)
+                img = img.resize((new_width, target_height), Image.Resampling.LANCZOS)
+                images.append(img)
+        except Exception as e:
+            print(f"Failed to fetch product image {url}: {e}")
+            
+    if not images:
+        return None
+        
+    gap = 20
+    border = 40
+    bg_color = "#FDFBF7" # Cream color
+    
+    total_width = sum(img.width for img in images) + gap * (len(images) - 1) + border * 2
+    total_height = target_height + border * 2
+    
+    collage = Image.new("RGBA", (total_width, total_height), bg_color)
+    
+    x_offset = border
+    for img in images:
+        collage.paste(img, (x_offset, border), img)
+        x_offset += img.width + gap
+        
+    collage = collage.convert("RGB")
+    byte_arr = io.BytesIO()
+    collage.save(byte_arr, format='JPEG', quality=85)
+    return byte_arr.getvalue()
 
 def call_gemini_with_backoff(client, model_name, prompt, retries=3):
     for attempt in range(retries):
@@ -373,6 +420,9 @@ def main():
     # Initialize the genai client for image generation
     client = genai.Client(api_key=gemini_key)
     image_bytes = generate_article_image(client, title)
+    
+    if not image_bytes:
+        image_bytes = create_product_collage(products)
     
     print(f"Publishing new draft article: '{title}'...")
     author = "Editorial Team"
