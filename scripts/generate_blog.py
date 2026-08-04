@@ -378,7 +378,7 @@ Return ONLY a valid JSON object in this exact format (no markdown, no backticks,
     
     context = ""
     if collections:
-        context += "Here are our EXACT store collections. You MUST ONLY link to these specific URLs when mentioning categories. DO NOT hallucinate, guess, or invent collection URLs:\n"
+        context += "Here are our EXACT store collections. To avoid spammy SEO, you MUST insert a MAXIMUM of 2 to 3 internal links to our collections across the entire article. Select only the most relevant ones. ONLY link to these specific URLs. DO NOT hallucinate, guess, or invent collection URLs:\n"
         for c in collections:
             context += f"- {c['title']} (URL: {c['url']})\n"
             
