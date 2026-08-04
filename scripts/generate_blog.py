@@ -139,26 +139,20 @@ def process_existing_drafts(session, store_url, blog_id):
 def get_best_image_model(client):
     try:
         models_iterable = client.models.list()
-        available_models = [m.name for m in models_iterable if "image" in m.name and "gemini" in m.name]
+        # Find 'imagen' models (which are used for image generation)
+        available_models = [m.name for m in models_iterable if "imagen" in m.name.lower()]
         
         priority = [
-            "gemini-3.1-pro-image",
-            "gemini-3-pro-image",
-            "gemini-3.1-flash-image",
-            "gemini-2.5-pro-image",
-            "gemini-2.5-flash-image"
+            "imagen-4.0-ultra-generate-001",
+            "imagen-4.0-generate-001",
+            "imagen-4.0-fast-generate-001",
+            "imagen-3.0-generate-001"
         ]
         
         for p in priority:
             for m in available_models:
-                if p in m and "preview" not in m and "exp" not in m:
-                    print(f"Auto-selected image model: {m}")
-                    return m.replace('models/', '')
-                    
-        for p in priority:
-            for m in available_models:
                 if p in m:
-                    print(f"Auto-selected preview image model: {m}")
+                    print(f"Auto-selected image model: {m}")
                     return m.replace('models/', '')
                     
         if available_models:
@@ -166,7 +160,7 @@ def get_best_image_model(client):
     except Exception as e:
         print(f"Warning: Failed to list image models: {e}")
         
-    return 'gemini-3.1-flash-image'
+    return 'imagen-4.0-generate-001'
 
 def generate_article_image(client, topic):
     print(f"Generating feature image for topic: '{topic}'...")
