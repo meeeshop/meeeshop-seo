@@ -488,7 +488,15 @@ def main():
         image_bytes = create_product_collage(products)
     
     print(f"Publishing new draft article: '{title}' to Blog ID: {chosen_blog_id}...")
-    author = "Editorial Team"
+    
+    authors = [
+        "Vivienne Vance, MeeeShop Senior Stylist",
+        "Genevieve Thorne, MeeeShop Trend Forecaster",
+        "Elena Vance, MeeeShop Lead Stylist",
+        "Audrey Sterling, MeeeShop Style Director"
+    ]
+    author = random.choice(authors)
+    
     article = publish_shopify_article(session, shopify_store, chosen_blog_id, title, html_content, author, image_bytes=image_bytes, draft=True)
     
     print(f"✅ Draft created successfully! Article ID: {article['id']}")
