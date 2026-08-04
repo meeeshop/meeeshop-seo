@@ -164,25 +164,18 @@ def get_best_image_models(client):
             "imagen-3.0-generate-001"
         ]
         
-        ordered_models = []
         for p in priority:
             for m in available_models:
                 if p in m:
-                    model_id = m.replace('models/', '')
-                    if model_id not in ordered_models:
-                        ordered_models.append(model_id)
-                        
-        for m in available_models:
-            model_id = m.replace('models/', '')
-            if model_id not in ordered_models:
-                ordered_models.append(model_id)
+                    return [m.replace('models/', '')]
+                    
+        if available_models:
+            return [available_models[0].replace('models/', '')]
                 
-        if ordered_models:
-            return ordered_models
     except Exception as e:
         print(f"Warning: Failed to list image models: {e}")
         
-    return ['gemini-3.1-flash-image', 'imagen-4.0-generate-001']
+    return ['gemini-3.1-flash-image']
 
 def generate_article_image(client, topic):
     print(f"Generating feature image for topic: '{topic}'...")
@@ -388,11 +381,6 @@ Return ONLY a valid JSON object in this exact format (no markdown, no backticks,
         context += "Here are our EXACT store collections. You MUST ONLY link to these specific URLs when mentioning categories. DO NOT hallucinate, guess, or invent collection URLs:\n"
         for c in collections:
             context += f"- {c['title']} (URL: {c['url']})\n"
-            
-    if products:
-        context += "\nHere are 3 of our products to list casually at the very end of the article (under a 'Related Finds' or similar section). Do not explicitly recommend them, just mention them neutrally. DO NOT hallucinate product URLs:\n"
-        for p in products:
-            context += f"- {p['title']} (URL: {p['url']})\n"
             
     article_prompt = f"""
 Act as an expert fashion and lifestyle consultant. Write an SEO-optimized blog article answering this question: "{topic}".
