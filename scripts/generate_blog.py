@@ -144,9 +144,31 @@ def call_gemini_with_backoff(client, model_name, prompt, retries=3):
                 raise e
     raise Exception("Max retries exceeded for Gemini API")
 
+def get_best_model(client):
+    try:
+        models = client.models.list()
+        available_models = [m.name for m in models if "generateContent" in m.supported_generation_methods]
+        print(f"Available models: {available_models}")
+        # Prioritize newer or 'pro' models
+        for pref in ["gemini-2.5-pro", "gemini-1.5-pro-latest", "gemini-1.5-pro", "gemini-pro"]:
+            for m in available_models:
+                if pref in m:
+                    # m might be 'models/gemini-2.5-pro'
+                    return m.replace('models/', '')
+        
+        # Fallback to the first available model
+        if available_models:
+            return available_models[0].replace('models/', '')
+    except Exception as e:
+        print(f"Warning: Failed to dynamically list models: {e}")
+        
+    return 'gemini-1.5-pro-latest'
+
 def generate_blog_content(api_key, products, collections):
     client = genai.Client(api_key=api_key)
-    model_name = 'gemini-1.5-pro'
+    model_name = get_best_model(client)
+    print(f"Selected Gemini Model: {model_name}")
+
     
     topic_prompt = (
         "Act as an expert SEO strategist for a women's fashion and lifestyle brand in the USA. "
