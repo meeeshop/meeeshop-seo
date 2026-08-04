@@ -98,7 +98,7 @@ def fetch_shopify_data(session, store_url):
         
     return products, collections
 
-def publish_shopify_article(session, store_url, blog_id, title, html_content, author, image_bytes=None, draft=True):
+def publish_shopify_article(session, store_url, blog_id, title, html_content, author, image_bytes=None, draft=True, template_suffix=None):
     url = f"{store_url}/admin/api/2023-10/blogs/{blog_id}/articles.json"
     tags = "AI_Generated, Needs_Review" if draft else ""
     payload = {
@@ -111,6 +111,9 @@ def publish_shopify_article(session, store_url, blog_id, title, html_content, au
         }
     }
     
+    if template_suffix:
+        payload["article"]["template_suffix"] = template_suffix
+        
     if image_bytes:
         import base64
         b64_img = base64.b64encode(image_bytes).decode('utf-8')
@@ -501,9 +504,16 @@ def main():
     bio_html = f'<hr><p><em>Written by <a href="{author_url}">{author_name}</a>. Learn more about our experts on our <a href="{author_url}">Author Bio</a> page.</em></p>'
     html_content += f"\n{bio_html}"
     
-    article = publish_shopify_article(session, shopify_store, chosen_blog_id, title, html_content, author_name, image_bytes=image_bytes, draft=True)
+    # Automatically map the blog category handle to the OS 2.0 template suffix
+    chosen_blog = next((b for b in blogs if str(b['id']) == str(chosen_blog_id)), blogs[0])
+    template_suffix = chosen_blog['handle']
     
-    print(f"✅ Draft created successfully! Article ID: {article['id']}")
+    is_draft = os.environ.get("DRAFT_MODE", "false").lower() == "true"
+    
+    article = publish_shopify_article(session, shopify_store, chosen_blog_id, title, html_content, author_name, image_bytes=image_bytes, draft=is_draft, template_suffix=template_suffix)
+    
+    status = "Draft" if is_draft else "Published article"
+    print(f"✅ {status} created successfully! Article ID: {article['id']}")
 
 if __name__ == "__main__":
     main()

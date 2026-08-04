@@ -5,7 +5,12 @@ on:
     # Run twice a week: e.g., Tuesday and Friday at 10:00 AM UTC
     - cron: '0 10 * * 2,5'
   workflow_dispatch:
-    # Allow manual triggering
+    inputs:
+      draft:
+        description: 'Create as a Draft (requires manual review before publishing)?'
+        required: true
+        type: boolean
+        default: true
 
 jobs:
   generate-blog:
@@ -30,5 +35,6 @@ jobs:
         env:
           DECRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           DECRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+          DRAFT_MODE: ${{ github.event.inputs.draft || 'false' }}
         run: |
           python scripts/generate_blog.py
