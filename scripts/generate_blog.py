@@ -136,9 +136,42 @@ def process_existing_drafts(session, store_url, blog_id):
             update_url = f"{store_url}/admin/api/2023-10/blogs/{blog_id}/articles/{article['id']}.json"
             session.put(update_url, json=payload)
 
+def get_best_image_model(client):
+    try:
+        models_iterable = client.models.list()
+        available_models = [m.name for m in models_iterable if "image" in m.name and "gemini" in m.name]
+        
+        priority = [
+            "gemini-3.1-pro-image",
+            "gemini-3-pro-image",
+            "gemini-3.1-flash-image",
+            "gemini-2.5-pro-image",
+            "gemini-2.5-flash-image"
+        ]
+        
+        for p in priority:
+            for m in available_models:
+                if p in m and "preview" not in m and "exp" not in m:
+                    print(f"Auto-selected image model: {m}")
+                    return m.replace('models/', '')
+                    
+        for p in priority:
+            for m in available_models:
+                if p in m:
+                    print(f"Auto-selected preview image model: {m}")
+                    return m.replace('models/', '')
+                    
+        if available_models:
+            return available_models[0].replace('models/', '')
+    except Exception as e:
+        print(f"Warning: Failed to list image models: {e}")
+        
+    return 'gemini-3.1-flash-image'
+
 def generate_article_image(client, topic):
     print(f"Generating feature image for topic: '{topic}'...")
     try:
+        model_name = get_best_image_model(client)
         image_prompt = (
             f"High quality editorial lifestyle photography for a women's fashion and lifestyle blog. "
             f"Topic: {topic}. "
@@ -146,7 +179,7 @@ def generate_article_image(client, topic):
             f"No text, no watermarks, realistic and relatable."
         )
         response = client.models.generate_images(
-            model='imagen-3.0-generate-001',
+            model=model_name,
             prompt=image_prompt,
             config=dict(
                 number_of_images=1,
@@ -213,20 +246,28 @@ def get_best_model(client):
         
     return 'gemini-2.5-flash'
 
-def generate_blog_content(api_key, products, collections):
+def generate_blog_content(api_key, products, collections, existing_titles):
     client = genai.Client(api_key=api_key)
     model_name = get_best_model(client)
-    print(f"Selected Gemini Model: {model_name}")
-
+    print(f"Selected Gemini Text Model: {model_name}")
     
+    exclusion_text = ""
+    if existing_titles:
+        exclusion_text = "DO NOT use any of these topics as we already covered them:\n" + "\n".join(f"- {t}" for t in existing_titles[:30]) + "\n"
+
     topic_prompt = (
         "Act as an expert SEO strategist for a women's fashion and lifestyle brand in the USA. "
         "Provide one specific, highly trending 'People Also Ask' style question that women shoppers are currently searching for. "
-        "It should be a helpful, practical question, NOT product-focused. "
+        f"It should be a helpful, practical question, NOT product-focused.\n{exclusion_text}"
         "Provide ONLY the question string, nothing else."
     )
     topic = call_gemini_with_backoff(client, model_name, topic_prompt).strip().strip('"')
     print(f"Trending Topic Selected: {topic}")
+    
+    # Extra safety check, if it somehow duplicated, we abort this run
+    if topic in existing_titles:
+        print("Generated a topic that already exists despite exclusions. Aborting this run to avoid duplicates.")
+        sys.exit(0)
     
     context = ""
     if collections:
@@ -247,18 +288,23 @@ STRICT GUIDELINES:
 2. Tone: Active, conversational, first-person voice. Use real-world testing constraints or personal experiences.
 3. Rhythm: Ensure "burstiness". Mix very short, punchy sentences with longer explanations. Do not use monotonous sentence structures.
 4. Forbidden Words (AI Telltales): Do NOT use any of these phrases: {", ".join(AI_CLICHES)}.
-5. Structure:
+5. Modern Layout & Formatting (CRITICAL):
    - Provide a high-quality main image meta tag at the top of the HTML (e.g., <meta name="max-image-preview" content="large" />).
-   - Use proper HTML formatting (<h1> for title, <h2> for subheadings, <p>, <ul>).
+   - The first line MUST be the <h1> title.
+   - Use engaging <h2> subheadings.
+   - Break up walls of text. Use <blockquote> for key takeaways or quotes.
+   - Use bulleted lists (<ul>) with relevant emojis for easy scanning.
+   - Bold important phrases. 
    - The article must genuinely help the reader and NOT sound like a sales pitch.
    - At the end, include a subtle section with the 3 provided products.
    - Interlink provided collections naturally within the text using HTML anchor tags.
-6. Output Format: Return ONLY valid HTML. Do not wrap in ```html markdown blocks. The first line should be the <h1> title.
+6. Output Format: Return ONLY valid HTML. Do not wrap in ```html markdown blocks.
 
 {context}
     """
     
     html_content = call_gemini_with_backoff(client, model_name, article_prompt)
+
     
     if html_content.startswith("```html"):
         html_content = html_content[7:]
@@ -276,6 +322,15 @@ STRICT GUIDELINES:
         html_content = html_content.strip()
 
     return title, html_content
+
+def get_recent_article_titles(session, store_url, blog_id):
+    url = f"{store_url}/admin/api/2023-10/blogs/{blog_id}/articles.json?limit=50"
+    resp = session.get(url)
+    titles = []
+    if resp.status_code == 200:
+        articles = resp.json().get('articles', [])
+        titles = [a.get('title') for a in articles]
+    return titles
 
 def main():
     # In GitHub Actions, we pass the decryption keys as env vars
@@ -312,11 +367,14 @@ def main():
     print("Checking for approved drafts to publish...")
     process_existing_drafts(session, shopify_store, blog_id)
     
+    print("Fetching existing article titles...")
+    existing_titles = get_recent_article_titles(session, shopify_store, blog_id)
+    
     print("Fetching Shopify products and collections context...")
     products, collections = fetch_shopify_data(session, shopify_store)
     
     print("Generating blog content with Gemini...")
-    title, html_content = generate_blog_content(gemini_key, products, collections)
+    title, html_content = generate_blog_content(gemini_key, products, collections, existing_titles)
     
     # Initialize the genai client for image generation
     client = genai.Client(api_key=gemini_key)
