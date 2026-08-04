@@ -138,7 +138,7 @@ def call_gemini_with_backoff(client, model_name, prompt, retries=3):
         except Exception as e:
             if '429' in str(e) or 'Quota' in str(e) or '403' in str(e) or '503' in str(e):
                 wait_time = (2 ** attempt) * 5
-                print(f"Rate limited by Gemini. Waiting {wait_time} seconds...")
+                print(f"Rate limited by Gemini (Error: {e}). Waiting {wait_time} seconds...")
                 time.sleep(wait_time)
             else:
                 raise e
@@ -146,33 +146,39 @@ def call_gemini_with_backoff(client, model_name, prompt, retries=3):
 
 def get_best_model(client):
     try:
-        # In google-genai, client.models.list() returns an iterable of Model objects
         models_iterable = client.models.list()
         available_models = [m.name for m in models_iterable]
         print(f"Available models: {available_models}")
         
-        # Filter for standard gemini pro models and exclude experimental/vision unless necessary
-        pro_models = [m for m in available_models if "gemini" in m and "pro" in m and "vision" not in m and "exp" not in m]
+        # User requested priority: 3.1 or 2.5 flash
+        priority = [
+            "gemini-3.1-pro",
+            "gemini-3.1-flash",
+            "gemini-2.5-flash",
+            "gemini-2.5-pro"
+        ]
         
-        if pro_models:
-            # String reverse sort will place gemini-3.5-pro above gemini-1.5-pro
-            pro_models.sort(reverse=True)
-            best_model = pro_models[0]
-            print(f"Auto-selected latest pro model: {best_model}")
-            return best_model.replace('models/', '')
-            
-        # Fallback if no pro models found
-        for m in available_models:
-            if "gemini" in m:
-                return m.replace('models/', '')
-                
+        # 1. Try to find a stable version first (no 'preview' or 'exp' in name)
+        for p in priority:
+            for m in available_models:
+                if p in m and "preview" not in m and "exp" not in m:
+                    print(f"Auto-selected requested model: {m}")
+                    return m.replace('models/', '')
+                    
+        # 2. Try to find a preview version if stable isn't available
+        for p in priority:
+            for m in available_models:
+                if p in m:
+                    print(f"Auto-selected requested preview model: {m}")
+                    return m.replace('models/', '')
+                    
+        # Fallback if no prioritized models found
         if available_models:
             return available_models[0].replace('models/', '')
     except Exception as e:
         print(f"Warning: Failed to dynamically list models: {e}")
         
-    # User requested 3.1 and higher. Default fallback if API list fails
-    return 'gemini-3.5-pro'
+    return 'gemini-2.5-flash'
 
 def generate_blog_content(api_key, products, collections):
     client = genai.Client(api_key=api_key)
