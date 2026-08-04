@@ -322,7 +322,7 @@ def get_best_model(client):
         
     return 'gemini-2.5-flash'
 
-def generate_blog_content(api_key, products, collections, existing_titles):
+def generate_blog_content(api_key, products, collections, existing_titles, blogs):
     client = genai.Client(api_key=api_key)
     model_name = get_best_model(client)
     print(f"Selected Gemini Text Model: {model_name}")
@@ -330,15 +330,43 @@ def generate_blog_content(api_key, products, collections, existing_titles):
     exclusion_text = ""
     if existing_titles:
         exclusion_text = "DO NOT use any of these topics as we already covered them:\n" + "\n".join(f"- {t}" for t in existing_titles[:30]) + "\n"
+        
+    blogs_info = "\n".join([f"- ID: {b['id']}, Title: {b['title']}" for b in blogs])
 
-    topic_prompt = (
-        "Act as an expert SEO strategist for a women's fashion and lifestyle brand in the USA. "
-        "Provide one specific, highly trending 'People Also Ask' style question that women shoppers are currently searching for. "
-        f"It should be a helpful, practical question, NOT product-focused.\n{exclusion_text}"
-        "Provide ONLY the question string, nothing else."
-    )
-    topic = call_gemini_with_backoff(client, model_name, topic_prompt).strip().strip('"')
+    topic_prompt = f"""
+Act as an expert SEO strategist for a women's fashion and lifestyle brand in the USA. 
+Provide one specific, highly trending 'People Also Ask' style question that women shoppers are currently searching for. 
+It should be a helpful, practical question, NOT product-focused.
+{exclusion_text}
+
+Here are our available blog categories:
+{blogs_info}
+
+Choose the best category based on the content/product types. If you can't figure it out, default to 'Tips' or 'Women's Clothing' (if they exist in the list), or the first category available.
+
+Return ONLY a valid JSON object in this exact format (no markdown, no backticks, no extra text):
+{{"topic": "The generated question", "blog_id": "the numeric ID of the chosen category"}}
+"""
+    topic_resp = call_gemini_with_backoff(client, model_name, topic_prompt).strip()
+    
+    import json
+    try:
+        if topic_resp.startswith("```json"):
+            topic_resp = topic_resp[7:]
+        if topic_resp.startswith("```"):
+            topic_resp = topic_resp[3:]
+        if topic_resp.endswith("```"):
+            topic_resp = topic_resp[:-3]
+        topic_data = json.loads(topic_resp.strip())
+        topic = topic_data['topic']
+        chosen_blog_id = str(topic_data['blog_id'])
+    except Exception as e:
+        print(f"Warning: Failed to parse JSON topic ({e}), falling back to default blog.")
+        topic = topic_resp.strip().strip('"')
+        chosen_blog_id = str(blogs[0]['id'])
+        
     print(f"Trending Topic Selected: {topic}")
+    print(f"Chosen Blog ID: {chosen_blog_id}")
     
     # Extra safety check, if it somehow duplicated, we abort this run
     if topic in existing_titles:
@@ -397,15 +425,16 @@ STRICT GUIDELINES:
         html_content = html_content[:html_content.find("<h1>")] + html_content[end+5:]
         html_content = html_content.strip()
 
-    return title, html_content
+    return title, html_content, chosen_blog_id
 
-def get_recent_article_titles(session, store_url, blog_id):
-    url = f"{store_url}/admin/api/2023-10/blogs/{blog_id}/articles.json?limit=50"
-    resp = session.get(url)
+def get_recent_article_titles(session, store_url, blogs):
     titles = []
-    if resp.status_code == 200:
-        articles = resp.json().get('articles', [])
-        titles = [a.get('title') for a in articles]
+    for b in blogs:
+        url = f"{store_url}/admin/api/2023-10/blogs/{b['id']}/articles.json?limit=50"
+        resp = session.get(url)
+        if resp.status_code == 200:
+            articles = resp.json().get('articles', [])
+            titles.extend([a.get('title') for a in articles])
     return titles
 
 def main():
@@ -438,19 +467,18 @@ def main():
         print("Error: No blogs found on the Shopify store.")
         sys.exit(1)
     
-    blog_id = blogs[0]['id']
-    
-    print("Checking for approved drafts to publish...")
-    process_existing_drafts(session, shopify_store, blog_id)
+    print("Checking for approved drafts to publish across all blogs...")
+    for b in blogs:
+        process_existing_drafts(session, shopify_store, b['id'])
     
     print("Fetching existing article titles...")
-    existing_titles = get_recent_article_titles(session, shopify_store, blog_id)
+    existing_titles = get_recent_article_titles(session, shopify_store, blogs)
     
     print("Fetching Shopify products and collections context...")
     products, collections = fetch_shopify_data(session, shopify_store)
     
     print("Generating blog content with Gemini...")
-    title, html_content = generate_blog_content(gemini_key, products, collections, existing_titles)
+    title, html_content, chosen_blog_id = generate_blog_content(gemini_key, products, collections, existing_titles, blogs)
     
     # Initialize the genai client for image generation
     client = genai.Client(api_key=gemini_key)
@@ -459,9 +487,9 @@ def main():
     if not image_bytes:
         image_bytes = create_product_collage(products)
     
-    print(f"Publishing new draft article: '{title}'...")
+    print(f"Publishing new draft article: '{title}' to Blog ID: {chosen_blog_id}...")
     author = "Editorial Team"
-    article = publish_shopify_article(session, shopify_store, blog_id, title, html_content, author, image_bytes=image_bytes, draft=True)
+    article = publish_shopify_article(session, shopify_store, chosen_blog_id, title, html_content, author, image_bytes=image_bytes, draft=True)
     
     print(f"✅ Draft created successfully! Article ID: {article['id']}")
 
