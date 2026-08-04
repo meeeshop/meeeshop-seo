@@ -6,7 +6,7 @@ import random
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-import google.generativeai as genai
+from google import genai
 from cryptography.fernet import Fernet
 
 # --- Configuration ---
@@ -127,13 +127,16 @@ def process_existing_drafts(session, store_url, blog_id):
             update_url = f"{store_url}/admin/api/2023-10/blogs/{blog_id}/articles/{article['id']}.json"
             session.put(update_url, json=payload)
 
-def call_gemini_with_backoff(model, prompt, retries=3):
+def call_gemini_with_backoff(client, model_name, prompt, retries=3):
     for attempt in range(retries):
         try:
-            response = model.generate_content(prompt)
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt
+            )
             return response.text
         except Exception as e:
-            if '429' in str(e) or 'Quota' in str(e):
+            if '429' in str(e) or 'Quota' in str(e) or '403' in str(e) or '503' in str(e):
                 wait_time = (2 ** attempt) * 5
                 print(f"Rate limited by Gemini. Waiting {wait_time} seconds...")
                 time.sleep(wait_time)
@@ -142,8 +145,8 @@ def call_gemini_with_backoff(model, prompt, retries=3):
     raise Exception("Max retries exceeded for Gemini API")
 
 def generate_blog_content(api_key, products, collections):
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-pro')
+    client = genai.Client(api_key=api_key)
+    model_name = 'gemini-1.5-pro'
     
     topic_prompt = (
         "Act as an expert SEO strategist for a women's fashion and lifestyle brand in the USA. "
@@ -151,7 +154,7 @@ def generate_blog_content(api_key, products, collections):
         "It should be a helpful, practical question, NOT product-focused. "
         "Provide ONLY the question string, nothing else."
     )
-    topic = call_gemini_with_backoff(model, topic_prompt).strip().strip('"')
+    topic = call_gemini_with_backoff(client, model_name, topic_prompt).strip().strip('"')
     print(f"Trending Topic Selected: {topic}")
     
     context = ""
@@ -184,7 +187,7 @@ STRICT GUIDELINES:
 {context}
     """
     
-    html_content = call_gemini_with_backoff(model, article_prompt)
+    html_content = call_gemini_with_backoff(client, model_name, article_prompt)
     
     if html_content.startswith("```html"):
         html_content = html_content[7:]
