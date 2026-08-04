@@ -508,9 +508,12 @@ def main():
     chosen_blog = next((b for b in blogs if str(b['id']) == str(chosen_blog_id)), blogs[0])
     template_suffix = chosen_blog['handle']
     
-    article = publish_shopify_article(session, shopify_store, chosen_blog_id, title, html_content, author_name, image_bytes=image_bytes, draft=True, template_suffix=template_suffix)
+    is_draft = os.environ.get("DRAFT_MODE", "false").lower() == "true"
     
-    print(f"✅ Draft created successfully! Article ID: {article['id']}")
+    article = publish_shopify_article(session, shopify_store, chosen_blog_id, title, html_content, author_name, image_bytes=image_bytes, draft=is_draft, template_suffix=template_suffix)
+    
+    status = "Draft" if is_draft else "Published article"
+    print(f"✅ {status} created successfully! Article ID: {article['id']}")
 
 if __name__ == "__main__":
     main()
