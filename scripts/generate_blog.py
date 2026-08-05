@@ -504,9 +504,27 @@ def main():
     bio_html = f'<hr><p><em>Written by <a href="{author_url}">{author_name}</a>. Learn more about our experts on our <a href="{author_url}">Author Bio</a> page.</em></p>'
     html_content += f"\n{bio_html}"
     
+    TEMPLATE_MAPPING = {
+        "announcements": "announcements",
+        "cardigans-sweaters-style-guide": "cardigans-sweaters",
+        "coats-jackets-style-guide": "coats-jackets",
+        "dresses-style-guide": "dresses",
+        "jeans-style-guide": "jeans",
+        "jeans-blog-post": "jeans",
+        "our-tips": "our-tips",
+        "plus-size-curvy-clothing": "plus-size",
+        "everything-anything-about-vegan": "veganism",
+        "womens-clothing": "women-s-clothing",
+        "womens-pants-style-guide": "women-s-pants",
+        "womens-shirts-tops-style-guide": "women-s-shirts-tops",
+        "womens-skirts-style-guide": "women-s-skirts"
+    }
+
     # Automatically map the blog category handle to the OS 2.0 template suffix
     chosen_blog = next((b for b in blogs if str(b['id']) == str(chosen_blog_id)), blogs[0])
-    template_suffix = chosen_blog['handle']
+    
+    blog_handle = chosen_blog['handle']
+    template_suffix = TEMPLATE_MAPPING.get(blog_handle, blog_handle.replace("-style-guide", "").replace("-blog-post", ""))
     
     is_draft = os.environ.get("DRAFT_MODE", "false").lower() == "true"
     
