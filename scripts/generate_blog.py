@@ -335,7 +335,9 @@ def generate_blog_content(api_key, products, collections, existing_titles, blogs
     
     exclusion_text = ""
     if existing_titles:
-        exclusion_text = "DO NOT use any of these topics as we already covered them:\n" + "\n".join(f"- {t}" for t in existing_titles[:30]) + "\n"
+        # Pass up to 300 existing titles to avoid token bloat while ensuring broad coverage
+        exclusion_list = existing_titles[:300] if len(existing_titles) > 300 else existing_titles
+        exclusion_text = "DO NOT use any of these topics as we already covered them:\n" + "\n".join(f"- {t}" for t in exclusion_list) + "\n"
         
     blogs_info = "\n".join([f"- ID: {b['id']}, Title: {b['title']}" for b in blogs])
 
@@ -374,11 +376,14 @@ Return ONLY a valid JSON object in this exact format (no markdown, no backticks,
     print(f"Trending Topic Selected: {topic}")
     print(f"Chosen Blog ID: {chosen_blog_id}")
     
-    # Extra safety check, if it somehow duplicated, we abort this run
-    if topic in existing_titles:
+    # Extra safety check using case-insensitive matching
+    topic_lower = topic.lower().strip()
+    existing_lower = [t.lower().strip() for t in existing_titles]
+    
+    if topic_lower in existing_lower:
         print("Generated a topic that already exists despite exclusions. Aborting this run to avoid duplicates.")
         sys.exit(0)
-    
+        
     context = ""
     if collections:
         context += "Here are our EXACT store collections. To avoid spammy SEO, you MUST insert a MAXIMUM of 2 to 3 internal links to our collections across the entire article. Select only the most relevant ones. ONLY link to these specific URLs. DO NOT hallucinate, guess, or invent collection URLs:\n"
@@ -431,12 +436,24 @@ STRICT GUIDELINES:
 def get_recent_article_titles(session, store_url, blogs):
     titles = []
     for b in blogs:
-        url = f"{store_url}/admin/api/2023-10/blogs/{b['id']}/articles.json?limit=50"
-        resp = session.get(url)
-        if resp.status_code == 200:
-            articles = resp.json().get('articles', [])
-            titles.extend([a.get('title') for a in articles])
-    return titles
+        url = f"{store_url}/admin/api/2023-10/blogs/{b['id']}/articles.json?limit=250"
+        while url:
+            resp = session.get(url)
+            if resp.status_code == 200:
+                articles = resp.json().get('articles', [])
+                titles.extend([a.get('title') for a in articles])
+                
+                link_header = resp.headers.get('Link')
+                url = None
+                if link_header:
+                    links = link_header.split(',')
+                    for link in links:
+                        if 'rel="next"' in link:
+                            url = link[link.find('<')+1:link.find('>')]
+                            break
+            else:
+                break
+    return list(set(titles))
 
 def main():
     # In GitHub Actions, we pass the decryption keys as env vars
@@ -504,9 +521,27 @@ def main():
     bio_html = f'<hr><p><em>Written by <a href="{author_url}">{author_name}</a>. Learn more about our experts on our <a href="{author_url}">Author Bio</a> page.</em></p>'
     html_content += f"\n{bio_html}"
     
+    TEMPLATE_MAPPING = {
+        "announcements": "announcements",
+        "cardigans-sweaters-style-guide": "cardigans-sweaters",
+        "coats-jackets-style-guide": "coats-jackets",
+        "dresses-style-guide": "dresses",
+        "jeans-style-guide": "jeans",
+        "jeans-blog-post": "jeans",
+        "our-tips": "our-tips",
+        "plus-size-curvy-clothing": "plus-size",
+        "everything-anything-about-vegan": "veganism",
+        "womens-clothing": "women-s-clothing",
+        "womens-pants-style-guide": "women-s-pants",
+        "womens-shirts-tops-style-guide": "women-s-shirts-tops",
+        "womens-skirts-style-guide": "women-s-skirts"
+    }
+
     # Automatically map the blog category handle to the OS 2.0 template suffix
     chosen_blog = next((b for b in blogs if str(b['id']) == str(chosen_blog_id)), blogs[0])
-    template_suffix = chosen_blog['handle']
+    
+    blog_handle = chosen_blog['handle']
+    template_suffix = TEMPLATE_MAPPING.get(blog_handle, blog_handle.replace("-style-guide", "").replace("-blog-post", ""))
     
     is_draft = os.environ.get("DRAFT_MODE", "false").lower() == "true"
     
