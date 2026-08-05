@@ -2,8 +2,8 @@ name: Daily Flipboard Syndication
 
 on:
   schedule:
-    # Run every 6 hours
-    - cron: '0 */6 * * *'
+    # Run on Monday, Wednesday, Friday at 14:00 UTC
+    - cron: '0 14 * * 1,3,5'
   
   workflow_dispatch:
     inputs:
@@ -26,7 +26,7 @@ on:
         description: 'Max trending articles to flip'
         required: false
         type: string
-        default: '10'
+        default: '4'
 
 jobs:
   flipboard-sync:
@@ -60,7 +60,7 @@ jobs:
           
           DAYS="${{ github.event.inputs.days || '7' }}"
           LIMIT="${{ github.event.inputs.limit || '10' }}"
-          REFLIP_LIMIT="${{ github.event.inputs.reflip_limit || '10' }}"
+          REFLIP_LIMIT="${{ github.event.inputs.reflip_limit || '4' }}"
           
           python scripts/sync_to_flipboard.py --days $DAYS --limit $LIMIT --reflip-limit $REFLIP_LIMIT $DRY_RUN_FLAG
 
