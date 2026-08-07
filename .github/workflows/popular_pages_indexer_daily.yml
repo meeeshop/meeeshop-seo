@@ -1,9 +1,9 @@
 name: Popular Pages & Search Query Indexer
 
 on:
-  # 1. Scheduled — daily at 10:00 AM EST (15:00 UTC)
+  # 1. Scheduled — Weekly on Mondays at 10:00 AM EST (15:00 UTC)
   schedule:
-    - cron: '0 15 * * *'
+    - cron: '0 15 * * 1'
 
   # 2. Manual dispatch
   workflow_dispatch:
