@@ -3,9 +3,9 @@
 popular_pages_indexer.py — Improvised GSC & Bing Analytics Indexer, Deduplicated Description Query Enricher & Blog Automation
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Queries Google Search Console (GSC) and Bing Webmaster APIs for 7-day search analytics targeting US Women Shoppers.
-Identifies high-impression, zero/low-click products, collections, and blog articles (EXCLUDING size chart pages/queries).
-Enriches product & collection descriptions naturally with missing search queries (with strict deduplication safeguards,
-leaving Title Tags & Meta Descriptions 100% untouched).
+Sorts pages strictly by IMPRESSIONS descending to target high-impression, zero-click products, collections, and blogs.
+Maps exact page-to-query analytics from GSC to enrich product & collection descriptions with missing search queries.
+Enforces strict deduplication safeguards and leaves Title Tags & Meta Descriptions 100% untouched.
 Submits updated URLs to Google Indexing API & IndexNow for immediate search engine recrawling.
 """
 
@@ -90,15 +90,16 @@ def get_oauth_token(sa_key: dict, scope: str) -> str:
     resp.raise_for_status()
     return resp.json()["access_token"]
 
-# ── Fetch GSC Analytics (Pages & Queries with Country Filter) ─────────────────
-def fetch_gsc_analytics(sa_key: dict, days: int = 7, page_limit: int = 100, query_limit: int = 100, country: str = "usa") -> tuple[list[dict], list[dict]]:
+# ── Fetch GSC Analytics (Pages, Queries & Page-Query Mapping) ────────────────
+def fetch_gsc_analytics(sa_key: dict, days: int = 7, country: str = "usa") -> tuple[list[dict], list[dict], dict[str, list[dict]]]:
     print(f"Fetching GSC search analytics over the last {days} days (Country filter: {country.upper()})...")
     pages = []
     queries = []
+    page_query_map = {}  # url -> list of query dicts
+
     try:
         token = get_oauth_token(sa_key, GSC_SCOPE)
         
-        # Query GSC verified sites list to find the matching property
         list_url = "https://www.googleapis.com/webmasters/v3/sites"
         list_resp = requests.get(list_url, headers={"Authorization": f"Bearer {token}"}, timeout=15)
         list_resp.raise_for_status()
@@ -131,12 +132,12 @@ def fetch_gsc_analytics(sa_key: dict, days: int = 7, page_limit: int = 100, quer
                 }]
             }]
 
-        # 1. Query Pages
+        # 1. Fetch Pages (RowLimit 2500 to capture ALL pages including 0-click high impression URLs)
         page_payload = {
             "startDate": start_date,
             "endDate": end_date,
             "dimensions": ["page"],
-            "rowLimit": page_limit
+            "rowLimit": 2500
         }
         if dim_filter_group:
             page_payload["dimensionFilterGroups"] = dim_filter_group
@@ -145,7 +146,7 @@ def fetch_gsc_analytics(sa_key: dict, days: int = 7, page_limit: int = 100, quer
             query_url,
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             json=page_payload,
-            timeout=20
+            timeout=25
         )
         if resp_pages.status_code == 200:
             for row in resp_pages.json().get("rows", []):
@@ -160,12 +161,12 @@ def fetch_gsc_analytics(sa_key: dict, days: int = 7, page_limit: int = 100, quer
                         "source": "GSC"
                     })
 
-        # 2. Query Search Terms
+        # 2. Fetch Search Queries
         query_payload = {
             "startDate": start_date,
             "endDate": end_date,
             "dimensions": ["query"],
-            "rowLimit": query_limit
+            "rowLimit": 2500
         }
         if dim_filter_group:
             query_payload["dimensionFilterGroups"] = dim_filter_group
@@ -174,7 +175,7 @@ def fetch_gsc_analytics(sa_key: dict, days: int = 7, page_limit: int = 100, quer
             query_url,
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             json=query_payload,
-            timeout=20
+            timeout=25
         )
         if resp_queries.status_code == 200:
             for row in resp_queries.json().get("rows", []):
@@ -189,13 +190,50 @@ def fetch_gsc_analytics(sa_key: dict, days: int = 7, page_limit: int = 100, quer
                         "source": "GSC"
                     })
 
+        # 3. Fetch Page + Query Pairs (gives exact queries driving traffic/impressions for each URL)
+        pair_payload = {
+            "startDate": start_date,
+            "endDate": end_date,
+            "dimensions": ["page", "query"],
+            "rowLimit": 2500
+        }
+        if dim_filter_group:
+            pair_payload["dimensionFilterGroups"] = dim_filter_group
+
+        resp_pairs = requests.post(
+            query_url,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=pair_payload,
+            timeout=30
+        )
+        if resp_pairs.status_code == 200:
+            for row in resp_pairs.json().get("rows", []):
+                keys = row.get("keys", ["", ""])
+                p_url = keys[0]
+                q_text = keys[1]
+                if is_size_chart(p_url) or is_size_chart(q_text):
+                    continue
+                if p_url not in page_query_map:
+                    page_query_map[p_url] = []
+                page_query_map[p_url].append({
+                    "query": q_text,
+                    "clicks": int(row.get("clicks", 0)),
+                    "impressions": int(row.get("impressions", 0)),
+                    "ctr": float(row.get("ctr", 0)),
+                    "position": float(row.get("position", 0))
+                })
+
     except Exception as e:
         print(f"[ERROR] Failed to fetch search analytics data from GSC: {e}")
 
-    return pages, queries
+    # Sort page_query_map entries by impressions descending
+    for u in page_query_map:
+        page_query_map[u].sort(key=lambda x: x["impressions"], reverse=True)
+
+    return pages, queries, page_query_map
 
 # ── Fetch Bing Webmaster Analytics ────────────────────────────────────────────
-def fetch_bing_analytics(api_key: str = None, days: int = 7, limit: int = 100) -> tuple[list[dict], list[dict]]:
+def fetch_bing_analytics(api_key: str = None, days: int = 7, limit: int = 500) -> tuple[list[dict], list[dict]]:
     if not api_key:
         try:
             api_key = get_secret("BING_WEBMASTER_API_KEY")
@@ -214,7 +252,6 @@ def fetch_bing_analytics(api_key: str = None, days: int = 7, limit: int = 100) -
         domain = urllib.parse.urlparse(STORE_URL).netloc
         site_param = urllib.parse.quote(STORE_URL)
         
-        # 1. Fetch Query Stats
         query_endpoint = f"https://ssl.bing.com/webmaster/api.svc/json/GetQueryStats?siteUrl={site_param}&apikey={api_key}"
         rq = requests.get(query_endpoint, timeout=15)
         if rq.status_code == 200:
@@ -235,7 +272,6 @@ def fetch_bing_analytics(api_key: str = None, days: int = 7, limit: int = 100) -
                     "source": "Bing"
                 })
 
-        # 2. Fetch Page Stats
         page_endpoint = f"https://ssl.bing.com/webmaster/api.svc/json/GetPageStats?siteUrl={site_param}&apikey={api_key}"
         rp = requests.get(page_endpoint, timeout=15)
         if rp.status_code == 200:
@@ -297,11 +333,12 @@ def merge_analytics(gsc_pages: list[dict], gsc_queries: list[dict], bing_pages: 
     queries = list(merged_queries_map.values())
     return pages, queries
 
-# ── Filter Zero/Low-Click Opportunities (Excluding Size Charts) ──────────────
+# ── Filter Zero/Low-Click Opportunities (Sorted by IMPRESSIONS Descending) ────
 def filter_zero_click_opportunities(pages: list[dict], queries: list[dict], min_impressions: int = 5) -> dict:
     zero_click_pages = [p for p in pages if p["impressions"] >= min_impressions and p["clicks"] == 0 and not is_size_chart(p["url"])]
     zero_click_queries = [q for q in queries if q["impressions"] >= min_impressions and q["clicks"] == 0 and not is_size_chart(q["query"])]
 
+    # Strictly sort by IMPRESSIONS descending so the highest impression pages are #1 priority!
     zero_click_pages.sort(key=lambda x: x["impressions"], reverse=True)
     zero_click_queries.sort(key=lambda x: x["impressions"], reverse=True)
 
@@ -331,7 +368,7 @@ def search_store_resources(queries: list[dict]) -> set[str]:
     headers = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
     admin_base = f"https://{SHOP}/admin/api/2024-10"
 
-    for item in queries:
+    for item in queries[:50]:
         q = item["query"].strip()
         if len(q) < 3 or is_size_chart(q):
             continue
@@ -359,13 +396,12 @@ def search_store_resources(queries: list[dict]) -> set[str]:
         except Exception as e:
             print(f"  [!] Error searching store resources for '{q}': {e}")
 
-    # Exclude any size chart pages from matched URLs
     matched_urls = {u for u in matched_urls if not is_size_chart(u)}
     print(f"Discovered {len(matched_urls)} matching product/article URLs from query lookup.")
     return matched_urls
 
-# ── Deduplicated Natural Description Query Enricher ──────────────────────────
-def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], dry_run: bool = False) -> int:
+# ── Deduplicated Natural Description Query Enricher with Explicit Logging ──
+def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[dict], page_query_map: dict, max_items: int = 50, dry_run: bool = False) -> int:
     print("\n" + "=" * 70)
     print("  DEDUPLICATED NATURAL DESCRIPTION QUERY ENRICHER")
     print("  (Preserving Titles & Meta Descriptions Untouched; Excluding Size Charts)")
@@ -388,10 +424,17 @@ def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], d
 
     modified_count = 0
 
-    # 1. Process Product Opportunities
-    for item in opportunities.get("products", []):
+    # 1. Process Highest-Impression Product Opportunities
+    target_products = opportunities.get("products", [])[:max_items]
+    print(f"\nProcessing top {len(target_products)} Product opportunities (sorted by impressions descending)...")
+
+    for item in target_products:
         url = item["url"]
+        url_impressions = item["impressions"]
+        url_clicks = item["clicks"]
+
         if is_size_chart(url):
+            print(f"  [SKIP SIZE CHART] {url}")
             continue
 
         handle = url.rstrip("/").split("/")[-1]
@@ -410,15 +453,21 @@ def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], d
             body_html = prod.get("body_html", "") or ""
             prod_title = prod.get("title", "")
 
-            matching_queries = [
-                q for q in queries
-                if not is_size_chart(q["query"]) and any(w in prod_title.lower() or w in handle.lower() for w in q["query"].lower().split() if len(w) > 3)
-            ]
-            if not matching_queries:
-                non_size_queries = [q for q in queries if not is_size_chart(q["query"])]
-                matching_queries = non_size_queries[:1]
+            # 1a. Priority Query Selection: Check exact GSC query mapped to this URL
+            candidate_queries = page_query_map.get(url, [])
+            if not candidate_queries:
+                # Fallback: Match by title/handle keywords
+                candidate_queries = [
+                    q for q in global_queries
+                    if not is_size_chart(q["query"]) and any(w in prod_title.lower() or w in handle.lower() for w in q["query"].lower().split() if len(w) > 3)
+                ]
 
-            for q_obj in matching_queries[:2]:
+            if not candidate_queries:
+                # Secondary Fallback: Derive query from handle
+                derived_q = handle.replace("-", " ")
+                candidate_queries = [{"query": derived_q, "impressions": url_impressions, "clicks": url_clicks}]
+
+            for q_obj in candidate_queries[:2]:
                 q_text = q_obj["query"].strip()
                 if is_size_chart(q_text):
                     continue
@@ -426,7 +475,7 @@ def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], d
                 hist_key = f"product:{prod_id}:{q_clean}"
 
                 if q_clean in body_html.lower() or f"gsc-query: \"{q_clean}\"" in body_html.lower():
-                    print(f"  [SKIP DUP] Product '{handle}': Query '{q_text}' already present in description.")
+                    print(f"  [SKIP DUP] Product '{handle}': Query '{q_text}' already present in description body.")
                     continue
 
                 if hist_key in history:
@@ -440,7 +489,9 @@ def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], d
                 )
 
                 new_body = body_html + injection_html
-                print(f"  [ENRICH] Product '{handle}': Adding natural query '{q_text}' (Impressions: {q_obj['impressions']})")
+                print(f"  [ENRICH SUCCESS] Product '{handle}' (URL Imp: {url_impressions} | Clicks: {url_clicks}):")
+                print(f"                   -> Injected Search Query: '{q_text}' (Query Imp: {q_obj.get('impressions', url_impressions)})")
+                print(f"                   -> Action: Appended natural styling tip to product description body.")
 
                 if not dry_run:
                     up_res = requests.put(
@@ -460,10 +511,17 @@ def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], d
         except Exception as e:
             print(f"  [!] Error processing product '{handle}': {e}")
 
-    # 2. Process Collection Opportunities
-    for item in opportunities.get("collections", []):
+    # 2. Process Highest-Impression Collection Opportunities
+    target_collections = opportunities.get("collections", [])[:max_items]
+    print(f"\nProcessing top {len(target_collections)} Collection opportunities (sorted by impressions descending)...")
+
+    for item in target_collections:
         url = item["url"]
+        url_impressions = item["impressions"]
+        url_clicks = item["clicks"]
+
         if is_size_chart(url):
+            print(f"  [SKIP SIZE CHART] {url}")
             continue
 
         handle = url.rstrip("/").split("/")[-1]
@@ -488,15 +546,18 @@ def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], d
             col_id = str(col_obj["id"])
             col_desc = col_obj.get("body_html") or col_obj.get("description") or ""
 
-            matching_queries = [
-                q for q in queries
-                if not is_size_chart(q["query"]) and any(w in handle.lower() for w in q["query"].lower().split() if len(w) > 3)
-            ]
-            if not matching_queries:
-                non_size_queries = [q for q in queries if not is_size_chart(q["query"])]
-                matching_queries = non_size_queries[:1]
+            candidate_queries = page_query_map.get(url, [])
+            if not candidate_queries:
+                candidate_queries = [
+                    q for q in global_queries
+                    if not is_size_chart(q["query"]) and any(w in handle.lower() for w in q["query"].lower().split() if len(w) > 3)
+                ]
 
-            for q_obj in matching_queries[:1]:
+            if not candidate_queries:
+                derived_q = handle.replace("-", " ")
+                candidate_queries = [{"query": derived_q, "impressions": url_impressions, "clicks": url_clicks}]
+
+            for q_obj in candidate_queries[:1]:
                 q_text = q_obj["query"].strip()
                 if is_size_chart(q_text):
                     continue
@@ -504,7 +565,7 @@ def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], d
                 hist_key = f"collection:{col_id}:{q_clean}"
 
                 if q_clean in col_desc.lower() or f"gsc-query: \"{q_clean}\"" in col_desc.lower():
-                    print(f"  [SKIP DUP] Collection '{handle}': Query '{q_text}' already present in description.")
+                    print(f"  [SKIP DUP] Collection '{handle}': Query '{q_text}' already present in description body.")
                     continue
 
                 if hist_key in history:
@@ -518,7 +579,9 @@ def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], d
                 )
 
                 new_desc = col_desc + injection_html
-                print(f"  [ENRICH] Collection '{handle}': Adding natural query '{q_text}' (Impressions: {q_obj['impressions']})")
+                print(f"  [ENRICH SUCCESS] Collection '{handle}' (URL Imp: {url_impressions} | Clicks: {url_clicks}):")
+                print(f"                   -> Injected Search Query: '{q_text}' (Query Imp: {q_obj.get('impressions', url_impressions)})")
+                print(f"                   -> Action: Appended collection highlight to description body.")
 
                 if not dry_run:
                     up_res = requests.put(
@@ -539,7 +602,7 @@ def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], d
     if not dry_run:
         HISTORY_FILE.write_text(json.dumps(history, indent=2), encoding="utf-8")
 
-    print(f"Enriched {modified_count} product/collection descriptions with zero-click search queries.")
+    print(f"\nSuccessfully enriched {modified_count} product & collection descriptions with zero-click search queries.")
     print("=" * 70 + "\n")
     return modified_count
 
@@ -555,10 +618,10 @@ def export_opportunity_report(opportunities: dict, report_file: str = "reports/z
         "products_count": len(opportunities["products"]),
         "collections_count": len(opportunities["collections"]),
         "blogs_count": len(opportunities["blogs"]),
-        "top_product_opportunities": opportunities["products"][:10],
-        "top_collection_opportunities": opportunities["collections"][:10],
-        "top_blog_opportunities": opportunities["blogs"][:10],
-        "top_query_opportunities": opportunities["zero_click_queries"][:15]
+        "top_product_opportunities": opportunities["products"][:20],
+        "top_collection_opportunities": opportunities["collections"][:20],
+        "top_blog_opportunities": opportunities["blogs"][:20],
+        "top_query_opportunities": opportunities["zero_click_queries"][:20]
     }
 
     out_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -705,7 +768,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Multi-Search Analytics Indexer, Deduplicated Description Enricher & Blog Automation")
     parser.add_argument("--dry-run", action="store_true", help="Dry run mode, do not call indexing APIs or mutate Shopify descriptions")
-    parser.add_argument("--limit", type=int, default=100, help="Number of popular pages to process (default: 100)")
+    parser.add_argument("--limit", type=int, default=50, help="Number of top impression opportunity pages to process (default: 50)")
     parser.add_argument("--query-limit", type=int, default=100, help="Number of top search queries to retrieve (default: 100)")
     parser.add_argument("--days", type=int, default=7, help="Search analytics lookback days (default: 7)")
     parser.add_argument("--country", type=str, default="usa", help="GSC Country filter (default: usa)")
@@ -717,10 +780,10 @@ def main():
     parser.add_argument("--max-blogs", type=int, default=1, help="Maximum number of blog articles to generate per run (default: 1)")
     args = parser.parse_args()
 
-    print("=" * 70)
+    print("=" * 75)
     print("  Popular Pages Indexer & Deduplicated Search Query Enricher (7-Day GSC + Bing)")
-    print("  [Size Chart & Sizing Exclusions Active]")
-    print("=" * 70)
+    print("  [Sorting by IMPRESSIONS Descending | Size Chart Exclusions Active]")
+    print("=" * 75)
     
     try:
         raw = get_secret("GOOGLE_SA_KEY_JSON")
@@ -734,50 +797,54 @@ def main():
             print("ERROR: Google Service Account key not found. Exiting.")
             sys.exit(1)
             
-    # 1. Fetch top pages & search queries from GSC
-    gsc_pages, gsc_queries = fetch_gsc_analytics(
-        sa_key, days=args.days, page_limit=args.limit, query_limit=args.query_limit, country=args.country
+    # 1. Fetch top pages, search queries & page-to-query mapping from GSC
+    gsc_pages, gsc_queries, page_query_map = fetch_gsc_analytics(
+        sa_key, days=args.days, country=args.country
     )
 
     # 2. Fetch Bing Webmaster Analytics if API Key available
     bing_pages, bing_queries = fetch_bing_analytics(
-        api_key=args.bing_api_key, days=args.days, limit=args.limit
+        api_key=args.bing_api_key, days=args.days
     )
 
     # 3. Merge GSC and Bing analytics
     pages, queries = merge_analytics(gsc_pages, gsc_queries, bing_pages, bing_queries)
 
-    # Filter out size chart queries and pages from analytics list
+    # Exclude size chart entries
     pages = [p for p in pages if not is_size_chart(p["url"])]
     queries = [q for q in queries if not is_size_chart(q["query"])]
 
-    # Display Top Queries Log
-    print("\n" + "=" * 70)
-    print(f"  TOP {len(queries)} COMBINED SEARCH QUERIES (Excluding Size Charts)")
-    print("=" * 70)
-    for q in queries[:20]:
-        print(f"  {q['query']:<45} \t{q['clicks']}\t{q['impressions']}\t[{q['source']}]")
-    print("=" * 70 + "\n")
-
-    # 4. Filter Zero-Click High-Impression Opportunities
+    # 4. Filter Zero-Click High-Impression Opportunities (SORTED BY IMPRESSIONS DESCENDING)
     opportunities = filter_zero_click_opportunities(pages, queries, min_impressions=args.min_impressions)
-    print(f"Found {len(opportunities['all_zero_click_pages'])} zero-click pages (excluding size charts) with >= {args.min_impressions} impressions over last {args.days} days:")
+    
+    all_zero_pages = opportunities["all_zero_click_pages"]
+    print(f"\nFound {len(all_zero_pages)} zero-click pages (excluding size charts) with >= {args.min_impressions} impressions over last {args.days} days:")
     print(f"  • Products:    {len(opportunities['products'])}")
     print(f"  • Collections: {len(opportunities['collections'])}")
     print(f"  • Blogs:       {len(opportunities['blogs'])}")
 
+    # Display Top Opportunities Table sorted strictly by Impressions
+    print("\n" + "=" * 95)
+    print("  TOP ZERO-CLICK HIGH-IMPRESSION OPPORTUNITY PAGES (Sorted by IMPRESSIONS Descending)")
+    print("=" * 95)
+    print(f"  {'Impressions':<12} {'Clicks':<8} {'Position':<10} {'Page URL'}")
+    print("  " + "-" * 91)
+    for p in all_zero_pages[:20]:
+        print(f"  {p['impressions']:<12,d} {p['clicks']:<8} {p['position']:<10.1f} {p['url']}")
+    print("=" * 95 + "\n")
+
     # 5. Enrich Product & Collection descriptions if requested
     if args.enrich_descriptions:
-        enrich_descriptions_with_queries(opportunities, queries, dry_run=args.dry_run)
+        enrich_descriptions_with_queries(opportunities, queries, page_query_map, max_items=args.limit, dry_run=args.dry_run)
 
     # 6. Export Opportunity Report if requested
     if args.export_report:
         export_opportunity_report(opportunities)
 
-    # Collect direct GSC & matched store URLs (strictly excluding size charts)
-    gsc_urls = [p["url"] for p in pages if p["url"].startswith(STORE_URL) and not is_size_chart(p["url"])]
+    # Collect URLs to re-index (Top opportunity pages + matched storefront resources)
+    top_opportunity_urls = [p["url"] for p in all_zero_pages[:args.limit] if p["url"].startswith(STORE_URL)]
     matched_urls = search_store_resources(queries)
-    urls_to_index = sorted(list(set(gsc_urls).union(matched_urls)))
+    urls_to_index = sorted(list(set(top_opportunity_urls).union(matched_urls)))
     urls_to_index = [u for u in urls_to_index if not is_size_chart(u)]
     print(f"\nTotal unique product/collection/article URLs targeted for re-indexing: {len(urls_to_index)}")
 
@@ -793,7 +860,7 @@ def main():
     submit_to_indexnow(urls_to_index, dry_run=args.dry_run)
     
     print("\n[OK] Popular Pages Indexer & Deduplicated Query Enricher completed successfully!")
-    print("=" * 70)
+    print("=" * 75)
 
 if __name__ == "__main__":
     main()
