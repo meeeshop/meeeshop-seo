@@ -5,7 +5,7 @@ popular_pages_indexer.py — Improvised GSC & Bing Analytics Indexer, Deduplicat
 Queries Google Search Console (GSC) and Bing Webmaster APIs for 7-day search analytics targeting US Women Shoppers.
 Sorts pages strictly by IMPRESSIONS descending to target high-impression, zero-click products, collections, and blogs.
 Logs impression source (Google vs Bing) explicitly for every opportunity.
-Scans all opportunity candidates until up to `limit` UNOPTIMIZED pages are identified and enriched.
+Scans all opportunity candidates until up to `limit` UNOPTIMIZED pages are identified and enriched via Shopify GraphQL API.
 Enforces strict deduplication safeguards and leaves Title Tags & Meta Descriptions 100% untouched.
 Submits updated URLs to Google Indexing API & IndexNow for immediate search engine recrawling.
 """
@@ -56,6 +56,44 @@ def is_size_chart(text: str) -> bool:
     """Returns True if URL or query string relates to size charts or sizing pages."""
     t = text.lower()
     return ("size" in t and "chart" in t) or "sizing" in t or "size-chart" in t or "sizing-chart" in t or "size_chart" in t
+
+# ── Shopify GraphQL API Helper with Cost-Throttling Protection ─────────────
+def shopify_graphql(query: str, variables: dict = None, max_retries: int = 5) -> dict:
+    """Executes a GraphQL query/mutation against Shopify Admin API with automatic cost throttling and 429 retry logic."""
+    TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
+    if not TOKEN:
+        print("[ERROR] SHOPIFY_ACCESS_TOKEN missing.")
+        return {}
+
+    url = f"https://{SHOP}/admin/api/2024-10/graphql.json"
+    headers = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
+    payload = {"query": query}
+    if variables:
+        payload["variables"] = variables
+
+    for attempt in range(max_retries):
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=15)
+            if resp.status_code == 429:
+                retry_after = float(resp.headers.get("Retry-After", 2.0))
+                time.sleep(retry_after + 0.5)
+                continue
+
+            if resp.status_code == 200:
+                res_json = resp.json()
+                cost = res_json.get("extensions", {}).get("cost", {}).get("throttleStatus", {})
+                curr_available = cost.get("currentlyAvailable", 2000)
+                if curr_available < 150:
+                    time.sleep(0.5)
+                return res_json
+            elif resp.status_code >= 500:
+                time.sleep(1.0)
+            else:
+                return resp.json()
+        except Exception:
+            time.sleep(1.0)
+
+    return {}
 
 # ── Google OAuth2 Helper ──────────────────────────────────────────────────────
 def get_oauth_token(sa_key: dict, scope: str) -> str:
@@ -410,39 +448,44 @@ def filter_zero_click_opportunities(pages: list[dict], queries: list[dict], min_
 def search_store_resources(queries: list[dict]) -> set[str]:
     print("Searching store for products, pages, and articles matching search queries...")
     matched_urls = set()
-    TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
-    if not TOKEN:
-        print("[WARNING] SHOPIFY_ACCESS_TOKEN missing, skipping resource lookup.")
-        return matched_urls
-
-    headers = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
-    admin_base = f"https://{SHOP}/admin/api/2024-10"
 
     for item in queries[:50]:
         q = item["query"].strip()
         if len(q) < 3 or is_size_chart(q):
             continue
         try:
-            search_endpoint = f"{admin_base}/products.json?title={urllib.parse.quote(q)}&limit=5"
-            r = requests.get(search_endpoint, headers=headers, timeout=10)
-            if r.status_code == 200:
-                products = r.json().get("products", [])
-                for p in products:
-                    handle = p.get("handle")
-                    if handle and not is_size_chart(handle):
-                        matched_urls.add(f"{STORE_URL}/products/{handle}")
+            gql_query = """
+            query searchStore($query: String!) {
+              products(first: 5, query: $query) {
+                nodes {
+                  handle
+                }
+              }
+              articles(first: 5, query: $query) {
+                nodes {
+                  handle
+                  blog {
+                    handle
+                  }
+                }
+              }
+            }
+            """
+            res = shopify_graphql(gql_query, {"query": q})
+            data = res.get("data", {})
+            prods = data.get("products", {}).get("nodes", [])
+            for p in prods:
+                h = p.get("handle")
+                if h and not is_size_chart(h):
+                    matched_urls.add(f"{STORE_URL}/products/{h}")
 
-            article_endpoint = f"{admin_base}/articles.json?limit=10"
-            ra = requests.get(article_endpoint, headers=headers, timeout=10)
-            if ra.status_code == 200:
-                articles = ra.json().get("articles", [])
-                q_words = set(q.lower().split())
-                for art in articles:
-                    title = art.get("title", "").lower()
-                    if any(w in title for w in q_words if len(w) > 3):
-                        handle = art.get("handle")
-                        if handle and not is_size_chart(handle):
-                            matched_urls.add(f"{STORE_URL}/blogs/news/{handle}")
+            arts = data.get("articles", {}).get("nodes", [])
+            for a in arts:
+                ah = a.get("handle")
+                bh = a.get("blog", {}).get("handle", "news")
+                if ah and not is_size_chart(ah):
+                    matched_urls.add(f"{STORE_URL}/blogs/{bh}/{ah}")
+
         except Exception as e:
             print(f"  [!] Error searching store resources for '{q}': {e}")
 
@@ -450,20 +493,12 @@ def search_store_resources(queries: list[dict]) -> set[str]:
     print(f"Discovered {len(matched_urls)} matching product/article URLs from query lookup.")
     return matched_urls
 
-# ── Deduplicated Natural Description Query Enricher (Scanning for UNOPTIMIZED Resources) ──
+# ── Deduplicated Natural Description Query Enricher via GraphQL ──────────────────
 def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[dict], page_query_map: dict, max_items: int = 50, dry_run: bool = False) -> int:
     print("\n" + "=" * 80)
-    print("  DEDUPLICATED NATURAL DESCRIPTION QUERY ENRICHER")
+    print("  DEDUPLICATED NATURAL DESCRIPTION QUERY ENRICHER (Shopify GraphQL API)")
     print("  (Preserving Titles & Meta Descriptions Untouched; Scanning for Unoptimized Pages)")
     print("=" * 80)
-
-    TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
-    if not TOKEN:
-        print("[ERROR] SHOPIFY_ACCESS_TOKEN missing. Skipping description enrichment.")
-        return 0
-
-    headers = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
-    admin_base = f"https://{SHOP}/admin/api/2024-10"
 
     history = {}
     if HISTORY_FILE.exists():
@@ -473,6 +508,55 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
             history = {}
 
     modified_count = 0
+
+    # GraphQL Queries & Mutations
+    GET_PRODUCT_BY_HANDLE = """
+    query getProductByHandle($handle: String!) {
+      productByHandle(handle: $handle) {
+        id
+        title
+        descriptionHtml
+      }
+    }
+    """
+
+    UPDATE_PRODUCT_MUTATION = """
+    mutation updateProductDescription($input: ProductInput!) {
+      productUpdate(input: $input) {
+        product {
+          id
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+    """
+
+    GET_COLLECTION_BY_HANDLE = """
+    query getCollectionByHandle($handle: String!) {
+      collectionByHandle(handle: $handle) {
+        id
+        title
+        descriptionHtml
+      }
+    }
+    """
+
+    UPDATE_COLLECTION_MUTATION = """
+    mutation updateCollectionDescription($input: CollectionInput!) {
+      collectionUpdate(input: $input) {
+        collection {
+          id
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+    """
 
     # 1. Process Unoptimized Product Opportunities
     all_products = opportunities.get("products", [])
@@ -497,15 +581,13 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
             continue
 
         try:
-            r = requests.get(f"{admin_base}/products.json?handle={handle}", headers=headers, timeout=10)
-            if r.status_code != 200:
+            res_p = shopify_graphql(GET_PRODUCT_BY_HANDLE, {"handle": handle})
+            prod = res_p.get("data", {}).get("productByHandle")
+            if not prod:
                 continue
-            prods = r.json().get("products", [])
-            if not prods:
-                continue
-            prod = prods[0]
-            prod_id = str(prod["id"])
-            body_html = prod.get("body_html", "") or ""
+
+            prod_id = prod["id"]
+            body_html = prod.get("descriptionHtml", "") or ""
             prod_title = prod.get("title", "")
 
             candidate_queries = page_query_map.get(url, [])
@@ -544,13 +626,14 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
                 new_body = body_html + injection_html
 
                 if not dry_run:
-                    up_res = requests.put(
-                        f"{admin_base}/products/{prod_id}.json",
-                        headers=headers,
-                        json={"product": {"id": prod["id"], "body_html": new_body}},
-                        timeout=15
-                    )
-                    if up_res.status_code == 200:
+                    up_res = shopify_graphql(UPDATE_PRODUCT_MUTATION, {
+                        "input": {
+                            "id": prod_id,
+                            "descriptionHtml": new_body
+                        }
+                    })
+                    user_errors = up_res.get("data", {}).get("productUpdate", {}).get("userErrors", [])
+                    if not user_errors and up_res.get("data", {}).get("productUpdate", {}).get("product"):
                         enriched_products_count += 1
                         modified_count += 1
                         enriched_this_product = True
@@ -559,7 +642,7 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
                         print(f"                     -> Injected Search Query: '{q_text}' (Query Imp: {q_obj.get('impressions', url_impressions):,d})")
                         print(f"                     -> Action: Appended natural styling tip to product description body.")
                     else:
-                        print(f"  [ERROR {up_res.status_code}] Failed to update product '{handle}': {up_res.text[:200]}")
+                        print(f"  [ERROR] Failed to update product '{handle}' via GraphQL: {user_errors}")
                 else:
                     enriched_products_count += 1
                     modified_count += 1
@@ -596,22 +679,13 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
             continue
 
         try:
-            col_obj = None
-            col_type = "custom_collections"
-            r_cust = requests.get(f"{admin_base}/custom_collections.json?handle={handle}", headers=headers, timeout=10)
-            if r_cust.status_code == 200 and r_cust.json().get("custom_collections"):
-                col_obj = r_cust.json()["custom_collections"][0]
-            else:
-                r_smart = requests.get(f"{admin_base}/smart_collections.json?handle={handle}", headers=headers, timeout=10)
-                if r_smart.status_code == 200 and r_smart.json().get("smart_collections"):
-                    col_obj = r_smart.json()["smart_collections"][0]
-                    col_type = "smart_collections"
-
+            res_c = shopify_graphql(GET_COLLECTION_BY_HANDLE, {"handle": handle})
+            col_obj = res_c.get("data", {}).get("collectionByHandle")
             if not col_obj:
                 continue
 
-            col_id = str(col_obj["id"])
-            col_desc = col_obj.get("body_html") or col_obj.get("description") or ""
+            col_id = col_obj["id"]
+            col_desc = col_obj.get("descriptionHtml", "") or ""
 
             candidate_queries = page_query_map.get(url, [])
             if not candidate_queries:
@@ -649,14 +723,14 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
                 new_desc = col_desc + injection_html
 
                 if not dry_run:
-                    payload_key = "custom_collection" if col_type == "custom_collections" else "smart_collection"
-                    up_res = requests.put(
-                        f"{admin_base}/{col_type}/{col_id}.json",
-                        headers=headers,
-                        json={payload_key: {"id": col_obj["id"], "body_html": new_desc}},
-                        timeout=15
-                    )
-                    if up_res.status_code == 200:
+                    up_res = shopify_graphql(UPDATE_COLLECTION_MUTATION, {
+                        "input": {
+                            "id": col_id,
+                            "descriptionHtml": new_desc
+                        }
+                    })
+                    user_errors = up_res.get("data", {}).get("collectionUpdate", {}).get("userErrors", [])
+                    if not user_errors and up_res.get("data", {}).get("collectionUpdate", {}).get("collection"):
                         enriched_collections_count += 1
                         modified_count += 1
                         enriched_this_col = True
@@ -665,7 +739,7 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
                         print(f"                     -> Injected Search Query: '{q_text}' (Query Imp: {q_obj.get('impressions', url_impressions):,d})")
                         print(f"                     -> Action: Appended collection highlight to description body.")
                     else:
-                        print(f"  [ERROR {up_res.status_code}] Failed to update collection '{handle}': {up_res.text[:200]}")
+                        print(f"  [ERROR] Failed to update collection '{handle}' via GraphQL: {user_errors}")
                 else:
                     enriched_collections_count += 1
                     modified_count += 1
@@ -863,7 +937,7 @@ def main():
 
     print("=" * 95)
     print("  Popular Pages Indexer & Deduplicated Search Query Enricher (7-Day GSC + Bing)")
-    print("  [Sorting by IMPRESSIONS Descending | Source Logging | Scanner Loop for Unoptimized Pages Active]")
+    print("  [Sorting by IMPRESSIONS Descending | Source Logging | Shopify GraphQL API | Unoptimized Scanner Loop]")
     print("=" * 95)
     
     try:
@@ -914,7 +988,7 @@ def main():
         print(f"  {p['impressions']:<12,d} {p['clicks']:<8} {p['position']:<10.1f} {p.get('source', 'Google/Bing'):<15} {p['url']}")
     print("=" * 115 + "\n")
 
-    # 5. Enrich Product & Collection descriptions (Scanner Loop to find UNOPTIMIZED pages)
+    # 5. Enrich Product & Collection descriptions (GraphQL Scanner Loop to find UNOPTIMIZED pages)
     if args.enrich_descriptions:
         enrich_descriptions_with_queries(opportunities, queries, page_query_map, max_items=args.limit, dry_run=args.dry_run)
 
