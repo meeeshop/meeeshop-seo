@@ -3,7 +3,7 @@
 popular_pages_indexer.py — Improvised GSC & Bing Analytics Indexer, Deduplicated Description Query Enricher & Blog Automation
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Queries Google Search Console (GSC) and Bing Webmaster APIs for 7-day search analytics targeting US Women Shoppers.
-Identifies high-impression, zero/low-click products, collections, and blog articles.
+Identifies high-impression, zero/low-click products, collections, and blog articles (EXCLUDING size chart pages/queries).
 Enriches product & collection descriptions naturally with missing search queries (with strict deduplication safeguards,
 leaving Title Tags & Meta Descriptions 100% untouched).
 Submits updated URLs to Google Indexing API & IndexNow for immediate search engine recrawling.
@@ -49,6 +49,12 @@ KEY_FILE_NAME = f"{INDEXNOW_KEY}.txt"
 
 # ── History log path for deduplication ────────────────────────────────────────
 HISTORY_FILE = Path(__file__).parent / "zero_click_query_history.json"
+
+# ── Size Chart Filter Helper ─────────────────────────────────────────────────
+def is_size_chart(text: str) -> bool:
+    """Returns True if URL or query string relates to size charts or sizing pages."""
+    t = text.lower()
+    return ("size" in t and "chart" in t) or "sizing" in t or "size-chart" in t or "sizing-chart" in t or "size_chart" in t
 
 # ── Google OAuth2 Helper ──────────────────────────────────────────────────────
 def get_oauth_token(sa_key: dict, scope: str) -> str:
@@ -143,14 +149,16 @@ def fetch_gsc_analytics(sa_key: dict, days: int = 7, page_limit: int = 100, quer
         )
         if resp_pages.status_code == 200:
             for row in resp_pages.json().get("rows", []):
-                pages.append({
-                    "url": row.get("keys", [""])[0],
-                    "clicks": int(row.get("clicks", 0)),
-                    "impressions": int(row.get("impressions", 0)),
-                    "ctr": float(row.get("ctr", 0)),
-                    "position": float(row.get("position", 0)),
-                    "source": "GSC"
-                })
+                p_url = row.get("keys", [""])[0]
+                if not is_size_chart(p_url):
+                    pages.append({
+                        "url": p_url,
+                        "clicks": int(row.get("clicks", 0)),
+                        "impressions": int(row.get("impressions", 0)),
+                        "ctr": float(row.get("ctr", 0)),
+                        "position": float(row.get("position", 0)),
+                        "source": "GSC"
+                    })
 
         # 2. Query Search Terms
         query_payload = {
@@ -170,14 +178,16 @@ def fetch_gsc_analytics(sa_key: dict, days: int = 7, page_limit: int = 100, quer
         )
         if resp_queries.status_code == 200:
             for row in resp_queries.json().get("rows", []):
-                queries.append({
-                    "query": row.get("keys", [""])[0],
-                    "clicks": int(row.get("clicks", 0)),
-                    "impressions": int(row.get("impressions", 0)),
-                    "ctr": float(row.get("ctr", 0)),
-                    "position": float(row.get("position", 0)),
-                    "source": "GSC"
-                })
+                q_text = row.get("keys", [""])[0]
+                if not is_size_chart(q_text):
+                    queries.append({
+                        "query": q_text,
+                        "clicks": int(row.get("clicks", 0)),
+                        "impressions": int(row.get("impressions", 0)),
+                        "ctr": float(row.get("ctr", 0)),
+                        "position": float(row.get("position", 0)),
+                        "source": "GSC"
+                    })
 
     except Exception as e:
         print(f"[ERROR] Failed to fetch search analytics data from GSC: {e}")
@@ -186,9 +196,6 @@ def fetch_gsc_analytics(sa_key: dict, days: int = 7, page_limit: int = 100, quer
 
 # ── Fetch Bing Webmaster Analytics ────────────────────────────────────────────
 def fetch_bing_analytics(api_key: str = None, days: int = 7, limit: int = 100) -> tuple[list[dict], list[dict]]:
-    """
-    Queries Bing Webmaster Tools API for search stats & page stats if Bing API Key is present.
-    """
     if not api_key:
         try:
             api_key = get_secret("BING_WEBMASTER_API_KEY")
@@ -214,6 +221,8 @@ def fetch_bing_analytics(api_key: str = None, days: int = 7, limit: int = 100) -
             q_rows = rq.json().get("d", [])
             for row in q_rows[:limit]:
                 q_text = row.get("Query", "")
+                if is_size_chart(q_text):
+                    continue
                 clicks = int(row.get("Clicks", 0))
                 impressions = int(row.get("Impressions", 0))
                 ctr = float(clicks / impressions) if impressions > 0 else 0.0
@@ -235,6 +244,8 @@ def fetch_bing_analytics(api_key: str = None, days: int = 7, limit: int = 100) -
                 url = row.get("Query", "")
                 if not url.startswith("http"):
                     url = f"{STORE_URL}{url}"
+                if is_size_chart(url):
+                    continue
                 clicks = int(row.get("Clicks", 0))
                 impressions = int(row.get("Impressions", 0))
                 ctr = float(clicks / impressions) if impressions > 0 else 0.0
@@ -257,6 +268,8 @@ def merge_analytics(gsc_pages: list[dict], gsc_queries: list[dict], bing_pages: 
     merged_pages_map = {}
     for p in gsc_pages + bing_pages:
         url = p["url"]
+        if is_size_chart(url):
+            continue
         if url not in merged_pages_map:
             merged_pages_map[url] = dict(p)
         else:
@@ -269,6 +282,8 @@ def merge_analytics(gsc_pages: list[dict], gsc_queries: list[dict], bing_pages: 
     merged_queries_map = {}
     for q in gsc_queries + bing_queries:
         q_text = q["query"].lower().strip()
+        if is_size_chart(q_text):
+            continue
         if q_text not in merged_queries_map:
             merged_queries_map[q_text] = dict(q)
         else:
@@ -282,12 +297,11 @@ def merge_analytics(gsc_pages: list[dict], gsc_queries: list[dict], bing_pages: 
     queries = list(merged_queries_map.values())
     return pages, queries
 
-# ── Filter Zero/Low-Click Opportunities ──────────────────────────────────────
+# ── Filter Zero/Low-Click Opportunities (Excluding Size Charts) ──────────────
 def filter_zero_click_opportunities(pages: list[dict], queries: list[dict], min_impressions: int = 5) -> dict:
-    zero_click_pages = [p for p in pages if p["impressions"] >= min_impressions and p["clicks"] == 0]
-    zero_click_queries = [q for q in queries if q["impressions"] >= min_impressions and q["clicks"] == 0]
+    zero_click_pages = [p for p in pages if p["impressions"] >= min_impressions and p["clicks"] == 0 and not is_size_chart(p["url"])]
+    zero_click_queries = [q for q in queries if q["impressions"] >= min_impressions and q["clicks"] == 0 and not is_size_chart(q["query"])]
 
-    # Sort opportunities by highest impressions
     zero_click_pages.sort(key=lambda x: x["impressions"], reverse=True)
     zero_click_queries.sort(key=lambda x: x["impressions"], reverse=True)
 
@@ -319,7 +333,7 @@ def search_store_resources(queries: list[dict]) -> set[str]:
 
     for item in queries:
         q = item["query"].strip()
-        if len(q) < 3:
+        if len(q) < 3 or is_size_chart(q):
             continue
         try:
             search_endpoint = f"{admin_base}/products.json?title={urllib.parse.quote(q)}&limit=5"
@@ -328,7 +342,7 @@ def search_store_resources(queries: list[dict]) -> set[str]:
                 products = r.json().get("products", [])
                 for p in products:
                     handle = p.get("handle")
-                    if handle:
+                    if handle and not is_size_chart(handle):
                         matched_urls.add(f"{STORE_URL}/products/{handle}")
 
             article_endpoint = f"{admin_base}/articles.json?limit=10"
@@ -340,26 +354,21 @@ def search_store_resources(queries: list[dict]) -> set[str]:
                     title = art.get("title", "").lower()
                     if any(w in title for w in q_words if len(w) > 3):
                         handle = art.get("handle")
-                        if handle:
+                        if handle and not is_size_chart(handle):
                             matched_urls.add(f"{STORE_URL}/blogs/news/{handle}")
         except Exception as e:
             print(f"  [!] Error searching store resources for '{q}': {e}")
 
-    print(f"Discovered {len(matched_urls)} matching store resource URLs from search query lookup.")
+    # Exclude any size chart pages from matched URLs
+    matched_urls = {u for u in matched_urls if not is_size_chart(u)}
+    print(f"Discovered {len(matched_urls)} matching product/article URLs from query lookup.")
     return matched_urls
 
 # ── Deduplicated Natural Description Query Enricher ──────────────────────────
 def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], dry_run: bool = False) -> int:
-    """
-    Enriches product and collection descriptions with missing 7-day search queries as natural styling tips.
-    STRICT DEDUPLICATION SAFEGUARDS:
-    1. Preserves Title Tags & Meta Descriptions 100% untouched.
-    2. Checks if query (or key phrase) is already in the existing body copy -> SKIPS if present.
-    3. Checks local zero_click_query_history.json and HTML comments -> SKIPS if previously injected.
-    """
     print("\n" + "=" * 70)
     print("  DEDUPLICATED NATURAL DESCRIPTION QUERY ENRICHER")
-    print("  (Preserving Titles & Meta Descriptions Untouched)")
+    print("  (Preserving Titles & Meta Descriptions Untouched; Excluding Size Charts)")
     print("=" * 70)
 
     TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
@@ -370,7 +379,6 @@ def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], d
     headers = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
     admin_base = f"https://{SHOP}/admin/api/2024-10"
 
-    # Load history log
     history = {}
     if HISTORY_FILE.exists():
         try:
@@ -383,6 +391,9 @@ def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], d
     # 1. Process Product Opportunities
     for item in opportunities.get("products", []):
         url = item["url"]
+        if is_size_chart(url):
+            continue
+
         handle = url.rstrip("/").split("/")[-1]
         if not handle:
             continue
@@ -399,31 +410,29 @@ def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], d
             body_html = prod.get("body_html", "") or ""
             prod_title = prod.get("title", "")
 
-            # Find matching queries for this product title / handle
             matching_queries = [
                 q for q in queries
-                if any(w in prod_title.lower() or w in handle.lower() for w in q["query"].lower().split() if len(w) > 3)
+                if not is_size_chart(q["query"]) and any(w in prod_title.lower() or w in handle.lower() for w in q["query"].lower().split() if len(w) > 3)
             ]
             if not matching_queries:
-                # Fallback: take top zero-click query
-                matching_queries = queries[:1]
+                non_size_queries = [q for q in queries if not is_size_chart(q["query"])]
+                matching_queries = non_size_queries[:1]
 
             for q_obj in matching_queries[:2]:
                 q_text = q_obj["query"].strip()
+                if is_size_chart(q_text):
+                    continue
                 q_clean = q_text.lower()
                 hist_key = f"product:{prod_id}:{q_clean}"
 
-                # Deduplication Check 1: Already in existing body copy
                 if q_clean in body_html.lower() or f"gsc-query: \"{q_clean}\"" in body_html.lower():
                     print(f"  [SKIP DUP] Product '{handle}': Query '{q_text}' already present in description.")
                     continue
 
-                # Deduplication Check 2: Already in history log
                 if hist_key in history:
                     print(f"  [SKIP HIST] Product '{handle}': Query '{q_text}' previously injected on {history[hist_key].get('date')}.")
                     continue
 
-                # Format natural, high-converting styling sentence
                 injection_html = (
                     f'\n<p class="gsc-seo-note"><!-- gsc-query: "{q_clean}" -->'
                     f'<strong>Styling Tip:</strong> Ideal for creating an effortless <em>{q_text}</em> look. '
@@ -454,12 +463,14 @@ def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], d
     # 2. Process Collection Opportunities
     for item in opportunities.get("collections", []):
         url = item["url"]
+        if is_size_chart(url):
+            continue
+
         handle = url.rstrip("/").split("/")[-1]
         if not handle:
             continue
 
         try:
-            # Query custom collections and smart collections
             col_obj = None
             col_type = "custom_collections"
             r_cust = requests.get(f"{admin_base}/custom_collections.json?handle={handle}", headers=headers, timeout=10)
@@ -479,13 +490,16 @@ def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], d
 
             matching_queries = [
                 q for q in queries
-                if any(w in handle.lower() for w in q["query"].lower().split() if len(w) > 3)
+                if not is_size_chart(q["query"]) and any(w in handle.lower() for w in q["query"].lower().split() if len(w) > 3)
             ]
             if not matching_queries:
-                matching_queries = queries[:1]
+                non_size_queries = [q for q in queries if not is_size_chart(q["query"])]
+                matching_queries = non_size_queries[:1]
 
             for q_obj in matching_queries[:1]:
                 q_text = q_obj["query"].strip()
+                if is_size_chart(q_text):
+                    continue
                 q_clean = q_text.lower()
                 hist_key = f"collection:{col_id}:{q_clean}"
 
@@ -522,7 +536,6 @@ def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], d
         except Exception as e:
             print(f"  [!] Error processing collection '{handle}': {e}")
 
-    # Save updated history log
     if not dry_run:
         HISTORY_FILE.write_text(json.dumps(history, indent=2), encoding="utf-8")
 
@@ -560,9 +573,7 @@ def identify_longtail_question_queries(queries: list[dict]) -> list[dict]:
     candidates = []
     for q in queries:
         q_text = q["query"].lower().strip()
-        
-        # Explicitly exclude size chart and sizing queries
-        if "size chart" in q_text or "sizing" in q_text or "size" in q_text:
+        if is_size_chart(q_text):
             continue
 
         if any(w in q_text for w in question_triggers) or (q["impressions"] >= 15 and q["clicks"] == 0):
@@ -588,6 +599,8 @@ def generate_blogs_from_longtail(queries: list[dict], max_blogs: int = 1, dry_ru
 
     for i, item in enumerate(selected, 1):
         q = item["query"]
+        if is_size_chart(q):
+            continue
         category_topic = get_category_style_phrase({"title": q, "product_type": q})
         print(f"\n[{i}/{len(selected)}] Preparing blog post for long-tail query: '{q}' → category topic: '{category_topic}' (Impressions: {item['impressions']}, Clicks: {item['clicks']})")
 
@@ -624,10 +637,11 @@ def generate_blogs_from_longtail(queries: list[dict], max_blogs: int = 1, dry_ru
 
 # ── Submit to Google Indexing API ────────────────────────────────────────────
 def submit_to_google_indexing(urls: list[str], sa_key: dict, dry_run: bool = False):
+    urls = [u for u in urls if not is_size_chart(u)]
     if not urls:
         return
     
-    print("\nSubmitting trending & matched URLs to Google Indexing API...")
+    print("\nSubmitting trending & matched URLs to Google Indexing API (Excluding Size Charts)...")
     if dry_run:
         print("[DRY-RUN] Skipping API calls for Google Indexing.")
         return
@@ -657,10 +671,11 @@ def submit_to_google_indexing(urls: list[str], sa_key: dict, dry_run: bool = Fal
 
 # ── Submit to IndexNow ────────────────────────────────────────────────────────
 def submit_to_indexnow(urls: list[str], dry_run: bool = False):
+    urls = [u for u in urls if not is_size_chart(u)]
     if not urls:
         return
         
-    print("\nSubmitting trending & matched URLs to IndexNow (Bing/DuckDuckGo)...")
+    print("\nSubmitting trending & matched URLs to IndexNow (Excluding Size Charts)...")
     domain = urllib.parse.urlparse(STORE_URL).netloc
     key_location = f"{STORE_URL}/{KEY_FILE_NAME}"
     
@@ -704,9 +719,9 @@ def main():
 
     print("=" * 70)
     print("  Popular Pages Indexer & Deduplicated Search Query Enricher (7-Day GSC + Bing)")
+    print("  [Size Chart & Sizing Exclusions Active]")
     print("=" * 70)
     
-    # Load Google Service Account credentials
     try:
         raw = get_secret("GOOGLE_SA_KEY_JSON")
         sa_key = json.loads(raw)
@@ -732,9 +747,13 @@ def main():
     # 3. Merge GSC and Bing analytics
     pages, queries = merge_analytics(gsc_pages, gsc_queries, bing_pages, bing_queries)
 
+    # Filter out size chart queries and pages from analytics list
+    pages = [p for p in pages if not is_size_chart(p["url"])]
+    queries = [q for q in queries if not is_size_chart(q["query"])]
+
     # Display Top Queries Log
     print("\n" + "=" * 70)
-    print(f"  TOP {len(queries)} COMBINED SEARCH QUERIES (Clicks | Impressions | Source)")
+    print(f"  TOP {len(queries)} COMBINED SEARCH QUERIES (Excluding Size Charts)")
     print("=" * 70)
     for q in queries[:20]:
         print(f"  {q['query']:<45} \t{q['clicks']}\t{q['impressions']}\t[{q['source']}]")
@@ -742,7 +761,7 @@ def main():
 
     # 4. Filter Zero-Click High-Impression Opportunities
     opportunities = filter_zero_click_opportunities(pages, queries, min_impressions=args.min_impressions)
-    print(f"Found {len(opportunities['all_zero_click_pages'])} zero-click pages with >= {args.min_impressions} impressions over last {args.days} days:")
+    print(f"Found {len(opportunities['all_zero_click_pages'])} zero-click pages (excluding size charts) with >= {args.min_impressions} impressions over last {args.days} days:")
     print(f"  • Products:    {len(opportunities['products'])}")
     print(f"  • Collections: {len(opportunities['collections'])}")
     print(f"  • Blogs:       {len(opportunities['blogs'])}")
@@ -755,11 +774,12 @@ def main():
     if args.export_report:
         export_opportunity_report(opportunities)
 
-    # Collect direct GSC & matched store URLs
-    gsc_urls = [p["url"] for p in pages if p["url"].startswith(STORE_URL)]
+    # Collect direct GSC & matched store URLs (strictly excluding size charts)
+    gsc_urls = [p["url"] for p in pages if p["url"].startswith(STORE_URL) and not is_size_chart(p["url"])]
     matched_urls = search_store_resources(queries)
     urls_to_index = sorted(list(set(gsc_urls).union(matched_urls)))
-    print(f"\nTotal unique store URLs targeted for re-indexing: {len(urls_to_index)}")
+    urls_to_index = [u for u in urls_to_index if not is_size_chart(u)]
+    print(f"\nTotal unique product/collection/article URLs targeted for re-indexing: {len(urls_to_index)}")
 
     # 7. Generate long-tail blog posts if requested
     if args.generate_blogs:
