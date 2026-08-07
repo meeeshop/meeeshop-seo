@@ -44,7 +44,11 @@ INDEXING_SCOPE = "https://www.googleapis.com/auth/indexing"
 INDEXING_ENDPOINT = "https://indexing.googleapis.com/v3/urlNotifications:publish"
 
 # ── IndexNow Constants ────────────────────────────────────────────────────────
-INDEXNOW_KEY = "c5def3bf8d13211be2bacf8d13211be2"
+try:
+    INDEXNOW_KEY = get_secret("INDEXNOW_KEY")
+except Exception:
+    INDEXNOW_KEY = "c5def3bf8d13211be2bacf8d13211be2"
+
 KEY_FILE_NAME = f"{INDEXNOW_KEY}.txt"
 
 # ── History log path for deduplication ────────────────────────────────────────
@@ -238,6 +242,11 @@ def fetch_bing_analytics(api_key: str = None, days: int = 7, limit: int = 500) -
             api_key = get_secret("BING_WEBMASTER_API_KEY")
         except Exception:
             api_key = os.environ.get("BING_WEBMASTER_API_KEY", "").strip()
+            if not api_key:
+                try:
+                    api_key = get_secret("INDEXNOW_KEY")
+                except Exception:
+                    api_key = INDEXNOW_KEY
 
     if not api_key:
         print("[INFO] BING_WEBMASTER_API_KEY not specified/found. Skipping Bing Webmaster API fetch.")
