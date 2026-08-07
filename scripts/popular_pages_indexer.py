@@ -236,32 +236,77 @@ def fetch_gsc_analytics(sa_key: dict, days: int = 7, country: str = "usa") -> tu
     return pages, queries, page_query_map
 
 # ── Fetch Bing Webmaster Analytics ────────────────────────────────────────────
+def load_local_bing_report() -> tuple[list[dict], list[dict]]:
+    """Loads Bing pages & queries from local CSV/JSON export if present."""
+    pages, queries = [], []
+    search_paths = [
+        Path(__file__).parent / "bing_stats.json",
+        Path(__file__).parent.parent / "bing_stats.json",
+        Path(__file__).parent / "bing_stats.csv",
+        Path(__file__).parent.parent / "bing_stats.csv",
+    ]
+    for p in search_paths:
+        if p.exists():
+            print(f"[INFO] Loading local Bing analytics report from: {p.resolve()}")
+            try:
+                if p.suffix == ".json":
+                    data = json.loads(p.read_text(encoding="utf-8"))
+                    for row in data.get("pages", []):
+                        if not is_size_chart(row.get("url", "")):
+                            pages.append({**row, "source": "Bing-File"})
+                    for row in data.get("queries", []):
+                        if not is_size_chart(row.get("query", "")):
+                            queries.append({**row, "source": "Bing-File"})
+                elif p.suffix == ".csv":
+                    import csv
+                    with open(p, "r", encoding="utf-8-sig") as f:
+                        reader = csv.DictReader(f)
+                        for row in reader:
+                            url = row.get("URL") or row.get("Page") or row.get("url") or ""
+                            if url and not is_size_chart(url):
+                                imps = int(row.get("Impressions", 0) or row.get("impressions", 0))
+                                clks = int(row.get("Clicks", 0) or row.get("clicks", 0))
+                                pages.append({
+                                    "url": url if url.startswith("http") else f"{STORE_URL}{url}",
+                                    "clicks": clks,
+                                    "impressions": imps,
+                                    "ctr": (clks / imps) if imps > 0 else 0.0,
+                                    "position": float(row.get("Position", 0) or row.get("position", 0) or 0.0),
+                                    "source": "Bing-File"
+                                })
+            except Exception as e:
+                print(f"[WARNING] Failed to parse local Bing report '{p.name}': {e}")
+    return pages, queries
+
 def fetch_bing_analytics(api_key: str = None, days: int = 7, limit: int = 500) -> tuple[list[dict], list[dict]]:
+    file_pages, file_queries = load_local_bing_report()
+    
     if not api_key:
         try:
             api_key = get_secret("BING_WEBMASTER_API_KEY")
         except Exception:
             api_key = os.environ.get("BING_WEBMASTER_API_KEY", "").strip()
-            if not api_key:
-                try:
-                    api_key = get_secret("INDEXNOW_KEY")
-                except Exception:
-                    api_key = INDEXNOW_KEY
 
     if not api_key:
-        print("[INFO] BING_WEBMASTER_API_KEY not specified/found. Skipping Bing Webmaster API fetch.")
-        return [], []
+        print("[INFO] BING_WEBMASTER_API_KEY secret not found in environment.")
+        print("       (Note: IndexNow key 'c5def3...' is for submitting URLs to IndexNow, whereas")
+        print("       Bing Search Performance API requires your Bing Webmaster Account API Key from Bing Settings -> API Access).")
+        return file_pages, file_queries
 
     print(f"Fetching Bing Webmaster search analytics over the last {days} days...")
     pages = []
     queries = []
     
     try:
-        domain = urllib.parse.urlparse(STORE_URL).netloc
         site_param = urllib.parse.quote(STORE_URL)
-        
         query_endpoint = f"https://ssl.bing.com/webmaster/api.svc/json/GetQueryStats?siteUrl={site_param}&apikey={api_key}"
         rq = requests.get(query_endpoint, timeout=15)
+        
+        if rq.status_code == 400 and "InvalidApiKey" in rq.text:
+            print("[INFO] Bing API returned 'InvalidApiKey'. IndexNow key cannot be used for Bing Search Performance API.")
+            print("       Please add your Bing Webmaster Account API Key (from Bing Webmaster Settings -> API Access) to BING_WEBMASTER_API_KEY.")
+            return file_pages, file_queries
+
         if rq.status_code == 200:
             q_rows = rq.json().get("d", [])
             for row in q_rows[:limit]:
@@ -305,7 +350,10 @@ def fetch_bing_analytics(api_key: str = None, days: int = 7, limit: int = 500) -
     except Exception as e:
         print(f"[WARNING] Bing Webmaster API request failed: {e}")
 
-    return pages, queries
+    # Combine file pages/queries if any
+    all_pages = pages + file_pages
+    all_queries = queries + file_queries
+    return all_pages, all_queries
 
 # ── Merge GSC and Bing Analytics ──────────────────────────────────────────────
 def merge_analytics(gsc_pages: list[dict], gsc_queries: list[dict], bing_pages: list[dict], bing_queries: list[dict]) -> tuple[list[dict], list[dict]]:
