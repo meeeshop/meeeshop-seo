@@ -4,7 +4,7 @@ popular_pages_indexer.py — Improvised GSC & Bing Analytics Indexer, Deduplicat
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Queries Google Search Console (GSC) and Bing Webmaster APIs for 7-day search analytics targeting US Women Shoppers.
 Sorts pages strictly by IMPRESSIONS descending to target high-impression, zero-click products, collections, and blogs.
-Maps exact page-to-query analytics from GSC to enrich product & collection descriptions with missing search queries.
+Scans all opportunity candidates until up to `limit` UNOPTIMIZED pages are identified and enriched.
 Enforces strict deduplication safeguards and leaves Title Tags & Meta Descriptions 100% untouched.
 Submits updated URLs to Google Indexing API & IndexNow for immediate search engine recrawling.
 """
@@ -226,7 +226,6 @@ def fetch_gsc_analytics(sa_key: dict, days: int = 7, country: str = "usa") -> tu
     except Exception as e:
         print(f"[ERROR] Failed to fetch search analytics data from GSC: {e}")
 
-    # Sort page_query_map entries by impressions descending
     for u in page_query_map:
         page_query_map[u].sort(key=lambda x: x["impressions"], reverse=True)
 
@@ -338,7 +337,6 @@ def filter_zero_click_opportunities(pages: list[dict], queries: list[dict], min_
     zero_click_pages = [p for p in pages if p["impressions"] >= min_impressions and p["clicks"] == 0 and not is_size_chart(p["url"])]
     zero_click_queries = [q for q in queries if q["impressions"] >= min_impressions and q["clicks"] == 0 and not is_size_chart(q["query"])]
 
-    # Strictly sort by IMPRESSIONS descending so the highest impression pages are #1 priority!
     zero_click_pages.sort(key=lambda x: x["impressions"], reverse=True)
     zero_click_queries.sort(key=lambda x: x["impressions"], reverse=True)
 
@@ -400,12 +398,12 @@ def search_store_resources(queries: list[dict]) -> set[str]:
     print(f"Discovered {len(matched_urls)} matching product/article URLs from query lookup.")
     return matched_urls
 
-# ── Deduplicated Natural Description Query Enricher with Explicit Logging ──
+# ── Deduplicated Natural Description Query Enricher (Scanning for UNOPTIMIZED Resources) ──
 def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[dict], page_query_map: dict, max_items: int = 50, dry_run: bool = False) -> int:
-    print("\n" + "=" * 70)
+    print("\n" + "=" * 75)
     print("  DEDUPLICATED NATURAL DESCRIPTION QUERY ENRICHER")
-    print("  (Preserving Titles & Meta Descriptions Untouched; Excluding Size Charts)")
-    print("=" * 70)
+    print("  (Preserving Titles & Meta Descriptions Untouched; Scanning for Unoptimized Pages)")
+    print("=" * 75)
 
     TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
     if not TOKEN:
@@ -424,17 +422,21 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
 
     modified_count = 0
 
-    # 1. Process Highest-Impression Product Opportunities
-    target_products = opportunities.get("products", [])[:max_items]
-    print(f"\nProcessing top {len(target_products)} Product opportunities (sorted by impressions descending)...")
+    # 1. Process Unoptimized Product Opportunities
+    all_products = opportunities.get("products", [])
+    print(f"\nScanning {len(all_products)} total Product opportunities sorted by impressions (Targeting up to {max_items} NEW unoptimized products)...")
+    enriched_products_count = 0
 
-    for item in target_products:
+    for item in all_products:
+        if enriched_products_count >= max_items:
+            print(f"Reached target threshold of {max_items} newly enriched products. Moving to collections...")
+            break
+
         url = item["url"]
         url_impressions = item["impressions"]
         url_clicks = item["clicks"]
 
         if is_size_chart(url):
-            print(f"  [SKIP SIZE CHART] {url}")
             continue
 
         handle = url.rstrip("/").split("/")[-1]
@@ -453,20 +455,18 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
             body_html = prod.get("body_html", "") or ""
             prod_title = prod.get("title", "")
 
-            # 1a. Priority Query Selection: Check exact GSC query mapped to this URL
             candidate_queries = page_query_map.get(url, [])
             if not candidate_queries:
-                # Fallback: Match by title/handle keywords
                 candidate_queries = [
                     q for q in global_queries
                     if not is_size_chart(q["query"]) and any(w in prod_title.lower() or w in handle.lower() for w in q["query"].lower().split() if len(w) > 3)
                 ]
 
             if not candidate_queries:
-                # Secondary Fallback: Derive query from handle
                 derived_q = handle.replace("-", " ")
                 candidate_queries = [{"query": derived_q, "impressions": url_impressions, "clicks": url_clicks}]
 
+            enriched_this_product = False
             for q_obj in candidate_queries[:2]:
                 q_text = q_obj["query"].strip()
                 if is_size_chart(q_text):
@@ -475,11 +475,11 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
                 hist_key = f"product:{prod_id}:{q_clean}"
 
                 if q_clean in body_html.lower() or f"gsc-query: \"{q_clean}\"" in body_html.lower():
-                    print(f"  [SKIP DUP] Product '{handle}': Query '{q_text}' already present in description body.")
+                    print(f"  [SKIP DUP] Product '{handle}': Query '{q_text}' already present in description body. Scanning next unoptimized product...")
                     continue
 
                 if hist_key in history:
-                    print(f"  [SKIP HIST] Product '{handle}': Query '{q_text}' previously injected on {history[hist_key].get('date')}.")
+                    print(f"  [SKIP HIST] Product '{handle}': Query '{q_text}' previously injected on {history[hist_key].get('date')}. Scanning next unoptimized product...")
                     continue
 
                 injection_html = (
@@ -489,8 +489,8 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
                 )
 
                 new_body = body_html + injection_html
-                print(f"  [ENRICH SUCCESS] Product '{handle}' (URL Imp: {url_impressions} | Clicks: {url_clicks}):")
-                print(f"                   -> Injected Search Query: '{q_text}' (Query Imp: {q_obj.get('impressions', url_impressions)})")
+                print(f"  [ENRICH SUCCESS #{enriched_products_count + 1}] Product '{handle}' (URL Imp: {url_impressions:,d} | Clicks: {url_clicks}):")
+                print(f"                   -> Injected Search Query: '{q_text}' (Query Imp: {q_obj.get('impressions', url_impressions):,d})")
                 print(f"                   -> Action: Appended natural styling tip to product description body.")
 
                 if not dry_run:
@@ -502,26 +502,37 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
                     )
                     if up_res.status_code == 200:
                         modified_count += 1
+                        enriched_products_count += 1
+                        enriched_this_product = True
                         history[hist_key] = {"date": datetime.now(timezone.utc).isoformat(), "url": url, "query": q_text}
                     else:
                         print(f"  [ERROR] Failed to update product '{handle}': HTTP {up_res.status_code}")
                 else:
                     modified_count += 1
+                    enriched_products_count += 1
+                    enriched_this_product = True
+
+                if enriched_this_product:
+                    break
 
         except Exception as e:
             print(f"  [!] Error processing product '{handle}': {e}")
 
-    # 2. Process Highest-Impression Collection Opportunities
-    target_collections = opportunities.get("collections", [])[:max_items]
-    print(f"\nProcessing top {len(target_collections)} Collection opportunities (sorted by impressions descending)...")
+    # 2. Process Unoptimized Collection Opportunities
+    all_collections = opportunities.get("collections", [])
+    print(f"\nScanning {len(all_collections)} total Collection opportunities sorted by impressions (Targeting up to {max_items} NEW unoptimized collections)...")
+    enriched_collections_count = 0
 
-    for item in target_collections:
+    for item in all_collections:
+        if enriched_collections_count >= max_items:
+            print(f"Reached target threshold of {max_items} newly enriched collections.")
+            break
+
         url = item["url"]
         url_impressions = item["impressions"]
         url_clicks = item["clicks"]
 
         if is_size_chart(url):
-            print(f"  [SKIP SIZE CHART] {url}")
             continue
 
         handle = url.rstrip("/").split("/")[-1]
@@ -557,6 +568,7 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
                 derived_q = handle.replace("-", " ")
                 candidate_queries = [{"query": derived_q, "impressions": url_impressions, "clicks": url_clicks}]
 
+            enriched_this_col = False
             for q_obj in candidate_queries[:1]:
                 q_text = q_obj["query"].strip()
                 if is_size_chart(q_text):
@@ -565,11 +577,11 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
                 hist_key = f"collection:{col_id}:{q_clean}"
 
                 if q_clean in col_desc.lower() or f"gsc-query: \"{q_clean}\"" in col_desc.lower():
-                    print(f"  [SKIP DUP] Collection '{handle}': Query '{q_text}' already present in description body.")
+                    print(f"  [SKIP DUP] Collection '{handle}': Query '{q_text}' already present in description body. Searching next unoptimized collection...")
                     continue
 
                 if hist_key in history:
-                    print(f"  [SKIP HIST] Collection '{handle}': Query '{q_text}' previously injected.")
+                    print(f"  [SKIP HIST] Collection '{handle}': Query '{q_text}' previously injected. Searching next unoptimized collection...")
                     continue
 
                 injection_html = (
@@ -579,8 +591,8 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
                 )
 
                 new_desc = col_desc + injection_html
-                print(f"  [ENRICH SUCCESS] Collection '{handle}' (URL Imp: {url_impressions} | Clicks: {url_clicks}):")
-                print(f"                   -> Injected Search Query: '{q_text}' (Query Imp: {q_obj.get('impressions', url_impressions)})")
+                print(f"  [ENRICH SUCCESS #{enriched_collections_count + 1}] Collection '{handle}' (URL Imp: {url_impressions:,d} | Clicks: {url_clicks}):")
+                print(f"                   -> Injected Search Query: '{q_text}' (Query Imp: {q_obj.get('impressions', url_impressions):,d})")
                 print(f"                   -> Action: Appended collection highlight to description body.")
 
                 if not dry_run:
@@ -592,9 +604,16 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
                     )
                     if up_res.status_code == 200:
                         modified_count += 1
+                        enriched_collections_count += 1
+                        enriched_this_col = True
                         history[hist_key] = {"date": datetime.now(timezone.utc).isoformat(), "url": url, "query": q_text}
                 else:
                     modified_count += 1
+                    enriched_collections_count += 1
+                    enriched_this_col = True
+
+                if enriched_this_col:
+                    break
 
         except Exception as e:
             print(f"  [!] Error processing collection '{handle}': {e}")
@@ -602,8 +621,8 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
     if not dry_run:
         HISTORY_FILE.write_text(json.dumps(history, indent=2), encoding="utf-8")
 
-    print(f"\nSuccessfully enriched {modified_count} product & collection descriptions with zero-click search queries.")
-    print("=" * 70 + "\n")
+    print(f"\nSuccessfully enriched {modified_count} NEW unoptimized product & collection descriptions with zero-click search queries.")
+    print("=" * 75 + "\n")
     return modified_count
 
 # ── Export Opportunities Report ───────────────────────────────────────────────
@@ -768,7 +787,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Multi-Search Analytics Indexer, Deduplicated Description Enricher & Blog Automation")
     parser.add_argument("--dry-run", action="store_true", help="Dry run mode, do not call indexing APIs or mutate Shopify descriptions")
-    parser.add_argument("--limit", type=int, default=50, help="Number of top impression opportunity pages to process (default: 50)")
+    parser.add_argument("--limit", type=int, default=50, help="Target threshold of NEW unoptimized pages to enrich per run (default: 50)")
     parser.add_argument("--query-limit", type=int, default=100, help="Number of top search queries to retrieve (default: 100)")
     parser.add_argument("--days", type=int, default=7, help="Search analytics lookback days (default: 7)")
     parser.add_argument("--country", type=str, default="usa", help="GSC Country filter (default: usa)")
@@ -782,7 +801,7 @@ def main():
 
     print("=" * 75)
     print("  Popular Pages Indexer & Deduplicated Search Query Enricher (7-Day GSC + Bing)")
-    print("  [Sorting by IMPRESSIONS Descending | Size Chart Exclusions Active]")
+    print("  [Sorting by IMPRESSIONS Descending | Scanner Loop for Unoptimized Pages Active]")
     print("=" * 75)
     
     try:
@@ -833,7 +852,7 @@ def main():
         print(f"  {p['impressions']:<12,d} {p['clicks']:<8} {p['position']:<10.1f} {p['url']}")
     print("=" * 95 + "\n")
 
-    # 5. Enrich Product & Collection descriptions if requested
+    # 5. Enrich Product & Collection descriptions (Scanner Loop to find UNOPTIMIZED pages)
     if args.enrich_descriptions:
         enrich_descriptions_with_queries(opportunities, queries, page_query_map, max_items=args.limit, dry_run=args.dry_run)
 
