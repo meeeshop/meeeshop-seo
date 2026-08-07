@@ -10,17 +10,27 @@ on:
     inputs:
       limit:
         description: 'Number of popular pages to process'
-        default: '50'
+        default: '100'
         required: false
         type: string
       query_limit:
         description: 'Number of top search queries to retrieve and log'
-        default: '50'
+        default: '100'
         required: false
         type: string
       days:
         description: 'Search analytics lookback window in days'
-        default: '14'
+        default: '7'
+        required: false
+        type: string
+      country:
+        description: 'Target Country code (e.g. usa)'
+        default: 'usa'
+        required: false
+        type: string
+      enrich_descriptions:
+        description: 'Enrich 0-click product/collection descriptions with missing search queries'
+        default: 'true'
         required: false
         type: string
       generate_blogs:
@@ -59,18 +69,23 @@ jobs:
           PYTHONUNBUFFERED: "1"
           ENCRYPTION_KEY_PRIMARY:  ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+          BING_WEBMASTER_API_KEY:  ${{ secrets.BING_WEBMASTER_API_KEY }}
         run: |
-          LIMIT="${{ github.event.inputs.limit || '50' }}"
-          QUERY_LIMIT="${{ github.event.inputs.query_limit || '50' }}"
-          DAYS="${{ github.event.inputs.days || '14' }}"
+          LIMIT="${{ github.event.inputs.limit || '100' }}"
+          QUERY_LIMIT="${{ github.event.inputs.query_limit || '100' }}"
+          DAYS="${{ github.event.inputs.days || '7' }}"
+          COUNTRY="${{ github.event.inputs.country || 'usa' }}"
+          ENRICH_DESCRIPTIONS="${{ github.event.inputs.enrich_descriptions || 'true' }}"
           GENERATE_BLOGS="${{ github.event.inputs.generate_blogs || 'true' }}"
           MAX_BLOGS="${{ github.event.inputs.max_blogs || '1' }}"
           
-          ARGS="--limit $LIMIT --query-limit $QUERY_LIMIT --days $DAYS --max-blogs $MAX_BLOGS"
+          ARGS="--limit $LIMIT --query-limit $QUERY_LIMIT --days $DAYS --country $COUNTRY --max-blogs $MAX_BLOGS --export-report"
+          if [ "$ENRICH_DESCRIPTIONS" = "true" ] || [ "$ENRICH_DESCRIPTIONS" = "True" ]; then
+            ARGS="$ARGS --enrich-descriptions"
+          fi
           if [ "$GENERATE_BLOGS" = "true" ] || [ "$GENERATE_BLOGS" = "True" ]; then
             ARGS="$ARGS --generate-blogs"
           fi
           
           echo "Running popular pages & search query indexer with args: $ARGS"
           python scripts/popular_pages_indexer.py $ARGS
-
