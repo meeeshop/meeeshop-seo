@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
-popular_pages_indexer.py — Re-index popular/trending pages from Google Search Console
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Queries the Google Search Console API to find the top viewed/clicked URLs on
-us.meeeshop.com in search results over the last 14 days, and automatically
-submits them to Google Indexing API and IndexNow to prioritize crawls and keep
-rankings fresh.
+popular_pages_indexer.py — Improvised GSC & Bing Analytics Indexer, Deduplicated Description Query Enricher & Blog Automation
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Queries Google Search Console (GSC) and Bing Webmaster APIs for 7-day search analytics targeting US Women Shoppers.
+Identifies high-impression, zero/low-click products, collections, and blog articles.
+Enriches product & collection descriptions naturally with missing search queries (with strict deduplication safeguards,
+leaving Title Tags & Meta Descriptions 100% untouched).
+Submits updated URLs to Google Indexing API & IndexNow for immediate search engine recrawling.
 """
 
 import os
 import sys
 import json
 import time
+import re
 import urllib.parse
 import requests
 from datetime import datetime, timezone, timedelta
@@ -44,6 +46,9 @@ INDEXING_ENDPOINT = "https://indexing.googleapis.com/v3/urlNotifications:publish
 # ── IndexNow Constants ────────────────────────────────────────────────────────
 INDEXNOW_KEY = "c5def3bf8d13211be2bacf8d13211be2"
 KEY_FILE_NAME = f"{INDEXNOW_KEY}.txt"
+
+# ── History log path for deduplication ────────────────────────────────────────
+HISTORY_FILE = Path(__file__).parent / "zero_click_query_history.json"
 
 # ── Google OAuth2 Helper ──────────────────────────────────────────────────────
 def get_oauth_token(sa_key: dict, scope: str) -> str:
@@ -79,9 +84,9 @@ def get_oauth_token(sa_key: dict, scope: str) -> str:
     resp.raise_for_status()
     return resp.json()["access_token"]
 
-# ── Fetch GSC Analytics (Pages & Queries) ────────────────────────────────────
-def fetch_gsc_analytics(sa_key: dict, days: int = 14, page_limit: int = 50, query_limit: int = 50) -> tuple[list[dict], list[dict]]:
-    print(f"Fetching search analytics over the last {days} days from Google Search Console...")
+# ── Fetch GSC Analytics (Pages & Queries with Country Filter) ─────────────────
+def fetch_gsc_analytics(sa_key: dict, days: int = 7, page_limit: int = 100, query_limit: int = 100, country: str = "usa") -> tuple[list[dict], list[dict]]:
+    print(f"Fetching GSC search analytics over the last {days} days (Country filter: {country.upper()})...")
     pages = []
     queries = []
     try:
@@ -110,13 +115,26 @@ def fetch_gsc_analytics(sa_key: dict, days: int = 14, page_limit: int = 50, quer
         end_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         start_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
         
-        # 1. Query Top Pages
+        dim_filter_group = None
+        if country:
+            dim_filter_group = [{
+                "filters": [{
+                    "dimension": "country",
+                    "operator": "equals",
+                    "expression": country.lower()
+                }]
+            }]
+
+        # 1. Query Pages
         page_payload = {
             "startDate": start_date,
             "endDate": end_date,
             "dimensions": ["page"],
             "rowLimit": page_limit
         }
+        if dim_filter_group:
+            page_payload["dimensionFilterGroups"] = dim_filter_group
+
         resp_pages = requests.post(
             query_url,
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
@@ -130,16 +148,20 @@ def fetch_gsc_analytics(sa_key: dict, days: int = 14, page_limit: int = 50, quer
                     "clicks": int(row.get("clicks", 0)),
                     "impressions": int(row.get("impressions", 0)),
                     "ctr": float(row.get("ctr", 0)),
-                    "position": float(row.get("position", 0))
+                    "position": float(row.get("position", 0)),
+                    "source": "GSC"
                 })
 
-        # 2. Query Top Queries
+        # 2. Query Search Terms
         query_payload = {
             "startDate": start_date,
             "endDate": end_date,
             "dimensions": ["query"],
             "rowLimit": query_limit
         }
+        if dim_filter_group:
+            query_payload["dimensionFilterGroups"] = dim_filter_group
+
         resp_queries = requests.post(
             query_url,
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
@@ -153,29 +175,139 @@ def fetch_gsc_analytics(sa_key: dict, days: int = 14, page_limit: int = 50, quer
                     "clicks": int(row.get("clicks", 0)),
                     "impressions": int(row.get("impressions", 0)),
                     "ctr": float(row.get("ctr", 0)),
-                    "position": float(row.get("position", 0))
+                    "position": float(row.get("position", 0)),
+                    "source": "GSC"
                 })
 
     except Exception as e:
         print(f"[ERROR] Failed to fetch search analytics data from GSC: {e}")
 
-    # Display Top Queries in exact requested log format
-    print("\n" + "=" * 70)
-    print(f"  TOP {len(queries)} GOOGLE SEARCH CONSOLE QUERIES (Clicks | Impressions)")
-    print("=" * 70)
-    for q in queries:
-        print(f"  {q['query']:<45} \t{q['clicks']}\t{q['impressions']}")
-    print("=" * 70 + "\n")
+    return pages, queries
+
+# ── Fetch Bing Webmaster Analytics ────────────────────────────────────────────
+def fetch_bing_analytics(api_key: str = None, days: int = 7, limit: int = 100) -> tuple[list[dict], list[dict]]:
+    """
+    Queries Bing Webmaster Tools API for search stats & page stats if Bing API Key is present.
+    """
+    if not api_key:
+        try:
+            api_key = get_secret("BING_WEBMASTER_API_KEY")
+        except Exception:
+            api_key = os.environ.get("BING_WEBMASTER_API_KEY", "").strip()
+
+    if not api_key:
+        print("[INFO] BING_WEBMASTER_API_KEY not specified/found. Skipping Bing Webmaster API fetch.")
+        return [], []
+
+    print(f"Fetching Bing Webmaster search analytics over the last {days} days...")
+    pages = []
+    queries = []
+    
+    try:
+        domain = urllib.parse.urlparse(STORE_URL).netloc
+        site_param = urllib.parse.quote(STORE_URL)
+        
+        # 1. Fetch Query Stats
+        query_endpoint = f"https://ssl.bing.com/webmaster/api.svc/json/GetQueryStats?siteUrl={site_param}&apikey={api_key}"
+        rq = requests.get(query_endpoint, timeout=15)
+        if rq.status_code == 200:
+            q_rows = rq.json().get("d", [])
+            for row in q_rows[:limit]:
+                q_text = row.get("Query", "")
+                clicks = int(row.get("Clicks", 0))
+                impressions = int(row.get("Impressions", 0))
+                ctr = float(clicks / impressions) if impressions > 0 else 0.0
+                queries.append({
+                    "query": q_text,
+                    "clicks": clicks,
+                    "impressions": impressions,
+                    "ctr": ctr,
+                    "position": float(row.get("AvgImpressionPosition", 0)),
+                    "source": "Bing"
+                })
+
+        # 2. Fetch Page Stats
+        page_endpoint = f"https://ssl.bing.com/webmaster/api.svc/json/GetPageStats?siteUrl={site_param}&apikey={api_key}"
+        rp = requests.get(page_endpoint, timeout=15)
+        if rp.status_code == 200:
+            p_rows = rp.json().get("d", [])
+            for row in p_rows[:limit]:
+                url = row.get("Query", "")
+                if not url.startswith("http"):
+                    url = f"{STORE_URL}{url}"
+                clicks = int(row.get("Clicks", 0))
+                impressions = int(row.get("Impressions", 0))
+                ctr = float(clicks / impressions) if impressions > 0 else 0.0
+                pages.append({
+                    "url": url,
+                    "clicks": clicks,
+                    "impressions": impressions,
+                    "ctr": ctr,
+                    "position": float(row.get("AvgImpressionPosition", 0)),
+                    "source": "Bing"
+                })
+        print(f"Retrieved {len(queries)} Bing queries and {len(pages)} Bing pages stats.")
+    except Exception as e:
+        print(f"[WARNING] Bing Webmaster API request failed: {e}")
 
     return pages, queries
 
+# ── Merge GSC and Bing Analytics ──────────────────────────────────────────────
+def merge_analytics(gsc_pages: list[dict], gsc_queries: list[dict], bing_pages: list[dict], bing_queries: list[dict]) -> tuple[list[dict], list[dict]]:
+    merged_pages_map = {}
+    for p in gsc_pages + bing_pages:
+        url = p["url"]
+        if url not in merged_pages_map:
+            merged_pages_map[url] = dict(p)
+        else:
+            merged_pages_map[url]["clicks"] += p["clicks"]
+            merged_pages_map[url]["impressions"] += p["impressions"]
+            tot_imp = merged_pages_map[url]["impressions"]
+            merged_pages_map[url]["ctr"] = merged_pages_map[url]["clicks"] / tot_imp if tot_imp > 0 else 0.0
+            merged_pages_map[url]["source"] = "GSC+Bing"
+
+    merged_queries_map = {}
+    for q in gsc_queries + bing_queries:
+        q_text = q["query"].lower().strip()
+        if q_text not in merged_queries_map:
+            merged_queries_map[q_text] = dict(q)
+        else:
+            merged_queries_map[q_text]["clicks"] += q["clicks"]
+            merged_queries_map[q_text]["impressions"] += q["impressions"]
+            tot_imp = merged_queries_map[q_text]["impressions"]
+            merged_queries_map[q_text]["ctr"] = merged_queries_map[q_text]["clicks"] / tot_imp if tot_imp > 0 else 0.0
+            merged_queries_map[q_text]["source"] = "GSC+Bing"
+
+    pages = list(merged_pages_map.values())
+    queries = list(merged_queries_map.values())
+    return pages, queries
+
+# ── Filter Zero/Low-Click Opportunities ──────────────────────────────────────
+def filter_zero_click_opportunities(pages: list[dict], queries: list[dict], min_impressions: int = 5) -> dict:
+    zero_click_pages = [p for p in pages if p["impressions"] >= min_impressions and p["clicks"] == 0]
+    zero_click_queries = [q for q in queries if q["impressions"] >= min_impressions and q["clicks"] == 0]
+
+    # Sort opportunities by highest impressions
+    zero_click_pages.sort(key=lambda x: x["impressions"], reverse=True)
+    zero_click_queries.sort(key=lambda x: x["impressions"], reverse=True)
+
+    products = [p for p in zero_click_pages if "/products/" in p["url"]]
+    collections = [p for p in zero_click_pages if "/collections/" in p["url"]]
+    blogs = [p for p in zero_click_pages if "/blogs/" in p["url"]]
+    other = [p for p in zero_click_pages if p not in products and p not in collections and p not in blogs]
+
+    return {
+        "all_zero_click_pages": zero_click_pages,
+        "zero_click_queries": zero_click_queries,
+        "products": products,
+        "collections": collections,
+        "blogs": blogs,
+        "other": other
+    }
+
 # ── Search Storefront Resources for Queries ──────────────────────────────────
 def search_store_resources(queries: list[dict]) -> set[str]:
-    """
-    Looks up products, collections, pages, and blog articles matching the top GSC search queries.
-    Returns a set of full store URLs to re-index.
-    """
-    print("Searching store for products, pages, and articles matching top search queries...")
+    print("Searching store for products, pages, and articles matching search queries...")
     matched_urls = set()
     TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
     if not TOKEN:
@@ -190,7 +322,6 @@ def search_store_resources(queries: list[dict]) -> set[str]:
         if len(q) < 3:
             continue
         try:
-            # Query Shopify REST Search API or GraphQL for products/pages/blogs matching keyword
             search_endpoint = f"{admin_base}/products.json?title={urllib.parse.quote(q)}&limit=5"
             r = requests.get(search_endpoint, headers=headers, timeout=10)
             if r.status_code == 200:
@@ -200,7 +331,6 @@ def search_store_resources(queries: list[dict]) -> set[str]:
                     if handle:
                         matched_urls.add(f"{STORE_URL}/products/{handle}")
 
-            # Also query articles
             article_endpoint = f"{admin_base}/articles.json?limit=10"
             ra = requests.get(article_endpoint, headers=headers, timeout=10)
             if ra.status_code == 200:
@@ -218,12 +348,211 @@ def search_store_resources(queries: list[dict]) -> set[str]:
     print(f"Discovered {len(matched_urls)} matching store resource URLs from search query lookup.")
     return matched_urls
 
+# ── Deduplicated Natural Description Query Enricher ──────────────────────────
+def enrich_descriptions_with_queries(opportunities: dict, queries: list[dict], dry_run: bool = False) -> int:
+    """
+    Enriches product and collection descriptions with missing 7-day search queries as natural styling tips.
+    STRICT DEDUPLICATION SAFEGUARDS:
+    1. Preserves Title Tags & Meta Descriptions 100% untouched.
+    2. Checks if query (or key phrase) is already in the existing body copy -> SKIPS if present.
+    3. Checks local zero_click_query_history.json and HTML comments -> SKIPS if previously injected.
+    """
+    print("\n" + "=" * 70)
+    print("  DEDUPLICATED NATURAL DESCRIPTION QUERY ENRICHER")
+    print("  (Preserving Titles & Meta Descriptions Untouched)")
+    print("=" * 70)
+
+    TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
+    if not TOKEN:
+        print("[ERROR] SHOPIFY_ACCESS_TOKEN missing. Skipping description enrichment.")
+        return 0
+
+    headers = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
+    admin_base = f"https://{SHOP}/admin/api/2024-10"
+
+    # Load history log
+    history = {}
+    if HISTORY_FILE.exists():
+        try:
+            history = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            history = {}
+
+    modified_count = 0
+
+    # 1. Process Product Opportunities
+    for item in opportunities.get("products", []):
+        url = item["url"]
+        handle = url.rstrip("/").split("/")[-1]
+        if not handle:
+            continue
+
+        try:
+            r = requests.get(f"{admin_base}/products.json?handle={handle}", headers=headers, timeout=10)
+            if r.status_code != 200:
+                continue
+            prods = r.json().get("products", [])
+            if not prods:
+                continue
+            prod = prods[0]
+            prod_id = str(prod["id"])
+            body_html = prod.get("body_html", "") or ""
+            prod_title = prod.get("title", "")
+
+            # Find matching queries for this product title / handle
+            matching_queries = [
+                q for q in queries
+                if any(w in prod_title.lower() or w in handle.lower() for w in q["query"].lower().split() if len(w) > 3)
+            ]
+            if not matching_queries:
+                # Fallback: take top zero-click query
+                matching_queries = queries[:1]
+
+            for q_obj in matching_queries[:2]:
+                q_text = q_obj["query"].strip()
+                q_clean = q_text.lower()
+                hist_key = f"product:{prod_id}:{q_clean}"
+
+                # Deduplication Check 1: Already in existing body copy
+                if q_clean in body_html.lower() or f"gsc-query: \"{q_clean}\"" in body_html.lower():
+                    print(f"  [SKIP DUP] Product '{handle}': Query '{q_text}' already present in description.")
+                    continue
+
+                # Deduplication Check 2: Already in history log
+                if hist_key in history:
+                    print(f"  [SKIP HIST] Product '{handle}': Query '{q_text}' previously injected on {history[hist_key].get('date')}.")
+                    continue
+
+                # Format natural, high-converting styling sentence
+                injection_html = (
+                    f'\n<p class="gsc-seo-note"><!-- gsc-query: "{q_clean}" -->'
+                    f'<strong>Styling Tip:</strong> Ideal for creating an effortless <em>{q_text}</em> look. '
+                    f'Pair with classic accessories for a versatile US women\'s outfit.</p>'
+                )
+
+                new_body = body_html + injection_html
+                print(f"  [ENRICH] Product '{handle}': Adding natural query '{q_text}' (Impressions: {q_obj['impressions']})")
+
+                if not dry_run:
+                    up_res = requests.put(
+                        f"{admin_base}/products/{prod_id}.json",
+                        headers=headers,
+                        json={"product": {"id": prod["id"], "body_html": new_body}},
+                        timeout=15
+                    )
+                    if up_res.status_code == 200:
+                        modified_count += 1
+                        history[hist_key] = {"date": datetime.now(timezone.utc).isoformat(), "url": url, "query": q_text}
+                    else:
+                        print(f"  [ERROR] Failed to update product '{handle}': HTTP {up_res.status_code}")
+                else:
+                    modified_count += 1
+
+        except Exception as e:
+            print(f"  [!] Error processing product '{handle}': {e}")
+
+    # 2. Process Collection Opportunities
+    for item in opportunities.get("collections", []):
+        url = item["url"]
+        handle = url.rstrip("/").split("/")[-1]
+        if not handle:
+            continue
+
+        try:
+            # Query custom collections and smart collections
+            col_obj = None
+            col_type = "custom_collections"
+            r_cust = requests.get(f"{admin_base}/custom_collections.json?handle={handle}", headers=headers, timeout=10)
+            if r_cust.status_code == 200 and r_cust.json().get("custom_collections"):
+                col_obj = r_cust.json()["custom_collections"][0]
+            else:
+                r_smart = requests.get(f"{admin_base}/smart_collections.json?handle={handle}", headers=headers, timeout=10)
+                if r_smart.status_code == 200 and r_smart.json().get("smart_collections"):
+                    col_obj = r_smart.json()["smart_collections"][0]
+                    col_type = "smart_collections"
+
+            if not col_obj:
+                continue
+
+            col_id = str(col_obj["id"])
+            col_desc = col_obj.get("body_html") or col_obj.get("description") or ""
+
+            matching_queries = [
+                q for q in queries
+                if any(w in handle.lower() for w in q["query"].lower().split() if len(w) > 3)
+            ]
+            if not matching_queries:
+                matching_queries = queries[:1]
+
+            for q_obj in matching_queries[:1]:
+                q_text = q_obj["query"].strip()
+                q_clean = q_text.lower()
+                hist_key = f"collection:{col_id}:{q_clean}"
+
+                if q_clean in col_desc.lower() or f"gsc-query: \"{q_clean}\"" in col_desc.lower():
+                    print(f"  [SKIP DUP] Collection '{handle}': Query '{q_text}' already present in description.")
+                    continue
+
+                if hist_key in history:
+                    print(f"  [SKIP HIST] Collection '{handle}': Query '{q_text}' previously injected.")
+                    continue
+
+                injection_html = (
+                    f'\n<p class="gsc-seo-note"><!-- gsc-query: "{q_clean}" -->'
+                    f'<strong>Collection Highlight:</strong> Explore top-trending styles for <em>{q_text}</em>. '
+                    f'Curated for modern US women with fast shipping and easy 7-day returns.</p>'
+                )
+
+                new_desc = col_desc + injection_html
+                print(f"  [ENRICH] Collection '{handle}': Adding natural query '{q_text}' (Impressions: {q_obj['impressions']})")
+
+                if not dry_run:
+                    up_res = requests.put(
+                        f"{admin_base}/{col_type}/{col_id}.json",
+                        headers=headers,
+                        json={col_type[:-1]: {"id": col_obj["id"], "body_html": new_desc}},
+                        timeout=15
+                    )
+                    if up_res.status_code == 200:
+                        modified_count += 1
+                        history[hist_key] = {"date": datetime.now(timezone.utc).isoformat(), "url": url, "query": q_text}
+                else:
+                    modified_count += 1
+
+        except Exception as e:
+            print(f"  [!] Error processing collection '{handle}': {e}")
+
+    # Save updated history log
+    if not dry_run:
+        HISTORY_FILE.write_text(json.dumps(history, indent=2), encoding="utf-8")
+
+    print(f"Enriched {modified_count} product/collection descriptions with zero-click search queries.")
+    print("=" * 70 + "\n")
+    return modified_count
+
+# ── Export Opportunities Report ───────────────────────────────────────────────
+def export_opportunity_report(opportunities: dict, report_file: str = "reports/zero_click_7d_opportunities.json"):
+    out_path = Path(report_file)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    summary = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "total_zero_click_pages": len(opportunities["all_zero_click_pages"]),
+        "total_zero_click_queries": len(opportunities["zero_click_queries"]),
+        "products_count": len(opportunities["products"]),
+        "collections_count": len(opportunities["collections"]),
+        "blogs_count": len(opportunities["blogs"]),
+        "top_product_opportunities": opportunities["products"][:10],
+        "top_collection_opportunities": opportunities["collections"][:10],
+        "top_blog_opportunities": opportunities["blogs"][:10],
+        "top_query_opportunities": opportunities["zero_click_queries"][:15]
+    }
+
+    out_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    print(f"[REPORT] Exported 7-day SEO opportunity report to: {out_path.resolve()}")
+
 # ── Identify Long-Tail Question Queries for Blog Creation ──────────────────────
 def identify_longtail_question_queries(queries: list[dict]) -> list[dict]:
-    """
-    Filters search queries that indicate question intent (what, how, why, style, outfit, flattering, etc.)
-    or high impressions opportunities, strictly EXCLUDING size chart/sizing queries.
-    """
     question_triggers = [
         "what", "how", "why", "outfit", "style", "wear", "best",
         "versus", "vs", "flattering", "types", "guide", "look", "combination"
@@ -236,11 +565,9 @@ def identify_longtail_question_queries(queries: list[dict]) -> list[dict]:
         if "size chart" in q_text or "sizing" in q_text or "size" in q_text:
             continue
 
-        # Trigger if contains question/style triggers or high impressions (>= 15) with 0/low clicks
         if any(w in q_text for w in question_triggers) or (q["impressions"] >= 15 and q["clicks"] == 0):
             candidates.append(q)
 
-    # Sort candidates by impressions & clicks
     candidates.sort(key=lambda x: (x["clicks"], x["impressions"]), reverse=True)
     return candidates
 
@@ -253,7 +580,6 @@ def generate_blogs_from_longtail(queries: list[dict], max_blogs: int = 1, dry_ru
     print(f"\nFound {len(queries)} potential long-tail question/trend queries for blog creation.")
     selected = queries[:max_blogs]
 
-    # Initialize deduplication engine against live store
     TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN")
     admin_base = f"https://{SHOP}/admin/api/2024-10"
     headers = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
@@ -334,7 +660,7 @@ def submit_to_indexnow(urls: list[str], dry_run: bool = False):
     if not urls:
         return
         
-    print("\nSubmitting trending & matched URLs to IndexNow...")
+    print("\nSubmitting trending & matched URLs to IndexNow (Bing/DuckDuckGo)...")
     domain = urllib.parse.urlparse(STORE_URL).netloc
     key_location = f"{STORE_URL}/{KEY_FILE_NAME}"
     
@@ -362,17 +688,22 @@ def submit_to_indexnow(urls: list[str], dry_run: bool = False):
 # ── Main Execution ───────────────────────────────────────────────────────────
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Re-index popular pages & search queries from Google Search Console")
-    parser.add_argument("--dry-run", action="store_true", help="Dry run mode, do not call indexing APIs or publish blogs")
-    parser.add_argument("--limit", type=int, default=50, help="Number of popular pages to process (default: 50)")
-    parser.add_argument("--query-limit", type=int, default=50, help="Number of top search queries to retrieve and log (default: 50)")
-    parser.add_argument("--days", type=int, default=14, help="Search analytics lookback days (default: 14)")
+    parser = argparse.ArgumentParser(description="Multi-Search Analytics Indexer, Deduplicated Description Enricher & Blog Automation")
+    parser.add_argument("--dry-run", action="store_true", help="Dry run mode, do not call indexing APIs or mutate Shopify descriptions")
+    parser.add_argument("--limit", type=int, default=100, help="Number of popular pages to process (default: 100)")
+    parser.add_argument("--query-limit", type=int, default=100, help="Number of top search queries to retrieve (default: 100)")
+    parser.add_argument("--days", type=int, default=7, help="Search analytics lookback days (default: 7)")
+    parser.add_argument("--country", type=str, default="usa", help="GSC Country filter (default: usa)")
+    parser.add_argument("--min-impressions", type=int, default=5, help="Minimum impression threshold for 0-click opportunity (default: 5)")
+    parser.add_argument("--enrich-descriptions", action="store_true", help="Enrich 0-click product & collection descriptions with missing search queries")
+    parser.add_argument("--bing-api-key", type=str, default=None, help="Bing Webmaster API Key (optional)")
+    parser.add_argument("--export-report", action="store_true", help="Export structured 7-day opportunity report JSON")
     parser.add_argument("--generate-blogs", action="store_true", help="Generate blog articles for long-tail question queries")
     parser.add_argument("--max-blogs", type=int, default=1, help="Maximum number of blog articles to generate per run (default: 1)")
     args = parser.parse_args()
 
     print("=" * 70)
-    print("  Popular Pages & Search Query Indexer + Blog Automation")
+    print("  Popular Pages Indexer & Deduplicated Search Query Enricher (7-Day GSC + Bing)")
     print("=" * 70)
     
     # Load Google Service Account credentials
@@ -390,34 +721,59 @@ def main():
             
     # 1. Fetch top pages & search queries from GSC
     gsc_pages, gsc_queries = fetch_gsc_analytics(
-        sa_key, days=args.days, page_limit=args.limit, query_limit=args.query_limit
+        sa_key, days=args.days, page_limit=args.limit, query_limit=args.query_limit, country=args.country
     )
-    
-    # Collect direct GSC popular page URLs
-    gsc_urls = [p["url"] for p in gsc_pages if p["url"].startswith(STORE_URL)]
-    print(f"Collected {len(gsc_urls)} direct popular page URLs from Search Console.")
 
-    # 2. Search store for relevant products, pages, and blog articles matching queries
-    matched_urls = search_store_resources(gsc_queries)
-    
-    # 3. Combine all store URLs to re-index
+    # 2. Fetch Bing Webmaster Analytics if API Key available
+    bing_pages, bing_queries = fetch_bing_analytics(
+        api_key=args.bing_api_key, days=args.days, limit=args.limit
+    )
+
+    # 3. Merge GSC and Bing analytics
+    pages, queries = merge_analytics(gsc_pages, gsc_queries, bing_pages, bing_queries)
+
+    # Display Top Queries Log
+    print("\n" + "=" * 70)
+    print(f"  TOP {len(queries)} COMBINED SEARCH QUERIES (Clicks | Impressions | Source)")
+    print("=" * 70)
+    for q in queries[:20]:
+        print(f"  {q['query']:<45} \t{q['clicks']}\t{q['impressions']}\t[{q['source']}]")
+    print("=" * 70 + "\n")
+
+    # 4. Filter Zero-Click High-Impression Opportunities
+    opportunities = filter_zero_click_opportunities(pages, queries, min_impressions=args.min_impressions)
+    print(f"Found {len(opportunities['all_zero_click_pages'])} zero-click pages with >= {args.min_impressions} impressions over last {args.days} days:")
+    print(f"  • Products:    {len(opportunities['products'])}")
+    print(f"  • Collections: {len(opportunities['collections'])}")
+    print(f"  • Blogs:       {len(opportunities['blogs'])}")
+
+    # 5. Enrich Product & Collection descriptions if requested
+    if args.enrich_descriptions:
+        enrich_descriptions_with_queries(opportunities, queries, dry_run=args.dry_run)
+
+    # 6. Export Opportunity Report if requested
+    if args.export_report:
+        export_opportunity_report(opportunities)
+
+    # Collect direct GSC & matched store URLs
+    gsc_urls = [p["url"] for p in pages if p["url"].startswith(STORE_URL)]
+    matched_urls = search_store_resources(queries)
     urls_to_index = sorted(list(set(gsc_urls).union(matched_urls)))
     print(f"\nTotal unique store URLs targeted for re-indexing: {len(urls_to_index)}")
 
-    # 4. Generate long-tail blog posts if requested
+    # 7. Generate long-tail blog posts if requested
     if args.generate_blogs:
-        longtail_candidates = identify_longtail_question_queries(gsc_queries)
+        longtail_candidates = identify_longtail_question_queries(queries)
         generate_blogs_from_longtail(longtail_candidates, max_blogs=args.max_blogs, dry_run=args.dry_run)
 
-    # 5. Submit to Google Indexing API
+    # 8. Submit to Google Indexing API
     submit_to_google_indexing(urls_to_index, sa_key, dry_run=args.dry_run)
     
-    # 6. Submit to IndexNow (Bing/Baidu/DuckDuckGo)
+    # 9. Submit to IndexNow (Bing/DuckDuckGo)
     submit_to_indexnow(urls_to_index, dry_run=args.dry_run)
     
-    print("\n[OK] Popular Pages & Search Query Indexer run completed successfully!")
+    print("\n[OK] Popular Pages Indexer & Deduplicated Query Enricher completed successfully!")
     print("=" * 70)
 
 if __name__ == "__main__":
     main()
-
