@@ -574,21 +574,33 @@ def submit_sitemap_to_gsc(sitemap_url: str):
     except Exception as e:
         print(f"[ERROR] Error submitting sitemap to Google Search Console: {e}")
 
-# ── Submit/Ping Bing ─────────────────────────────────────────────────────────
+# ── Submit to Bing Webmaster API ─────────────────────────────────────────────
 def submit_sitemap_to_bing(sitemap_url: str):
-    print("Pinging Bing with the new sitemap...")
-    # Standard Bing sitemap ping URL
-    encoded_feed = urllib.parse.quote_plus(sitemap_url)
-    bing_ping_url = f"https://www.bing.com/ping?sitemap={encoded_feed}"
+    print(f"Submitting sitemap to Bing: {sitemap_url}")
     
+    api_key = None
     try:
-        resp = requests.get(bing_ping_url, timeout=15)
+        api_key = get_secret("BING_WEBMASTER_API_KEY")
+    except Exception:
+        api_key = os.environ.get("BING_WEBMASTER_API_KEY", "").strip()
+
+    if not api_key:
+        print("[WARNING] BING_WEBMASTER_API_KEY not found. Skipping Bing sitemap submission.")
+        return
+
+    try:
+        bing_api_url = f"https://ssl.bing.com/webmaster/api.svc/json/SubmitFeed?apikey={api_key}"
+        payload = {
+            "siteUrl": STORE_URL,
+            "feedUrl": sitemap_url
+        }
+        resp = requests.post(bing_api_url, json=payload, timeout=15)
         if resp.status_code == 200:
-            print("[OK] Bing: Sitemap ping submitted successfully!")
+            print(f"[OK] Bing Webmaster API: Sitemap submitted successfully: {sitemap_url}")
         else:
-            print(f"[WARNING] Bing ping failed with HTTP status {resp.status_code}")
+            print(f"[WARNING] Bing Webmaster API returned status {resp.status_code}: {resp.text}")
     except Exception as e:
-        print(f"[ERROR] Error pinging Bing: {e}")
+        print(f"[ERROR] Bing Webmaster API submission failed for {sitemap_url}: {e}")
 
 def fetch_and_submit_all_sitemaps(custom_image_sitemap_url: str):
     print("Fetching Shopify's main sitemap index to extract sub-sitemaps...")
@@ -610,13 +622,14 @@ def fetch_and_submit_all_sitemaps(custom_image_sitemap_url: str):
         print(f"[WARNING] Failed to parse sitemap index: {e}")
         
     sitemaps_to_submit = list(dict.fromkeys(sitemaps_to_submit))
-    print(f"Found {len(sitemaps_to_submit)} sitemaps to submit to Google Search Console:")
+    print(f"Found {len(sitemaps_to_submit)} sitemaps to submit to Search Engines (Google & Bing):")
     for sm in sitemaps_to_submit:
         print(f"  - {sm}")
         
-    # Submit each to Google Search Console
+    # Submit each to Google Search Console and Bing
     for sm in sitemaps_to_submit:
         submit_sitemap_to_gsc(sm)
+        submit_sitemap_to_bing(sm)
 
 # ── Main Execution ───────────────────────────────────────────────────────────
 def main():
@@ -641,7 +654,6 @@ def main():
     
     # 4. Submit sitemaps to Search Engines (GSC and Bing)
     fetch_and_submit_all_sitemaps(sitemap_store_url)
-    submit_sitemap_to_bing(sitemap_store_url)
     
     print("\n[OK] Sitemap generation & submission workflow completed successfully!")
     print("=" * 65)
