@@ -348,25 +348,39 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
         # Fallback on exception
         return fetch_google_search_keywords(handle, limit)
 
-def trigger_google_indexing(url: str):
-    """Pings Google Indexing API to request instant crawl of updated URL."""
+def trigger_url_indexing(url: str):
+    """
+    Sends instant index ping via IndexNow protocol (supported by Bing, Yandex, Naver)
+    and relies on XML sitemaps for Googlebot crawl per Google Search guidelines.
+    """
     try:
-        token = get_gsc_oauth_token()
-        if not token:
-            return
-        endpoint = "https://indexing.googleapis.com/v3/urlNotifications:publish"
-        resp = requests.post(
-            endpoint,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json={"url": url, "type": "URL_UPDATED"},
-            timeout=15
-        )
-        if resp.status_code == 200:
-            print(f"  [Indexing API] Instant crawl requested for {url}")
+        indexnow_key = get_secret("INDEXNOW_KEY")
+        if indexnow_key:
+            payload = {
+                "host": "us.meeeshop.com",
+                "key": indexnow_key,
+                "keyLocation": f"https://us.meeeshop.com/{indexnow_key}.txt",
+                "urlList": [url]
+            }
+            resp = requests.post(
+                "https://api.indexnow.org/indexnow",
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                json=payload,
+                timeout=10
+            )
+            if resp.status_code in (200, 202):
+                print(f"  [IndexNow] Instant crawl ping sent for {url}")
+            else:
+                print(f"  [IndexNow] Ping status HTTP {resp.status_code} for {url}")
         else:
-            print(f"  [Indexing API] Crawl request ignored/failed for {url}: HTTP {resp.status_code}")
+            print(f"  [Sitemap] URL scheduled for Googlebot crawl via sitemap.xml: {url}")
     except Exception as e:
-        print(f"  [Indexing API] Error triggering index for {url}: {e}")
+        print(f"  [Indexing] Error pinging IndexNow for {url}: {e}")
+
+def trigger_google_indexing(url: str):
+    """Legacy alias: delegates to trigger_url_indexing to avoid Google API spam flags."""
+    trigger_url_indexing(url)
+
 STALE_RETURN_RE = re.compile(r'\b(?!7[\s-]*day)\d+[\s-]*day[\s-]*(return|refund|exchange|policy)', re.IGNORECASE)
 
 def has_stale_return_policy(text):
