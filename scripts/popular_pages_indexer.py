@@ -534,8 +534,7 @@ def build_unified_seo_note(existing_html: str, new_query: str, is_collection: bo
         return existing_html
 
     note_pattern = re.compile(
-        r'<p[^>]*class=["\'][^"\']*gsc-seo-note[^"\']*["\'][^>]*>[\s\S]*?</p>|'
-        r'<p[^>]*>[\s\S]*?(?:Collection Highlight|Styling Tip):[\s\S]*?</p>',
+        r'<p\b[^>]*>(?:(?!</p>)[\s\S])*?(?:class=["\'][^"\']*gsc-seo-note[^"\']*["\']|Collection Highlight:|Styling Tip:)(?:(?!</p>)[\s\S])*?</p>',
         re.IGNORECASE
     )
 
