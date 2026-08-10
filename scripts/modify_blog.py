@@ -39,10 +39,7 @@ import requests
 from utils import is_product_compatible, select_styling_matches
 ROOT = Path(__file__).resolve().parent.parent
 
-import ai_client
-from blog_daily import generate_fallback_blog_post, get_product_display_name
 from eeat_constants import PEN_NAMES, needs_author_update
-from google_question_fetcher import GoogleQuestionFetcher
 
 # ── env / credentials ─────────────────────────────────────────────────────────
 from secrets_manager import inject_to_env, get_secret
@@ -170,18 +167,33 @@ def split_products(products: list) -> tuple[list, list]:
 
 def find_best_replacement(out_product: dict, in_stock: list) -> dict | None:
     """Find best in-stock replacement: same product_type (must have image, different product)."""
-    ptype = (out_product.get("product_type") or "").lower()
+    ptype = (out_product.get("product_type") or "").strip().lower()
     out_handle = out_product.get("handle")
     # Same type with image, different product
-    same = [
-        p for p in in_stock 
-        if (p.get("product_type") or "").lower() == ptype 
-        and p.get("images") 
-        and p.get("handle") != out_handle
-    ]
-    if same:
-        return random.choice(same)
-    return None
+    if ptype:
+        same = [
+            p for p in in_stock 
+            if (p.get("product_type") or "").strip().lower() == ptype 
+            and p.get("images") 
+            and p.get("handle") != out_handle
+        ]
+        if same:
+            return random.choice(same)
+
+    # Fallback to category derived from out_product (product_type, title, or handle)
+    text_for_cat = ptype or out_product.get("title", "") or out_product.get("handle", "")
+    cat = extract_handle_category(text_for_cat)
+    if cat:
+        same_cat = [
+            p for p in in_stock
+            if (cat in (p.get("product_type") or "").lower() or cat in (p.get("title") or "").lower() or cat in (p.get("tags") or "").lower())
+            and p.get("images") and p.get("handle") != out_handle
+        ]
+        if same_cat:
+            return random.choice(same_cat)
+
+    valid = [p for p in in_stock if p.get("images") and p.get("handle") != out_handle]
+    return random.choice(valid) if valid else None
 
 
 # ── Blog / article fetching ───────────────────────────────────────────────────
@@ -265,6 +277,178 @@ def fetch_article_metafields(blog_id: int, article_id: int) -> list:
     if r.ok:
         return r.json().get("metafields", [])
     return []
+
+
+def fetch_article_by_id(article_id: int) -> tuple[dict, dict] | None:
+    """Directly fetch an article by Shopify article ID using GraphQL node query."""
+    query = """
+    query($id: ID!) {
+      node(id: $id) {
+        ... on Article {
+          id title handle body tags publishedAt
+          image { url }
+          author { name }
+          blog { id title handle }
+        }
+      }
+    }
+    """
+    gid = f"gid://shopify/Article/{article_id}"
+    res = _graphql(query, variables={"id": gid})
+    node = res.get("data", {}).get("node")
+    if node and isinstance(node, dict) and "title" in node:
+        num_id = int(node["id"].split("/")[-1])
+        blog_node = node.get("blog", {})
+        blog_id = int(blog_node["id"].split("/")[-1]) if blog_node.get("id") else 0
+        blog = {"id": blog_id, "title": blog_node.get("title", ""), "handle": blog_node.get("handle", "")}
+        author_name = node.get("author", {}).get("name", "") if node.get("author") else ""
+        img_dict = {"src": node["image"]["url"]} if node.get("image") else None
+        tags_str = ", ".join(node.get("tags", []))
+        art = {
+            "id": num_id,
+            "title": node.get("title"),
+            "handle": node.get("handle"),
+            "body_html": node.get("body", ""),
+            "tags": tags_str,
+            "published_at": node.get("publishedAt"),
+            "author": author_name,
+            "image": img_dict,
+            "gid": node["id"]
+        }
+        return blog, art
+    return None
+
+
+# ── Redirect mapping & link updating ──────────────────────────────────────────
+SLUG_MAP = {
+    # Blogs
+    '/blogs/dresses': '/blogs/dresses-style-guide',
+    '/blogs/jeans': '/blogs/jeans-style-guide',
+    '/blogs/coats-jackets': '/blogs/coats-jackets-style-guide',
+    '/blogs/coats': '/blogs/coats-jackets-style-guide',
+    '/blogs/cardigans-sweaters': '/blogs/cardigans-sweaters-style-guide',
+    '/blogs/sweaters': '/blogs/cardigans-sweaters-style-guide',
+    '/blogs/womens-pants': '/blogs/womens-pants-style-guide',
+    '/blogs/pants': '/blogs/womens-pants-style-guide',
+    '/blogs/womens-shirts-tops': '/blogs/womens-shirts-tops-style-guide',
+    '/blogs/shirts': '/blogs/womens-shirts-tops-style-guide',
+    '/blogs/tops': '/blogs/womens-shirts-tops-style-guide',
+    '/blogs/womens-skirts': '/blogs/womens-skirts-style-guide',
+    '/blogs/skirts': '/blogs/womens-skirts-style-guide',
+    
+    # Collections
+    '/collections/dresses': '/collections/womens-dresses',
+    '/collections/casual-dresses': '/collections/womens-casual-dresses',
+    '/collections/formal-evening-dresses': '/collections/womens-formal-evening-dresses',
+    '/collections/maxi-dresses': '/collections/womens-maxi-dresses',
+    '/collections/new-collection': '/collections/womens-new-collection',
+    '/collections/jeans': '/collections/womens-jeans',
+    '/collections/pants': '/collections/womens-pants-leggings',
+    '/collections/leggings': '/collections/womens-pants-leggings',
+    '/collections/tops': '/collections/womens-tops',
+    '/collections/shirts': '/collections/womens-shirts',
+    '/collections/sweaters': '/collections/womens-sweaters',
+    '/collections/cardigans': '/collections/womens-cardigans',
+    '/collections/coats-jackets': '/collections/womens-coats-jackets',
+    '/collections/outerwear': '/collections/womens-outerwear',
+    '/collections/shorts': '/collections/womens-shorts',
+    '/collections/skirts': '/collections/womens-skirts',
+    '/collections/shoes': '/collections/womens-shoes',
+    '/collections/bottoms': '/collections/womens-bottoms',
+    '/collections/activewear': '/collections/womens-activewear',
+    '/collections/rompers': '/collections/womens-rompers',
+    '/collections/jumpsuits-sets': '/collections/womens-rompers-jumpsuit-sets',
+    '/collections/luxe-apparel': '/collections/womens-luxe-apparel',
+    '/collections/graphic-tees': '/collections/womens-graphic-tees',
+    '/collections/camis-tanks': '/collections/womens-camis-tanks-tops'
+}
+
+def fetch_all_redirects() -> dict[str, str]:
+    """Fetch active store redirects from Shopify REST API and merge with canonical SLUG_MAP."""
+    redirect_map = {k.lower(): v for k, v in SLUG_MAP.items()}
+    try:
+        url = f"{BASE}/redirects.json?limit=250"
+        while url:
+            r = _req("get", url)
+            if r.status_code != 200:
+                break
+            data = r.json()
+            for item in data.get("redirects", []):
+                src = (item.get("path") or "").strip().lower().rstrip("/")
+                target = (item.get("target") or "").strip().rstrip("/")
+                if src and target:
+                    redirect_map[src] = target
+            link_hdr = r.headers.get("Link")
+            url = None
+            if link_hdr:
+                for link in link_hdr.split(","):
+                    if 'rel="next"' in link:
+                        url = link.split(";")[0].strip("<> ")
+    except Exception as exc:
+        print(f"  [Warning] Failed to fetch live redirects: {exc}")
+
+    final_map = {}
+    for src, target in redirect_map.items():
+        curr = target
+        visited = {src, target.lower()}
+        while curr.lower() in redirect_map:
+            nxt = redirect_map[curr.lower()]
+            if nxt.lower() in visited:
+                break
+            visited.add(nxt.lower())
+            curr = nxt
+        final_map[src] = curr
+
+    return final_map
+
+
+def fix_redirected_internal_links(html_str: str, redirect_map: dict[str, str]) -> tuple[str, int]:
+    """Scan HTML for internal links (blogs, collections, products) and update redirected hrefs."""
+    if not html_str or not redirect_map:
+        return html_str, 0
+    
+    soup = BeautifulSoup(f"<div>{html_str}</div>", "html.parser")
+    root = soup.div
+    if not root:
+        return html_str, 0
+
+    swaps = 0
+    for a in root.find_all("a"):
+        href = a.get("href", "").strip()
+        if not href:
+            continue
+        
+        pathname = href
+        if "meeeshop.com" in href.lower():
+            m = re.search(r'https?://(?:us\.)?meeeshop\.com(/[^?\s#]*)', href, re.IGNORECASE)
+            if m:
+                pathname = m.group(1)
+        elif href.startswith("/"):
+            pathname = href.split("?")[0].split("#")[0]
+        else:
+            continue
+
+        clean_path = pathname.lower().rstrip("/")
+        if clean_path in redirect_map:
+            new_target = redirect_map[clean_path]
+            if "meeeshop.com" in href.lower():
+                if new_target.startswith("http"):
+                    new_href = new_target
+                else:
+                    new_href = f"{STORE_URL}{new_target}"
+            else:
+                new_href = new_target
+            
+            if "?" in href and "?" not in new_href:
+                query = href.split("?", 1)[1]
+                new_href = f"{new_href}?{query}"
+
+            if href != new_href:
+                a["href"] = new_href
+                swaps += 1
+
+    res = "".join(str(c) for c in root.contents)
+    return res.strip(), swaps
 
 
 # ── Product link detection ────────────────────────────────────────────────────
@@ -460,10 +644,11 @@ def find_matching_product_for_handle(handle: str, in_stock: list, exclude_handle
     return random.choice(valid_pool)
 
 
-def fix_article_images(html_str: str, product_by_handle: dict[str, dict]) -> tuple[str, int]:
+def fix_article_images(html_str: str, product_by_handle: dict[str, dict], in_stock: list = None) -> tuple[str, int]:
     """
     Parse article body, find any links to products, and ensure all product images
     are present, valid HTTPS URLs, and up-to-date with live Shopify data.
+    Also repair broken or missing standalone <img> tags.
     Returns (updated_html, swap_count).
     """
     if not html_str:
@@ -537,6 +722,19 @@ def fix_article_images(html_str: str, product_by_handle: dict[str, dict]) -> tup
                             new_img_soup = BeautifulSoup(img_html, "html.parser")
                             div.insert(0, new_img_soup)
                             swaps += 1
+
+    # 3. Check for broken or missing general <img> tags in the body
+    if in_stock:
+        for img in root.find_all("img"):
+            src = (img.get("src") or "").strip()
+            if not src or src in ("undefined", "null", "#") or not src.startswith("http"):
+                repl_prod = random.choice(in_stock)
+                repl_src = product_img_url(repl_prod)
+                if repl_src:
+                    img["src"] = repl_src
+                    if not img.get("alt"):
+                        img["alt"] = repl_prod.get("title", "MeeeShop fashion item")
+                    swaps += 1
 
     res = "".join(str(c) for c in root.contents)
     return res.strip(), swaps
@@ -690,160 +888,6 @@ def make_related_products_section(products: list, exclude_handle: str,
 """
 
 
-# ── SEO metadata generation ───────────────────────────────────────────────────
-EEAT_RULES = (
-    "EDITORIAL VOICE & E-E-A-T REQUIREMENTS (non-negotiable — Google trust signals + reader value):\n\n"
-
-    "═══ OPENING HOOK (Critical for Google Discover CTR) ═══\n"
-    "Open with a SPECIFIC, OPINIONATED hook that immediately validates the reader's real-world problem.\n"
-    "✅ GOOD: 'The single-roll cuff is everywhere right now — and after testing every variation on dark wash, barrel leg, and cigarette jeans, here is exactly what actually works.'\n"
-    "✅ GOOD: 'If your jeans still smell faintly musty after washing, you are not alone — and a second wash is rarely the answer.'\n"
-    "❌ BAD: 'Jeans are a timeless wardrobe staple that women everywhere love.'\n"
-    "❌ BAD: 'In today's world of fashion, finding the perfect pair of jeans can be challenging.'\n\n"
-
-    "═══ VOICE & TONE ═══\n"
-    "Write as a knowledgeable, trusted stylist friend — warm, direct, and specific. NOT a brand.\n"
-    "• Use second person ('your jeans', 'your body') to keep the reader central.\n"
-    "• Mix short punchy sentences with longer explanatory ones. Vary rhythm deliberately.\n"
-    "• Be opinionated where it helps: 'Skip the wide-leg for petite frames — the volume will overwhelm.'\n"
-    "• Acknowledge real trade-offs: 'Cigarette jeans are incredibly chic, but if you run curvy in the hip, size up and have them tailored at the waist.'\n\n"
-
-    "═══ SPECIFIC RECOMMENDATIONS (Required — not vague) ═══\n"
-    "All styling advice MUST name specific item categories with descriptors. MeeeShop sells clothing only — do NOT recommend specific shoes. Instead recommend clothing layers, tops, bags, belts, and jewelry with specific descriptors:\n"
-    "✅ GOOD: 'A relaxed linen button-down in ecru — untucked, one button undone at the collar — hits differently over dark wash jeans.'\n"
-    "✅ GOOD: 'A structured mini tote in chocolate brown or off-white anchors the quiet luxury aesthetic without trying too hard.'\n"
-    "✅ GOOD: 'Layer a cropped blazer in camel or ivory over the top — it balances the proportions instantly.'\n"
-    "❌ BAD: 'Pair with heels for a polished look.' (no shoe recs — MeeeShop doesn't sell shoes)\n"
-    "❌ BAD: 'Accessorize to complete the outfit.' (too vague)\n"
-    "❌ BAD: 'Add a bag to elevate the look.' (generic filler)\n\n"
-
-    f"═══ {datetime.now().year} TREND CONTEXT (Weave in naturally — sourced from Flipboard #Style 8.4M followers) ═══\n"
-    "Reference real trends where relevant but do NOT force every trend into every article:\n"
-    f"• Quiet luxury: 'No logos, no distressing — clean dark wash denim with a tucked-in linen shirt is the {datetime.now().year} quiet luxury formula.'\n"
-    f"• Cigarette/stovepipe silhouette replacing wide-leg as dominant denim cut in {datetime.now().year}.\n"
-    "• Dark indigo clean wash over distressed/light wash — reads more expensive instantly.\n"
-    "• Linen top + dark wash jean = the heat-proof chic summer formula trending on Flipboard.\n"
-    "• All-black outfits even in summer — trending on Flipboard #Style with 8.4M followers.\n"
-    "• Oversized blazer over a simple tank + straight-leg jeans = the office-to-evening formula.\n\n"
-
-    "═══ STRUCTURE & FORMAT ═══\n"
-    "• Use H2 for major sections, H3 for sub-steps or occasions.\n"
-    "• Include at least 1 blockquote styled as a 'Stylist Tip' with specific advice.\n"
-    "• Use bullet lists for step-by-step instructions (care guides, how-tos).\n"
-    "• For outfit formulas: name EACH look with a creative occasion title (e.g., 'Look 1: Sunday Farmers Market', not 'Casual Look').\n"
-    "• Vary structure between articles — avoid formulaic repetition.\n\n"
-
-    "═══ BANNED PHRASES (never use these) ═══\n"
-    "elevate your look | effortlessly chic | perfect for any occasion | versatile wardrobe staple\n"
-    "timeless classic | fashion-forward | look and feel your best | style game\n"
-    "take your look to the next level | complete your outfit | fashion journey\n\n"
-
-    "═══ TRUST SIGNALS ═══\n"
-    "Include naturally (once, in CTA or intro): Free US shipping on orders $50+. Easy 7-day returns. Sizes XS–3X.\n\n"
-)
-
-SEED_KEYWORDS = [
-    # Dynamic Trending — sourced from Flipboard #Style (8.4M followers) & Who What Wear
-    f"women's fashion {datetime.now().year}", f"summer outfit ideas for women {datetime.now().year}",
-    "affordable women's clothing USA", "summer dress outfits for women",
-    "women's jeans styles guide", "casual chic outfits women",
-    "cute outfits under $50", "stylish women's tops",
-    "best dresses for women", "women's summer wardrobe essentials",
-    "affordable boutique fashion USA", "work outfits for women",
-    "best tops to wear with jeans", "women's date night outfit ideas",
-    # Jeans-specific trending (Flipboard #Jeans 66K followers)
-    f"how to style jeans {datetime.now().year}", "dark wash jeans outfits",
-    "quiet luxury jeans women", "cigarette jeans styling tips",
-    "barrel leg jeans vs wide leg", "linen top with jeans outfit",
-    "blazer with jeans outfit ideas", "how to look taller in jeans",
-    # Care & How-To (high search intent)
-    "how to wash jeans without fading", "how to remove stains from jeans",
-    "how to remove smell from clothes", "how to fix pilling on clothes",
-    # Summer (Flipboard #SummerFashion 73.9K followers)
-    "linen top with jeans outfit", "summer denim outfit ideas",
-    "all black summer outfit women", f"women's capsule wardrobe {datetime.now().year}",
-]
-
-
-# ── Handle-aware content blueprint map ───────────────────────────────────────
-# Maps URL handle keywords → required article structure so content matches URL.
-# Sourced from Flipboard trending topics & Who What Wear 2026 editorial standards.
-HANDLE_CONTENT_RULES: dict[str, dict] = {
-    "how-to-cuff":         {"topic": "how to cuff jeans",
-                            "required_sections": ["Why Cuffing Works (proportion + ankle visibility + outfit balance)",
-                                                  "The Single Roll Cuff", "The Double Roll Cuff",
-                                                  "The Pin Roll Cuff",
-                                                  "What Tops Work Best With Each Cuff Style (tuck in or crop?)",
-                                                  f"{datetime.now().year} Styling Tip: Cigarette Jeans + Cropped Linen Top — The Cuffed Look"],
-                            "tone": "step-by-step how-to, practical"},
-    "sizing-guide":        {"topic": "jeans sizing guide for women",
-                            "required_sections": ["How to Measure Yourself for Jeans",
-                                                  "US Jeans Size Chart",
-                                                  "Fit Guide by Body Shape (petite, hourglass, curvy, tall)",
-                                                  "High Waist vs Mid Rise vs Low Rise — Which Fits Best?",
-                                                  "How to Choose Size XS–3X Online"],
-                            "tone": "helpful, inclusive, size-positive"},
-    "how-to-look-taller":  {"topic": "how to look taller with clothing",
-                            "required_sections": ["The Leg-Lengthening Formula: Rise + Tuck-In Trick",
-                                                  "High-Waisted Jeans and Why They Work",
-                                                  "The Tuck-In Effect: How a Cropped or Tucked Top Creates Leg Length",
-                                                  "Monochrome Dressing for Height Illusion",
-                                                  "Vertical Stripes and Elongating Details on Tops",
-                                                  f"{datetime.now().year} Pro Tip: Cigarette Jeans + Fitted Ribbed Top = Longest-Looking Legs"],
-                            "tone": "empowering, styling expert"},
-    "how-to-pair":         {"topic": "how to pair jeans with outfits",
-                            "required_sections": ["The Foundation: Choosing the Right Jeans Wash for the Vibe",
-                                                  "Casual Formula: Linen Top + Dark Wash Jean + Crossbody Bag",
-                                                  "Office Formula: Blazer + Fitted Top + Straight-Leg Jeans",
-                                                  "Evening Formula: Silk Blouse + Cigarette Jeans + Statement Earrings",
-                                                  "Weekend Formula: Oversized Tee + Barrel Leg + Tote Bag",
-                                                  f"The Quiet Luxury Jeans Look for {datetime.now().year}"],
-                            "tone": "outfit formula, editorial"},
-    "what-to-pair":        {"topic": "what to pair with jeans",
-                            "required_sections": ["Tops That Always Work With Jeans (tuck-in vs untucked vs knotted)",
-                                                  "Layering Pieces: Blazers, Cardigans, and Jackets That Elevate Denim",
-                                                  "Accessories: Belts, Bags, and Jewelry That Complete the Look",
-                                                  "The Top + Bottom Proportion Rule for Different Jeans Silhouettes",
-                                                  "Complete Outfit Formulas for 5 Occasions"],
-                            "tone": "practical, shoppable, style guide"},
-    "how-to-clean-pilling": {"topic": "how to remove pilling from clothes",
-                             "required_sections": ["What Causes Pilling (and Which Fabrics Are Most Vulnerable)",
-                                                   "The Sweater Stone Method",
-                                                   "The Fabric Shaver Method",
-                                                   "The Razor Trick",
-                                                   "How to Prevent Pilling: Washing Tips",
-                                                   "Care Instructions by Fabric Type"],
-                             "tone": "practical, care expert"},
-    "stinky-smell":        {"topic": "how to remove smell from clothes without washing",
-                            "required_sections": ["Why Clothes Smell (bacteria, sweat, detergent buildup)",
-                                                  "The Freezer Method",
-                                                  "White Vinegar Spray",
-                                                  "Baking Soda Treatment",
-                                                  "Vodka Spritz Hack",
-                                                  "Steam vs Dry Air Out",
-                                                  f"Prevention: The Wash-Less Denim Movement {datetime.now().year}"],
-                            "tone": "practical, problem-solver"},
-    "remove-stain":        {"topic": "how to remove stains from jeans and clothes",
-                            "required_sections": ["Act Fast: The First 60 Seconds Rule",
-                                                  "Oil and Grease Stains",
-                                                  "Wine and Berry Stains",
-                                                  "Grass and Mud Stains",
-                                                  "Dye Transfer Stains",
-                                                  "What NOT To Do (common mistakes)",
-                                                  "Care After Stain Removal"],
-                            "tone": "practical, urgent, step-by-step"},
-}
-
-
-def _clean_html(raw: str) -> str:
-    raw = raw.strip()
-    raw = re.sub(r"^```html?\s*", "", raw, flags=re.IGNORECASE)
-    raw = re.sub(r"\s*```$", "", raw).strip()
-    # Remove <seometa>...</seometa> block so SEO title/meta desc text never appears in reader-facing body HTML
-    raw = re.sub(r"<seometa>[\s\S]*?</seometa>", "", raw, flags=re.IGNORECASE).strip()
-    return raw
-
-
 # ── Replace out-of-stock product links in HTML ────────────────────────────────
 def replace_product_links(html: str, out_handles: set[str],
                            handle_map: dict[str, dict]) -> tuple[str, int]:
@@ -948,12 +992,8 @@ def clean_article_body_html(html_str: str) -> str:
         if "border-top:1pxsolid#eee" in style:
             hr.decompose()
 
-    # 2. Strip all internal links pointing to meeeshop
-    for a in root.find_all("a"):
-        href = a.get("href", "").lower()
-        if "meeeshop" in href or "/collections/" in href or "/products/" in href:
-            # Replace <a> tag with its inner text content
-            a.replace_with(a.get_text())
+    # 2. Keep internal links intact (redirects will be updated by fix_redirected_internal_links)
+    pass
 
     # Reconstruct the inner HTML
     res = "".join(str(c) for c in root.contents)
@@ -1105,6 +1145,7 @@ def check_alignment(handle: str, title: str, html_content: str, product_by_handl
 def refresh_article(blog: dict, article: dict, all_products: list,
                     in_stock: list, out_of_stock_handles: set[str],
                     product_by_handle: dict[str, dict],
+                    redirect_map: dict[str, str] = None,
                     dry_run: bool = False,
                     **kwargs) -> dict | None:
     blog_id    = blog["id"]
@@ -1134,14 +1175,14 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     oos_in_article = {h for h in referenced if needs_replacement(h)}
     print(f"  Products referenced: {len(referenced)} | out-of-stock/missing-image: {len(oos_in_article)}")
 
-    # ── 3. Find out-of-stock replacements or category-aligned product ─────────
+    # ── 3. Find out-of-stock replacements matching same product type ──────────
     replacement_map: dict[str, dict] = {}
     replacements_log: list[dict] = []
     first_replacement: dict | None = None
 
     for handle in oos_in_article:
         old_product = product_by_handle.get(handle)
-        replacement = find_matching_product_for_handle(art_handle, in_stock)
+        replacement = find_best_replacement(old_product or {"handle": handle}, in_stock)
         if replacement:
             replacement_map[handle] = replacement
             if first_replacement is None:
@@ -1154,15 +1195,18 @@ def refresh_article(blog: dict, article: dict, all_products: list,
             })
             print(f"    Replacing '{old_product['title'][:40] if old_product else handle}' → '{replacement['title'][:40]}'")
 
-    # Swap product links & styled cards in HTML
+    # Swap product links, images, and redirected internal links in HTML
     new_body, swaps = swap_products_in_html(body, replacement_map, product_by_handle)
-    new_body, img_swaps = fix_article_images(new_body, product_by_handle)
+    new_body, img_swaps = fix_article_images(new_body, product_by_handle, in_stock)
+    new_body, redirect_swaps = fix_redirected_internal_links(new_body, redirect_map or {})
 
-    if swaps == 0 and img_swaps == 0:
-        print("  Article content is aligned and images are up to date. No changes needed.")
+    total_swaps = swaps + img_swaps + redirect_swaps
+
+    if total_swaps == 0:
+        print("  Article content is aligned, images are up to date, and internal links are canonical. No changes needed.")
         return {"status": "no_changes_needed", "swaps": 0}
 
-    print(f"  HTML Swaps: {swaps} | Image updates: {img_swaps}")
+    print(f"  HTML Swaps: {swaps} | Image updates: {img_swaps} | Redirect updates: {redirect_swaps}")
 
     if dry_run:
         print(f"  [DRY-RUN] Would PATCH article {article_id} with updated body HTML.")
@@ -1326,17 +1370,28 @@ def run(limit: int = 0, dry_run: bool = False, article_id: int | None = None):
     blogs = fetch_all_blogs()
     print(f"  {len(blogs)} blogs: {[b['title'] for b in blogs]}\n")
 
+    # ── Redirects ─────────────────────────────────────────────────────────────
+    print("Fetching active store redirects...")
+    redirect_map = fetch_all_redirects()
+    print(f"  Loaded {len(redirect_map)} active redirects.\n")
+
     # ── Collect articles to process ───────────────────────────────────────────
     work_items: list[tuple[dict, dict]] = []  # (blog, article)
 
     if article_id:
-        # Single article mode
-        for blog in blogs:
-            r = _req("get", f"{BASE}/blogs/{blog['id']}/articles/{article_id}.json")
-            if r.ok:
-                art = r.json().get("article")
-                if art:
-                    work_items.append((blog, art))
+        # Single article mode: attempt direct GraphQL lookup first
+        art_res = fetch_article_by_id(article_id)
+        if art_res:
+            work_items.append(art_res)
+        else:
+            print(f"  GraphQL node lookup for article {article_id} returned empty. Searching all blogs...")
+            for blog in blogs:
+                arts = fetch_articles_for_blog(blog["id"], limit=500)
+                for art in arts:
+                    if art["id"] == article_id:
+                        work_items.append((blog, art))
+                        break
+                if work_items:
                     break
         if not work_items:
             sys.exit(f"ERROR: Article {article_id} not found in any blog.")
@@ -1389,6 +1444,7 @@ def run(limit: int = 0, dry_run: bool = False, article_id: int | None = None):
             result = refresh_article(
                 blog, article, all_products,
                 in_stock, out_of_stock_handles, product_by_handle,
+                redirect_map=redirect_map,
                 dry_run=dry_run
             )
             if result and result.get("status") in ("updated", "images_fixed"):
