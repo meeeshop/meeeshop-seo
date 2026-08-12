@@ -109,47 +109,162 @@ if not all([SHOP_TOKEN, FLIPBOARD_EMAIL, FLIPBOARD_PASSWORD, SHOP]):
 
 UTM_TRACKING = "utm_source=flipboard&utm_medium=syndication&utm_campaign=flipboard_daily"
 
-# ── Shopify Helpers ───────────────────────────────────────────────────────────
+# ── Shopify & Caption Helpers ──────────────────────────────────────────────────
+import re
+
+def clean_html_text(raw_html: str) -> str:
+    """Strip HTML tags and condense whitespace."""
+    if not raw_html:
+        return ""
+    clean = re.sub(r'<[^>]+>', ' ', raw_html)
+    clean = re.sub(r'\s+', ' ', clean).strip()
+    return clean
+
+def generate_flip_caption(art: dict) -> str:
+    """Generate an engaging caption with high-traffic fashion hashtags for Flipboard."""
+    title = art.get("title", "")
+    summary = clean_html_text(art.get("summary_html", ""))
+    body = clean_html_text(art.get("body_html", ""))
+    
+    excerpt = summary if summary else body
+    if len(excerpt) > 130:
+        excerpt = excerpt[:127] + "..."
+        
+    tags = [t.strip().lower() for t in (art.get("tags") or "").split(",") if t.strip()]
+    text_corpus = f"{title} {excerpt} {' '.join(tags)}".lower()
+    
+    hashtags = ["#Style", "#FashionTrends"]
+    
+    if any(k in text_corpus for k in ["jean", "denim", "pant", "trouser", "bottom", "short"]):
+        hashtags.extend(["#Jeans", "#DenimOutfits"])
+    elif any(k in text_corpus for k in ["dress", "skirt"]):
+        hashtags.extend(["#Dresses", "#SummerOutfits"])
+    elif any(k in text_corpus for k in ["plus", "curvy"]):
+        hashtags.extend(["#PlusSizeFashion", "#CurvyStyle"])
+    elif any(k in text_corpus for k in ["bag", "handbag", "purse"]):
+        hashtags.extend(["#Handbags", "#Accessories"])
+    elif any(k in text_corpus for k in ["shoe", "boot", "sandal", "sneaker", "footwear"]):
+        hashtags.extend(["#Footwear", "#ShoeStyle"])
+    elif any(k in text_corpus for k in ["vegan", "eco", "sustainable"]):
+        hashtags.extend(["#SustainableFashion", "#EcoFriendly"])
+    else:
+        hashtags.extend(["#WomenStyle", "#OutfitIdeas"])
+        
+    # Deduplicate while preserving order
+    unique_tags = list(dict.fromkeys(hashtags))
+    hashtag_str = " ".join(unique_tags)
+    
+    if excerpt:
+        return f"{excerpt} {hashtag_str}"
+    else:
+        return f"{title} {hashtag_str}"
+
+def determine_staggered_target(art: dict):
+    """
+    Determine target magazine and next tag based on staggering stage.
+    Stage 1: Main Magazine ('Trending Clothing Tips & Styles For Women') -> tag 'flipboard_mag1_synced'
+    Stage 2: Category Magazine ('Women's Dresses', 'Women's Jeans & Bottoms', etc.) -> tag 'flipboard_mag2_synced'
+    Stage 3: Lifestyle / Topic Magazine -> tag 'flipboard_synced' (complete)
+    """
+    tags = [t.strip() for t in (art.get("tags") or "").split(",") if t.strip()]
+    tags_lower = [t.lower() for t in tags]
+    
+    if "flipboard_mag2_synced" in tags_lower:
+        stage = 3
+        tag_to_apply = "flipboard_synced"
+        if any(k in t for t in tags_lower for k in ["plus", "curvy"]):
+            target_mag = "Curvy | Plus Size Styles & Tips"
+        elif any(k in t for t in tags_lower for k in ["vegan", "eco", "sustainable"]):
+            target_mag = "Veganism | Eco-Friendly & Sustainable"
+        else:
+            target_mag = FLIPBOARD_MAGAZINE
+    elif "flipboard_mag1_synced" in tags_lower:
+        stage = 2
+        tag_to_apply = "flipboard_mag2_synced"
+        target_mag = FLIPBOARD_MAGAZINE
+        for t in tags_lower:
+            for kw, mag in MAGAZINE_ROUTING.items():
+                if kw in t:
+                    target_mag = mag
+                    break
+            if target_mag != FLIPBOARD_MAGAZINE:
+                break
+        if target_mag == FLIPBOARD_MAGAZINE:
+            title_handle = f"{art.get('title','')} {art.get('handle','')}".lower()
+            for kw, mag in MAGAZINE_ROUTING.items():
+                if kw in title_handle:
+                    target_mag = mag
+                    break
+    else:
+        stage = 1
+        tag_to_apply = "flipboard_mag1_synced"
+        target_mag = FLIPBOARD_MAGAZINE
+        
+    return stage, target_mag, tag_to_apply
+
 def fetch_articles(days: int, limit: int) -> list:
-    """Fetch articles from all Shopify blogs."""
-    logging.info("Fetching Shopify blogs...")
+    """Fetch Shopify articles for staggered multi-stage magazine syndication."""
+    logging.info(f"Fetching Shopify articles from last {days} days for staggered syndication...")
     r = requests.get(f"{SHOP_BASE}/blogs.json", headers=SHOP_HEADERS)
     r.raise_for_status()
     blogs = r.json().get("blogs", [])
-    logging.info(f"Found {len(blogs)} blog(s): {[b.get('title') for b in blogs]}")
+    logging.info(f"Found {len(blogs)} blog(s)")
     
     all_articles = []
+    cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    
     for blog in blogs:
         blog_id = blog["id"]
         blog_handle = blog["handle"]
-        
-        cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         params = {"limit": 250, "published_at_min": cutoff_date}
-        
-        logging.info(f"  Fetching articles from '{blog['title']}'...")
-        r = requests.get(f"{SHOP_BASE}/blogs/{blog_id}/articles.json", headers=SHOP_HEADERS, params=params)
-        r.raise_for_status()
-        
-        articles_batch = r.json().get("articles", [])
-        for art in articles_batch:
-            art["_full_url"] = f"{STORE_URL}/blogs/{blog_handle}/{art['handle']}?{UTM_TRACKING}"
-            art["_blog_id"] = blog_id
-            all_articles.append(art)
+        try:
+            r = requests.get(f"{SHOP_BASE}/blogs/{blog_id}/articles.json", headers=SHOP_HEADERS, params=params)
+            r.raise_for_status()
+            for art in r.json().get("articles", []):
+                art["_full_url"] = f"{STORE_URL}/blogs/{blog_handle}/{art['handle']}?{UTM_TRACKING}"
+                art["_blog_id"] = blog_id
+                all_articles.append(art)
+        except Exception as e:
+            logging.warning(f"  Failed to fetch articles from blog {blog_id}: {e}")
             
     all_articles.sort(key=lambda x: x.get("published_at") or "", reverse=True)
     
-    # Filter out already synced
     pending = []
+    now = datetime.now(timezone.utc)
     for art in all_articles:
-        tags = [t.strip() for t in (art.get("tags") or "").split(",") if t.strip()]
-        if "flipboard_synced" not in tags:
-            pending.append(art)
+        tags = [t.strip().lower() for t in (art.get("tags") or "").split(",") if t.strip()]
+        if "flipboard_synced" in tags:
+            continue
             
+        pub_at_str = art.get("published_at") or ""
+        try:
+            pub_at = datetime.fromisoformat(pub_at_str.replace("Z", "+00:00"))
+            age_days = (now - pub_at).total_seconds() / 86400.0
+        except Exception:
+            age_days = 0.0
+
+        stage, target_mag, next_tag = determine_staggered_target(art)
+        art["_stagger_stage"] = stage
+        art["_target_mag"] = target_mag
+        art["_next_tag"] = next_tag
+        art["_caption"] = generate_flip_caption(art)
+
+        # Stage 1: unsynced -> immediate flip
+        if stage == 1:
+            pending.append(art)
+        # Stage 2: mag1 synced -> wait 1+ days before mag2 flip
+        elif stage == 2 and age_days >= 1.0:
+            pending.append(art)
+        # Stage 3: mag2 synced -> wait 3+ days before mag3 flip
+        elif stage == 3 and age_days >= 3.0:
+            pending.append(art)
+
+    logging.info(f"Found {len(pending)} article(s) ready for staggered flip.")
     return pending[:limit]
 
 def fetch_old_articles(limit: int) -> list:
-    """Fetch previously synced Shopify articles to re-flip."""
-    logging.info("Fetching Shopify blogs to locate old articles...")
+    """Fetch old Shopify articles (published > 30 days ago) to re-flip safely without spamming."""
+    logging.info("Fetching old Shopify articles (30+ days old) for safe periodic re-flipping...")
     try:
         r = requests.get(f"{SHOP_BASE}/blogs.json", headers=SHOP_HEADERS)
         r.raise_for_status()
@@ -159,53 +274,54 @@ def fetch_old_articles(limit: int) -> list:
         return []
         
     all_articles = []
+    now = datetime.now(timezone.utc)
     for blog in blogs:
         blog_id = blog["id"]
         blog_handle = blog["handle"]
-        
-        # Fetch up to 250 articles (no date limit, to get old ones)
         params = {"limit": 250}
-        logging.info(f"  Fetching articles from '{blog['title']}' for re-flipping...")
         try:
             r = requests.get(f"{SHOP_BASE}/blogs/{blog_id}/articles.json", headers=SHOP_HEADERS, params=params)
             r.raise_for_status()
             articles_batch = r.json().get("articles", [])
         except Exception as e:
-            logging.warning(f"  Failed to fetch articles from blog {blog_id}: {e}")
             continue
             
         for art in articles_batch:
-            art["_full_url"] = f"{STORE_URL}/blogs/{blog_handle}/{art['handle']}?{UTM_TRACKING}"
-            art["_blog_id"] = blog_id
-            all_articles.append(art)
+            pub_at_str = art.get("published_at") or ""
+            try:
+                pub_at = datetime.fromisoformat(pub_at_str.replace("Z", "+00:00"))
+                age_days = (now - pub_at).total_seconds() / 86400.0
+            except Exception:
+                age_days = 0
+                
+            # Only include articles older than 30 days to avoid recent duplicate flipping
+            if age_days >= 30:
+                art["_full_url"] = f"{STORE_URL}/blogs/{blog_handle}/{art['handle']}?{UTM_TRACKING}"
+                art["_blog_id"] = blog_id
+                art["_stagger_stage"] = 3
+                art["_target_mag"] = FLIPBOARD_MAGAZINE
+                art["_next_tag"] = "flipboard_synced"
+                art["_caption"] = generate_flip_caption(art)
+                all_articles.append(art)
             
-    # Filter to only those already synced
-    synced_articles = []
-    for art in all_articles:
-        tags = [t.strip() for t in (art.get("tags") or "").split(",") if t.strip()]
-        if "flipboard_synced" in tags:
-            synced_articles.append(art)
-            
-    if not synced_articles:
-        # Fallback to all articles if none are marked synced yet
-        synced_articles = all_articles
-        
-    if not synced_articles:
+    if not all_articles:
         return []
         
-    # Return a random selection of old articles to keep it dynamic
-    sample_size = min(limit, len(synced_articles))
-    return random.sample(synced_articles, sample_size)
+    sample_size = min(limit, len(all_articles))
+    return random.sample(all_articles, sample_size)
 
-def mark_as_synced(blog_id: int, article_id: int, existing_tags: str):
-    """Add 'flipboard_synced' tag to Shopify article to prevent duplicate posting."""
+def mark_as_synced(blog_id: int, article_id: int, existing_tags: str, tag_to_add: str = "flipboard_synced"):
+    """Add progressive flipboard tag (e.g. flipboard_mag1_synced, flipboard_mag2_synced, or flipboard_synced)."""
     tags = [t.strip() for t in (existing_tags or "").split(",") if t.strip()]
-    if "flipboard_synced" not in tags:
-        tags.append("flipboard_synced")
+    if tag_to_add not in tags:
+        tags.append(tag_to_add)
         payload = {"article": {"id": article_id, "tags": ", ".join(tags)}}
         r = requests.put(f"{SHOP_BASE}/blogs/{blog_id}/articles/{article_id}.json", headers=SHOP_HEADERS, json=payload)
         if not r.ok:
-            logging.warning(f"Failed to tag Shopify article as synced: {r.text}")
+            logging.warning(f"Failed to tag Shopify article with '{tag_to_add}': {r.text}")
+        else:
+            logging.info(f"  Tagged Shopify article #{article_id} with '{tag_to_add}'.")
+
 
 # ── Flipboard Automation ──────────────────────────────────────────────────────
 def get_browser(headless=True):
@@ -347,8 +463,20 @@ def find_magazine_element(driver, target_mag):
             pass
     return None, None
 
-def handle_flip_popup(driver, target_mag):
+def handle_flip_popup(driver, target_mag, caption=None):
     """Helper to handle the magazine selection popup and submitting the flip."""
+    if caption:
+        try:
+            comment_fields = driver.find_elements(By.CSS_SELECTOR, 'textarea[placeholder*="comment" i], textarea[placeholder*="say" i], textarea[placeholder*="note" i], textarea[placeholder*="caption" i], textarea.share-flip__comment')
+            for cf in comment_fields:
+                if cf.is_displayed() and not cf.get_attribute("value"):
+                    logging.info("  [Trace] Injecting caption into comment field...")
+                    cf.send_keys(caption)
+                    time.sleep(0.5)
+                    break
+        except Exception as e:
+            logging.info(f"  [Trace] Could not inject comment field: {e}")
+
     # Check if we are already on the magazine selection screen
     magazine_visible = False
     try:
@@ -646,19 +774,39 @@ def reflip_trending(driver, limit):
             article_url, article_title = random.choice(candidates[:min(8, len(candidates))])
             logging.info(f"  [Trace] Selected: '{article_title}' — {article_url}")
 
-            # Use the proven share.flipboard.com popout (same as our blog articles)
+            topic_tags = {
+                "womensfashion": "#Style #FashionTrends #WomensFashion",
+                "streetstyle": "#Style #StreetStyle #OutfitIdeas",
+                "dresses": "#Dresses #Style #SummerOutfits",
+                "jeans": "#Jeans #DenimOutfits #Style",
+                "handbags": "#Handbags #Accessories #Style",
+                "shoes": "#Footwear #ShoeStyle #Style",
+                "plussize": "#PlusSizeFashion #CurvyStyle #Style",
+                "outerwear": "#FashionTrends #Outerwear #Style",
+                "sustainablefashion": "#SustainableFashion #EcoFriendly #Style",
+                "veganfashion": "#SustainableFashion #VeganFashion #Style",
+                "activewear": "#Activewear #SportyChic #Style",
+                "swimwear": "#Swimwear #SummerStyle #Style",
+                "accessories": "#Accessories #FashionTrends #Style",
+                "jewelry": "#Jewelry #Accessories #Style"
+            }
+            trending_hashtags = topic_tags.get(topic, "#Style #FashionTrends")
+            trending_comment = f"{article_title} {trending_hashtags}"
+
+            # Use the proven share.flipboard.com popout with comment parameter
             encoded_url   = urllib.parse.quote(article_url,   safe="")
             encoded_title = urllib.parse.quote(article_title, safe="")
+            encoded_comment = urllib.parse.quote(trending_comment, safe="")
             popout_url = (
                 f"https://share.flipboard.com/bookmarklet/popout"
-                f"?v=2&title={encoded_title}&url={encoded_url}"
+                f"?v=2&title={encoded_title}&url={encoded_url}&comment={encoded_comment}"
             )
 
             logging.info(f"  [Trace] Opening share popout...")
             driver.get(popout_url)
             time.sleep(4)
 
-            if handle_flip_popup(driver, target_mag):
+            if handle_flip_popup(driver, target_mag, caption=trending_comment):
                 successful_flips += 1
                 logging.info(
                     f"  ✓ Flipped '{article_title}' -> '{target_mag}' "
@@ -707,25 +855,18 @@ def flip_articles(articles: list, headless: bool, do_reflip: bool = False, refli
         for i, art in enumerate(articles, 1):
             url = art["_full_url"]
             title = art["title"]
-            logging.info(f"[{i}/{len(articles)}] Flipping: '{title}'")
+            target_mag = art.get("_target_mag", FLIPBOARD_MAGAZINE)
+            next_tag = art.get("_next_tag", "flipboard_synced")
+            stage = art.get("_stagger_stage", 1)
+            caption = art.get("_caption", f"{title} #Style #FashionTrends")
+            
+            logging.info(f"[{i}/{len(articles)}] Flipping Stage {stage}: '{title}' -> Mag: '{target_mag}'")
+            logging.info(f"  Caption: {caption}")
             
             # Reset state for each article to ensure no stuck popups from previous runs
             driver.get("https://flipboard.com/")
             driver.refresh()
             time.sleep(3)
-            
-            # Determine target magazine
-            tags = [t.strip().lower() for t in (art.get("tags") or "").split(",") if t.strip()]
-            target_mag = FLIPBOARD_MAGAZINE
-            for tag in tags:
-                for kw, mag in MAGAZINE_ROUTING.items():
-                    if kw in tag:
-                        target_mag = mag
-                        break
-                if target_mag != FLIPBOARD_MAGAZINE:
-                    break
-                    
-            logging.info(f"  Routing to Magazine: '{target_mag}'")
             
             try:
                 try:
@@ -739,38 +880,34 @@ def flip_articles(articles: list, headless: bool, do_reflip: bool = False, refli
                     visible_btns = [b for b in create_btns if b.is_displayed()]
                     
                     if visible_btns:
-                        # Sort by Y-coordinate to ensure we click the one in the header, not a feed article
                         visible_btns.sort(key=lambda b: b.location['y'])
                         target_btn = visible_btns[0]
-                        logging.info(f"  [Trace] Found {len(visible_btns)} Create/Pencil icons. Clicking the top-most one via JS...")
+                        logging.info(f"  [Trace] Found {len(visible_btns)} Create/Pencil icons. Clicking top-most icon...")
                         driver.execute_script("arguments[0].click();", target_btn)
                     else:
                         logging.warning("  [Trace] No visible Create/Pencil buttons found!")
                     
-                    # Wait for the input field to appear and paste the URL
+                    # Wait for URL input field
                     logging.info("  [Trace] Waiting for URL input field...")
                     url_input = WebDriverWait(driver, 5).until(
                         EC.presence_of_element_located((By.CSS_SELECTOR, 'input[placeholder*="URL" i], textarea[placeholder*="URL" i], input[placeholder*="link" i], textarea[placeholder*="link" i], input[type="url"], input[placeholder*="share" i], textarea[placeholder*="share" i], input[aria-label*="link" i], input[aria-label*="URL" i], textarea[aria-label*="link" i]'))
                     )
                     logging.info("  [Trace] Found URL input field, sending URL...")
                     url_input.send_keys(url)
-                    
-                    # Wait for the "Next" button to activate
-                    logging.info("  [Trace] Waiting 4s for preview auto-fetch...")
                     time.sleep(4)
                     
                 except Exception as ex:
-                    logging.warning(f"  [Trace] URL input field did not appear ({type(ex).__name__}). Wrong button clicked?")
-                    logging.info("  [Trace] Fallback: Navigating directly to Flipboard Share Popout URL...")
+                    logging.warning(f"  [Trace] URL input field did not appear ({type(ex).__name__}). Falling back to Share Popout URL...")
                     import urllib.parse
-                    encoded_url = urllib.parse.quote(url)
-                    encoded_title = urllib.parse.quote(title)
-                    driver.get(f"https://share.flipboard.com/bookmarklet/popout?v=2&title={encoded_title}&url={encoded_url}")
-                    time.sleep(4) # Let the share popout load
+                    encoded_url = urllib.parse.quote(url, safe="")
+                    encoded_title = urllib.parse.quote(title, safe="")
+                    encoded_comment = urllib.parse.quote(caption, safe="")
+                    driver.get(f"https://share.flipboard.com/bookmarklet/popout?v=2&title={encoded_title}&url={encoded_url}&comment={encoded_comment}")
+                    time.sleep(4)
                 
-                if handle_flip_popup(driver, target_mag):
-                    # Update Shopify Tag
-                    mark_as_synced(art["_blog_id"], art["id"], art.get("tags", ""))
+                if handle_flip_popup(driver, target_mag, caption=caption):
+                    # Update Shopify Progressive Tag
+                    mark_as_synced(art["_blog_id"], art["id"], art.get("tags", ""), tag_to_add=next_tag)
                 else:
                     raise RuntimeError("Failed to complete flip inside popup modal.")
                 
@@ -800,12 +937,12 @@ def flip_articles(articles: list, headless: bool, do_reflip: bool = False, refli
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Automate flipping Shopify blogs to Flipboard.")
-    ap.add_argument("--days", type=int, default=7, help="Sync articles published in the last X days.")
-    ap.add_argument("--limit", type=int, default=10, help="Max articles to flip per run.")
+    ap.add_argument("--days", type=int, default=14, help="Sync articles published in the last X days.")
+    ap.add_argument("--limit", type=int, default=5, help="Max articles to flip per run.")
     ap.add_argument("--dry-run", action="store_true", help="Print plan, do not flip.")
     ap.add_argument("--headed", action="store_true", help="Show browser window (helpful for initial setup).")
     ap.add_argument("--no-reflip", dest="reflip", action="store_false", help="Disable finding and re-flipping trending articles.")
-    ap.add_argument("--reflip-limit", type=int, default=10, help="Max trending articles to re-flip.")
+    ap.add_argument("--reflip-limit", type=int, default=3, help="Max trending articles to re-flip.")
     ap.set_defaults(reflip=True)
     args = ap.parse_args()
     
@@ -817,24 +954,23 @@ if __name__ == "__main__":
     
     is_fallback = False
     if not articles:
-        logging.info("No new unsynced articles found matching criteria. Falling back to fetching old articles to re-flip...")
+        logging.info("No unsynced articles found matching staggering criteria. Falling back to old articles (30+ days old)...")
         articles = fetch_old_articles(limit=2)
         is_fallback = True
         
     if not articles and not args.reflip:
-        logging.info("No new or old articles found matching criteria and reflip is disabled. Exiting.")
+        logging.info("No articles found matching criteria and reflip is disabled. Exiting.")
         sys.exit(0)
         
     if articles:
         if is_fallback:
             logging.info(f"Found {len(articles)} old article(s) to re-flip.")
         else:
-            logging.info(f"Found {len(articles)} unsynced article(s) to process.")
+            logging.info(f"Found {len(articles)} article(s) ready for staggering.")
             
-    # Randomize trending articles count slightly for variability
     reflip_limit = args.reflip_limit
     if args.reflip and reflip_limit >= 2:
-        reflip_limit = random.randint(max(2, reflip_limit - 2), reflip_limit)
+        reflip_limit = random.randint(max(2, reflip_limit - 1), reflip_limit)
     
     if args.dry_run:
         logging.info("--- DRY RUN MODE ---")
@@ -843,11 +979,16 @@ if __name__ == "__main__":
             if is_fallback:
                 logging.info("Old articles that would be re-flipped:")
             else:
-                logging.info("Articles that would be flipped:")
+                logging.info("Articles ready for staggered flip:")
             for art in articles:
-                logging.info(f"  - '{art['title']}' ({art['_full_url']})")
+                stage = art.get("_stagger_stage", 1)
+                target_mag = art.get("_target_mag", FLIPBOARD_MAGAZINE)
+                caption = art.get("_caption", "")
+                logging.info(f"  - [Stage {stage}] '{art['title']}' -> Mag: '{target_mag}'")
+                logging.info(f"    URL: {art['_full_url']}")
+                logging.info(f"    Caption: {caption}")
         if args.reflip:
-            logging.info(f"Would also reflip up to {reflip_limit} trending articles.")
+            logging.info(f"Would also reflip up to {reflip_limit} trending fashion articles.")
         logging.info("--- END DRY RUN ---")
     else:
         logging.info("--- LIVE MODE ---")
