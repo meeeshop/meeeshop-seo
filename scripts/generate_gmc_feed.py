@@ -266,9 +266,8 @@ def upload_to_shopify_files(filepath):
             
     if public_url:
         print(f"✅ Feed uploaded successfully to Shopify CDN!")
-        cdn_url = public_url.split("?")[0] # Remove any version parameters
-        print(f"🔗 Temporary CDN URL: {cdn_url}")
-        create_or_update_redirect(cdn_url)
+        print(f"🔗 CDN URL: {public_url}")
+        create_or_update_redirect(public_url)
     else:
         print("⚠️ File uploaded, but URL could not be retrieved in time. Check Shopify Admin > Settings > Files.")
         raise Exception("Failed to retrieve public URL for uploaded file.")
