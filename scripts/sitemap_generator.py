@@ -603,33 +603,25 @@ def submit_sitemap_to_bing(sitemap_url: str):
         print(f"[ERROR] Bing Webmaster API submission failed for {sitemap_url}: {e}")
 
 def fetch_and_submit_all_sitemaps(custom_image_sitemap_url: str):
-    print("Fetching Shopify's main sitemap index to extract sub-sitemaps...")
+    """
+    Submits ONLY the 2 master sitemaps to Google Search Console and Bing Webmaster API:
+      1. https://us.meeeshop.com/sitemap.xml (Shopify master index covering all products, collections, pages, blogs)
+      2. https://us.meeeshop.com/sitemap_images.xml (Custom rich image sitemap)
+
+    Never unpacks or submits child sitemaps (e.g. sitemap_products_1.xml),
+    as Google and Bing automatically discover and crawl child sitemaps from sitemap.xml.
+    """
     sitemap_index_url = f"{STORE_URL}/sitemap.xml"
     sitemaps_to_submit = [sitemap_index_url, custom_image_sitemap_url]
     
-    try:
-        resp = requests.get(sitemap_index_url, timeout=15)
-        if resp.status_code == 200:
-            root = ET.fromstring(resp.content)
-            namespace = {"ns": "http://www.sitemaps.org/schemas/sitemap/0.9"}
-            for sitemap_node in root.findall("ns:sitemap", namespace):
-                loc_node = sitemap_node.find("ns:loc", namespace)
-                if loc_node is not None and loc_node.text:
-                    sitemaps_to_submit.append(loc_node.text.strip())
-        else:
-            print(f"[WARNING] Could not fetch sitemap index from {sitemap_index_url} (HTTP {resp.status_code})")
-    except Exception as e:
-        print(f"[WARNING] Failed to parse sitemap index: {e}")
-        
-    sitemaps_to_submit = list(dict.fromkeys(sitemaps_to_submit))
-    print(f"Found {len(sitemaps_to_submit)} sitemaps to submit to Search Engines (Google & Bing):")
+    print(f"Submitting {len(sitemaps_to_submit)} master sitemaps to Search Engines (Google & Bing):")
     for sm in sitemaps_to_submit:
         print(f"  - {sm}")
         
-    # Submit each to Google Search Console and Bing
     for sm in sitemaps_to_submit:
         submit_sitemap_to_gsc(sm)
         submit_sitemap_to_bing(sm)
+
 
 # ── Main Execution ───────────────────────────────────────────────────────────
 def main():
