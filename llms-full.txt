@@ -41,8 +41,6 @@
 - [Women's Skirts](https://us.meeeshop.com/collections/womens-skirts)
 - [Women's Pants & Leggings](https://us.meeeshop.com/collections/womens-pants-leggings)
 - [Women's Shorts](https://us.meeeshop.com/collections/womens-shorts)
-- [Active Tops](https://us.meeeshop.com/collections/womens-active-tops)
-- [Active Bottoms](https://us.meeeshop.com/collections/womens-active-bottoms)
 - [Rompers](https://us.meeeshop.com/collections/womens-rompers)
 - [Lounge Set](https://us.meeeshop.com/collections/womens-lounge-set)
 - [Women's Jeans](https://us.meeeshop.com/collections/womens-jeans)
@@ -59,6 +57,8 @@
 - [USA SALE](https://us.meeeshop.com/collections/usa-sale)
 - [Selected USA Styles](https://us.meeeshop.com/collections/selected-usa-styles)
 - [Hats](https://us.meeeshop.com/collections/womens-hats-scarves)
+- [Bodysuits](https://us.meeeshop.com/collections/womens-bodysuits)
+- [Luxe Apparel](https://us.meeeshop.com/collections/womens-luxe-apparel)
 
 ## Top Women's Fashion Products
 - [Hyfve Tie Front Spaghetti Strap Top](https://us.meeeshop.com/products/hyfve-tie-front-spaghetti-strap-top): $84.99 USD (Shirts & Tops)
