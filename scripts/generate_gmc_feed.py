@@ -266,9 +266,8 @@ def upload_to_shopify_files(filepath):
             
     if public_url:
         print(f"✅ Feed uploaded successfully to Shopify CDN!")
-        cdn_url = public_url.split("?")[0] # Remove any version parameters
-        print(f"🔗 Temporary CDN URL: {cdn_url}")
-        create_or_update_redirect(cdn_url)
+        print(f"🔗 CDN URL: {public_url}")
+        create_or_update_redirect(public_url)
     else:
         print("⚠️ File uploaded, but URL could not be retrieved in time. Check Shopify Admin > Settings > Files.")
         raise Exception("Failed to retrieve public URL for uploaded file.")
@@ -436,7 +435,7 @@ def generate_feed():
         "availability", "price", "condition", "brand", "gtin", "mpn",
         "identifier_exists", "google_product_category", "item_group_id", "gender", "age_group",
         "color", "size", "custom_label_0", "custom_label_1", "included_destination",
-        "shipping", "return_policy"
+        "shipping"
     ]
     
     rows = []
@@ -469,7 +468,7 @@ def generate_feed():
         for variant in product.get("variants", []):
             var_id = str(variant.get("id"))
             sku = variant.get("sku") or var_id
-            feed_id = f"{item_group_id}_{var_id}"
+            feed_id = f"shopify_ZZ_{item_group_id}_{var_id}"
             
             # Title mapping
             title = product.get("title")
@@ -485,12 +484,7 @@ def generate_feed():
             
             # Matches Shopify's definition of "available" (not tracking inventory, backorders allowed, or qty > 0)
             is_available = not management or policy == "continue" or qty > 0
-            
-            # Skip out of stock items to only show approved/available inventory
-            if not is_available:
-                continue
-                
-            availability = "in_stock"
+            availability = "in_stock" if is_available else "out_of_stock"
             
             # Price mapping
             price = f"{variant.get('price')} USD"
@@ -550,11 +544,7 @@ def generate_feed():
                 "custom_label_0": product_type,
                 "custom_label_1": first_tag,
                 "included_destination": "Shopping_ads,Free_listings",
-                "shipping": "US:::0.00 USD",
-                # Mandatory for Merchant Listings (organic Shopping surface in GSC).
-                # Format: [country]:[type]:[window_days]:[currency]:[cost]
-                # money_back = full refund, 7 = 7-day window, 0.00 USD = free return shipping
-                "return_policy": "US:money_back:7:USD:0.00"
+                "shipping": "US:::0.00 USD"
             })
             
     # Write to TSV file
