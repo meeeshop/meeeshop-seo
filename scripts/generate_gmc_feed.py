@@ -468,7 +468,7 @@ def generate_feed():
         for variant in product.get("variants", []):
             var_id = str(variant.get("id"))
             sku = variant.get("sku") or var_id
-            feed_id = f"shopify_US_{item_group_id}_{var_id}"
+            feed_id = f"shopify_ZZ_{item_group_id}_{var_id}"
             
             # Title mapping
             title = product.get("title")
