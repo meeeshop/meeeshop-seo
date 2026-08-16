@@ -17,7 +17,7 @@ from typing import List, Dict
 import requests
 import trafilatura
 from bs4 import BeautifulSoup
-from PIL import Image
+from PIL import Image, ImageOps
 
 # ---------------------------------------------------------------------------
 # Configuration – these will be populated from the environment via the main script
@@ -51,7 +51,7 @@ def download_article_content(url: str) -> str:
                     return text
 
         # 2. Fallback to requests + BeautifulSoup
-        resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0 (compatible; MeeeShop SEO bot/1.0)"})
+        resp = requests.get(url, timeout=5, headers={"User-Agent": "Mozilla/5.0 (compatible; MeeeShop SEO bot/1.0)"})
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
         article = soup.find("article")
@@ -102,57 +102,349 @@ def extract_keywords(text: str) -> Dict[str, List[str]]:
     zero_search = random.sample(zero_search, min(10, len(zero_search)))
     return {"long_tail": long_tail, "zero_search": zero_search}
 
+
+def extract_handle_count(text: str) -> int:
+    """Extract item/outfit count from handle, title, or string (e.g., '5-stunning-outfits' -> 5). Default is 3."""
+    if not text:
+        return 3
+    m = re.search(r'\b(\d+)\b', str(text))
+    if m:
+        num = int(m.group(1))
+        if 2 <= num <= 10:
+            return num
+    return 3
+
+
+def get_current_year() -> str:
+    """Returns current system year dynamically (e.g., '2026' in 2026, '2027' in 2027)."""
+    return str(datetime.now().year)
+
+
+def enforce_current_year(text: str, target_year: str = None) -> str:
+    """Sanitize text to replace any accidental past years with the dynamic current year."""
+    if not text:
+        return text
+    if target_year is None:
+        target_year = get_current_year()
+    try:
+        current_yr = int(target_year)
+        past_years = [str(y) for y in range(2020, current_yr)]
+        if not past_years:
+            return text
+        pattern = r'\b(' + '|'.join(past_years) + r')\b'
+        return re.sub(pattern, str(target_year), str(text))
+    except (ValueError, TypeError):
+        return text
+
+
+def is_product_compatible(main_product: dict, candidate: dict, topic_context: str = "") -> bool:
+    """Check if candidate product is style-compatible and category-relevant to main_product & article topic."""
+    main_id = main_product.get("id")
+    cand_id = candidate.get("id")
+    if main_id and cand_id and main_id == cand_id:
+        return False
+    if main_product.get("handle") and candidate.get("handle") and main_product.get("handle") == candidate.get("handle"):
+        return False
+
+    main_type = (main_product.get("product_type") or "").lower()
+    main_title = (main_product.get("title") or "").lower()
+    main_tags = (main_product.get("tags") or "").lower() if isinstance(main_product.get("tags"), str) else " ".join(main_product.get("tags") or []).lower()
+    main_text = f"{main_type} {main_title} {main_tags}"
+
+    cand_type = (candidate.get("product_type") or "").lower()
+    cand_title = (candidate.get("title") or "").lower()
+    cand_tags = (candidate.get("tags") or "").lower() if isinstance(candidate.get("tags"), str) else " ".join(candidate.get("tags") or []).lower()
+    cand_text = f"{cand_type} {cand_title} {cand_tags}"
+
+    topic_lower = (topic_context or "").lower()
+
+    DENIM_KEYWORDS = ["jean", "denim", "jort"]
+    ONE_PIECE_KEYWORDS = ["dress", "jumpsuit", "romper"]
+    BOTTOM_KEYWORDS = ["jean", "denim", "pant", "skirt", "short", "legging", "skort", "trouser", "jort"]
+    TOP_KEYWORDS = ["top", "blouse", "shirt", "tee", "t-shirt", "tank", "sweater", "cardigan", "knit", "pullover", "tunic"]
+    OUTERWEAR_KEYWORDS = ["jacket", "coat", "blazer", "vest", "outerwear"]
+
+    main_is_denim = any(kw in main_text for kw in DENIM_KEYWORDS) or any(kw in topic_lower for kw in DENIM_KEYWORDS)
+    main_is_one_piece = any(kw in main_type or kw in main_title for kw in ONE_PIECE_KEYWORDS)
+    main_is_bottom = any(kw in main_type or kw in main_title for kw in BOTTOM_KEYWORDS)
+    main_is_top = any(kw in main_type or kw in main_title for kw in TOP_KEYWORDS)
+
+    cand_is_one_piece = any(kw in cand_type or kw in cand_title for kw in ONE_PIECE_KEYWORDS)
+    cand_is_bottom = any(kw in cand_type or kw in cand_title for kw in BOTTOM_KEYWORDS)
+    cand_is_top = any(kw in cand_type or kw in cand_title for kw in TOP_KEYWORDS)
+    cand_is_denim = any(kw in cand_text for kw in DENIM_KEYWORDS)
+
+    is_care_guide = any(kw in topic_lower for kw in ["care", "wash", "maintenance", "stain", "odour", "laundry"])
+
+    # 1. Denim topic/main: CANDIDATE CANNOT BE A DRESS / JUMPSUIT / ROMPER
+    if main_is_denim and cand_is_one_piece:
+        return False
+
+    # 2. Bottoms cannot pair with other bottoms (e.g. Jeans + Shorts)
+    if main_is_bottom and cand_is_bottom:
+        return False
+
+    # 3. One-pieces (Dresses) cannot pair with other one-pieces (e.g. Dress + Jumpsuit)
+    if main_is_one_piece and cand_is_one_piece:
+        return False
+
+    # 4. Care Guide relevance
+    if is_care_guide and main_is_denim:
+        if not (cand_is_denim or cand_is_top or any(kw in cand_type or kw in cand_title for kw in OUTERWEAR_KEYWORDS)):
+            return False
+
+    return True
+
+
+def _is_accessory_or_bag(product: dict) -> bool:
+    """Return True if product is a bag, handbag, crossbody, purse, or accessory."""
+    t = f"{(product.get('product_type') or '')} {(product.get('title') or '')}".lower()
+    return any(kw in t for kw in ["bag", "crossbody", "handbag", "tote", "purse", "clutch", "wallet", "accessory"])
+
+
+def select_styling_matches(main_product: dict, pool: list, num_matches: int = 2, topic_context: str = "") -> list[dict]:
+    """Select styling match products from pool that are strictly compatible with main_product and topic_context.
+    Guaranteed to return up to num_matches with category diversity (maximum 1 bag/accessory per article).
+    """
+    main_id = main_product.get("id")
+    main_handle = main_product.get("handle", "")
+
+    # 15-day cooldown filter for matching products
+    try:
+        from fix_duplicate_blog_products import ProductRotationManager
+        rot = ProductRotationManager()
+        fresh_pool = [p for p in pool if not rot.is_on_cooldown(p.get("handle", ""), days=15)]
+        if len(fresh_pool) >= num_matches + 2:
+            pool = fresh_pool
+    except Exception:
+        pass
+
+    # Level 1: Strict topic and style compatibility
+    compatible_pool = [
+        p for p in pool
+        if p.get("id") != main_id and p.get("handle") != main_handle and p.get("images")
+        and is_product_compatible(main_product, p, topic_context)
+    ]
+    random.shuffle(compatible_pool)
+
+    # Separate apparel items from bags/accessories to guarantee maximum 1 bag per article
+    apparel_pool = [p for p in compatible_pool if not _is_accessory_or_bag(p)]
+    accessory_pool = [p for p in compatible_pool if _is_accessory_or_bag(p)]
+
+    selected = []
+
+    # 1. Prefer at least 1-2 apparel pieces (tops, dresses, jackets, bottoms)
+    if apparel_pool:
+        take_apparel = min(len(apparel_pool), num_matches - (1 if accessory_pool and num_matches > 1 else 0))
+        selected.extend(random.sample(apparel_pool, take_apparel))
+
+    # 2. Add at most 1 bag/accessory if needed to complete num_matches
+    if len(selected) < num_matches and accessory_pool:
+        selected.append(random.choice(accessory_pool))
+
+    # 3. If still need items, fill from remaining apparel
+    remaining_apparel = [p for p in apparel_pool if p not in selected]
+    while len(selected) < num_matches and remaining_apparel:
+        item = random.choice(remaining_apparel)
+        selected.append(item)
+        remaining_apparel.remove(item)
+
+    if len(selected) >= num_matches:
+        return selected[:num_matches]
+
+    # Level 2: Relaxed pool fallback
+    relaxed_pool = [
+        p for p in pool
+        if p.get("id") != main_id and p.get("handle") != main_handle and p.get("images")
+        and p not in selected
+    ]
+    random.shuffle(relaxed_pool)
+    while len(selected) < num_matches and relaxed_pool:
+        p = relaxed_pool.pop()
+        if _is_accessory_or_bag(p) and any(_is_accessory_or_bag(x) for x in selected):
+            continue  # Don't add a 2nd bag
+        selected.append(p)
+
+    return selected[:num_matches]
+
+
+def get_category_style_phrase(product: dict) -> str:
+    """
+    Derives a clean, generic, plural category or style phrase from a product title and type.
+    Ensures blog titles cover generic product categories/styles rather than hyper-specific vendor product titles.
+    Examples:
+      'Across the Way Woven Lace Mini Dress' -> 'Woven Lace Mini Dresses'
+      'Judy Blue High Waist Straight Leg Jean' -> 'High-Waist Straight-Leg Jeans'
+      'Emory Park Aeliana Top' -> 'Women's Tops & Blouses'
+    """
+    title = (product.get("title") or "").strip()
+    ptype = (product.get("product_type") or "").strip().lower()
+    t_lower = title.lower()
+
+    # Clean vendor or brand prefix from title if present
+    vendor = (product.get("vendor") or "").strip().lower()
+    clean_title = t_lower
+    if vendor and clean_title.startswith(vendor):
+        clean_title = clean_title[len(vendor):].strip()
+
+    # Subcategory / Style pattern matches (specific to general)
+    subcategories = [
+        ("lace mini dress", "Lace Mini Dresses"),
+        ("lace maxi dress", "Lace Maxi Dresses"),
+        ("woven lace", "Woven Lace Dresses"),
+        ("woven dress", "Woven Dresses"),
+        ("maxi dress", "Maxi Dresses"),
+        ("midi dress", "Midi Dresses"),
+        ("mini dress", "Mini Dresses"),
+        ("casual dress", "Casual Dresses"),
+        ("cocktail dress", "Cocktail Dresses"),
+        ("wrap dress", "Wrap Dresses"),
+        ("sweater dress", "Sweater Dresses"),
+        ("shirt dress", "Shirt Dresses"),
+        ("slip dress", "Slip Dresses"),
+        ("flare jean", "Flare Jeans"),
+        ("flare jeans", "Flare Jeans"),
+        ("wide leg jean", "Wide-Leg Jeans"),
+        ("wide leg jeans", "Wide-Leg Jeans"),
+        ("straight leg jean", "Straight-Leg Jeans"),
+        ("straight leg jeans", "Straight-Leg Jeans"),
+        ("skinny jean", "Skinny Jeans"),
+        ("skinny jeans", "Skinny Jeans"),
+        ("bootcut jean", "Bootcut Jeans"),
+        ("high waist jean", "High-Waist Jeans"),
+        ("high waist", "High-Waist Denim"),
+        ("denim jacket", "Denim Jackets"),
+        ("denim skirt", "Denim Skirts"),
+        ("linen top", "Linen Tops"),
+        ("knit top", "Knit Tops"),
+        ("crop top", "Crop Tops"),
+        ("tank top", "Tank Tops"),
+        ("graphic tee", "Graphic Tees"),
+        ("t-shirt", "T-Shirts & Tees"),
+        ("tee", "T-Shirts & Tees"),
+        ("cardigan", "Cardigans & Sweaters"),
+        ("pullover", "Sweaters & Knits"),
+        ("sweater", "Sweaters & Knits"),
+        ("blouse", "Women's Blouses & Tops"),
+        ("skirt", "Women's Skirts"),
+        ("skort", "Shorts & Skorts"),
+        ("short", "Shorts & Skorts"),
+        ("jort", "Shorts & Jorts"),
+        ("pant", "Women's Pants & Trousers"),
+        ("trouser", "Women's Pants & Trousers"),
+        ("legging", "Women's Pants & Leggings"),
+        ("jacket", "Women's Jackets & Blazers"),
+        ("coat", "Women's Coats & Outerwear"),
+        ("blazer", "Women's Blazers"),
+        ("handbag", "Handbags & Bags"),
+        ("tote", "Tote Bags & Handbags"),
+        ("bag", "Handbags & Accessories"),
+    ]
+
+    for sub_kw, label in subcategories:
+        if sub_kw in clean_title:
+            return label
+
+    # Category fallback
+    if "jean" in ptype or "denim" in ptype or "jean" in t_lower or "denim" in t_lower:
+        return "Women's Jeans"
+    if "dress" in ptype or "dress" in t_lower:
+        return "Women's Dresses"
+    if any(x in ptype or x in t_lower for x in ["top", "blouse", "shirt", "tee"]):
+        return "Women's Tops & Shirts"
+    if any(x in ptype or x in t_lower for x in ["sweater", "cardigan", "knit"]):
+        return "Women's Sweaters & Cardigans"
+    if "skirt" in ptype or "skirt" in t_lower:
+        return "Women's Skirts"
+    if any(x in ptype or x in t_lower for x in ["pant", "trouser", "legging"]):
+        return "Women's Pants & Trousers"
+    if any(x in ptype or x in t_lower for x in ["jacket", "coat", "blazer", "outerwear"]):
+        return "Women's Jackets & Outerwear"
+    if any(x in ptype or x in t_lower for x in ["bag", "handbag", "accessory"]):
+        return "Women's Handbags & Accessories"
+
+    return "Women's Fashion Staples"
+
+
+def sanitize_title_to_category_phrase(title: str, product: dict) -> str:
+    """
+    Guarantees that an article title NEVER contains a single vendor product name.
+    If a specific vendor product title is detected inside title, converts it to the generic category/style phrase.
+    """
+    if not title or not product:
+        return title or ""
+
+    category_phrase = get_category_style_phrase(product)
+    prod_title = (product.get("title") or "").strip()
+    vendor = (product.get("vendor") or "").strip()
+
+    clean_p = prod_title
+    if vendor and clean_p.lower().startswith(vendor.lower()):
+        clean_p = clean_p[len(vendor):].strip()
+
+    # Remove trailing parenthesis or color details (e.g. '(medium wash)', '(red/blue)')
+    clean_p_base = re.sub(r"\s*\([^)]+\)", "", clean_p).strip()
+
+    if prod_title.lower() in title.lower():
+        title = re.sub(re.escape(prod_title), category_phrase, title, flags=re.IGNORECASE)
+    if clean_p and len(clean_p) > 3 and clean_p.lower() in title.lower():
+        title = re.sub(re.escape(clean_p), category_phrase, title, flags=re.IGNORECASE)
+    if clean_p_base and len(clean_p_base) > 3 and clean_p_base.lower() in title.lower():
+        title = re.sub(re.escape(clean_p_base), category_phrase, title, flags=re.IGNORECASE)
+
+    # Clean up double words or formatting leftover (e.g. 'Guide Guide', 'Women's Jeans Guide')
+    title = re.sub(r"\b(\w+)\s+\1\b", r"\1", title, flags=re.IGNORECASE)
+    return title.strip()
+
 # ---------------------------------------------------------------------------
-# 3. Collage generation — horizontal landscape strip (side-by-side)
+# 3. Collage generation — 1200x630 Discover landscape layout
 # ---------------------------------------------------------------------------
-def generate_collage(product_images: List[bytes], strip_height: int = 400) -> bytes:
-    """Create a horizontal landscape strip collage from a list of image bytes.
+def generate_collage(product_images: List[bytes], strip_height: int = 630) -> bytes:
+    """Create a 1200x630 Google Discover eligible landscape 3-panel collage image.
 
-    All product images are resized to the same height (``strip_height``) while
-    maintaining their natural aspect ratios, then placed side-by-side to form a
-    single wide banner. This keeps the resulting image compact, fast to load, and
-    consistent with standard blog featured-image proportions.
-
-    Args:
-        product_images: Raw JPEG/PNG bytes for each product photo.
-        strip_height:   The uniform height (px) for every panel. Defaults to 400.
-
-    Returns:
-        JPEG bytes of the final landscape strip image.
+    - Center image (product_images[0] - Featured product): TALLER (380x600 tile) with a solid white border.
+    - Side images (Left & Right related products): SHORTER (360x500 tile), vertically centered.
+    - Cream background (#f8f6f3).
     """
     if not product_images:
         raise ValueError("No product images provided for collage generation")
 
-    GAP = 6          # px gap between panels
-    BG_COLOR = (245, 245, 245)   # light grey background / gap fill
+    CANVAS_W = 1200
+    CANVAS_H = 630
+    BG_COLOR = (248, 246, 243)     # cream background
+    BORDER_COLOR = (255, 255, 255) # solid white border for featured image
 
-    panels: List[Image.Image] = []
-    for img_data in product_images[:6]:          # cap at 6 panels
+    canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), BG_COLOR)
+
+    imgs = []
+    for data in product_images:
         try:
-            img = Image.open(BytesIO(img_data)).convert("RGB")
+            imgs.append(Image.open(BytesIO(data)).convert("RGB"))
         except Exception:
-            continue
-        # Scale so height == strip_height, preserve aspect ratio
-        aspect = img.width / img.height
-        new_w = max(int(strip_height * aspect), 1)
-        img = img.resize((new_w, strip_height), Image.LANCZOS)
-        panels.append(img)
+            pass
 
-    if not panels:
+    if not imgs:
         raise ValueError("Could not decode any product images for the collage")
 
-    # Build canvas dimensions
-    total_w = sum(p.width for p in panels) + GAP * (len(panels) - 1)
-    canvas = Image.new("RGB", (total_w, strip_height), BG_COLOR)
+    feat_img = imgs[0]
+    left_img = imgs[1] if len(imgs) > 1 else imgs[0]
+    right_img = imgs[2] if len(imgs) > 2 else (imgs[1] if len(imgs) > 1 else imgs[0])
 
-    x_offset = 0
-    for panel in panels:
-        canvas.paste(panel, (x_offset, 0))
-        x_offset += panel.width + GAP
+    # 1. Left image (Shorter - 360x500)
+    fitted_left = ImageOps.fit(left_img, (360, 500), method=Image.Resampling.LANCZOS)
+    canvas.paste(fitted_left, (20, (CANVAS_H - 500) // 2))
 
-    # Export — keep quality high but optimize for web
+    # 2. Right image (Shorter - 360x500)
+    fitted_right = ImageOps.fit(right_img, (360, 500), method=Image.Resampling.LANCZOS)
+    canvas.paste(fitted_right, (820, (CANVAS_H - 500) // 2))
+
+    # 3. Center featured image (TALLER - 380x600 with solid white border)
+    inner_feat = ImageOps.fit(feat_img, (368, 588), method=Image.Resampling.LANCZOS)
+    bordered_feat = ImageOps.expand(inner_feat, border=6, fill=BORDER_COLOR)
+    canvas.paste(bordered_feat, (410, (CANVAS_H - 600) // 2))
+
     out_buf = BytesIO()
-    canvas.save(out_buf, format="JPEG", quality=82, optimize=True, progressive=True)
+    canvas.save(out_buf, format="JPEG", quality=92, optimize=True)
     return out_buf.getvalue()
 
 # ---------------------------------------------------------------------------

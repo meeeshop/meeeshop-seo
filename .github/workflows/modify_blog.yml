@@ -1,127 +1,30 @@
 name: Weekly Blog Refresher
 
-# Schedules
-#   weekly -- Sunday 9 AM EST (14:00 UTC) -> refresh 5 oldest articles
-#
-# Manual dispatch: normal batch (default 5) or force mode.
-# force splits ALL articles into batches of 20 so no single job exceeds
-# ~25 min (well under GitHub's 6-hour job limit).
-#
-# Secrets: only ENCRYPTION_KEY_PRIMARY + ENCRYPTION_KEY_FALLBACK are
-# passed to the runner. secrets_manager.py decrypts secrets.enc at runtime.
-
 on:
   schedule:
-    - cron: '0 14 * * 0'   # Sunday 9 AM EST (14:00 UTC)
+    - cron: '0 14 * * 1'   # Weekly every Monday at 9 AM EST (14:00 UTC)
   workflow_dispatch:
     inputs:
-      mode:
-        description: 'Run mode'
-        required: true
-        default: 'weekly'
-        type: choice
-        options:
-          - weekly
-          - force
       limit:
-        description: 'Max articles (weekly mode only, default 5)'
-        default: '5'
+        description: 'Max articles (default 0 for all)'
+        default: '0'
         required: false
       dry_run:
         description: 'Dry run — print plan only, no Shopify writes (true/false)'
         default: 'false'
         required: false
       article_id:
-        description: 'Refresh ONE specific article by Shopify article ID (weekly mode only)'
+        description: 'Refresh ONE specific article by Shopify article ID'
         default: ''
         required: false
-      no_ai:
-        description: 'Refresh programmatically without AI (true/false)'
-        default: 'false'
-        required: false
-        type: choice
-        options:
-          - 'false'
-          - 'true'
-      fix_images_only:
-        description: 'Only fix broken product images without other modifications (true/false)'
-        default: 'false'
-        required: false
-        type: choice
-        options:
-          - 'false'
-          - 'true'
 
 env:
   PYTHONUTF8: "1"
   PYTHONUNBUFFERED: "1"
   PYTHON_VERSION: "3.12"
-  BATCH_SIZE: "20"
 
 jobs:
-
-  # -------------------------------------------------------------------
-  # Job 1: detect mode + build batch-index array for force mode
-  # -------------------------------------------------------------------
-  setup:
-    runs-on: ubuntu-latest
-    outputs:
-      mode: ${{ steps.detect.outputs.mode }}
-      batches_json: ${{ steps.build_matrix.outputs.batches_json }}
-    steps:
-      - name: Detect mode
-        id: detect
-        run: |
-          INPUT_MODE="${{ github.event.inputs.mode }}"
-          if [ -n "$INPUT_MODE" ]; then
-            echo "mode=$INPUT_MODE" >> "$GITHUB_OUTPUT"
-          else
-            echo "mode=weekly" >> "$GITHUB_OUTPUT"
-          fi
-
-      - uses: actions/checkout@v4
-        if: steps.detect.outputs.mode == 'force'
-
-      - uses: actions/setup-python@v5
-        if: steps.detect.outputs.mode == 'force'
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-          cache-dependency-path: requirements.txt
-
-      - name: Install deps
-        if: steps.detect.outputs.mode == 'force'
-        run: pip install -r requirements.txt
-
-      - name: Count articles and build batch array
-        id: build_matrix
-        if: steps.detect.outputs.mode == 'force'
-        env:
-          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
-          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
-        run: |
-          TOTAL=$(python scripts/count_articles.py)
-          echo "Published articles: $TOTAL"
-          BATCHES=$(( (TOTAL + ${{ env.BATCH_SIZE }} - 1) / ${{ env.BATCH_SIZE }} ))
-          echo "Batches needed: $BATCHES"
-          JSON="["
-          for (( i=0; i<BATCHES; i++ )); do
-            [ $i -gt 0 ] && JSON+=","
-            JSON+="$i"
-          done
-          JSON+="]"
-          echo "batches_json=$JSON" >> "$GITHUB_OUTPUT"
-
-      - name: Set dummy batches (non-force)
-        if: steps.detect.outputs.mode != 'force'
-        run: echo 'batches_json=[0]' >> "$GITHUB_OUTPUT"
-
-  # -------------------------------------------------------------------
-  # Job 2a: weekly — single job (limit N articles)
-  # -------------------------------------------------------------------
   refresh_blogs:
-    needs: setup
-    if: needs.setup.outputs.mode == 'weekly'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -142,11 +45,9 @@ jobs:
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          LIMIT="${{ github.event.inputs.limit || '5' }}"
+          LIMIT="${{ github.event.inputs.limit || '0' }}"
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
           ARTICLE_ID="${{ github.event.inputs.article_id || '' }}"
-          NO_AI="${{ github.event.inputs.no_ai || 'false' }}"
-          FIX_IMAGES_ONLY="${{ github.event.inputs.fix_images_only || 'false' }}"
 
           ARGS="--limit $LIMIT"
           if [ "$DRY_RUN" = "true" ]; then
@@ -154,12 +55,6 @@ jobs:
           fi
           if [ -n "$ARTICLE_ID" ]; then
             ARGS="$ARGS --article-id $ARTICLE_ID"
-          fi
-          if [ "$NO_AI" = "true" ]; then
-            ARGS="$ARGS --no-ai"
-          fi
-          if [ "$FIX_IMAGES_ONLY" = "true" ]; then
-            ARGS="$ARGS --fix-images-only"
           fi
 
           echo "Running: python scripts/modify_blog.py $ARGS"
@@ -170,57 +65,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: blog-refresh-weekly-run${{ github.run_number }}
-          path: modify_blog_*.json
-          if-no-files-found: ignore
-          retention-days: 14
-
-  # -------------------------------------------------------------------
-  # Job 2b: force — matrix of batch jobs, sequential, max-parallel 1
-  # -------------------------------------------------------------------
-  refresh_blogs_force:
-    needs: setup
-    if: needs.setup.outputs.mode == 'force'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        batch_index: ${{ fromJson(needs.setup.outputs.batches_json) }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-          cache-dependency-path: requirements.txt
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Refresh blog posts (batch ${{ matrix.batch_index }})
-        env:
-          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
-          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
-        run: |
-          NO_AI="${{ github.event.inputs.no_ai || 'false' }}"
-          FIX_IMAGES_ONLY="${{ github.event.inputs.fix_images_only || 'false' }}"
-          ARGS="--force --batch-size ${{ env.BATCH_SIZE }} --batch-index ${{ matrix.batch_index }}"
-          if [ "$NO_AI" = "true" ]; then
-            ARGS="$ARGS --no-ai"
-          fi
-          if [ "$FIX_IMAGES_ONLY" = "true" ]; then
-            ARGS="$ARGS --fix-images-only"
-          fi
-          python scripts/modify_blog.py $ARGS
-
-      - name: Upload batch log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: blog-refresh-force-b${{ matrix.batch_index }}-run${{ github.run_number }}
           path: modify_blog_*.json
           if-no-files-found: ignore
           retention-days: 14

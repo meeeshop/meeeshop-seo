@@ -1,13 +1,8 @@
-name: Blog Daily Generator [DEPRECATED — use Trend Article Engine workflow]
+name: Blog Daily Generator
 
 on:
-  # DISABLED: Replaced by .github/workflows/trend_article_engine.yml
-  # which has Flipboard research + keyword extraction + collage generation.
-  # Keeping workflow_dispatch so it can still be run manually if needed.
-  #
-  # schedule:
-  #   - cron: '0 13 * * 2'  # Tuesday  8 AM EST (13:00 UTC)
-  #   - cron: '0 14 * * 6'  # Saturday 9 AM EST (14:00 UTC)
+  schedule:
+    - cron: '0 6 * * *'  # Daily at 6:00 AM UTC (1:00 AM EST)
   workflow_dispatch:
     inputs:
       count:
@@ -20,7 +15,7 @@ on:
         required: false
       publish:
         description: 'Publish immediately (false = save as draft for review)'
-        default: 'false'
+        default: 'true'
         required: false
       format:
         description: 'Force a specific blog format (default: weighted selection)'
@@ -56,20 +51,24 @@ jobs:
       - name: Generate blog post
         env:
           PYTHONUTF8: "1"
+          PYTHONUNBUFFERED: "1"
           ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
         run: |
-          COUNT="${{ github.event.inputs.count || '1' }}"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            COUNT="1"
+            PUBLISH="true"
+          else
+            COUNT="${{ github.event.inputs.count || '1' }}"
+            PUBLISH="${{ github.event.inputs.publish || 'true' }}"
+          fi
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
-          PUBLISH="${{ github.event.inputs.publish || 'false' }}"
           FORMAT="${{ github.event.inputs.format || 'default' }}"
           ARGS="--count $COUNT"
           if [ "$DRY_RUN" = "true" ]; then
             ARGS="$ARGS --dry-run"
           fi
-          # On scheduled runs, always publish immediately.
-          # On manual dispatch, respect the publish input (default: draft for human review).
-          if [ "${{ github.event_name }}" = "schedule" ] || [ "$PUBLISH" = "true" ]; then
+          if [ "$PUBLISH" = "true" ] || [ "$PUBLISH" = "True" ]; then
             ARGS="$ARGS --publish"
           fi
           if [ "$FORMAT" != "default" ]; then
@@ -77,11 +76,14 @@ jobs:
           fi
           python scripts/blog_daily.py $ARGS
 
-      - name: Upload blog generation log
+      - name: Upload previews, collages, and logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: blog-generation-${{ github.run_number }}
-          path: blog_*.json
+          name: blog-daily-logs-${{ github.run_number }}
+          path: |
+            logs/weekly_preview_*.html
+            collage_temp*.jpg
+            blog_*.json
           if-no-files-found: ignore
           retention-days: 14

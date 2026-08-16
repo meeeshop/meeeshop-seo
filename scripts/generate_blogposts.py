@@ -25,6 +25,9 @@ except Exception as _e:
     _log.critical("[secrets] inject_to_env() FAILED — script cannot run: %s", _e, exc_info=True)
     sys.exit(1)
 
+# Shared pen names — never hardcode 'Meeeshop' as author
+from eeat_constants import PEN_NAMES
+
 SHOPIFY_STORE = os.environ.get("SHOPIFY_STORE", "")
 SHOPIFY_TOKEN = os.environ.get("SHOPIFY_ACCESS_TOKEN", "")
 OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY", "")
@@ -206,7 +209,7 @@ def publish_article(blog: dict, data: dict) -> dict:
             "body_html": data["body_html"],
             "published": True,
             "published_at": datetime.utcnow().isoformat() + "Z",
-            "author": "Meeeshop",
+            "author": random.choice(PEN_NAMES),  # never 'Meeeshop'
         }
     }
     url = (

@@ -1,0 +1,454 @@
+{% comment %}meeeshop-jsonld v3 — auto-generated, do not remove{% endcomment %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "{{ shop.url }}/#organization",
+      "name": "MeeeShop",
+      "url": "{{ shop.url }}",
+      "logo": {"@type": "ImageObject", "url": "{{ shop.url }}/cdn/shop/files/logo.png"},
+      "description": "Premium women's fashion with free US shipping and 7-day returns",
+      "contactPoint": {"@type": "ContactPoint", "contactType": "Customer Service", "email": "support@meeeshop.com"},
+      "sameAs": ["https://pinterest.com/meeeshop", "https://www.youtube.com/@meeeshop"]
+    },
+    {
+      "@type": "LocalBusiness",
+      "@id": "{{ shop.url }}/#localbusiness",
+      "name": "MeeeShop",
+      "image": "{{ shop.url }}/cdn/shop/files/logo.png",
+      "description": "Women's fashion boutique - dresses, tops, bottoms, outerwear, shoes & more",
+      "url": "{{ shop.url }}",
+      "priceRange": "$$",
+      "areaServed": "US"
+    },
+    {
+      "@type": "WebSite",
+      "@id": "{{ shop.url }}/#website",
+      "url": "{{ shop.url }}",
+      "name": "MeeeShop - Women's Fashion Store",
+      "publisher": {"@id": "{{ shop.url }}/#organization"},
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": {"@type": "EntryPoint", "urlTemplate": "{{ shop.url }}/search?q={search_term_string}"},
+        "query-input": "required name=search_term_string"
+      }
+    }
+    {%- if template.name == 'product' and product != blank -%}
+    ,{
+      "@type": "Product",
+      "@id": "{{ shop.url }}/products/{{ product.handle }}",
+      "name": {{ product.title | json }},
+      "url": "{{ shop.url }}/products/{{ product.handle }}",
+      "description": {{ product.description | strip_html | truncate: 500 | json }},
+      "brand": {"@type": "Brand", "name": "MeeeShop"},
+      "image": [{% for img in product.images %}"{{ img | image_url: width: 1200 }}"{% unless forloop.last %},{% endunless %}{% endfor %}],
+      "offers": [
+        {%- for v in product.variants -%}
+        {
+          "@type": "Offer",
+          "name": {{ v.title | json }},
+          "sku": {{ v.sku | default: "" | json }},
+          {%- if v.barcode != blank -%}
+          "gtin": {{ v.barcode | json }},
+          {%- endif -%}
+          "price": "{{ v.price | money_without_currency | remove: ',' }}",
+          "priceCurrency": "USD",
+          "availability": "https://schema.org/{% if v.available %}InStock{% else %}OutOfStock{% endif %}",
+          "url": "{{ shop.url }}/products/{{ product.handle }}?variant={{ v.id }}",
+          "seller": {"@type": "Organization", "name": "MeeeShop"},
+          "shippingDetails": {
+            "@type": "OfferShippingDetails",
+            "shippingDestination": {
+              "@type": "DefinedRegion",
+              "addressCountry": "US"
+            },
+            "shippingRate": {
+              "@type": "MonetaryAmount",
+              "value": "0.00",
+              "currency": "USD"
+            },
+            "deliveryTime": {
+              "@type": "ShippingDeliveryTime",
+              "handlingTime": {
+                "@type": "QuantitativeValue",
+                "minValue": 0,
+                "maxValue": 1,
+                "unitCode": "DAY"
+              },
+              "transitTime": {
+                "@type": "QuantitativeValue",
+                "minValue": 2,
+                "maxValue": 5,
+                "unitCode": "DAY"
+              }
+            }
+          },
+          "hasMerchantReturnPolicy": {
+            "@type": "MerchantReturnPolicy",
+            "applicableCountry": "US",
+            "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+            "merchantReturnDays": 7,
+            "returnMethod": "https://schema.org/ReturnByMail",
+            "returnFees": "https://schema.org/FreeReturn"
+          }
+        }{%- unless forloop.last -%},{%- endunless -%}
+        {%- endfor -%}
+      ]
+    }
+    {%- if product.description contains 'Frequently Asked Questions' -%}
+    ,{
+      "@type": "FAQPage",
+      "@id": "{{ shop.url }}/products/{{ product.handle }}#faq",
+      "mainEntity": [
+        {%- assign word = 'piece' -%}
+        {%- assign cat = 'default' -%}
+        {%- assign title_lower = product.title | downcase -%}
+        {%- if title_lower contains 'dress' or title_lower contains 'gown' or title_lower contains 'midi' or title_lower contains 'maxi' or title_lower contains 'sundress' or title_lower contains 'shift' -%}
+          {%- assign cat = 'Dresses' -%}{%- assign word = 'dress' -%}
+        {%- elsif title_lower contains 'top' or title_lower contains 'blouse' or title_lower contains 'shirt' or title_lower contains 'tee' or title_lower contains 'tank' or title_lower contains 'cami' or title_lower contains 'tunic' -%}
+          {%- assign cat = 'Tops' -%}{%- assign word = 'top' -%}
+        {%- elsif title_lower contains 'jean' or title_lower contains 'pant' or title_lower contains 'short' or title_lower contains 'legging' or title_lower contains 'jogger' or title_lower contains 'trouser' -%}
+          {%- assign cat = 'Bottoms' -%}{%- assign word = 'bottom' -%}
+        {%- elsif title_lower contains 'jacket' or title_lower contains 'coat' or title_lower contains 'blazer' or title_lower contains 'sweater' or title_lower contains 'hoodie' or title_lower contains 'cardigan' or title_lower contains 'pullover' -%}
+          {%- assign cat = 'Outerwear' -%}{%- assign word = 'layer' -%}
+        {%- elsif title_lower contains 'skirt' -%}
+          {%- assign cat = 'Skirts' -%}{%- assign word = 'skirt' -%}
+        {%- elsif title_lower contains 'romper' or title_lower contains 'jumpsuit' or title_lower contains 'bodysuit' or title_lower contains 'playsuit' -%}
+          {%- assign cat = 'One-Pieces' -%}{%- assign word = 'one-piece' -%}
+        {%- elsif title_lower contains 'bag' or title_lower contains 'purse' or title_lower contains 'handbag' or title_lower contains 'tote' or title_lower contains 'crossbody' or title_lower contains 'sling' -%}
+          {%- assign cat = 'Bags' -%}{%- assign word = 'bag' -%}
+        {%- elsif title_lower contains 'shoe' or title_lower contains 'boot' or title_lower contains 'heel' or title_lower contains 'sandal' or title_lower contains 'sneaker' or title_lower contains 'flat' -%}
+          {%- assign cat = 'Shoes' -%}{%- assign word = 'shoe' -%}
+        {%- endif -%}
+        {%- if cat == 'Dresses' -%}
+          {
+            "@type": "Question",
+            "name": "What is the fit and sizing of the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} runs true to size. Please refer to our detailed size chart above (S/M/L) to find your perfect measurements."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What occasions are suitable for this dress?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is designed for versatile everyday styling. Depending on the occasion, it can easily be dressed up with layers or worn as a relaxed statement piece."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is the return policy for the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We offer a 7-day return policy for the {{ product.title | escape }} to ensure you are completely satisfied with your purchase."
+            }
+          }
+        {%- elsif cat == 'Tops' -%}
+          {
+            "@type": "Question",
+            "name": "How does the {{ product.title | escape }} fit?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is designed for a comfortable, regular fit. We recommend checking the bust and waist measurements in our size guide before ordering."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How should I wash and care for this top?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "To maintain the fabric quality, we recommend hand washing or machine washing on a delicate cycle with cold water, then hanging or lying flat to dry."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is the shipping cost and return policy?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We offer free US shipping on orders over $50 and a hassle-free 7-day return policy on all eligible purchases."
+            }
+          }
+        {%- elsif cat == 'Bottoms' -%}
+          {
+            "@type": "Question",
+            "name": "What is the rise and length of the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} features a mid-to-high rise cut designed to sit comfortably at your waist. Check our sizing table for specific waist and hip measurements."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is the fabric of this bottom stretchy?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is crafted with high-quality materials designed for both durability and comfort, providing a natural shape and comfortable wear throughout the day."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Can I return the {{ product.title | escape }} if it doesn't fit?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes! We accept returns within 7 days of delivery. Please ensure the bottom is in its original, unworn condition with tags attached."
+            }
+          }
+        {%- elsif cat == 'Outerwear' -%}
+          {
+            "@type": "Question",
+            "name": "How heavy is the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is a premium medium-weight layer designed for easy layering. It provides the perfect balance of warmth and breathability for transitional weather."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does this layer fit true to size?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes, the {{ product.title | escape }} fits true to size for standard layering. If you prefer an oversized fit, we suggest ordering one size up."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What returns and shipping options are available?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "This item qualifies for free US shipping (orders $50+) and is backed by our standard 7-day return policy."
+            }
+          }
+        {%- elsif cat == 'Skirts' -%}
+          {
+            "@type": "Question",
+            "name": "What is the length of the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is cut to a classic silhouette. Detailed waist and hip measurements are available in our sizing guide to ensure an accurate fit."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How do I style this skirt?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "This skirt pairs beautifully with tucked-in tees, blouses, or cardigans for an elevated office or weekend look."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is the return policy for the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We offer an easy 7-day return window. Contact us within 7 days of receiving your item to start a return."
+            }
+          }
+        {%- elsif cat == 'One-Pieces' -%}
+          {
+            "@type": "Question",
+            "name": "What is the fit profile of the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is cut for a modern, contoured fit that flatters your natural silhouette. Refer to our size guide for bust, waist, and hip details."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How do I care for this one-piece?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We suggest washing the {{ product.title | escape }} inside out in cold water on a gentle cycle, then hang drying to preserve the fabric and fit."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is shipping free for this item?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes, free US shipping is automatically applied to all orders over $50, and returns are accepted within 7 days."
+            }
+          }
+        {%- elsif cat == 'Bags' -%}
+          {
+            "@type": "Question",
+            "name": "What are the dimensions of the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is a spacious, daily-use bag designed to carry your essentials. It features durable construction and secure closures."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Are there interior pockets in this bag?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes, the {{ product.title | escape }} includes convenient compartments to keep your small items organized and easy to access on the go."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is MeeeShop's return policy?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We offer a 7-day return policy. If you're not completely in love with your {{ product.title | escape }}, simply contact support within 7 days of delivery."
+            }
+          }
+        {%- elsif cat == 'Shoes' -%}
+          {
+            "@type": "Question",
+            "name": "Is the {{ product.title | escape }} comfortable for all-day wear?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} is crafted with cushioned footbeds and premium support, making it comfortable for daily walking and extended wear."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does this shoe run narrow or wide?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} fits true to size for standard widths. If you typically wear a half-size, we recommend sizing up to the nearest whole size."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is the return policy for footwear?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Footwear must be in unworn condition and in their original packaging to qualify for our standard 7-day return window."
+            }
+          }
+        {%- else -%}
+          {
+            "@type": "Question",
+            "name": "What is the sizing fit for the {{ product.title | escape }}?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The {{ product.title | escape }} runs true to standard US fashion sizing. Please check the measurements in our size guide to find your perfect fit."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What are the care instructions for this piece?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We recommend washing in cold water with similar colors and hang drying or laying flat to preserve the color and texture of the fabric."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What shipping and return policies apply?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "All orders over $50 qualify for free shipping. We also provide a standard 7-day return policy on all unworn items."
+            }
+          }
+        {%- endif -%}
+      ]
+    }
+    {%- endif -%}
+    ,{
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {"@type": "ListItem", "position": 1, "name": "Home", "item": "{{ shop.url }}"},
+        {%- if collection != blank -%}
+        {"@type": "ListItem", "position": 2, "name": {{ collection.title | json }}, "item": "{{ shop.url }}/collections/{{ collection.handle }}"},
+        {"@type": "ListItem", "position": 3, "name": {{ product.title | json }}, "item": "{{ shop.url }}/products/{{ product.handle }}"}
+        {%- else -%}
+        {"@type": "ListItem", "position": 2, "name": {{ product.title | json }}, "item": "{{ shop.url }}/products/{{ product.handle }}"}
+        {%- endif -%}
+      ]
+    }
+    {%- endif -%}
+    {%- if template.name == 'collection' and collection != blank -%}
+    ,{
+      "@type": "CollectionPage",
+      "name": {{ collection.title | json }},
+      "url": "{{ shop.url }}/collections/{{ collection.handle }}",
+      "description": {{ collection.description | strip_html | default: collection.title | json }},
+      "publisher": {"@id": "{{ shop.url }}/#organization"},
+      "mainEntity": {
+        "@type": "ItemList",
+        "itemListElement": [
+          {%- paginate collection.products by 250 -%}
+          {%- for p in collection.products -%}
+          {
+            "@type": "ListItem",
+            "position": {{ forloop.index }},
+            "item": {
+              "@type": "Product",
+              "name": {{ p.title | json }},
+              "url": "{{ shop.url }}/products/{{ p.handle }}",
+              "image": "{{ p.featured_image | image_url: width: 800 }}",
+              "offers": {
+                "@type": "AggregateOffer",
+                "priceCurrency": "USD",
+                "lowPrice": "{{ p.price_min | money_without_currency | remove: ',' }}",
+                "highPrice": "{{ p.price_max | money_without_currency | remove: ',' }}",
+                "offerCount": {{ p.variants.size }},
+                "availability": "https://schema.org/{% if p.available %}InStock{% else %}OutOfStock{% endif %}"
+              }
+            }
+          }{%- unless forloop.last -%},{%- endunless -%}
+          {%- endfor -%}
+          {%- endpaginate -%}
+        ]
+      }
+    }
+    ,{
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {"@type": "ListItem", "position": 1, "name": "Home", "item": "{{ shop.url }}"},
+        {"@type": "ListItem", "position": 2, "name": {{ collection.title | json }}, "item": "{{ shop.url }}/collections/{{ collection.handle }}"}
+      ]
+    }
+    {%- endif -%}
+    {%- if template.name == 'article' and article != blank -%}
+    ,{
+      "@type": "BlogPosting",
+      "@id": "{{ shop.url }}{{ article.url }}",
+      "headline": {{ article.title | json }},
+      "description": {{ article.excerpt | default: article.title | strip_html | truncate: 160 | json }},
+      "url": "{{ shop.url }}{{ article.url }}",
+      "datePublished": "{{ article.published_at | date: '%Y-%m-%dT%H:%M:%SZ' }}",
+      "dateModified": "{{ article.updated_at | date: '%Y-%m-%dT%H:%M:%SZ' }}",
+      {%- if article.image != blank -%}
+      "image": "{{ article.image | image_url: width: 1200 }}",
+      {%- endif -%}
+      "author": {"@type": "Person", "name": {{ article.author | json }}},
+      "publisher": {
+        "@type": "Organization",
+        "name": "MeeeShop",
+        "logo": {"@type": "ImageObject", "url": "{{ shop.url }}/cdn/shop/files/logo.png"}
+      },
+      "isPartOf": {"@id": "{{ shop.url }}/#website"}
+    }
+    ,{
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {"@type": "ListItem", "position": 1, "name": "Home", "item": "{{ shop.url }}"},
+        {"@type": "ListItem", "position": 2, "name": {{ blog.title | json }}, "item": "{{ shop.url }}/blogs/{{ blog.handle }}"},
+        {"@type": "ListItem", "position": 3, "name": {{ article.title | json }}, "item": "{{ shop.url }}{{ article.url }}"}
+      ]
+    }
+    {%- if article.metafields.json_ld_schema.faq != blank -%}
+    ,{{ article.metafields.json_ld_schema.faq.value }}
+    {%- endif -%}
+    {%- endif -%}
+    {%- if template.name == 'index' -%}
+    ,{
+      "@type": "WebPage",
+      "@id": "{{ shop.url }}/#homepage",
+      "url": "{{ shop.url }}",
+      "name": "MeeeShop - Women's Fashion",
+      "isPartOf": {"@id": "{{ shop.url }}/#website"},
+      "about": {"@id": "{{ shop.url }}/#organization"}
+    }
+    {%- endif -%}
+  ]
+}
+</script>

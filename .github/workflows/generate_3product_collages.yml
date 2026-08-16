@@ -1,0 +1,53 @@
+name: 3-Product Collage Generator
+
+# Schedules
+#   Can be run manually via workflow_dispatch.
+#
+# Secrets: ENCRYPTION_KEY_PRIMARY + ENCRYPTION_KEY_FALLBACK are
+# passed to the runner. secrets_manager.py decrypts secrets.enc at runtime.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Run mode'
+        required: true
+        default: 'apply'
+        type: choice
+        options:
+          - apply
+          - dry-run
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONUNBUFFERED: "1"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  run_collage_sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate 3-Product Collages & Sync Content
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          MODE="${{ github.event.inputs.mode }}"
+          if [ "$MODE" = "dry-run" ]; then
+            python scripts/generate_3product_collages.py --dry-run
+          else
+            python scripts/generate_3product_collages.py --apply
+          fi

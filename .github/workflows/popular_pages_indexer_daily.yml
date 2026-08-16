@@ -1,28 +1,53 @@
-name: Popular Pages Indexer (Trending Search Re-Indexing)
+name: Popular Pages & Search Query Indexer
 
 on:
-  # 1. Scheduled — daily at 10:00 AM EST (15:00 UTC)
+  # 1. Scheduled — Weekly on Mondays at 10:00 AM EST (15:00 UTC)
   schedule:
-    - cron: '0 15 * * *'
+    - cron: '0 15 * * 1'
 
   # 2. Manual dispatch
   workflow_dispatch:
     inputs:
       limit:
         description: 'Number of popular pages to process'
-        default: '30'
+        default: '100'
+        required: false
+        type: string
+      query_limit:
+        description: 'Number of top search queries to retrieve and log'
+        default: '100'
         required: false
         type: string
       days:
         description: 'Search analytics lookback window in days'
-        default: '14'
+        default: '7'
+        required: false
+        type: string
+      country:
+        description: 'Target Country code (e.g. usa)'
+        default: 'usa'
+        required: false
+        type: string
+      enrich_descriptions:
+        description: 'Enrich 0-click product/collection descriptions with missing search queries'
+        default: 'true'
+        required: false
+        type: string
+      generate_blogs:
+        description: 'Generate long-tail blog articles for question queries'
+        default: 'true'
+        required: false
+        type: string
+      max_blogs:
+        description: 'Maximum number of blog articles to generate per run'
+        default: '1'
         required: false
         type: string
 
 jobs:
   popular_indexer:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -38,12 +63,29 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Run Popular Pages Indexer
+      - name: Run Popular Pages & Search Query Indexer
         env:
+          PYTHONUTF8: "1"
+          PYTHONUNBUFFERED: "1"
           ENCRYPTION_KEY_PRIMARY:  ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+          BING_WEBMASTER_API_KEY:  ${{ secrets.BING_WEBMASTER_API_KEY }}
         run: |
-          LIMIT="${{ github.event.inputs.limit || '30' }}"
-          DAYS="${{ github.event.inputs.days || '14' }}"
-          echo "Running popular pages indexer (limit=$LIMIT, days=$DAYS)..."
-          python scripts/popular_pages_indexer.py --limit $LIMIT --days $DAYS
+          LIMIT="${{ github.event.inputs.limit || '100' }}"
+          QUERY_LIMIT="${{ github.event.inputs.query_limit || '100' }}"
+          DAYS="${{ github.event.inputs.days || '7' }}"
+          COUNTRY="${{ github.event.inputs.country || 'usa' }}"
+          ENRICH_DESCRIPTIONS="${{ github.event.inputs.enrich_descriptions || 'true' }}"
+          GENERATE_BLOGS="${{ github.event.inputs.generate_blogs || 'true' }}"
+          MAX_BLOGS="${{ github.event.inputs.max_blogs || '1' }}"
+          
+          ARGS="--limit $LIMIT --query-limit $QUERY_LIMIT --days $DAYS --country $COUNTRY --max-blogs $MAX_BLOGS --export-report"
+          if [ "$ENRICH_DESCRIPTIONS" = "true" ] || [ "$ENRICH_DESCRIPTIONS" = "True" ]; then
+            ARGS="$ARGS --enrich-descriptions"
+          fi
+          if [ "$GENERATE_BLOGS" = "true" ] || [ "$GENERATE_BLOGS" = "True" ]; then
+            ARGS="$ARGS --generate-blogs"
+          fi
+          
+          echo "Running popular pages & search query indexer with args: $ARGS"
+          python scripts/popular_pages_indexer.py $ARGS

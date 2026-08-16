@@ -42,20 +42,7 @@ BASE      = f"https://{SHOP}/admin/api/{API_VER}"
 SHP_HDR   = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 
 import ai_client
-
-PEN_NAMES = [
-    "Elena Vance, MeeeShop Lead Stylist",
-    "Seraphina Croft, MeeeShop Fashion Editor",
-    "Audrey Sterling, MeeeShop Style Director",
-    "Maya Devereaux, MeeeShop Fashion Consultant",
-    "Vivienne Vance, MeeeShop Senior Stylist",
-    "Genevieve Thorne, MeeeShop Trend Forecaster"
-]
-
-GENERIC_AUTHORS = [
-    "editorial team", "meeeshop editorial team", "admin", "administrator",
-    "meeeshop", "author", "staff", "staff writer", "writer"
-]
+from eeat_constants import PEN_NAMES, GENERIC_AUTHORS, needs_author_update, is_valid_pen_name
 
 # ── API Helpers ───────────────────────────────────────────────────────────────
 def _req(method, url, **kw):
@@ -354,12 +341,14 @@ def fix_article(blog_id: int, blog_title: str, article: dict, catalog_pool: list
     updates = {}
     
     # 1. Author (E-E-A-T) Fix
-    author_lower = author.lower()
-    if not author or any(g in author_lower for g in GENERIC_AUTHORS):
+    # Only replace if author is generic/blank. Existing pen names are NEVER re-randomised.
+    if needs_author_update(author):
         new_author = random.choice(PEN_NAMES)
         updates["author"] = new_author
         has_changes = True
         print(f"  [EEAT] Replaced author '{author}' with: '{new_author}'")
+    else:
+        print(f"  [EEAT] Author '{author}' is a valid pen name — skipping.")
         
     # 2. HTML Body Fixes (Double H1s, Overlinking, Q&A injection)
     soup = BeautifulSoup(body_html, "html.parser")
@@ -369,23 +358,39 @@ def fix_article(blog_id: int, blog_title: str, article: dict, catalog_pool: list
     h1s = soup.find_all("h1")
     if h1s:
         for h1 in h1s:
-            h2 = soup.new_tag("h2")
-            h2.string = h1.get_text()
-            h1.replace_with(h2)
+            h1.name = "h2"  # Changes tag name in-place; preserves all inner HTML, images, and child nodes intact
         body_changed = True
-        print(f"  [HTML] Converted {len(h1s)} H1 tag(s) to H2(s).")
+        print(f"  [HTML] Converted {len(h1s)} H1 tag(s) to H2(s) (preserved all inner content & images).")
         
-    # Overlinking reduction (keep at most 3 product links)
+    # Overlinking reduction — only flag INLINE text links, not product card widgets
+    # Product card widgets contain 'View Product' buttons and price elements; these are
+    # intentional shopping features, NOT spam links, so we exclude them from the count.
+    PRODUCT_LINK_LIMIT = 15  # Articles featuring 5-15 products with buy buttons is normal
     links = soup.find_all("a")
     product_links = [l for l in links if "/products/" in l.get("href", "")]
-    if len(product_links) > 3:
-        # Convert links after the first 3 into plain text span
-        for l in product_links[3:]:
-            span = soup.new_tag("span")
-            span.string = l.get_text()
-            l.replace_with(span)
+
+    # Filter out product card widget links (View Product buttons, price text, empty text, image links)
+    def is_widget_link(tag):
+        text = tag.get_text(strip=True).lower()
+        return (
+            text in ("", "view product", "shop now", "buy now") or
+            "$" in tag.get_text() or
+            tag.find("img") is not None or  # NEVER touch links containing product images
+            any(cls in " ".join(tag.get("class", [])) for cls in ["btn", "button", "product-card", "cta"])
+        )
+
+    inline_product_links = [l for l in product_links if not is_widget_link(l)]
+
+    if len(inline_product_links) > PRODUCT_LINK_LIMIT:
+        # Only remove href from excessive inline text links — preserve all inner HTML/images intact
+        for l in inline_product_links[PRODUCT_LINK_LIMIT:]:
+            l.name = "span"
+            if "href" in l.attrs:
+                del l["href"]
         body_changed = True
-        print(f"  [HTML] Reduced inline product link count from {len(product_links)} to 3 to avoid spam triggers.")
+        print(f"  [HTML] Reduced inline product link count from {len(inline_product_links)} to {PRODUCT_LINK_LIMIT} (widget & image links preserved).")
+    else:
+        print(f"  [HTML] {len(inline_product_links)} inline product links (total {len(product_links)} incl. widgets) — within limit — NO change.")
 
     # Detect product handles for Q&A and collage
     linked_handles = []
@@ -417,19 +422,12 @@ def fix_article(blog_id: int, blog_title: str, article: dict, catalog_pool: list
                 prod_type = prod_data.get("product_type", "apparel")
         
         qa_html = generate_shoppers_qa(title, prod_title, prod_type)
-        
-        # Append before final element or verdict
         qa_soup = BeautifulSoup(qa_html, "html.parser")
         
-        # Look for styling widget card or custom section wrapper
-        verdict = soup.find(style=re.compile("background:#f8f6f3|margin:48px 0"))
-        if verdict:
-            verdict.insert_before(qa_soup)
-        else:
-            soup.append(qa_soup)
-            
+        # ALWAYS append Q&A block to the very end of the article body
+        soup.append(qa_soup)
         body_changed = True
-        print("  [HTML] Injected Shoppers' Q&A section answering Why? What? How? questions.")
+        print("  [HTML] Injected Shoppers' Q&A section at end of article.")
         
     if body_changed:
         updates["body_html"] = str(soup)
@@ -455,13 +453,18 @@ def fix_article(blog_id: int, blog_title: str, article: dict, catalog_pool: list
         main_prod = None
         if main_product_handle:
             main_prod = fetch_product_by_handle(main_product_handle)
-        else:
-            # Fallback: try mapping title keywords to product handles
+
+        if not main_prod and catalog_pool:
+            # Fallback: match from catalog pool
             words = [w.lower() for w in re.split(r"\W+", title) if len(w) > 3]
-            for w in words[:4]:
-                main_prod = fetch_product_by_handle(w)
-                if main_prod:
+            for p in catalog_pool:
+                p_title_lower = p.get("title", "").lower()
+                if any(w in p_title_lower for w in words) and p.get("images"):
+                    main_prod = p
                     break
+            if not main_prod:
+                # Pick any active catalog product with images
+                main_prod = next((p for p in catalog_pool if p.get("images")), None)
                     
         if main_prod and main_prod.get("images"):
             # Only use products that are actually linked in the article body (excluding the main product)
@@ -538,48 +541,177 @@ def fix_article(blog_id: int, blog_title: str, article: dict, catalog_pool: list
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="Fix published MeeeShop blog posts for Google Discover")
-    parser.add_argument("--limit", type=int, default=5, help="Number of articles to fix per blog (default: 5)")
-    parser.add_argument("--force-image", action="store_true", help="Force rebuild featured images as styling collages")
+    parser.add_argument("--limit",      type=int,  default=5,  help="Number of articles to fix per blog (default: 5)")
+    parser.add_argument("--force-image",action="store_true",   help="Force rebuild featured images as styling collages")
+
+    # ── Safe single-article test flags ──────────────────────────────────────
+    parser.add_argument("--article-id", type=int,  default=None,
+                        help="Target a SINGLE article by its Shopify article ID (use with --blog-id)")
+    parser.add_argument("--blog-id",    type=int,  default=None,
+                        help="Blog ID the target article belongs to (required when using --article-id)")
+    parser.add_argument("--dry-run",    action="store_true",
+                        help="PRINT all changes that WOULD be made without writing anything to Shopify. "
+                             "Safe for inspection before going live.")
     args = parser.parse_args()
 
     print("=" * 75)
     print("MEEESHOP GOOGLE DISCOVER SEO & E-E-A-T AUTOMATED FIXER")
+    if args.dry_run:
+        print("  *** DRY-RUN MODE — NO CHANGES WILL BE WRITTEN TO SHOPIFY ***")
+    if args.article_id:
+        print(f"  *** SINGLE ARTICLE MODE — targeting article ID {args.article_id} ***")
     print("=" * 75)
-    
+
     if not SHOP or not TOKEN:
         sys.exit("ERROR: Shopify credentials missing from secrets.enc.")
-        
+
     print(f"Targeting: {SHOP}")
-    
-    # Pre-fetch catalog pool for matching
+
+    # ── Single-article test path ─────────────────────────────────────────────
+    if args.article_id:
+        if not args.blog_id:
+            sys.exit("ERROR: --blog-id is required when using --article-id.\n"
+                     "       Find it in Shopify Admin → Online Store → Blog Posts "
+                     "→ click any post → the URL contains /blogs/{blog_id}/articles/{article_id}")
+
+        print(f"\n[*] Fetching single article {args.article_id} from blog {args.blog_id}...")
+        r = _req("get", f"{BASE}/blogs/{args.blog_id}/articles/{args.article_id}.json")
+        if r.status_code != 200:
+            sys.exit(f"ERROR: Could not fetch article. Status {r.status_code}: {r.text[:200]}")
+
+        article = r.json().get("article", {})
+        if not article:
+            sys.exit("ERROR: Article not found.")
+
+        print(f"  Found: '{article.get('title', '(no title)')}'\n")
+
+        if args.dry_run:
+            print("DRY-RUN: What WOULD be changed:")
+            print("-" * 50)
+            _dry_run_report(args.blog_id, article)
+        else:
+            catalog_pool = fetch_all_active_products()
+            print(f"[*] Loaded {len(catalog_pool)} active products for collage matching.")
+            fix_article(args.blog_id, "(single-article test)", article,
+                        catalog_pool, force_image=args.force_image)
+
+        print("\n✓ Single-article run complete.")
+        return
+
+    # ── Normal batch path ────────────────────────────────────────────────────
     print("[*] Fetching product catalog pool for collages...")
     catalog_pool = fetch_all_active_products()
     print(f"    Loaded {len(catalog_pool)} active products.")
-    
+
     print("[*] Fetching blogs...")
     try:
         blogs = get_all_blogs()
     except Exception as e:
         sys.exit(f"ERROR: Could not retrieve blogs: {e}")
-        
+
     print(f"Found {len(blogs)} blog(s) to process.")
-    
+
     for blog in blogs:
         blog_title = blog["title"]
-        blog_id = blog["id"]
-        
-        # Skip standard system or dev blogs if needed, otherwise process all
+        blog_id    = blog["id"]
         print(f"\nProcessing blog: '{blog_title}' (ID {blog_id})...")
         try:
             articles = get_articles(blog_id, limit=args.limit)
             print(f"Found {len(articles)} article(s).")
             for art in articles:
-                fix_article(blog_id, blog_title, art, catalog_pool, force_image=args.force_image)
-                time.sleep(1.0) # Rate limiting buffer
+                if args.dry_run:
+                    _dry_run_report(blog_id, art)
+                else:
+                    fix_article(blog_id, blog_title, art, catalog_pool, force_image=args.force_image)
+                time.sleep(1.0)
         except Exception as e:
             print(f"[!] Error processing blog '{blog_title}': {e}")
-            
+
     print("\n✓ Discover Fixer run completed.")
+
+
+# ── Dry-run inspector (prints what would change, touches nothing) ─────────────
+def _dry_run_report(blog_id: int, article: dict):
+    """Inspect an article and print every change that fix_article() would make."""
+    title      = article.get("title", "")
+    author     = article.get("author", "").strip()
+    body_html  = article.get("body_html", "")
+    image      = article.get("image") or {}
+    article_id = article["id"]
+
+    print(f"\n[DRY-RUN] Article: '{title}' (ID {article_id})")
+    print(f"  Live URL  : https://us.meeeshop.com/blogs/*/article-slug")
+
+    # 1. Author — uses shared needs_author_update() so logic is identical to fix_article
+    if needs_author_update(author):
+        print(f"  [EEAT]  WOULD replace author '{author}' with a pen name (e.g. 'Elena Vance, MeeeShop Lead Stylist')")
+    else:
+        print(f"  [EEAT]  Author '{author}' is already a valid pen name — NO change")
+
+    # 2a. H1 check
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(body_html, "html.parser")
+    h1s = soup.find_all("h1")
+    if h1s:
+        print(f"  [HTML]  WOULD convert {len(h1s)} H1(s) inside body to H2(s): {[h.get_text()[:40] for h in h1s]}")
+    else:
+        print("  [HTML]  No H1 tags inside body — NO change")
+
+    # 2b. Overlinking — widget-aware (same logic as fix_article)
+    all_product_links = [l for l in soup.find_all("a") if "/products/" in l.get("href", "")]
+    def is_widget_link_dry(tag):
+        text = tag.get_text(strip=True).lower()
+        return (
+            text in ("", "view product", "shop now", "buy now") or
+            "$" in tag.get_text() or
+            any(cls in " ".join(tag.get("class", [])) for cls in ["btn", "button", "product-card", "cta"])
+        )
+    inline_links = [l for l in all_product_links if not is_widget_link_dry(l)]
+    widget_links  = len(all_product_links) - len(inline_links)
+    if len(inline_links) > 15:
+        print(f"  [HTML]  WOULD remove {len(inline_links)-15} inline product link(s) (widget links: {widget_links} preserved)")
+    else:
+        print(f"  [HTML]  {len(inline_links)} inline + {widget_links} widget product links — within limit — NO change")
+
+    # 2c. Q&A
+    text_lower = soup.get_text().lower()
+    has_qa = any(q in text_lower for q in ["faq", "q&a", "common questions", "shoppers' q&a"])
+    if not has_qa:
+        print("  [HTML]  WOULD inject a 3-question 'Shoppers Q&A' section at end of article")
+    else:
+        print("  [HTML]  Q&A/FAQ section already exists — NO change")
+
+    # 3. Image
+    img_src = image.get("src", "")
+    if not img_src:
+        print("  [IMAGE] WOULD generate + upload a 1200x630 product collage (no image currently)")
+    else:
+        width = check_image_width(img_src)
+        if width > 0 and width < 1200:
+            print(f"  [IMAGE] WOULD replace featured image ({width}px wide) with a 1200x630 collage")
+        elif width >= 1200:
+            print(f"  [IMAGE] Image is already {width}px wide — meets Discover requirement — NO change")
+        else:
+            print(f"  [IMAGE] Image width could not be determined — WOULD attempt collage replacement")
+
+    # 4. SEO metafields (read from live store)
+    try:
+        metafields = get_metafields(blog_id, article_id)
+        title_tag = next((m["value"] for m in metafields if m["namespace"] == "global" and m["key"] == "title_tag"), None)
+        desc_tag  = next((m["value"] for m in metafields if m["namespace"] == "global" and m["key"] == "description_tag"), None)
+        if not title_tag:
+            print(f"  [SEO]   WOULD create meta title (currently missing)")
+        else:
+            print(f"  [SEO]   Meta title already set: '{title_tag[:60]}' — NO change")
+        if not desc_tag:
+            print(f"  [SEO]   WOULD create meta description (currently missing)")
+        else:
+            print(f"  [SEO]   Meta description already set — NO change")
+    except Exception as e:
+        print(f"  [SEO]   Could not read metafields: {e}")
+
+    print("-" * 60)
+
 
 if __name__ == "__main__":
     try:

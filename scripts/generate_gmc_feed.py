@@ -13,6 +13,7 @@ import re
 import time
 import requests
 import secrets_manager
+import gzip
 import json # Import json for pretty printing
 
 # ── Configuration & Credentials ───────────────────────────────────────────────
@@ -80,19 +81,22 @@ def upload_to_shopify_files(filepath):
     print("\nUploading feed to Shopify CDN...")
     graphql_url = f"https://{STORE_DOMAIN}/admin/api/{API_VER}/graphql.json"
     
+    filename = os.path.basename(filepath)
+    mime_type = "application/gzip" if filepath.endswith(".gz") else "text/plain"
+
     # 1. Check for existing file and delete it so the new URL stays clean
     # We are deleting files with the exact name, but Shopify might append GUIDs.
     # This step is primarily to clean up any previous exact matches.
-    query_existing = """
-    query {
-      files(first: 10, query: "filename:google_merchant_feed.txt") {
-        edges {
-          node {
+    query_existing = f"""
+    query {{
+      files(first: 10, query: "filename:{filename}") {{
+        edges {{
+          node {{
             id
-          }
-        }
-      }
-    }
+          }}
+        }}
+      }}
+    }}
     """
     resp = requests.post(graphql_url, headers=HEADERS, json={"query": query_existing})
     resp.raise_for_status() # Ensure HTTP errors are caught
@@ -133,24 +137,26 @@ def upload_to_shopify_files(filepath):
         time.sleep(3) # Wait for deletion to propagate
         
     # 2. Request Staged Upload
-    staged_mut = """
-    mutation {
-      stagedUploadsCreate(input: [{
+    file_size = str(os.path.getsize(filepath))
+    staged_mut = f"""
+    mutation {{
+      stagedUploadsCreate(input: [{{
         resource: FILE,
-        filename: "google_merchant_feed.txt",
-        mimeType: "text/plain",
-        httpMethod: POST
-      }]) {
-        stagedTargets {
+        filename: "{filename}",
+        mimeType: "{mime_type}",
+        httpMethod: POST,
+        fileSize: "{file_size}"
+      }}]) {{
+        stagedTargets {{
           url
           resourceUrl
-          parameters {
+          parameters {{
             name
             value
-          }
-        }
-      }
-    }
+          }}
+        }}
+      }}
+    }}
     """
     resp = requests.post(graphql_url, headers=HEADERS, json={"query": staged_mut})
     resp.raise_for_status() # Ensure HTTP errors are caught
@@ -260,9 +266,8 @@ def upload_to_shopify_files(filepath):
             
     if public_url:
         print(f"✅ Feed uploaded successfully to Shopify CDN!")
-        cdn_url = public_url.split("?")[0] # Remove any version parameters
-        print(f"🔗 Temporary CDN URL: {cdn_url}")
-        create_or_update_redirect(cdn_url)
+        print(f"🔗 CDN URL: {public_url}")
+        create_or_update_redirect(public_url)
     else:
         print("⚠️ File uploaded, but URL could not be retrieved in time. Check Shopify Admin > Settings > Files.")
         raise Exception("Failed to retrieve public URL for uploaded file.")
@@ -430,7 +435,7 @@ def generate_feed():
         "availability", "price", "condition", "brand", "gtin", "mpn",
         "identifier_exists", "google_product_category", "item_group_id", "gender", "age_group",
         "color", "size", "custom_label_0", "custom_label_1", "included_destination",
-        "shipping", "return_policy"
+        "shipping"
     ]
     
     rows = []
@@ -463,7 +468,7 @@ def generate_feed():
         for variant in product.get("variants", []):
             var_id = str(variant.get("id"))
             sku = variant.get("sku") or var_id
-            feed_id = f"{item_group_id}_{var_id}"
+            feed_id = f"shopify_ZZ_{item_group_id}_{var_id}"
             
             # Title mapping
             title = product.get("title")
@@ -479,21 +484,26 @@ def generate_feed():
             
             # Matches Shopify's definition of "available" (not tracking inventory, backorders allowed, or qty > 0)
             is_available = not management or policy == "continue" or qty > 0
-            
-            # Skip out of stock items to only show approved/available inventory
-            if not is_available:
-                continue
-                
-            availability = "in_stock"
+            availability = "in_stock" if is_available else "out_of_stock"
             
             # Price mapping
             price = f"{variant.get('price')} USD"
-            
+             
             # GTIN validation
-            gtin_value = variant.get("barcode", "")
-            # Common GTIN lengths are 8, 12, 13, 14. If it's not one of these, send empty.
-            if gtin_value and not (len(gtin_value) in [8, 12, 13, 14] and gtin_value.isdigit()):
-                gtin_value = ""
+            gtin_value = variant.get("barcode", "") or ""
+            gtin_value = gtin_value.strip()
+            if gtin_value:
+                if not (len(gtin_value) in [8, 12, 13, 14] and gtin_value.isdigit()):
+                    gtin_value = ""
+                else:
+                    # Validate GS1 check digit
+                    padded = gtin_value.zfill(14)
+                    odd_sum = sum(int(padded[i]) for i in range(0, 13, 2))
+                    even_sum = sum(int(padded[i]) for i in range(1, 13, 2))
+                    total = odd_sum * 3 + even_sum
+                    check_digit = (10 - (total % 10)) % 10
+                    if check_digit != int(padded[13]):
+                        gtin_value = ""  # Clear invalid GTIN to prevent disapproval
 
             # Find Color and Size dynamically from variant options
             color = ""
@@ -534,16 +544,13 @@ def generate_feed():
                 "custom_label_0": product_type,
                 "custom_label_1": first_tag,
                 "included_destination": "Shopping_ads,Free_listings",
-                "shipping": "US:::0.00 USD",
-                # Mandatory for Merchant Listings (organic Shopping surface in GSC).
-                # Format: [country]:[type]:[window_days]:[currency]:[cost]
-                # money_back = full refund, 7 = 7-day window, 0.00 USD = free return shipping
-                "return_policy": "US:money_back:7:USD:0.00"
+                "shipping": "US:::0.00 USD"
             })
             
     # Write to TSV file
-    print(f"Writing {len(rows)} variants to {OUTPUT_FILE} (TSV format)...")
-    with open(OUTPUT_FILE, mode="w", newline="", encoding="utf-8") as f:
+    output_gz = OUTPUT_FILE + ".gz"
+    print(f"Writing {len(rows)} variants to {output_gz} (TSV format, gzipped)...")
+    with gzip.open(output_gz, mode="wt", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=feed_headers, delimiter='\t')
         writer.writeheader()
         writer.writerows(rows)
@@ -551,7 +558,7 @@ def generate_feed():
     print("✅ Google Merchant Feed generated successfully.")
 
     # Upload to Shopify
-    upload_to_shopify_files(OUTPUT_FILE)
+    upload_to_shopify_files(output_gz)
 
 if __name__ == "__main__":
     import sys

@@ -29,8 +29,60 @@ from urllib.parse import quote
 
 import requests
 import ai_client
-from PIL import Image
+from PIL import Image, ImageOps
+
+from utils import (
+    generate_collage,
+    extract_handle_count,
+    is_product_compatible,
+    select_styling_matches,
+    get_category_style_phrase,
+    sanitize_title_to_category_phrase
+)
+
+def generate_outfit_collage(main_product: dict, matching_products: list) -> Path | None:
+    """
+    Downloads featured images for main product and matching products,
+    creates a 1200x630 Discover landscape collage with taller center featured image + white border,
+    and saves locally using utils.generate_collage.
+    """
+    image_bytes_list = []
+    main_imgs = main_product.get("images", [])
+    if main_imgs:
+        try:
+            r = requests.get(main_imgs[0]["src"], timeout=10)
+            if r.status_code == 200:
+                image_bytes_list.append(r.content)
+        except Exception as e:
+            print(f"    [!] Error fetching main product image: {e}")
+
+    for p in matching_products:
+        imgs = p.get("images", [])
+        if imgs:
+            try:
+                r = requests.get(imgs[0]["src"], timeout=10)
+                if r.status_code == 200:
+                    image_bytes_list.append(r.content)
+            except Exception as e:
+                print(f"    [!] Error fetching product image: {e}")
+
+    if not image_bytes_list:
+        return None
+
+    try:
+        collage_bytes = generate_collage(image_bytes_list)
+        temp_path = Path("collage_temp.jpg")
+        with open(temp_path, "wb") as f:
+            f.write(collage_bytes)
+        print(f"  ✓ Discover featured collage generated locally: {temp_path.absolute()}")
+        return temp_path
+    except Exception as e:
+        print(f"  [!] Failed to generate image collage: {e}")
+        return None
 from io import BytesIO
+import weekly_trend_blog as wtb
+from internal_linker import LinkMap
+from article_deduplicator import ArticleDeduplicator
 
 # ── credentials ───────────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -51,14 +103,7 @@ STORE_URL = get_secret("STORE_BASE_URL")
 YEAR  = datetime.now().year
 MONTH = datetime.now().strftime("%B %Y")
 
-PEN_NAMES = [
-    "Elena Vance, MeeeShop Lead Stylist",
-    "Seraphina Croft, MeeeShop Fashion Editor",
-    "Audrey Sterling, MeeeShop Style Director",
-    "Maya Devereaux, MeeeShop Fashion Consultant",
-    "Vivienne Vance, MeeeShop Senior Stylist",
-    "Genevieve Thorne, MeeeShop Trend Forecaster"
-]
+from eeat_constants import PEN_NAMES  # single source of truth for pen names
 
 # ── Shopify helpers ────────────────────────────────────────────────────────────
 def _req(method, url, **kw):
@@ -259,7 +304,7 @@ def generate_fallback_blog_post(fmt: str, product: dict, keyword: str, title_hin
 <h2>Look 4: Airport Chic</h2>
 <p>Comfort and looking pulled-together are not mutually exclusive. Wear the {clean_ptype} with an oversized zip-up hoodie or knit cardigan in a neutral — oatmeal, charcoal, or dusty rose. Add a spacious canvas tote for carry-on essentials. This outfit works from security line to arrival hall without looking like you gave up.</p>
 <h2>Look 5: The Gallery Hop</h2>
-<p>Go monochromatic. Pair this {clean_ptype} with similar tones in your blazer and top — think all-black for summer 2026, or a sandy neutral layered look. Statement earrings and a half-tuck are the only two details this look needs. It is the quiet luxury formula that is all over Flipboard right now.</p>
+<p>Go monochromatic. Pair this {clean_ptype} with similar tones in your blazer and top — think all-black for summer {datetime.now().year}, or a sandy neutral layered look. Statement earrings and a half-tuck are the only two details this look needs. It is the quiet luxury formula that is all over Flipboard right now.</p>
 """,
 
         "buying_guide": f"""
@@ -277,7 +322,7 @@ def generate_fallback_blog_post(fmt: str, product: dict, keyword: str, title_hin
 <h3>The Power Lunch</h3>
 <p>Pull a structured blazer in ivory or soft camel over this {clean_ptype}. Front-tuck the hem slightly to define the waist, add the {match1_name} for a layer of interest, and finish with a small leather shoulder bag in cognac. Simple gold earrings, nothing statement. This works for a client meeting or a first date at a nice restaurant.</p>
 <h3>Saturday Gallery Hop</h3>
-<p>Go tone-on-tone. Match this {clean_ptype} with the {match2_name} in a similar neutral palette — oatmeal, olive, or all black. Half-tuck the top, add a canvas crossbody, and one interesting accessory (a chunky ring, a silk scarf). This is the quiet luxury formula that is dominating Flipboard Style feeds in summer 2026.</p>
+<p>Go tone-on-tone. Match this {clean_ptype} with the {match2_name} in a similar neutral palette — oatmeal, olive, or all black. Half-tuck the top, add a canvas crossbody, and one interesting accessory (a chunky ring, a silk scarf). This is the quiet luxury formula that is dominating Flipboard Style feeds in summer {datetime.now().year}.</p>
 <h3>The Long Weekend</h3>
 <p>Pack light but look intentional. Pair with an oversized linen button-down in white or sage left open as a layer, a market tote, and a braided belt at the waist. Works from the airport to the poolside dinner with zero effort.</p>
 <h2>Who This Actually Works For (and Who Should Skip It)</h2>
@@ -351,12 +396,12 @@ def generate_fallback_blog_post(fmt: str, product: dict, keyword: str, title_hin
 
         "trend_report": f"""
 <p>If you have been paying attention to Flipboard, Who What Wear, and real women\'s street style this {MONTH}, you already know that the rules shifted. Wide-leg is not the only answer anymore. Distressed denim is out. And the all-black summer outfit is not just acceptable — it is the move. Here is what is actually trending right now.</p>
-<h2>Trend #1: {display_name} — Why It Fits the 2026 Moment</h2>
-<p>The {display_name} is landing at exactly the right time. The 2026 consumer is tired of trend-chasing and wants pieces that read intentional, not disposable. This {clean_ptype} fits that shift. Its construction is clean, its colour palette is edit-friendly, and it layers like a dream over the linen-and-denim combinations dominating summer style right now.</p>
+<h2>Trend #1: {display_name} — Why It Fits the {datetime.now().year} Moment</h2>
+<p>The {display_name} is landing at exactly the right time. The {datetime.now().year} consumer is tired of trend-chasing and wants pieces that read intentional, not disposable. This {clean_ptype} fits that shift. Its construction is clean, its colour palette is edit-friendly, and it layers like a dream over the linen-and-denim combinations dominating summer style right now.</p>
 <h2>Trend #2: Cigarette Jeans Are Taking Over</h2>
 <p>The wide-leg denim moment had its run. The silhouette that is replacing it? The cigarette jean — slim, straight, hitting at the ankle. It works with tucked-in tops, cropped layers, and oversized blazers in a way that wide-leg simply cannot match. If you are buying one new denim item this season, this is the silhouette.</p>
 <h2>Trend #3: The Quiet Luxury Denim Edit</h2>
-<p>Dark indigo. No distressing. Clean hems. No branding. This is the 2026 quiet luxury formula applied to denim, and it is trending hard on Flipboard #Style (8.4 million followers). The effect is simple: dark wash jeans read more expensive than light wash at any price point, because the colour is doing the visual work.</p>
+<p>Dark indigo. No distressing. Clean hems. No branding. This is the {datetime.now().year} quiet luxury formula applied to denim, and it is trending hard on Flipboard #Style (8.4 million followers). The effect is simple: dark wash jeans read more expensive than light wash at any price point, because the colour is doing the visual work.</p>
 <h2>Trend #4: The Linen + Dark Wash Formula</h2>
 <p>This is the heat-proof summer answer. A relaxed linen top in white, ecru, or sage layered over or tucked into dark wash jeans — it is the combination that keeps appearing on every mood board right now. The contrast of textures does all the work. You do not need to add much else.</p>
 <h2>Trend #5: The Blazer-as-a-Top Moment</h2>
@@ -509,12 +554,12 @@ def make_related_products_section(products: list, exclude_handle: str, keyword: 
         section_title = "Shop Styled Pairings from This Article"
         cta_text = "Shop the Look"
     else:
-        related = [p for p in products if p.get("handle") != exclude_handle and p.get("images")]
-        if not related:
-            related = [p for p in products if p.get("handle") != exclude_handle]
-        picks = random.sample(related, min(3, len(related)))
-        section_title = "You Might Also Love"
-        cta_text = "Shop Similar"
+        outfit_count = extract_handle_count(keyword or exclude_handle or "")
+        main_prod_candidates = [p for p in products if p.get("handle") == exclude_handle]
+        main_product = main_prod_candidates[0] if main_prod_candidates else {"handle": exclude_handle, "product_type": keyword}
+        picks = select_styling_matches(main_product, products, num_matches=outfit_count, topic_context=keyword or exclude_handle)
+        section_title = "Shop Styled Pairings from This Article"
+        cta_text = "Shop the Look"
 
     cards_html = ""
     for p in picks:
@@ -578,47 +623,6 @@ def inject_product_card(html_body: str, product: dict, keyword: str = "") -> str
 
 # ── Dynamic Collage & Pairing Helpers ──────────────────────────────────────────
 
-def select_styling_matches(main_product: dict, pool: list, num_matches: int = 2) -> list[dict]:
-    main_type = (main_product.get("product_type") or "").lower()
-    main_id = main_product.get("id")
-    
-    # Categorize broad clothing types
-    is_top = any(x in main_type for x in ["top", "blouse", "shirt", "tee"])
-    is_bottom = any(x in main_type for x in ["jean", "pant", "skirt", "legging", "short"])
-    is_one_piece = any(x in main_type for x in ["dress", "jumpsuit", "romper"])
-    
-    matches = []
-    
-    # Try to find items of complementary types first
-    complementary_pool = []
-    for p in pool:
-        if p.get("id") == main_id or not p.get("images"):
-            continue
-        ptype = (p.get("product_type") or "").lower()
-        
-        if is_top:
-            if any(x in ptype for x in ["jean", "pant", "skirt", "jacket", "coat", "cardigan", "accessory"]):
-                complementary_pool.append(p)
-        elif is_bottom:
-            if any(x in ptype for x in ["top", "blouse", "shirt", "tee", "sweater", "jacket", "coat", "cardigan"]):
-                complementary_pool.append(p)
-        elif is_one_piece:
-            if any(x in ptype for x in ["jacket", "coat", "cardigan", "accessory", "shoe", "bag"]):
-                complementary_pool.append(p)
-        else:
-            complementary_pool.append(p)
-            
-    if len(complementary_pool) >= num_matches:
-        matches = random.sample(complementary_pool, num_matches)
-    else:
-        fallback_pool = [p for p in pool if p.get("id") != main_id and p.get("images")]
-        if len(fallback_pool) >= num_matches:
-            matches = random.sample(fallback_pool, num_matches)
-        else:
-            matches = fallback_pool
-            
-    return matches
-
 
 def crop_to_fit(img, target_w, target_h):
     """Helper to crop and resize an image to fit target bounds cleanly (center crop)."""
@@ -641,97 +645,7 @@ def crop_to_fit(img, target_w, target_h):
         return img_resized.crop((0, crop_y, target_w, crop_y + target_h))
 
 
-def generate_outfit_collage(main_product: dict, matching_products: list) -> Path | None:
-    """
-    Downloads the featured images of the main product and matches,
-    creates a beautiful side-by-side outfit collage (1200x630),
-    and saves it locally.
-    """
-    images_to_load = []
-    
-    main_imgs = main_product.get("images", [])
-    if main_imgs:
-        images_to_load.append(main_imgs[0]["src"])
-        
-    for p in matching_products:
-        imgs = p.get("images", [])
-        if imgs:
-            images_to_load.append(imgs[0]["src"])
-            
-    if not images_to_load:
-        return None
-        
-    print(f"  Downloading {len(images_to_load)} images to create styling collage...")
-    downloaded_imgs = []
-    for url in images_to_load:
-        try:
-            r = requests.get(url, timeout=15)
-            if r.status_code == 200:
-                img = Image.open(BytesIO(r.content))
-                downloaded_imgs.append(img)
-            else:
-                print(f"    [!] Failed to download {url[:60]}... (HTTP {r.status_code})")
-        except Exception as e:
-            print(f"    [!] Error downloading {url[:60]}...: {e}")
-            
-    if not downloaded_imgs:
-        return None
-        
-    canvas_w, canvas_h = 1200, 630
-    collage = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
-    
-    num_imgs = len(downloaded_imgs)
-    
-    try:
-        if num_imgs == 1:
-            img = downloaded_imgs[0]
-            img_ratio = img.width / img.height
-            target_ratio = canvas_w / canvas_h
-            
-            if img_ratio > target_ratio:
-                new_h = canvas_h
-                new_w = int(img.width * (canvas_h / img.height))
-                img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-                crop_x = (new_w - canvas_w) // 2
-                img_cropped = img_resized.crop((crop_x, 0, crop_x + canvas_w, canvas_h))
-            else:
-                new_w = canvas_w
-                new_h = int(img.height * (canvas_w / img.width))
-                img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-                crop_y = (new_h - canvas_h) // 2
-                img_cropped = img_resized.crop((0, crop_y, canvas_w, crop_y + canvas_h))
-                
-            collage.paste(img_cropped, (0, 0))
-            
-        elif num_imgs == 2:
-            spacing = 25
-            col_w = (canvas_w - (3 * spacing)) // 2
-            col_h = canvas_h - (2 * spacing)
-            
-            for i, img in enumerate(downloaded_imgs):
-                img_resized = crop_to_fit(img, col_w, col_h)
-                left = spacing + i * (col_w + spacing)
-                top = spacing
-                collage.paste(img_resized, (left, top))
-                
-        else:
-            spacing = 20
-            col_w = (canvas_w - (4 * spacing)) // 3
-            col_h = canvas_h - (2 * spacing)
-            
-            for i, img in enumerate(downloaded_imgs[:3]):
-                img_resized = crop_to_fit(img, col_w, col_h)
-                left = spacing + i * (col_w + spacing)
-                top = spacing
-                collage.paste(img_resized, (left, top))
-                
-        temp_path = Path("collage_temp.jpg")
-        collage.save(temp_path, "JPEG", quality=92)
-        print(f"  ✓ Collage generated locally: {temp_path.absolute()}")
-        return temp_path
-    except Exception as e:
-        print(f"  [!] Failed to generate image collage: {e}")
-        return None
+
 
 
 def upload_image_to_shopify(filepath: Path, filename: str) -> str | None:
@@ -887,16 +801,16 @@ def publish_article(blog: dict, title: str, body_html: str, tags: list,
 FORMATS = ["buying_guide", "comparison", "problem_solver", "trend_report", "outfit_formula", "care_guide", "sizing_guide"]
 
 SEED_KEYWORDS = [
-    # 2026 Trending — sourced from Flipboard #Style (8.4M followers) & Who What Wear
-    "women's fashion 2026", "summer outfit ideas for women 2026",
+    # Dynamic Trending — sourced from Flipboard #Style (8.4M followers) & Who What Wear
+    f"women's fashion {datetime.now().year}", f"summer outfit ideas for women {datetime.now().year}",
     "affordable women's clothing USA", "summer dress outfits for women",
     "women's jeans styles guide", "casual chic outfits women",
-    "women's fashion trends 2026", "cute outfits under $50",
+    f"women's fashion trends {datetime.now().year}", "cute outfits under $50",
     "stylish women's tops", "best dresses for women",
     "women's summer wardrobe essentials", "affordable boutique fashion USA",
     "women's outfit ideas", "how to style women's clothing",
     "plus size fashion tips", "work outfits for women",
-    "women's weekend casual looks", "women's spring outfit ideas 2026",
+    "women's weekend casual looks", f"women's spring outfit ideas {datetime.now().year}",
     "best tops to wear with jeans", "how to build a capsule wardrobe women",
     "women's date night outfit ideas",
     "Zenana women's clothing basics guide", "how to style POL clothing bohemian pieces",
@@ -904,19 +818,19 @@ SEED_KEYWORDS = [
     "Risen stretch denim jeans review", "Umgee USA clothing styling ideas",
     "Hyfve clothing fashion trends", "Bibi clothing cute outfits",
     "Artemis Vintage denim styles",
-    # Jeans-specific trending 2026 (Flipboard #Jeans 66K followers)
-    "how to style jeans 2026", "dark wash jeans outfits",
+    # Jeans-specific trending (Flipboard #Jeans 66K followers)
+    f"how to style jeans {datetime.now().year}", "dark wash jeans outfits",
     "quiet luxury jeans women", "cigarette jeans styling tips",
     "barrel leg jeans vs wide leg jeans", "blazer with jeans outfit ideas",
-    "tops to wear with jeans 2026", "how to look taller in jeans",
+    f"tops to wear with jeans {datetime.now().year}", "how to look taller in jeans",
     # Care & How-To (high search intent, Flipboard trending)
     "how to wash jeans without fading", "how to remove stains from jeans",
     "how to remove smell from clothes", "how to fix pilling on clothes",
-    "jeans care guide 2026",
-    # Summer 2026 (Flipboard #SummerFashion 73.9K followers)
-    "linen top with jeans outfit", "summer denim outfit ideas 2026",
-    "all black summer outfit women", "women's capsule wardrobe 2026",
-    "linen dress summer 2026",
+    f"jeans care guide {datetime.now().year}",
+    # Summer (Flipboard #SummerFashion 73.9K followers)
+    "linen top with jeans outfit", f"summer denim outfit ideas {datetime.now().year}",
+    "all black summer outfit women", f"women's capsule wardrobe {datetime.now().year}",
+    f"linen dress summer {datetime.now().year}",
 ]
 
 
@@ -1445,63 +1359,56 @@ def get_clean_product_type(product: dict) -> str:
     return ptype if ptype else "apparel"
 
 
-def generate_keyword_title_and_format(product: dict, format_override: str = None) -> tuple[str, str, str]:
-    display_name = get_product_display_name(product)
-    clean_ptype = get_clean_product_type(product)
+def generate_keyword_title_and_format(product: dict, stem_family: str, format_override: str = None) -> tuple[str, str, str]:
+    category_phrase = get_category_style_phrase(product)
 
-    # Jeans/denim articles get 2026-trending topic titles
-    is_denim = any(x in (product.get("product_type") or "").lower() or (product.get("title") or "").lower()
-                   for x in ["jean", "denim"])
+    # Map stem family directly to formats
+    stem_to_format = {
+        "care_laundry": "care_guide",
+        "fit_sizing": "sizing_guide",
+        "shoes_pairing": "outfit_formula",
+        "tops_pairing": "outfit_formula",
+        "outerwear_pairing": "outfit_formula",
+        "layering": "outfit_formula",
+        "occasion": "outfit_formula",
+        "body_shape": "sizing_guide",
+        "age_style": "outfit_formula",
+        "undergarments": "problem_solver",
+        "trend_longevity": "trend_report",
+        "general_styling": "outfit_formula",
+        "general": "buying_guide"
+    }
 
-    options = [
-        (f"{display_name} sizing",
-         f"Is {display_name} True to Size? Sizing & Fit Guide for Women {YEAR}",
-         "sizing_guide"),
-        (f"how to style {display_name}",
-         f"5 Stunning Outfits You Can Build Around {display_name} in {YEAR}",
-         "outfit_formula"),
-        (f"{display_name} review",
-         f"The Best {display_name} for Women in {YEAR}: Our Editor's Honest Guide",
-         "buying_guide"),
-        (f"styling {display_name}",
-         f"{MONTH} Women's Fashion Trends: How to Style the {display_name}",
-         "trend_report"),
-        (f"how to wash {display_name}",
-         f"How to Wash and Care for Your {display_name} ({YEAR} Style Guide)",
-         "care_guide"),
-        (f"{display_name} styling",
-         f"How to Style the {display_name} for Casual Chic Outfits (Complete {YEAR} Guide)",
-         "problem_solver")
-    ]
-
-    # For denim products, add trending 2026 topic options
-    if is_denim:
-        options += [
-            (f"quiet luxury jeans {display_name}",
-             f"The Quiet Luxury Denim Look: How to Style {display_name} in {YEAR}",
-             "trend_report"),
-            (f"how to pair {display_name} summer",
-             f"Summer {YEAR} Jeans Outfit Formula: Style {display_name} 5 Ways",
-             "outfit_formula"),
-        ]
-
+    fmt = stem_to_format.get(stem_family, "buying_guide")
     if format_override:
-        matched = [opt for opt in options if opt[2] == format_override]
-        if matched:
-            return matched[0]
+        fmt = format_override
 
-    # Weights: sizing_guide (10%), outfit_formula (25%), buying_guide (20%),
-    # trend_report (20%), care_guide (5%), problem_solver (20%)
-    base_options = options[:6]
-    weights = [0.10, 0.25, 0.20, 0.20, 0.05, 0.20]
-    return random.choices(base_options, weights=weights, k=1)[0]
+    # Basic title generation fallback (will be refined by AI anyway)
+    title_hint = f"How to Answer Your Top Questions About {category_phrase} in {YEAR}"
+    if fmt == "care_guide":
+        title_hint = f"How to Wash & Care for {category_phrase} ({YEAR} Style Guide)"
+    elif fmt == "sizing_guide":
+        title_hint = f"{category_phrase}: Sizing & Fit Guide for Women {YEAR}"
+    elif fmt == "outfit_formula":
+        title_hint = f"5 Stunning Outfits to Build Around {category_phrase} in {YEAR}"
+    elif fmt == "trend_report":
+        title_hint = f"{MONTH} Women's Fashion Trends: How to Style {category_phrase}"
+    elif fmt == "buying_guide":
+        title_hint = f"The Best {category_phrase} for Women in {YEAR}: Our Editor's Guide"
+    elif fmt == "problem_solver":
+        title_hint = f"How to Style {category_phrase} for Casual Chic Outfits ({YEAR} Guide)"
+
+    # We don't generate the keyword here anymore because the fetcher provides the exact keyword question
+    return "", title_hint, fmt
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
-def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_override: str = None):
+def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_override: str = None, topic: str = None):
     print(f"\n{'='*62}")
     print(f"  MeeeShop Blog Automation — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print(f"  Posts: {count} | Dry-run: {dry_run} | Publish: {publish} | Format: {format_override or 'weighted random'}")
+    if topic:
+        print(f"  Target Search Topic: '{topic}'")
     print(f"{'='*62}\n")
 
     print("Fetching products…")
@@ -1521,154 +1428,166 @@ def run(count: int = 1, dry_run: bool = False, publish: bool = False, format_ove
     all_blogs = get_all_blogs()
     print(f"  Available blogs: {[b['title'] for b in all_blogs]}\n")
 
-    chosen   = random.sample(pool, min(count, len(pool)))
+    # ── Deduplication: load all live article titles + handles once ─────────────
+    dedup = ArticleDeduplicator(BASE, HEADERS)
+    dedup.load_live_index()
+
+    # Build internal linker map
+    print("[*] Building internal linker map...")
+    link_map = wtb.build_linker_map()
+
+    # Build type map
+    type_map = {}
+    for p in pool:
+        ptype = (p.get("product_type") or "Uncategorized").strip()
+        if ptype not in type_map:
+            type_map[ptype] = []
+        type_map[ptype].append(p)
+
+    # Perform trend research across product categories
+    print("[*] Researching live fashion trends...")
+    research_cache = wtb.research_flipboard_per_category(type_map)
+
+    # Select active product type based on live research & 7-day cooldown
+    active_ptype = wtb.select_trending_product_type(type_map, research_cache, cooldown_days=7)
+    print(f"[*] Active Product Type for Today's Run: '{active_ptype}'")
+
+    # Filter pool for products matching the selected trend product type
+    candidate_products = [p for p in pool if wtb.candidate_matches_type(p.get("product_type", ""), active_ptype)]
+    if not candidate_products:
+        candidate_products = pool
+
+    # Enforce 15-Day Product Cooldown Rotation
+    try:
+        from fix_duplicate_blog_products import ProductRotationManager
+        rotation_mgr = ProductRotationManager()
+        candidate_products = rotation_mgr.filter_available_products(candidate_products, days=15)
+    except Exception as e:
+        print(f"  [Rotation Notice]: {e}")
+        rotation_mgr = None
+
+    random.shuffle(candidate_products)
+    chosen = candidate_products[:min(count, len(candidate_products))]
 
     created = 0
     for i, product in enumerate(chosen):
-        keyword, title_hint, fmt = generate_keyword_title_and_format(product, format_override)
+        if rotation_mgr:
+            rotation_mgr.mark_used(product.get("handle", ""))
 
-        print(f"[{i+1}/{count}] Format: {fmt} | Keyword: '{keyword}'")
+        wtb_format = None
+        if format_override:
+            # Map our daily format to weekly_trend_blog's mode IDs if provided
+            mode_mapping = {
+                "sizing_guide": "body_type_guide",
+                "outfit_formula": "one_item_multiple_ways",
+                "buying_guide": "shopping_guide_edit",
+                "trend_report": "trend_report",
+                "care_guide": "fabric_care_guide",
+                "problem_solver": "stain_odour_rescue"
+            }
+            wtb_format = mode_mapping.get(format_override, "one_item_multiple_ways")
+        
+        if topic:
+            wtb_format = "trend_report" if random.random() < 0.6 else "shopping_guide_edit"
+
+        print(f"[{i+1}/{count}] Delegating to weekly_trend_blog engine (format_override: {wtb_format})")
         print(f"  Product: {product['title'][:70]}")
         print(f"  Type   : {product.get('product_type', 'unknown')}")
 
         blog = get_or_create_blog(product.get("product_type", ""), all_blogs, dry_run)
         print(f"  Blog   : {blog['title']}")
 
-        # Select styling matches first so we can feed them into the prompt, ONLY for styling formats
-        is_styling_format = fmt in ["outfit_formula", "buying_guide", "trend_report", "problem_solver"]
-        if is_styling_format:
-            matching_products = select_styling_matches(product, pool, num_matches=2)
-        else:
-            matching_products = []
+        # We call the unified generator engine from weekly_trend_blog.py
+        # It handles: Flipboard research, collage creation, E-E-A-T prompting, internal links injection, etc.
+        content_assets = wtb.generate_single_article_content(
+            main_product=product,
+            all_products_with_images=pool,
+            link_map=link_map,
+            type_map=type_map,
+            research_cache={},
+            force_format=wtb_format,
+            dry_run=dry_run,
+            original_handle_hint=None,
+            deduplicator=dedup
+        )
 
-        # Generate content — pass full pool and matching products for cohesion
-        prompt, h1_hint = _build_prompt(fmt, product, keyword, title_hint, similar_products=pool, matching_products=matching_products)
-        print("  Generating content…")
-        html_body = ai_client.generate(prompt, max_tokens=1600, temperature=0.75)
+        if not content_assets:
+            print(f"  [!] Failed to generate content for product: {product['title']}")
+            continue
 
-        is_fallback_mode = False
-        seo_text = ""
+        # Destructure generated assets
+        raw_title        = content_assets.get("seo_title") or content_assets.get("title") or "MeeeShop Editorial"
+        post_title       = sanitize_title_to_category_phrase(raw_title, product)
+        html_body        = content_assets.get("html_body", "")
+        tags             = content_assets.get("tags", [])
+        img_url          = content_assets.get("img_url", "")
+        img_alt          = content_assets.get("img_alt", get_category_style_phrase(product))
+        meta_desc        = content_assets.get("meta_desc", "")
+        author_name      = content_assets.get("author", "MeeeShop Editorial Team")
+        suggested_handle = content_assets.get("suggested_handle") or content_assets.get("handle") or wtb._slugify(post_title)
 
-        if not html_body:
-            print("  [AI] All providers failed — executing local template-based fallback generator...")
-            is_fallback_mode = True
-            html_body, seo = generate_fallback_blog_post(fmt, product, keyword, title_hint, pool, matching_products)
-        else:
-            # Extract <seometa> block if present
-            seo_match = re.search(r"<seometa>(.*?)</seometa>", html_body, re.DOTALL | re.IGNORECASE)
-            if seo_match:
-                seo_text = seo_match.group(1).strip()
-                # Remove the <seometa> block from body
-                html_body = html_body[:seo_match.start()] + html_body[seo_match.end():]
-            else:
-                # Inline detection fallback if tags were omitted
-                lines = html_body.splitlines()
-                cleaned_lines = []
-                seo_lines = []
-                for line in lines:
-                    l_upper = line.strip().upper()
-                    if l_upper.startswith("SEO_TITLE:") or l_upper.startswith("META_DESC:") or l_upper.startswith("IMG_ALT:"):
-                        seo_lines.append(line)
-                    elif "seometa" not in line.lower():
-                        cleaned_lines.append(line)
-                if seo_lines:
-                    seo_text = "\n".join(seo_lines)
-                    html_body = "\n".join(cleaned_lines)
-
-        html_body = _clean_html(html_body)
-        post_title = _extract_h1(html_body, h1_hint)
-
-        if not is_fallback_mode:
-            print("  Extracting SEO metadata…")
-            ptype = (product.get("product_type") or "women's fashion").lower()
-            seo   = parse_and_clean_seo_meta(seo_text, keyword, product["title"], ptype)
-            
-        print(f"  SEO title : {seo['seo_title']}")
-        print(f"  Meta desc : {seo['meta_desc'][:80]}\u2026")
-        print(f"  IMG ALT   : {seo['img_alt']}")
-
-        # ── Featured Image: Collage for ALL formats ───────────────────────────────────────────
-        collage_path = None
-        img_url = None
-        num_collage_items = 1  # tracks total products in collage for logging
-
-        is_styling_format = fmt in ["outfit_formula", "buying_guide", "trend_report", "problem_solver"]
-
-        if is_styling_format and matching_products:
-            # Outfit collage: main product + complementary styling matches
-            num_collage_items = 1 + len(matching_products)
-            print(f"  Building outfit collage ({num_collage_items} products)...")
-            collage_path = generate_outfit_collage(product, matching_products)
-        else:
-            # Topic-matched collage: use same product-type pool products
-            ptype_lower = get_clean_product_type(product).lower()
-            same_type_pool = [
-                p for p in pool
-                if p.get("id") != product.get("id")
-                and p.get("images")
-                and ptype_lower in (p.get("product_type") or "").lower()
-            ][:2]
-            if same_type_pool:
-                num_collage_items = 1 + len(same_type_pool)
-                print(f"  Building topic-matched collage for {fmt} ({num_collage_items} {ptype_lower}s)...")
-                collage_path = generate_outfit_collage(product, same_type_pool)
-            else:
-                # Fallback: just use main product solo
-                print(f"  Building single-product collage for {fmt}...")
-                collage_path = generate_outfit_collage(product, [])
-
-        # Upload collage for ALL formats (was previously only uploading in the else branch)
-        if collage_path and collage_path.exists():
-            if not dry_run:
-                ts = int(time.time())
-                filename = f"styling_collage_{product['id']}_{ts}.jpg"
-                img_url = upload_image_to_shopify(collage_path, filename)
-                try:
-                    collage_path.unlink()
-                except Exception:
-                    pass
-            else:
-                img_url = f"file:///{collage_path.absolute().as_posix()}"
-
-        if not img_url:
-            img_url = make_featured_image_url(product, fmt)
-            img_src = "Shopify CDN 1200x630 (Single product fallback)"
-        else:
-            img_src = f"Shopify CDN 1200x630 (Outfit Collage of {num_collage_items} products)"
-            
-        print(f"  Featured Image : {img_src}")
-        if img_url:
-            print(f"  Image URL      : {img_url[:90]}...")
-
-        # Inject featured product card + related products
-        html_body = inject_product_card(html_body, product, keyword)
-        html_body += make_related_products_section(products, product.get("handle", ""), keyword, matching_products if is_styling_format else None)
-
-        tags = _make_tags(product, fmt, keyword)
-        print(f"  Title     : {post_title[:80]}")
-
-        # Select fictional author pseudonym for E-E-A-T
-        author_name = random.choice(PEN_NAMES)
+        print(f"  SEO title : {post_title}")
+        print(f"  Meta desc : {meta_desc[:60]}…")
+        print(f"  IMG ALT   : {img_alt}")
+        print(f"  Featured Image : {img_url}")
         print(f"  Author    : {author_name}")
+
+        # ── Deduplication check before publishing ──────────────────────────────
+        fmt_key = content_assets.get("chosen_mode", "shopping_guide_edit")
+        result = dedup.resolve(
+            title=post_title,
+            handle=suggested_handle or "",
+            product_handle=product.get("handle", ""),
+            article_format=fmt_key,
+            dry_run=dry_run,
+        )
+        if result is None:
+            print(f"  [Dedup] Skipping article — same product+format published recently.")
+            continue
+        post_title, suggested_handle = result
+
+        # Register in deduplicator so subsequent loop runs in same execution cycle don't reuse title
+        dedup.register(post_title, suggested_handle)
+
+        # Update content_assets with resolved title/handle
+        content_assets["title"] = post_title
+        content_assets["handle"] = suggested_handle
 
         # Publish (or save as draft)
         status_label = "live" if publish else "DRAFT (review in Shopify Admin before publishing)"
         print(f"  Status    : {status_label}")
         article = publish_article(
             blog, post_title, html_body, tags,
-            img_url, seo["img_alt"], seo["meta_desc"],
+            img_url, img_alt, meta_desc,
             dry_run, publish=publish, author=author_name
         )
 
         # Set SEO metafields (title_tag + description_tag) after creation
         if article and not dry_run and article.get("id"):
+            # Update the article handle to match suggested_handle
+            if suggested_handle and suggested_handle != article.get("handle"):
+                try:
+                    update_payload = {"id": article["id"], "handle": suggested_handle}
+                    _req("put", f"{BASE}/blogs/{blog['id']}/articles/{article['id']}.json", json={"article": update_payload})
+                    print(f"  [Handle] Updated article handle to '{suggested_handle}'")
+                except Exception as e:
+                    print(f"  [Warning] Failed to update handle: {e}")
+
             set_article_seo_metafields(blog["id"], article["id"],
-                                       seo["seo_title"], seo["meta_desc"])
+                                       post_title, meta_desc)
 
         if article:
             created += 1
+            # Register published title+handle so same run doesn't duplicate
+            dedup.register(post_title, suggested_handle)
+            # Record product×format cooldown
+            dedup.record_product_format(
+                product.get("handle", ""),
+                fmt_key,
+                dry_run=dry_run
+            )
         print()
-        time.sleep(1.0)
+        time.sleep(4.0)
 
     result_label = "published live" if publish else "saved as DRAFT"
     print(f"Done — {created}/{count} blog posts {result_label}.")
@@ -1694,5 +1613,6 @@ if __name__ == "__main__":
     ap.add_argument("--format",   type=str, default=None,
                     choices=["sizing_guide", "outfit_formula", "buying_guide", "trend_report", "care_guide", "problem_solver"],
                     help="Force a specific blog format (default: weighted choice)")
+    ap.add_argument("--topic",    type=str, default=None, help="Target search topic/query for long-tail blog creation")
     args = ap.parse_args()
-    run(count=args.count, dry_run=args.dry_run, publish=args.publish, format_override=args.format)
+    run(count=args.count, dry_run=args.dry_run, publish=args.publish, format_override=args.format, topic=args.topic)
