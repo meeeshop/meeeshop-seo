@@ -727,10 +727,10 @@ def reflip_trending(driver, limit):
     def fetch_trending_candidates(topic: str) -> list:
         """
         Fetch trending articles for a topic using Flipboard's RSS feed.
-        Flipboard exposes https://flipboard.com/topic/{topic}.rss which returns
-        external article URLs — far more reliable than scraping the JS-rendered page.
+        Filters strictly for women's fashion/clothing articles and excludes menswear.
         """
         rss_url = f"https://flipboard.com/topic/{topic}.rss"
+        mens_keywords = ["men's", "menswear", "male ", "guys ", "his ", "men fashion", "men shoes", "men's style"]
         try:
             resp = requests.get(rss_url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
             if not resp.ok:
@@ -744,9 +744,13 @@ def reflip_trending(driver, limit):
                 link_el  = item.find("link")
                 title = (title_el.text or "").strip() if title_el is not None else ""
                 link  = (link_el.text  or "").strip() if link_el  is not None else ""
+                
+                # Filter out short titles, internal flipboard links, and menswear content
+                title_lower = title.lower()
                 if title and link and len(title) > 10 and "flipboard.com" not in link:
-                    candidates.append((link, title))
-            logging.info(f"  [RSS] Found {len(candidates)} external articles for topic '{topic}'")
+                    if not any(mkw in title_lower for mkw in mens_keywords):
+                        candidates.append((link, title))
+            logging.info(f"  [RSS] Found {len(candidates)} women's fashion articles for topic '{topic}'")
             return candidates
         except ET.ParseError as pe:
             logging.warning(f"  [RSS] Failed to parse RSS for '{topic}': {pe}")
