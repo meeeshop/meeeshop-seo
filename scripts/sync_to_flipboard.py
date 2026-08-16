@@ -324,31 +324,78 @@ def mark_as_synced(blog_id: int, article_id: int, existing_tags: str, tag_to_add
 
 
 # ── Flipboard Automation ──────────────────────────────────────────────────────
+# ── Human & Anti-Bot Emulation Helpers ─────────────────────────────────────────
+def human_delay(min_sec: float = 1.0, max_sec: float = 3.0):
+    """Pause execution with a random delay to emulate human thinking time."""
+    time.sleep(random.uniform(min_sec, max_sec))
+
+def human_type(element, text: str):
+    """Type text into a web element with variable keystroke timing."""
+    for char in text:
+        element.send_keys(char)
+        time.sleep(random.uniform(0.03, 0.11))
+        if char in [" ", ".", ",", "#"]:
+            time.sleep(random.uniform(0.08, 0.22))
+
+def human_scroll(driver, distance: int = 400):
+    """Smooth scroll down the page mimicking a human reading a feed."""
+    steps = random.randint(3, 6)
+    step_dist = distance // steps
+    for _ in range(steps):
+        driver.execute_script(f"window.scrollBy(0, {step_dist + random.randint(-15, 15)});")
+        time.sleep(random.uniform(0.2, 0.5))
+
+def pre_flip_browse_behavior(driver):
+    """Simulate a real fashion user browsing Flipboard feeds before making a flip."""
+    try:
+        logging.info("  [Stealth] Simulating natural user feed browsing on Flipboard...")
+        topic = random.choice(["style", "fashion", "jeans", "dresses"])
+        driver.get(f"https://flipboard.com/topic/{topic}")
+        human_delay(2.5, 4.5)
+        human_scroll(driver, random.randint(300, 500))
+        human_delay(2.0, 3.5)
+    except Exception as e:
+        logging.info(f"  [Stealth] Pre-flip browse note: {e}")
+
+# ── Flipboard Automation ──────────────────────────────────────────────────────
 def get_browser(headless=True):
-    """Create a selenium webdriver mimicking a real browser."""
+    """Create a stealth Chrome webdriver mimicking a real desktop browser."""
     options = Options()
     if headless:
         options.add_argument("--headless=new")
     options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+    
+    options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
     options.add_experimental_option('useAutomationExtension', False)
     
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
     
-    # Override navigator.webdriver flag
-    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-        "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-    })
+    stealth_js = """
+    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+    Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+    Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+    window.chrome = { runtime: {} };
+    const originalQuery = window.navigator.permissions.query;
+    window.navigator.permissions.query = (parameters) => (
+        parameters.name === 'notifications' ?
+        Promise.resolve({ state: Notification.permission }) :
+        originalQuery(parameters)
+    );
+    """
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": stealth_js})
     return driver
 
 def load_session_cookies(driver):
     if FLIPBOARD_SESSION:
         try:
             driver.get("https://flipboard.com/404")
-            time.sleep(1)
+            human_delay(1.0, 2.0)
             cookies = json.loads(FLIPBOARD_SESSION)
             for cookie in cookies:
                 if 'sameSite' in cookie and cookie['sameSite'] not in ['Strict', 'Lax', 'None']:
@@ -364,47 +411,57 @@ def perform_login(driver):
     """Helper to log into Flipboard using human-like interaction to bypass Captchas."""
     logging.info("Navigating to Flipboard sign-in page...")
     driver.get("https://flipboard.com/signin")
-    time.sleep(3) # Let bot protection settle
+    human_delay(3.0, 5.0)
     
-    logging.info("Entering credentials like a human...")
+    logging.info("Entering credentials with human typing timing...")
     try:
         email_loc = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, 'input[name="username"], input[type="email"], input[name="email"]'))
         )
     except TimeoutException:
         try:
-            # Broaden the search for the email login button
             email_btn = driver.find_element(By.XPATH, '//*[(self::button or self::a) and (contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "email") or contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "log in"))]')
             driver.execute_script("arguments[0].click();", email_btn)
+            human_delay(1.0, 2.0)
         except Exception as e:
             logging.warning(f"Could not find email login button: {type(e).__name__}")
             
         email_loc = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, 'input[name="username"], input[type="email"], input[name="email"]'))
         )
-    driver.execute_script("arguments[0].click();", email_loc)
-    time.sleep(0.5)
-    for char in FLIPBOARD_EMAIL:
-        email_loc.send_keys(char)
-        time.sleep(0.1)
+        
+    try:
+        driver.execute_script("arguments[0].click();", email_loc)
+    except Exception:
+        email_loc.click()
+        
+    human_delay(0.5, 1.2)
+    human_type(email_loc, FLIPBOARD_EMAIL)
+    human_delay(1.0, 2.0)
     
-    time.sleep(1)
     pass_loc = WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.CSS_SELECTOR, 'input[name="password"], input[type="password"]'))
     )
-    driver.execute_script("arguments[0].click();", pass_loc)
-    time.sleep(0.5)
-    for char in FLIPBOARD_PASSWORD:
-        pass_loc.send_keys(char)
-        time.sleep(0.1)
+    try:
+        driver.execute_script("arguments[0].click();", pass_loc)
+    except Exception:
+        pass_loc.click()
+        
+    human_delay(0.5, 1.0)
+    human_type(pass_loc, FLIPBOARD_PASSWORD)
+    human_delay(1.0, 2.0)
     
-    time.sleep(1)
-    driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]').click()
-    
+    submit_btn = driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]')
+    try:
+        submit_btn.click()
+    except Exception:
+        driver.execute_script("arguments[0].click();", submit_btn)
+        
     logging.info("Waiting for login confirmation...")
     WebDriverWait(driver, 20).until(
         EC.presence_of_element_located((By.CSS_SELECTOR, '[aria-label="Profile"], [aria-label="Create a Flip"], [aria-label="Create"], a[href^="/@"]'))
     )
+    human_delay(2.0, 4.0)
 
 def test_flipboard_login(headless: bool = True):
     """Tests Flipboard login without posting."""
@@ -854,6 +911,9 @@ def flip_articles(articles: list, headless: bool, do_reflip: bool = False, refli
                 except Exception: pass
                 logging.error("You must run 'python scripts/save_flipboard_session.py' locally to create a valid session file.")
                 sys.exit(1)
+            
+        # Simulate natural human browsing behavior before posting
+        pre_flip_browse_behavior(driver)
             
         # 2. Flip each article
         for i, art in enumerate(articles, 1):
