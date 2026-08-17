@@ -45,6 +45,54 @@ def clean_html(raw_html):
     text = re.sub(cleanr, '', raw_html)
     return text.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').replace(';', ',').strip()
 
+def clean_and_validate_gtin(raw_gtin):
+    """
+    Sanitizes and validates GTIN according to GS1 standards & GMC rules.
+    Must be digits only, length 8, 12, 13, or 14, with valid GS1 check digit.
+    Excludes internal store barcodes (20-29, 40-49), coupons (98-99), dummy repeats.
+    Returns valid GTIN string, or "" if invalid.
+    """
+    if not raw_gtin:
+        return ""
+    digits = re.sub(r'\D', '', str(raw_gtin).strip())
+    if len(digits) not in [8, 12, 13, 14]:
+        return ""
+
+    # Exclude dummy repeat digits (e.g. 111111111111, 000000000000)
+    if len(set(digits)) <= 2:
+        return ""
+
+    # Strip leading zeros to evaluate true GS1 prefix
+    clean_digits = digits.lstrip('0')
+    if not clean_digits:
+        return ""
+
+    # Exclude GS1 Restricted Distribution & Internal Barcodes:
+    # - Prefixes 20-29 & 020-029: Internal store / variable weight
+    # - Prefixes 40-49 & 040-049: Internal EAN-8 / EAN-13 store SKUs
+    # - Prefixes 980-999: GS1 Refund / Coupon / In-store Vouchers
+    if clean_digits.startswith(('20','21','22','23','24','25','26','27','28','29',
+                               '40','41','42','43','44','45','46','47','48','49',
+                               '98','99')):
+        return ""
+
+    # Exclude sequential dummy barcodes
+    if clean_digits in ("12345678", "123456789012", "01234567890123", "12345678901234"):
+        return ""
+
+    # Validate GS1 Check Digit
+    padded = digits.zfill(14)
+    try:
+        odd_sum = sum(int(padded[i]) for i in range(0, 13, 2))
+        even_sum = sum(int(padded[i]) for i in range(1, 13, 2))
+        total = odd_sum * 3 + even_sum
+        check_digit = (10 - (total % 10)) % 10
+        if check_digit == int(padded[13]):
+            return digits
+    except (ValueError, IndexError):
+        pass
+    return ""
+
 def filter_image_url(url):
     """
     Validates and formats image URL for GMC compatibility.
@@ -71,8 +119,22 @@ def get_google_product_category(product):
     tags = (product.get("tags") or "").lower()
     text = f"{title} {ptype} {tags}"
 
-    if any(w in text for w in ["dress", "dresses", "gown", "romper", "jumpsuit"]):
+    if any(w in text for w in ["boot", "boots", "bootie", "booties"]):
+        return "Apparel & Accessories > Shoes > Boots"
+    elif any(w in text for w in ["sneaker", "sneakers", "athletic shoe", "running shoe"]):
+        return "Apparel & Accessories > Shoes > Athletic Shoes"
+    elif any(w in text for w in ["sandal", "sandals", "flip flop", "slide", "slides"]):
+        return "Apparel & Accessories > Shoes > Sandals"
+    elif any(w in text for w in ["heel", "heels", "pump", "pumps", "stiletto"]):
+        return "Apparel & Accessories > Shoes > Heels"
+    elif any(w in text for w in ["flat", "flats", "loafer", "loafers", "mule", "mules", "oxford"]):
+        return "Apparel & Accessories > Shoes > Flats"
+    elif any(w in text for w in ["shoe", "shoes", "footwear"]):
+        return "Apparel & Accessories > Shoes > Boots"
+    elif any(w in text for w in ["dress", "dresses", "gown", "romper", "jumpsuit"]):
         return "Apparel & Accessories > Clothing > Dresses"
+    elif any(w in text for w in ["set", "sets", "outfit", "two piece", "2 piece", "co-ord", "coord"]):
+        return "Apparel & Accessories > Clothing > Outfit Sets"
     elif any(w in text for w in ["pant", "pants", "jean", "jeans", "trouser", "trousers", "legging", "leggings"]):
         return "Apparel & Accessories > Clothing > Pants"
     elif any(w in text for w in ["short", "shorts"]):
@@ -89,10 +151,24 @@ def get_google_product_category(product):
         return "Apparel & Accessories > Clothing > Swimwear"
     elif any(w in text for w in ["pajama", "sleepwear", "loungewear", "robe", "nightgown"]):
         return "Apparel & Accessories > Clothing > Sleepwear & Loungewear"
-    elif any(w in text for w in ["jewelry", "necklace", "earring", "bracelet", "ring"]):
-        return "Apparel & Accessories > Jewelry"
+    elif any(w in text for w in ["necklace", "necklaces"]):
+        return "Apparel & Accessories > Jewelry > Necklaces"
+    elif any(w in text for w in ["earring", "earrings"]):
+        return "Apparel & Accessories > Jewelry > Earrings"
+    elif any(w in text for w in ["bracelet", "bracelets"]):
+        return "Apparel & Accessories > Jewelry > Bracelets"
+    elif any(w in text for w in ["ring", "rings"]):
+        return "Apparel & Accessories > Jewelry > Rings"
+    elif any(w in text for w in ["jewelry", "jewelries", "pendant", "charm"]):
+        return "Apparel & Accessories > Jewelry > Jewelry Sets"
+    elif any(w in text for w in ["hat", "hats", "cap", "caps", "beanie"]):
+        return "Apparel & Accessories > Clothing Accessories > Hats"
+    elif any(w in text for w in ["belt", "belts"]):
+        return "Apparel & Accessories > Clothing Accessories > Belts"
+    elif any(w in text for w in ["sunglasses", "eyewear"]):
+        return "Apparel & Accessories > Clothing Accessories > Sunglasses"
     else:
-        return "Apparel & Accessories > Clothing"
+        return "Apparel & Accessories > Clothing > Shirts & Tops"
 
 def extract_color(product, variant, current_color):
     """Dynamically extracts product color from options, title, tags, description, or defaults to Multi."""
@@ -396,28 +472,9 @@ def generate_feed():
             
             price = f"{variant.get('price')} USD"
              
-            # GTIN validation
-            gtin_value = variant.get("barcode", "") or ""
-            gtin_value = gtin_value.strip()
-            if gtin_value:
-                digits = re.sub(r'\D', '', gtin_value)
-                if len(digits) not in [8, 12, 13, 14]:
-                    gtin_value = ""
-                else:
-                    padded = digits.zfill(14)
-                    try:
-                        odd_sum = sum(int(padded[i]) for i in range(0, 13, 2))
-                        even_sum = sum(int(padded[i]) for i in range(1, 13, 2))
-                        total = odd_sum * 3 + even_sum
-                        check_digit = (10 - (total % 10)) % 10
-                        if check_digit == int(padded[13]):
-                            gtin_value = digits
-                        else:
-                            gtin_value = ""
-                    except Exception:
-                        gtin_value = ""
-            else:
-                gtin_value = ""
+            # GTIN validation (Excludes 20-29, 40-49 internal barcode prefixes and coupon codes)
+            raw_gtin = variant.get("barcode", "") or ""
+            gtin_value = clean_and_validate_gtin(raw_gtin)
 
             color = ""
             size = ""
@@ -471,9 +528,4 @@ def generate_feed():
     upload_to_shopify_files(output_gz)
 
 if __name__ == "__main__":
-    import sys
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
     generate_feed()
