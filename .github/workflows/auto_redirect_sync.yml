@@ -1,0 +1,48 @@
+name: Proactive Auto-Redirect Sync
+
+on:
+  schedule:
+    - cron: '30 5 * * *' # Daily at 5:30 AM UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-redirects:
+    name: Sync Proactive 301 Redirects
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install requests cryptography
+
+      - name: Run Auto-Redirect Sync
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          python scripts/auto_redirect_sync.py
+
+      - name: Commit updated catalog snapshot
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/catalog_snapshot.json reports/auto_redirects_history.json || true
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore(seo): update product catalog snapshot and redirect history [skip ci]"
+            git push origin develop
+          fi
