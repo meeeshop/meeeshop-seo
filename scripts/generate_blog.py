@@ -5,15 +5,15 @@ generate_blog.py — Full-Featured Google Discover & Multi-Category Blog Automat
 100% Google Discover Eligible & Compliant with Google Search Essentials:
   - Multi-Category Support: Balanced rotation & targeting across all 11 active category blogs
     (Announcements is strictly EXCLUDED — reserved for store-related news only)
-  - Multi-Tier AI Cascade (OpenRouter -> Gemini -> Groq)
-  - 100% Deterministic Rule-Based Fallback Engine (Zero AI dependency if all AIs fail)
+  - Resilient Model Cascade: Dynamically discovers and falls back across available Gemini models
+  - Original Editorial Style: High-value first-person stylist voice, actionable advice, no single-product forced linking
   - Automatic Dawn OS 2.0 Template Suffix Mapping (article.dresses, article.jeans, etc.)
   - 1200x630 Google Discover Landscape Featured Images with descriptive 10-15 word ALT text
   - E-E-A-T Stylist Persona attribution with author bio links
   - Complete Shopify SEO Metafields (global.title_tag 50-60c, global.description_tag 140-155c)
   - Full Structured Data (JSON-LD BlogPosting schema)
   - Excerpt / summary_html population for RSS feeds and search snippets
-  - High-intent structured HTML with styled Q&A/FAQ, blockquotes, and zero body <meta> tags
+  - High-intent structured HTML with styled blockquotes, bulleted lists, and zero body <meta> tags
   - IndexNow submission upon live publishing for fast search engine indexing
 """
 
@@ -47,12 +47,11 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["dress", "maxi", "midi", "mini", "gown", "slip dress", "wrap dress", "sundress"],
         "collection_handles": ["womens-dresses", "casual-dresses", "maxi-dresses", "mini-dresses"],
         "topic_themes": [
-            "How to Style Casual Dresses for Effortless Everyday Outfits",
-            "Best Dress Silhouettes for Petite and Tall Frames",
-            "How to Transition Summer Dresses into Fall with Smart Layering",
-            "Flattering Midi and Maxi Dress Styling Formulas for Women",
-            "Choosing the Right Dress Length and Neckline for Your Body Shape",
-            "How to Style Wrap Dresses for Work, Brunch, and Evening Dinners"
+            "How to style casual dresses for everyday boutique looks",
+            "Best dress silhouettes for petite and tall body shapes",
+            "Transitioning summer dresses into fall with smart layering",
+            "Flattering midi and maxi dress outfit formulas for women",
+            "Choosing the right dress neckline and length for your proportions"
         ]
     },
     "jeans-style-guide": {
@@ -62,12 +61,11 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["jean", "denim", "jort", "wide leg", "flare", "straight leg", "high waist"],
         "collection_handles": ["womens-jeans", "wide-leg-jeans", "flare-jeans", "skinny-jeans", "straight-leg-jeans"],
         "topic_themes": [
-            "How to Style Wide-Leg and Straight-Leg Jeans in 2026",
-            "Finding the Best Fitting Jeans for Your Body Shape and Proportions",
-            "Denim Cuffing and Hemline Guide for Ankle Boots and Sneakers",
-            "High-Waisted vs Mid-Rise Jeans: Which Silhouette Is More Flattering?",
-            "Elevating Dark Wash Denim for Casual Office and Evening Looks",
-            "How to Build a 5-Piece Capsule Wardrobe Around Your Favorite Jeans"
+            "How to style wide leg and straight leg jeans in 2026",
+            "Finding the best fitting jeans for your body shape and proportions",
+            "Denim cuffing and hemline guide for ankle boots and sneakers",
+            "High-waisted vs mid-rise jeans: which silhouette is more flattering?",
+            "Elevating dark wash denim for casual office and evening looks"
         ]
     },
     "womens-shirts-tops-style-guide": {
@@ -77,12 +75,11 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["top", "blouse", "shirt", "tee", "t-shirt", "tank", "tunic", "cami", "button-down"],
         "collection_handles": ["womens-tops", "womens-blouses", "womens-t-shirts", "tank-tops"],
         "topic_themes": [
-            "How to Style Button-Down Shirts and Blouses for Everyday Chic",
-            "Essential Tops Every Woman Needs in Her Capsule Wardrobe",
-            "Elevating a Basic Tee into a Polished Outfit with Layering",
-            "How to Layer Tops Under Blazers and Cardigans Effortlessly",
-            "Flattering Necklines and Sleeve Cuts for Different Body Silhouettes",
-            "Styling Linen Tops and Knitted Tees for Warm Weather Transitions"
+            "How to style button-down shirts and blouses for everyday chic",
+            "Essential tops every woman needs in her capsule wardrobe",
+            "Elevating a basic tee into a polished outfit with smart layering",
+            "How to layer tops under blazers and cardigans effortlessly",
+            "Flattering necklines and sleeve cuts for different silhouettes"
         ]
     },
     "womens-pants-style-guide": {
@@ -92,12 +89,11 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["pant", "trouser", "legging", "jogger", "slack", "linen pant", "wide leg pant"],
         "collection_handles": ["womens-pants", "wide-leg-pants", "womens-trousers", "womens-bottoms"],
         "topic_themes": [
-            "How to Style Wide-Leg Pants Without Looking Shorter",
-            "Chic Linen Pants Outfit Ideas for Warm Weather and Travel",
-            "Styling Tailored Trousers for Casual Chic and Workday Outfits",
-            "Finding Comfortable Pants That Look Structured and Flattering",
-            "Proportion Rules for Styling Wide-Leg vs Slim-Fit Trousers",
-            "How to Style High-Waisted Pants for an Elongating Leg Silhouette"
+            "How to style wide leg pants without looking shorter",
+            "Chic linen pants outfit ideas for warm weather and travel",
+            "Styling tailored trousers for casual chic and work outfits",
+            "Finding comfortable pants that look structured and flattering",
+            "Proportion rules for styling wide-leg vs slim trousers"
         ]
     },
     "womens-skirts-style-guide": {
@@ -107,12 +103,11 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["skirt", "skort", "midi skirt", "mini skirt", "maxi skirt", "denim skirt"],
         "collection_handles": ["womens-skirts", "midi-skirts", "maxi-skirts", "denim-skirts"],
         "topic_themes": [
-            "How to Style Midi Skirts for Effortless Year-Round Outfits",
-            "Building a Versatile Capsule Wardrobe Around Essential Skirt Silhouettes",
-            "Styling Denim Skirts for Casual Day-to-Night Transitions",
-            "Flattering Skirt Proportions and Top Pairing Guidelines",
-            "How to Wear Pleated and Asymmetric Skirts with Modern Footwear",
-            "3-Piece Outfit Formulas to Style Any Skirt in Your Closet"
+            "How to style midi skirts for effortless year-round outfits",
+            "Building a versatile capsule wardrobe around essential skirts",
+            "Styling denim skirts for casual day-to-night looks",
+            "Flattering skirt proportions and footwear pairing guidelines",
+            "How to wear mini and maxi skirts with confidence"
         ]
     },
     "cardigans-sweaters-style-guide": {
@@ -122,12 +117,11 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["sweater", "cardigan", "knit", "pullover", "knitwear", "turtleneck", "crewneck"],
         "collection_handles": ["womens-sweaters", "womens-cardigans", "knitwear"],
         "topic_themes": [
-            "How to Style Cardigans for Modern Outfits Without Looking Dated",
-            "Slimming Sweater Cuts, Knit Textures, and Flattering Necklines",
-            "Layering Chunky and Lightweight Knits Across Transitional Seasons",
-            "Cozy Chic Sweater Outfit Ideas for Work and Weekends",
-            "How to Prevent Sweater Pilling and Keep Knitwear Looking Brand New",
-            "Styling Oversized Pullovers with Slim Pants and Midi Skirts"
+            "How to style cardigans for modern outfits without looking dated",
+            "Slimming sweater cuts, knit textures, and flattering necklines",
+            "Layering chunky and lightweight knits across transitional seasons",
+            "Cozy chic sweater outfit ideas for work and weekends",
+            "How to prevent sweater pilling and keep knitwear looking new"
         ]
     },
     "coats-jackets-style-guide": {
@@ -137,12 +131,11 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["jacket", "coat", "blazer", "outerwear", "shacket", "vest", "denim jacket", "trench"],
         "collection_handles": ["womens-jackets", "womens-coats", "womens-outerwear", "womens-blazers"],
         "topic_themes": [
-            "How to Style an Oversized Blazer for Effortless Everyday Looks",
-            "Essential Transitional Jackets Every Modern Wardrobe Needs",
-            "Denim Jacket Styling Formulas for Spring and Autumn Outfits",
-            "Choosing Outerwear Lengths That Balance Your Outfit Proportions",
-            "Styling Tailored Coats for Polished Day-to-Evening Transitions",
-            "How to Layer Shackets and Trench Coats Without Adding Unwanted Bulk"
+            "How to style an oversized blazer for effortless modern looks",
+            "Essential transitional jackets every modern wardrobe needs",
+            "Denim jacket styling formulas for spring and autumn",
+            "Choosing outerwear lengths that balance your outfit proportions",
+            "Styling tailored coats for polished day-to-evening transitions"
         ]
     },
     "plus-size-curvy-clothing": {
@@ -152,12 +145,11 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["curvy", "plus size", "plus", "1x", "2x", "3x", "stretch"],
         "collection_handles": ["plus-size", "curvy-clothing", "plus-size-dresses", "curvy-jeans"],
         "topic_themes": [
-            "Flattering Dress and Denim Silhouettes for Curvy and Plus-Size Women",
-            "Finding the Perfect Fit and Stretch in Curvy Plus-Size Denim",
-            "Styling Tips That Celebrate and Accentuate Natural Curves",
-            "Building an Empowering Plus-Size Capsule Wardrobe with Boutique Staples",
-            "Proportion and Layering Hacks for Curvy Figures",
-            "How to Style High-Waisted Bottoms and Wrap Tops for Curvy Silhouettes"
+            "Flattering dress and denim silhouettes for curvy women",
+            "Finding the perfect fit and stretch in curvy plus size clothing",
+            "Styling tips that celebrate and accentuate natural curves",
+            "Building an empowering plus size capsule wardrobe",
+            "Proportion and layering hacks for curvy figures"
         ]
     },
     "womens-clothing": {
@@ -167,12 +159,11 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["dress", "top", "jean", "pant", "jacket", "skirt", "jumpsuit", "romper"],
         "collection_handles": ["womens-new-collection", "womens-clothing", "best-sellers"],
         "topic_themes": [
-            "Building a Versatile 2026 Boutique Capsule Wardrobe for Women",
-            "3-Piece Outfit Formulas That Always Look Put Together",
-            "French-Girl Inspired Everyday Fashion Essentials for Modern Women",
-            "Seasonal Wardrobe Color Palettes and Styling Pairing Strategies",
-            "How to Look Expensive on a Budget with Boutique Styling Staples",
-            "Day-to-Night Outfit Transitions for Busy Modern Lifestyles"
+            "Building a versatile 2026 boutique capsule wardrobe",
+            "3-piece outfit formulas that always look put together",
+            "French-girl inspired everyday fashion essentials for modern women",
+            "Seasonal wardrobe color palettes and styling pairing strategies",
+            "How to look expensive on a budget with boutique styling staples"
         ]
     },
     "everything-anything-about-vegan": {
@@ -182,12 +173,11 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["linen", "cotton", "bamboo", "cruelty-free", "sustainable", "plant-based"],
         "collection_handles": ["womens-clothing", "womens-tops", "womens-dresses"],
         "topic_themes": [
-            "How to Build an Ethical and Sustainable Vegan Wardrobe",
-            "Styling Breathable Natural Plant-Based Fabrics (Linen & Organic Cotton)",
-            "Cruelty-Free Boutique Fashion Staples for Conscious Dressing",
-            "Caring for Natural Vegan Textiles to Maximize Garment Longevity",
-            "Sustainable Minimalist Outfit Ideas for Mindful Living",
-            "How to Identify High-Quality Animal-Free Textiles and Dye Processes"
+            "How to build an ethical and sustainable vegan wardrobe",
+            "Styling breathable natural plant-based fabrics (linen & organic cotton)",
+            "Cruelty-free boutique fashion staples for conscious dressing",
+            "Caring for natural vegan textiles to maximize garment longevity",
+            "Sustainable minimalist outfit ideas for mindful living"
         ]
     },
     "our-tips": {
@@ -197,12 +187,11 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["top", "dress", "jean", "pant", "sweater"],
         "collection_handles": ["womens-clothing", "womens-tops"],
         "topic_themes": [
-            "How to Spot High-Quality Clothing Stitching and Fabric Before Buying",
-            "Predicting Fabric Shrinkage and Behavior Before You Wash",
-            "How to Organize Your Closet to Save 15 Minutes Every Morning",
-            "Fabric Care Masterclass: Preventing Color Fading, Pilling, and Stretching",
-            "Stain Removal and Garment Care Hacks for Your Favorite Boutique Clothes",
-            "How to Read Fabric Composition Tags for Longevity and Comfort"
+            "How to spot high quality clothing stitching and fabric before buying",
+            "Predicting fabric shrinkage and behavior before you wash",
+            "How to organize your closet to save 15 minutes every morning",
+            "Fabric care masterclass: preventing color fading, pilling, and stretching",
+            "Stain removal and garment care hacks for your favorite boutique clothes"
         ]
     }
 }
@@ -342,7 +331,7 @@ def resolve_target_category(session, store_url, blogs, requested_category="auto"
 def fetch_category_shopify_data(session, store_url, category_meta):
     """
     Fetches active products and collections specifically relevant to the chosen category.
-    Selects 3 compatible products (1 primary + 2 styling matches) with valid raster images.
+    Selects 3 compatible products with valid raster images for the 1200x630 featured collage.
     """
     products = []
     collections = []
@@ -431,207 +420,150 @@ def get_all_existing_titles(session, store_url, blogs):
             pass
     return list(set(titles))
 
-# ── AI Generation Cascade (OpenRouter -> Gemini -> Groq) ──────────────────────
-def call_ai_cascade(prompt, max_tokens=1000):
-    """Try OpenRouter -> Gemini -> Groq via ai_client."""
+# ── Robust Multi-Model Gemini Caller ───────────────────────────────────────────
+def call_gemini_with_backoff(client, prompt, retries=2):
+    """
+    Calls Google GenAI client with automatic model discovery and error fallback.
+    Tries modern available model candidates in cascade.
+    """
     try:
-        import ai_client
-        text = ai_client.generate(prompt, max_tokens=max_tokens)
-        if text and len(text.strip()) > 50:
-            return text.strip()
-    except Exception as e:
-        print(f"  [AI Notice]: ai_client attempt exception ({e})")
-    return None
+        available_models = [m.name.replace("models/", "") for m in client.models.list()]
+    except Exception:
+        available_models = []
 
-# ── Deterministic Rule-Based Fallback Generator (100% Reliable) ────────────────
-def generate_deterministic_article(category_meta, products, collections, existing_titles):
+    priority = [
+        "gemini-3.6-flash",
+        "gemini-3.6-pro",
+        "gemini-3.1-flash",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro"
+    ]
+
+    models_to_try = [p for p in priority if p in available_models]
+    if not models_to_try:
+        models_to_try = priority + [m for m in available_models if m not in priority]
+
+    for model_name in models_to_try:
+        for attempt in range(retries):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt
+                )
+                if response and response.text and len(response.text.strip()) > 10:
+                    return response.text.strip()
+            except Exception as e:
+                err_str = str(e)
+                if "404" in err_str or "NOT_FOUND" in err_str:
+                    print(f"  [Model Notice]: {model_name} not available. Trying next model...")
+                    break
+                elif "429" in err_str or "Quota" in err_str or "503" in err_str:
+                    time.sleep(2 * (attempt + 1))
+                else:
+                    print(f"  [Model Notice]: {model_name} error: {err_str[:80]}")
+                    break
+
+    raise RuntimeError("All Gemini model candidates failed or returned empty.")
+
+# ── High-Quality Content Generation Engine (Original Style) ───────────────────
+def generate_blog_content(api_key, category_meta, collections, existing_titles):
     """
-    Generates a 100% complete, high-converting, Google Discover-optimized article
-    with zero external AI dependencies. Ensures 100% workflow success even if all AIs fail.
+    Generates high-value, Google Discover-ready blog content in the original
+    conversational first-person stylist voice, without single-product forced linking.
     """
-    category_name = category_meta["name"]
-    themes = category_meta.get("topic_themes", [])
-    
-    # Pick a theme not in existing_titles
-    available_themes = [t for t in themes if t.lower() not in [et.lower() for et in existing_titles]]
-    chosen_theme = random.choice(available_themes) if available_themes else random.choice(themes)
-    
-    topic = chosen_theme
-    seo_title = f"{topic} | MeeeShop {datetime.now().year}"[:60]
-    meta_desc = f"Discover expert styling tips and fit advice for {category_name} at MeeeShop. Explore our curated boutique guide with fast US shipping & easy returns!"[:155]
-    
-    # Products showcase block
-    prod_section = ""
-    if products:
-        prod_section = (
-            f'<div style="margin: 28px 0; padding: 20px; background: #faf9f6; border-radius: 8px; border: 1px solid #eee;">\n'
-            f'  <h3 style="font-size: 1.15rem; margin-top: 0; color: #222;">Featured {category_name} in this Guide</h3>\n'
-            f'  <ul style="line-height: 1.8; margin-bottom: 0;">\n'
-        )
-        for p in products:
-            prod_section += f'    <li><a href="{p["url"]}" style="color: #222; font-weight: 600; text-decoration: underline;">{p["title"]}</a> — ${p["price"]}</li>\n'
-        prod_section += '  </ul>\n</div>\n'
+    from google import genai
+    client = genai.Client(api_key=api_key)
 
-    # Internal collection links
-    coll_links = []
-    for c in collections[:3]:
-        coll_links.append(f'<a href="{c["url"]}" style="color: #222; font-weight: 600; text-decoration: underline;">{c["title"]}</a>')
-    coll_text = ", ".join(coll_links[:-1]) + " and " + coll_links[-1] if len(coll_links) > 1 else (coll_links[0] if coll_links else 'our latest collection')
-
-    # Structured Body HTML
-    html_body = f"""
-<p class="lead" style="font-size: 1.1rem; line-height: 1.6; color: #333;">
-Finding the ideal balance between effortless comfort and refined boutique style is key when styling <strong>{category_name}</strong>. 
-Whether you're building a versatile seasonal capsule wardrobe or refreshing your favorite go-to pieces, our stylists have curated the top real-world fit, fabric, and silhouette strategies to elevate your everyday outfits.
-</p>
-
-<h2 style="font-size: 1.35rem; margin-top: 28px; color: #111;">1. Flattering Proportions and Silhouette Balance</h2>
-<p>
-The secret to elevating {category_name.lower()} lies in mastering proportions. When wearing relaxed or flowy cuts, pair them with structured layers or tailored basics to maintain definition. Conversely, fitted pieces pair effortlessly with relaxed outerwear for a balanced, modern aesthetic.
-</p>
-
-<blockquote style="margin: 24px 0; padding: 16px 20px; background: #f8f6f3; border-left: 4px solid #222; font-style: italic;">
-<strong>Stylist Tip:</strong> Focus on waistline placement and hemline lengths. Tucking in or half-tucking your tops creates an elongated leg line and instantly pulls together any outfit.
-</blockquote>
-
-<h2 style="font-size: 1.35rem; margin-top: 28px; color: #111;">2. 3-Piece Outfit Formulas for Every Occasion</h2>
-<ul style="line-height: 1.8;">
-  <li><strong>Casual Daytime Chic:</strong> Pair your favorite {category_name.lower()} with comfortable flat sandals or clean white sneakers, adding a crossbody bag for easy on-the-go style.</li>
-  <li><strong>Office & Elevated Workwear:</strong> Layer a structured blazer in ivory or camel over clean lines, finished with understated gold jewelry.</li>
-  <li><strong>Evening & Weekend Dinner:</strong> Elevate the look with subtle block heels, a structured clutch, and layered outerwear for effortless elegance.</li>
-</ul>
-
-{prod_section}
-
-<h2 style="font-size: 1.35rem; margin-top: 28px; color: #111;">3. Fabric Care & Garment Longevity</h2>
-<p>
-To keep your boutique garments looking brand new season after season, always wash inside out in cold water on a gentle cycle. Air dry or tumble dry low to preserve color vibrancy, elasticity, and fabric softness. Explore our curated collections for {coll_text}.
-</p>
-
-<div class="seo-faq-accordion" style="margin-top: 32px; padding-top: 24px; border-top: 1px solid #eaeaea;">
-  <h2 style="font-size: 1.35rem; margin-bottom: 16px; color: #111;">Frequently Asked Questions About {category_name}</h2>
-  
-  <details style="margin-bottom: 12px; padding: 12px 16px; background: #fdfdfd; border: 1px solid #eee; border-radius: 6px;">
-    <summary style="font-weight: 600; cursor: pointer; font-size: 1.05rem;">How does sizing typically run for {category_name.lower()} at MeeeShop?</summary>
-    <p style="margin-top: 10px; font-size: 0.95rem; color: #444; line-height: 1.5;">
-      Our {category_name.lower()} generally run true to standard US boutique sizing from XS through 3X. For relaxed fits or layering, we recommend your typical size; if you prefer an oversized statement, feel free to size up one size.
-    </p>
-  </details>
-
-  <details style="margin-bottom: 12px; padding: 12px 16px; background: #fdfdfd; border: 1px solid #eee; border-radius: 6px;">
-    <summary style="font-weight: 600; cursor: pointer; font-size: 1.05rem;">What is the best way to wash and maintain these garments?</summary>
-    <p style="margin-top: 10px; font-size: 0.95rem; color: #444; line-height: 1.5;">
-      We recommend machine washing cold on gentle with like colors. Line drying or laying flat to dry preserves the fibers and prevents shrinkage.
-    </p>
-  </details>
-
-  <details style="margin-bottom: 12px; padding: 12px 16px; background: #fdfdfd; border: 1px solid #eee; border-radius: 6px;">
-    <summary style="font-weight: 600; cursor: pointer; font-size: 1.05rem;">What is the shipping and return policy?</summary>
-    <p style="margin-top: 10px; font-size: 0.95rem; color: #444; line-height: 1.5;">
-      MeeeShop offers fast US shipping with free shipping on orders $50+ and easy 7-day returns for a worry-free shopping experience.
-    </p>
-  </details>
-</div>
-"""
-    return topic, seo_title, meta_desc, html_body.strip()
-
-# ── Content Generation Hub (AI with Deterministic Fallback) ─────────────────────
-def generate_blog_content(category_meta, products, collections, existing_titles):
     category_name = category_meta["name"]
     sample_themes = "\n".join(f"- {t}" for t in category_meta.get("topic_themes", []))
 
-    # Exclusion list
+    # Exclusion list for anti-duplication
     exclusion_text = ""
     if existing_titles:
         sample_exclusions = existing_titles[:250]
-        exclusion_text = "DO NOT use or rephrase any of these already covered titles:\n" + "\n".join(f"- {t}" for t in sample_exclusions) + "\n"
+        exclusion_text = "DO NOT use or rephrase any of these already covered topics:\n" + "\n".join(f"- {t}" for t in sample_exclusions) + "\n"
 
-    # Step 1: Attempt AI Generation
+    # Step 1: Generate Specific Trending Question for Category
     topic_prompt = f"""
-Act as a boutique fashion editor for MeeeShop, a women's clothing boutique in the USA.
-Generate ONE specific, highly trending 'People Also Ask' style question for '{category_name}'.
-Themes:
+Act as an expert SEO strategist and boutique fashion editor for MeeeShop, a women's clothing brand in the USA.
+Provide ONE specific, highly trending 'People Also Ask' style question that women shoppers in the USA are currently searching for regarding {category_name}.
+It should be a practical, helpful styling question, NOT a product-specific pitch.
+
+Core category focus areas:
 {sample_themes}
 
 {exclusion_text}
 
-Return ONLY a valid JSON object in this exact format:
-{{"topic": "The generated question", "seo_title": "Clean 50-60 character SEO Title", "meta_desc": "Action-oriented 140-155 character Meta Description"}}
+Return ONLY the generated question as a clean single-line string (no markdown, no quotes, no extra text, English only).
 """
 
-    print("[*] Attempting AI generation cascade (OpenRouter / Gemini / Groq)...")
-    ai_topic_resp = call_ai_cascade(topic_prompt, max_tokens=300)
+    topic_raw = call_gemini_with_backoff(client, topic_prompt)
+    topic = topic_raw.strip().strip('"').strip("'").split("\n")[0].strip()
 
-    if ai_topic_resp:
-        try:
-            clean_json = ai_topic_resp
-            if "```json" in clean_json:
-                clean_json = clean_json.split("```json")[1].split("```")[0]
-            elif "```" in clean_json:
-                clean_json = clean_json.split("```")[1].split("```")[0]
-            topic_data = json.loads(clean_json.strip())
-            topic = topic_data.get("topic", "").strip()
-            seo_title = topic_data.get("seo_title", topic)[:60].strip()
-            meta_desc = topic_data.get("meta_desc", "")[:155].strip()
+    # Safety deduplication check
+    if any(topic.lower() == t.lower() for t in existing_titles):
+        print("  [Notice]: Topic already exists. Selecting fresh theme variant...")
+        topic = random.choice(category_meta.get("topic_themes", [topic]))
 
-            # Generate Body with AI
-            coll_context = "Here are our store collections. You MUST insert 2 to 3 natural internal links using exact HTML <a href='...'>anchor tags</a>:\n"
-            for c in collections[:4]:
-                coll_context += f"- {c['title']} (URL: {c['url']})\n"
+    print(f"[*] Trending Topic Selected for {category_name}: '{topic}'")
 
-            prod_context = ""
-            if products:
-                prod_context = "Here are 3 featured boutique pieces to subtly reference in your styling examples:\n"
-                for p in products:
-                    prod_context += f"- {p['title']} (${p['price']}) (URL: {p['url']})\n"
+    # Step 2: Store collections context for natural internal linking
+    context = ""
+    if collections:
+        context += "Here are our store collections. To ensure natural SEO, you MUST insert a MAXIMUM of 2 to 3 internal links to our collections across the entire article using exact HTML anchor tags (e.g. <a href='/collections/...'>...</a>). Select only the most relevant ones. ONLY link to these specific URLs. DO NOT hallucinate collection URLs:\n"
+        for c in collections:
+            context += f"- {c['title']} (URL: {c['url']})\n"
 
-            article_prompt = f"""
-Act as a senior fashion stylist at MeeeShop. Write an in-depth, Google Discover-eligible blog article answering: "{topic}".
+    # Step 3: Write Article Body (Original High-Value Stylist Voice)
+    article_prompt = f"""
+Act as an expert fashion and lifestyle consultant at MeeeShop. Write an in-depth, SEO-optimized blog article answering this question: "{topic}".
 
 STRICT GUIDELINES:
 1. Target Audience: Women shoppers in the USA searching for authentic style advice.
-2. HTML Structure:
+2. Tone: Active, conversational, first-person stylist voice. Speak from real-world styling and fitting room experience.
+3. Rhythm: Ensure "burstiness". Mix short, punchy sentences with longer explanations. Do not use monotonous sentence structures.
+4. Forbidden Words (AI Telltales): Do NOT use any of these phrases: {", ".join(AI_CLICHES)}.
+5. Modern Layout & Formatting (CRITICAL):
    - The first line MUST be the <h1> title.
-   - Opening Hook: Relatable paragraph validating the shopper's problem.
-   - 2 to 3 informative <h2> headings and detailed styling guidance.
-   - Include a styled <blockquote> for a 'Stylist Tip'.
-   - Include a dedicated FAQ/Q&A section using <details><summary><strong>Question</strong></summary><p>Answer</p></details>.
-   - Subtle Product Integration: Naturally mention the 3 featured pieces.
-   - Internal Linking: 2 to 3 natural links to collections.
-   - Do NOT output any <meta> tags. Output pure HTML.
+   - Use engaging <h2> subheadings.
+   - Break up walls of text. Use <blockquote> for key takeaways, stylist tips, or quotes.
+   - Use bulleted lists (<ul><li>) with relevant emojis for easy scanning.
+   - Bold important phrases.
+   - The article must genuinely help the reader with actionable styling guidance and NOT sound like a sales pitch.
+   - Do NOT insert single product links or specific vendor item names into the body text. Keep the focus on styling formulas and wardrobe advice.
+   - Interlink provided collections naturally within the text using HTML anchor tags.
+6. Language: Pure English only. Do NOT output any foreign characters, non-English words, or broken tokens.
+7. Output Format: Return ONLY valid HTML. Do not wrap in ```html markdown blocks.
 
-{coll_context}
-{prod_context}
+{context}
 """
-            ai_html_resp = call_ai_cascade(article_prompt, max_tokens=1500)
-            if ai_html_resp:
-                html_content = ai_html_resp.strip()
-                if html_content.startswith("```html"):
-                    html_content = html_content[7:]
-                if html_content.startswith("```"):
-                    html_content = html_content[3:]
-                if html_content.endswith("```"):
-                    html_content = html_content[:-3]
-                html_content = re.sub(r'<meta[^>]*>', '', html_content, flags=re.IGNORECASE).strip()
 
-                # Extract <h1> title
-                article_title = topic
-                if "<h1>" in html_content and "</h1>" in html_content:
-                    h1_start = html_content.find("<h1>") + 4
-                    h1_end = html_content.find("</h1>")
-                    article_title = html_content[h1_start:h1_end].strip()
-                    html_content = html_content[:html_content.find("<h1>")] + html_content[h1_end + 5:]
-                    html_content = html_content.strip()
+    html_content = call_gemini_with_backoff(client, article_prompt).strip()
 
-                print("  ✓ AI Generation succeeded!")
-                return article_title, seo_title, meta_desc, html_content
+    if html_content.startswith("```html"):
+        html_content = html_content[7:]
+    if html_content.startswith("```"):
+        html_content = html_content[3:]
+    if html_content.endswith("```"):
+        html_content = html_content[:-3]
+    html_content = re.sub(r'<meta[^>]*>', '', html_content, flags=re.IGNORECASE).strip()
 
-        except Exception as e:
-            print(f"  [Notice] AI parsing exception: {e}")
+    # Extract <h1> title and strip from body to avoid double H1 in Dawn theme
+    article_title = topic
+    if "<h1>" in html_content and "</h1>" in html_content:
+        h1_start = html_content.find("<h1>") + 4
+        h1_end = html_content.find("</h1>")
+        article_title = html_content[h1_start:h1_end].strip()
+        html_content = html_content[:html_content.find("<h1>")] + html_content[h1_end + 5:]
+        html_content = html_content.strip()
 
-    # Fallback to Deterministic Engine
-    print("  ✓ Activating 100% Deterministic Rule-Based Fallback Engine...")
-    return generate_deterministic_article(category_meta, products, collections, existing_titles)
+    # Generate 50-60 char SEO Title and 140-155 char Meta Description
+    seo_title = f"{article_title} | MeeeShop {datetime.now().year}"[:60]
+    meta_desc = f"Discover expert styling tips and fit advice for {category_name} at MeeeShop. Explore our curated boutique guide with fast US shipping & easy returns!"[:155]
+
+    return article_title, seo_title, meta_desc, html_content
 
 # ── 1200x630 Google Discover Image Generation ──────────────────────────────────
 def generate_1200x630_collage(products):
@@ -710,7 +642,7 @@ def generate_article_featured_image(api_key, title, category_name, products):
                     config=dict(number_of_images=1, aspect_ratio="16:9", output_mime_type="image/jpeg")
                 )
                 if hasattr(resp, 'generated_images') and resp.generated_images:
-                    print(f"  ✓ Successfully generated AI featured image with {m}")
+                    print(f"  [OK] Successfully generated AI featured image with {m}")
                     return resp.generated_images[0].image.image_bytes
             except Exception:
                 pass
@@ -718,7 +650,7 @@ def generate_article_featured_image(api_key, title, category_name, products):
         pass
 
     # Reliable 1200x630 Discover collage fallback
-    print("  ✓ Building 1200x630 Google Discover 3-panel outfit collage...")
+    print("  [OK] Building 1200x630 Google Discover 3-panel outfit collage...")
     return generate_1200x630_collage(products)
 
 # ── IndexNow Submission ────────────────────────────────────────────────────────
@@ -741,7 +673,7 @@ def submit_to_indexnow(store_url, article_url, indexnow_key):
             timeout=10
         )
         if resp.status_code in [200, 202]:
-            print(f"  ✓ Submitted {article_url} to IndexNow (Status: {resp.status_code})")
+            print(f"  [OK] Submitted {article_url} to IndexNow (Status: {resp.status_code})")
         else:
             print(f"  [IndexNow Notice]: Status {resp.status_code} ({resp.text[:100]})")
     except Exception as e:
@@ -796,7 +728,7 @@ def publish_shopify_article_complete(session, store_url, blog_id, blog_handle, t
     article = resp.json().get('article', {})
     article_id = article.get('id')
 
-    print(f"  ✓ Article record created on Shopify (ID: {article_id})")
+    print(f"  [OK] Article record created on Shopify (ID: {article_id})")
 
     # Step 2: Set SEO Metafields (global.title_tag, global.description_tag, json_ld_schema)
     metafields_url = f"{store_url}/admin/api/2024-10/blogs/{blog_id}/articles/{article_id}/metafields.json"
@@ -856,7 +788,7 @@ def publish_shopify_article_complete(session, store_url, blog_id, blog_handle, t
             "type": "json"
         }
     })
-    print("  ✓ Attached SEO Title, Meta Description & JSON-LD BlogPosting Metafields")
+    print("  [OK] Attached SEO Title, Meta Description & JSON-LD BlogPosting Metafields")
 
     # Step 3: Fast IndexNow Notification (If published live)
     if not draft:
@@ -901,8 +833,8 @@ def main():
     shopify_token = secrets.get("SHOPIFY_ACCESS_TOKEN")
     indexnow_key = secrets.get("INDEXNOW_KEY")
 
-    if not all([shopify_store, shopify_token]):
-        print("Error: Missing required secrets (SHOPIFY_STORE_URL, SHOPIFY_ACCESS_TOKEN).", file=sys.stderr)
+    if not all([gemini_key, shopify_store, shopify_token]):
+        print("Error: Missing required secrets (GEMINI_API_KEY, SHOPIFY_STORE_URL, SHOPIFY_ACCESS_TOKEN).", file=sys.stderr)
         sys.exit(1)
 
     shopify_store = shopify_store.rstrip('/')
@@ -934,17 +866,17 @@ def main():
     # 4. Fetch Existing Titles for Anti-Duplication
     print("\n[*] Loading existing article titles for anti-duplication...")
     existing_titles = get_all_existing_titles(session, shopify_store, blogs)
-    print(f"  ✓ {len(existing_titles)} existing articles indexed to prevent duplicate topics")
+    print(f"  [OK] {len(existing_titles)} existing articles indexed to prevent duplicate topics")
 
-    # 5. Fetch Products & Collections for Chosen Category
-    print(f"\n[*] Fetching product and collection context for '{category_meta['name']}'...")
+    # 5. Fetch Collections & Products for Chosen Category
+    print(f"\n[*] Fetching collection and product context for '{category_meta['name']}'...")
     products, collections = fetch_category_shopify_data(session, shopify_store, category_meta)
-    print(f"  ✓ Found {len(products)} category products & {len(collections)} collection links")
+    print(f"  [OK] Found {len(products)} category products & {len(collections)} collection links")
 
-    # 6. Generate Content (AI with Deterministic Fallback)
+    # 6. Generate Content (Original High-Value Editorial Style)
     print(f"\n[*] Generating Google Discover eligible article content...")
     title, seo_title, meta_desc, html_content = generate_blog_content(
-        category_meta, products, collections, existing_titles
+        gemini_key, category_meta, collections, existing_titles
     )
 
     # 7. Generate 1200x630 Discover Image (AI or 3-Panel Collage)
@@ -976,7 +908,7 @@ def main():
     )
 
     print(f"\n{'='*70}")
-    print(f"  ✅ SUCCESS: Blog post created successfully!")
+    print(f"  [OK] SUCCESS: Blog post created successfully!")
     print(f"  - Article Title   : {article.get('title')}")
     print(f"  - Article ID      : {article.get('id')}")
     print(f"  - Blog Category   : {chosen_blog['title']} (/blogs/{blog_handle})")
