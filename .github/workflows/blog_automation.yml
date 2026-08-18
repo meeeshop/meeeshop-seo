@@ -2,8 +2,8 @@ name: SEO Blog Automation
 
 on:
   schedule:
-    # Run twice a week: Tuesday and Friday at 10:00 AM UTC with auto category rotation
-    - cron: '0 10 * * 2,5'
+    # Run 3 times a week: Tuesday, Thursday, and Sunday at 10:00 AM UTC (US morning readiness with auto category rotation)
+    - cron: '0 10 * * 0,2,4'
   workflow_dispatch:
     inputs:
       category:
