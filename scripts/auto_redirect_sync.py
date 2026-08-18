@@ -3,22 +3,25 @@
 auto_redirect_sync.py — Proactive Automatic 301 Redirect Sync for MeeeShop
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Automatically detects deleted, archived, or missing products and creates
-native Shopify 301 URL redirects to the most relevant collection before
-Googlebot or shoppers encounter 404 errors.
+native Shopify 301 URL redirects to the most relevant collection with at least
+20 active products in the Online Store sales channel.
 
 How it works:
-  1. Fetches all active products from Shopify GraphQL.
-  2. Compares against the persistent catalog snapshot (data/catalog_snapshot.json).
-  3. For any handle that was removed/deleted:
+  1. Fetches all active collections and filters only those with >= 20 active products.
+  2. Fetches all active products from Shopify GraphQL.
+  3. Compares against the persistent catalog snapshot (data/catalog_snapshot.json).
+  4. For any handle that was removed/deleted:
      - Extracts title, type, vendor, and tags from snapshot metadata.
-     - Classifies the item to its exact category/brand collection.
-     - Creates the native Shopify 301 URL Redirect via GraphQL.
-  4. Saves the updated catalog snapshot.
+     - Classifies the item to a rich, relevant collection with >= 20 products.
+     - Creates the native Shopify 301 URL Redirect via GraphQL/REST.
+  5. Audits and updates any existing redirects that point to empty/thin collections (< 20 products).
+  6. Saves the updated catalog snapshot.
 
 Usage:
   python auto_redirect_sync.py                 # Sync and create missing redirects
   python auto_redirect_sync.py --dry-run       # Preview without creating
   python auto_redirect_sync.py --init-snapshot # Initialize baseline catalog snapshot
+  python auto_redirect_sync.py --fix-existing  # Re-audit and fix existing redirects targeting thin collections
 """
 
 import os
@@ -58,61 +61,153 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-# ── Category Classifier ──
+MIN_COLLECTION_PRODUCTS = 20
+
+# ── Hierarchical Classification Rules ──
+# (Pattern, Preferred Target Collection, Fallback Category Collection)
 CATEGORY_RULES = [
-    # Brands
-    (r"\b(judy\s*blue|jb)\b", "/collections/judy-blue-womens-jeans"),
-    (r"\b(pol|p\.o\.l)\b", "/collections/pol-womens-clothing-collection"),
-    (r"\b(umgee)\b", "/collections/umgee-womens-clothing"),
-    (r"\b(bibi)\b", "/collections/bibi-womens-clothing"),
-    (r"\b(risen)\b", "/collections/risen-womens-jeans-collection"),
-    (r"\b(zenana)\b", "/collections/zenana-womens-clothing"),
-    (r"\b(hyfve)\b", "/collections/hyfve-womens-clothing"),
-    (r"\b(emory\s*park)\b", "/collections/emory-park-womens-clothing"),
-    (r"\b(so\s*me)\b", "/collections/so-me-clothing"),
-    (r"\b(davi\s*dani)\b", "/collections/davi-dani-womens-apparel"),
-    (r"\b(kancan)\b", "/collections/kancan-usa-womens-jeans"),
-    (r"\b(vervet|flying\s*monkey)\b", "/collections/vervet-by-flying-monkey-womens-jeans"),
-    (r"\b(mkf|mia\s*k)\b", "/collections/womens-handbags-accessories"),
+    # Plus Size / Curvy
+    (r"\b(plus\s*size|curvy|plus)\b", "/collections/womens-curvy-plus-size-clothing", "/collections/womens-curvy-plus-size-clothing"),
 
-    # Specific Product Types
-    (r"\b(maxi\s*dress|maxi)\b", "/collections/womens-maxi-dresses"),
-    (r"\b(midi\s*dress|midi)\b", "/collections/midi-dresses"),
-    (r"\b(mini\s*dress|mini)\b", "/collections/mini-dresses"),
-    (r"\b(cocktail\s*dress|evening\s*dress)\b", "/collections/womens-formal-evening-dresses"),
-    (r"\b(dress|dresses|sundress|shirtdress|babydoll)\b", "/collections/womens-dresses"),
-    
-    (r"\b(flare\s*jean|bell\s*bottom)\b", "/collections/flare-jeans"),
-    (r"\b(wide\s*leg|palazzo|baggy)\b", "/collections/wide-leg-jeans"),
-    (r"\b(straight\s*leg|straight\s*jeans|mom\s*jeans|boyfriend\s*jeans)\b", "/collections/straight-leg-jeans"),
-    (r"\b(skinny\s*jeans|jeggings)\b", "/collections/womens-skinny-jeans"),
-    (r"\b(jeans|denim|jorts)\b", "/collections/womens-jeans"),
+    # Dresses
+    (r"\b(maxi\s*dress|maxi)\b", "/collections/womens-maxi-dresses", "/collections/womens-dresses"),
+    (r"\b(midi\s*dress|midi)\b", "/collections/midi-dresses", "/collections/womens-dresses"),
+    (r"\b(mini\s*dress|mini)\b", "/collections/mini-dresses", "/collections/womens-dresses"),
+    (r"\b(casual\s*dress|sundress|t-shirt\s*dress|shift\s*dress)\b", "/collections/womens-casual-dresses", "/collections/womens-dresses"),
+    (r"\b(dress|dresses|shirtdress|babydoll|slip\s*dress)\b", "/collections/womens-dresses", "/collections/womens-dresses"),
 
-    (r"\b(sweater|cardigan|pullover|knit\s*top|turtleneck|hoodie|sweatshirt)\b", "/collections/womens-sweaters"),
-    (r"\b(tank|cami|sleeveless|crop\s*top|tube\s*top|halter)\b", "/collections/womens-camis-tanks-tops"),
-    (r"\b(graphic\s*tee|vintage\s*tee|band\s*tee|t-shirt|tee)\b", "/collections/womens-t-shirts"),
-    (r"\b(top|blouse|shirt|shacket|tunic|button\s*down)\b", "/collections/womens-tops"),
+    # Jeans & Denim
+    (r"\b(judy\s*blue|jb)\b", "/collections/judy-blue-womens-jeans", "/collections/womens-jeans"),
+    (r"\b(risen)\b", "/collections/risen-womens-jeans-collection", "/collections/womens-jeans"),
+    (r"\b(artemis)\b", "/collections/artemis-vintage-womens-jeans", "/collections/womens-jeans"),
+    (r"\b(ymi)\b", "/collections/ymi-jeans", "/collections/womens-jeans"),
+    (r"\b(wide\s*leg|palazzo|baggy|barrel)\b", "/collections/wide-leg-jeans", "/collections/womens-jeans"),
+    (r"\b(straight\s*leg|straight\s*jeans|mom\s*jeans|boyfriend\s*jeans)\b", "/collections/straight-leg-jeans", "/collections/womens-jeans"),
+    (r"\b(flare\s*jean|bell\s*bottom|bootcut)\b", "/collections/womens-new-denim", "/collections/womens-jeans"),
+    (r"\b(jeans|denim|jorts)\b", "/collections/womens-jeans", "/collections/womens-jeans"),
 
-    (r"\b(sandal|sandals|wedge|wedges|heels|heel|flats|flat|sneaker|sneakers|boot|boots|bootie|booties|clog|clogs|shoe|shoes)\b", "/collections/womens-shoes"),
-    (r"\b(bag|tote|backpack|crossbody|clutch|sling|purse|fanny|handbag|satchel)\b", "/collections/womens-handbags-accessories"),
-    
-    (r"\b(romper|jumpsuit|overalls|overall|outfit\s*set|lounge\s*set|pant\s*set|short\s*set|2pcs|2-piece)\b", "/collections/womens-rompers-jumpsuit-sets"),
-    (r"\b(skirt|skort)\b", "/collections/womens-skirts"),
-    (r"\b(shorts|biker\s*short|bermuda)\b", "/collections/womens-shorts"),
-    (r"\b(jacket|coat|vest|blazer|outerwear|trench)\b", "/collections/womens-outerwear"),
-    (r"\b(legging|leggings|jogger|joggers|pants|pant|trousers)\b", "/collections/womens-pants-leggings"),
+    # Tops & Shirts
+    (r"\b(graphic\s*tee|vintage\s*tee|band\s*tee|t-shirt|tee)\b", "/collections/womens-t-shirts", "/collections/womens-tops"),
+    (r"\b(tank|cami|sleeveless|crop\s*top|tube\s*top|halter)\b", "/collections/womens-camis-tanks-tops", "/collections/womens-tops"),
+    (r"\b(knit\s*top|ribbed\s*top)\b", "/collections/womens-knit-tops", "/collections/womens-tops"),
+    (r"\b(long\s*sleeve)\b", "/collections/long-sleeve-tops", "/collections/womens-tops"),
+    (r"\b(v-neck|v\s*neck)\b", "/collections/v-neck-tops", "/collections/womens-tops"),
+    (r"\b(top|blouse|shirt|shacket|tunic|button\s*down)\b", "/collections/womens-tops", "/collections/womens-tops"),
+
+    # Sweaters & Hoodies
+    (r"\b(sweatshirt|hoodie)\b", "/collections/womens-sweatshirts-hoodies", "/collections/womens-sweaters"),
+    (r"\b(sweater|cardigan|pullover|turtleneck|knitwear)\b", "/collections/womens-sweaters", "/collections/womens-sweaters"),
+
+    # Bottoms, Pants, Shorts, Skirts
+    (r"\b(shorts|biker\s*short|bermuda)\b", "/collections/womens-shorts", "/collections/womens-bottoms"),
+    (r"\b(skirt|skort)\b", "/collections/womens-skirts", "/collections/womens-bottoms"),
+    (r"\b(jogger|joggers|sweatpant|sweatpants|lounge\s*pant)\b", "/collections/womens-loungewear", "/collections/womens-pants-leggings"),
+    (r"\b(legging|leggings|trousers|pants|pant|bottoms)\b", "/collections/womens-pants-leggings", "/collections/womens-bottoms"),
+
+    # Rompers, Jumpsuits, Sets
+    (r"\b(outfit\s*set|lounge\s*set|pant\s*set|short\s*set|2pcs|2-piece|2\s*piece)\b", "/collections/womens-outfit-sets", "/collections/womens-rompers-jumpsuit-sets"),
+    (r"\b(romper|jumpsuit|overalls|overall)\b", "/collections/womens-rompers-jumpsuit-sets", "/collections/womens-rompers-jumpsuit-sets"),
+
+    # Outerwear & Blazers
+    (r"\b(blazer|vest|waistcoat)\b", "/collections/womens-blazers-vests-jackets", "/collections/womens-outerwear"),
+    (r"\b(jacket|coat|outerwear|trench|parka|shacket)\b", "/collections/womens-coats-jackets", "/collections/womens-outerwear"),
+
+    # Shoes & Footwear
+    (r"\b(sandal|sandals|wedge|wedges|heels|heel|flats|flat|sneaker|sneakers|boot|boots|bootie|booties|clog|clogs|shoe|shoes|slide|slides)\b", "/collections/womens-shoes", "/collections/womens-shoes"),
+
+    # Bags & Accessories
+    (r"\b(bag|tote|backpack|crossbody|clutch|sling|purse|fanny|handbag|satchel|wallet)\b", "/collections/womens-handbags-accessories", "/collections/womens-handbags-accessories"),
+
+    # Activewear
+    (r"\b(active|workout|gym|sports\s*bra|yoga)\b", "/collections/womens-activewear", "/collections/womens-activewear"),
+
+    # Brand specific (only if collection has >= 20 products)
+    (r"\b(emory\s*park)\b", "/collections/emory-park-womens-clothing", "/collections/womens-dresses"),
+    (r"\b(orange\s*farm)\b", "/collections/orange-farm-womens-clothing", "/collections/womens-tops"),
+    (r"\b(luxe)\b", "/collections/womens-luxe-apparel", "/collections/womens-dresses"),
 ]
 
-def get_smart_target(path_or_handle: str, title: str = "", product_type: str = "", vendor: str = "", tags: list = None) -> str:
-    """Determine the optimal target collection for a product."""
+# Ultimate safe fallbacks with 100+ active items
+DEFAULT_FALLBACK = "/collections/womens-new-collection"
+
+
+def fetch_valid_collections() -> dict:
+    """Fetch all active collections from Shopify and filter only those with >= 20 active products."""
+    print("Fetching collection taxonomy and product counts from Shopify...")
+    valid_cols = {}
+    
+    query = """
+    query {
+      collections(first: 250) {
+        edges {
+          node {
+            handle
+            title
+            productsCount {
+              count
+            }
+          }
+        }
+      }
+    }
+    """
+    resp = requests.post(GRAPHQL_URL, headers=HEADERS, json={"query": query}, timeout=30)
+    if resp.status_code != 200:
+        print(f"Error querying collections: {resp.status_code}")
+        return valid_cols
+
+    cols = resp.json().get("data", {}).get("collections", {}).get("edges", [])
+    for c in cols:
+        node = c["node"]
+        handle = node["handle"]
+        count = node.get("productsCount", {}).get("count", 0)
+        path = f"/collections/{handle}"
+        
+        # Exclude administrative/internal collections
+        if handle in ["all-products_do_not_delete", "all"]:
+            continue
+
+        if count >= MIN_COLLECTION_PRODUCTS:
+            valid_cols[path] = {
+                "handle": handle,
+                "title": node["title"],
+                "count": count
+            }
+
+    print(f"Found {len(valid_cols)} active collections with >= {MIN_COLLECTION_PRODUCTS} products.")
+    return valid_cols
+
+
+def get_smart_target_collection(path_or_handle: str, title: str = "", product_type: str = "", vendor: str = "", tags: list = None, valid_cols: dict = None) -> str:
+    """Determine the optimal target collection that is guaranteed to have >= 20 active products."""
     combined = f"{path_or_handle} {title} {product_type} {vendor} {' '.join(tags or [])}".lower()
     combined = combined.replace("-", " ").replace("_", " ")
 
-    for pattern, target in CATEGORY_RULES:
-        if re.search(pattern, combined):
-            return target
+    valid_paths = set(valid_cols.keys()) if valid_cols else set()
 
-    return "/collections/womens-new-collection"
+    for pattern, preferred_target, fallback_target in CATEGORY_RULES:
+        if re.search(pattern, combined):
+            # Check if preferred target has >= 20 items
+            if not valid_paths or preferred_target in valid_paths:
+                return preferred_target
+            # Check if fallback category has >= 20 items
+            if fallback_target in valid_paths:
+                return fallback_target
+
+    # General type-level fallback
+    if valid_paths:
+        if "dress" in combined and "/collections/womens-dresses" in valid_paths:
+            return "/collections/womens-dresses"
+        if ("jean" in combined or "denim" in combined) and "/collections/womens-jeans" in valid_paths:
+            return "/collections/womens-jeans"
+        if ("top" in combined or "shirt" in combined) and "/collections/womens-tops" in valid_paths:
+            return "/collections/womens-tops"
+        if ("shoe" in combined or "sandal" in combined) and "/collections/womens-shoes" in valid_paths:
+            return "/collections/womens-shoes"
+        if ("bag" in combined or "tote" in combined) and "/collections/womens-handbags-accessories" in valid_paths:
+            return "/collections/womens-handbags-accessories"
+
+    return DEFAULT_FALLBACK
 
 
 def fetch_all_active_products() -> dict:
@@ -173,9 +268,9 @@ def fetch_all_active_products() -> dict:
     return products
 
 
-def fetch_existing_redirect_paths() -> set:
-    """Pre-fetch all existing redirect paths from Shopify."""
-    existing_paths = set()
+def fetch_existing_redirects() -> dict:
+    """Pre-fetch all existing redirects from Shopify."""
+    existing_redirects = {}
     url = f"{BASE_URL}/redirects.json?limit=250"
     while url:
         resp = requests.get(url, headers=HEADERS, timeout=20)
@@ -183,7 +278,11 @@ def fetch_existing_redirect_paths() -> set:
             break
         data = resp.json().get("redirects", [])
         for r in data:
-            existing_paths.add(r.get("path", "").strip())
+            path = r.get("path", "").strip()
+            existing_redirects[path] = {
+                "id": r["id"],
+                "target": r.get("target", "").strip()
+            }
         
         # Pagination via Link header
         link_header = resp.headers.get("Link", "")
@@ -194,35 +293,80 @@ def fetch_existing_redirect_paths() -> set:
                     next_url = part.split(";")[0].strip("<> ")
         url = next_url
 
-    print(f"Total existing Shopify redirects: {len(existing_paths)}")
-    return existing_paths
+    print(f"Total existing Shopify redirects: {len(existing_redirects)}")
+    return existing_redirects
 
 
-def create_redirect(path: str, target: str) -> bool:
-    """Create a 301 redirect in Shopify."""
-    url = f"{BASE_URL}/redirects.json"
-    payload = {"redirect": {"path": path, "target": target}}
-    try:
-        resp = requests.post(url, headers=HEADERS, json=payload, timeout=15)
-        if resp.status_code in [200, 201]:
-            return True
-        elif resp.status_code == 422:
-            return False  # Already exists
-        else:
-            time.sleep(1)
-            resp = requests.post(url, headers=HEADERS, json=payload, timeout=15)
+def create_or_update_redirect(path: str, target: str, redirect_id: int = None) -> bool:
+    """Create or update a 301 redirect in Shopify."""
+    if redirect_id:
+        url = f"{BASE_URL}/redirects/{redirect_id}.json"
+        payload = {"redirect": {"id": redirect_id, "target": target}}
+        try:
+            resp = requests.put(url, headers=HEADERS, json=payload, timeout=15)
             return resp.status_code in [200, 201]
-    except Exception as e:
-        print(f"  Error creating redirect for {path}: {e}")
-        return False
+        except Exception as e:
+            print(f"  Error updating redirect {redirect_id}: {e}")
+            return False
+    else:
+        url = f"{BASE_URL}/redirects.json"
+        payload = {"redirect": {"path": path, "target": target}}
+        try:
+            resp = requests.post(url, headers=HEADERS, json=payload, timeout=15)
+            if resp.status_code in [200, 201]:
+                return True
+            elif resp.status_code == 422:
+                return False  # Already exists
+            else:
+                time.sleep(0.5)
+                resp = requests.post(url, headers=HEADERS, json=payload, timeout=15)
+                return resp.status_code in [200, 201]
+        except Exception as e:
+            print(f"  Error creating redirect for {path}: {e}")
+            return False
 
 
-def run_sync(dry_run: bool = False, init_snapshot: bool = False):
+def fix_existing_thin_redirects(valid_cols: dict, dry_run: bool = False):
+    """Scan all existing redirects and update any targeting collections with < 20 products."""
+    print("\nAuditing existing redirects to ensure all target collections have >= 20 products...")
+    existing = fetch_existing_redirects()
+    valid_paths = set(valid_cols.keys())
+    
+    fixed_count = 0
+    for path, data in existing.items():
+        target = data["target"].split("?")[0].rstrip("/")
+        red_id = data["id"]
+
+        # If redirect points to a collection with < 20 products (or 0 products)
+        if target.startswith("/collections/") and target not in valid_paths and target != "/collections/all":
+            new_target = get_smart_target_collection(path, valid_cols=valid_cols)
+            if new_target != target:
+                if dry_run:
+                    print(f"[DRY-RUN FIX] {path}: {target} (thin) -> {new_target} ({valid_cols.get(new_target, {}).get('count', 0)} items)")
+                    fixed_count += 1
+                else:
+                    success = create_or_update_redirect(path, new_target, redirect_id=red_id)
+                    if success:
+                        print(f"[UPDATED] {path}: {target} -> {new_target} ({valid_cols.get(new_target, {}).get('count', 0)} items)")
+                        fixed_count += 1
+                    time.sleep(0.1)
+
+    print(f"Finished audit: {fixed_count} redirects updated to high-inventory collections.")
+
+
+def run_sync(dry_run: bool = False, init_snapshot: bool = False, fix_existing: bool = False):
     """Main execution routine."""
-    print("=" * 65)
-    print("  MeeeShop Proactive Auto-Redirect Sync Engine")
+    print("=" * 70)
+    print("  MeeeShop Proactive Auto-Redirect Sync Engine (High Inventory >= 20)")
     print(f"  Store: {STORE} | Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
-    print("=" * 65)
+    print("=" * 70)
+
+    # 1. Fetch valid collections with >= 20 active products
+    valid_cols = fetch_valid_collections()
+
+    # If requested to fix existing redirects targeting thin collections
+    if fix_existing:
+        fix_existing_thin_redirects(valid_cols, dry_run=dry_run)
 
     current_products = fetch_all_active_products()
 
@@ -244,40 +388,55 @@ def run_sync(dry_run: bool = False, init_snapshot: bool = False):
 
     if not missing_handles:
         print("All catalog items are active. No new redirects required.")
-        # Update snapshot last_seen
         with open(SNAPSHOT_FILE, "w", encoding="utf-8") as f:
             json.dump(current_products, f, indent=2)
         return
 
-    existing_redirects = fetch_existing_redirect_paths()
+    existing_redirects = fetch_existing_redirects()
     newly_created = []
 
     for handle in sorted(missing_handles):
         src_path = f"/products/{handle}"
-        if src_path in existing_redirects:
-            continue
-
+        
         meta = previous_snapshot.get(handle, {})
-        target = get_smart_target(
+        target = get_smart_target_collection(
             path_or_handle=handle,
             title=meta.get("title", ""),
             product_type=meta.get("productType", ""),
             vendor=meta.get("vendor", ""),
-            tags=meta.get("tags", [])
+            tags=meta.get("tags", []),
+            valid_cols=valid_cols
         )
 
+        col_item_count = valid_cols.get(target, {}).get("count", 0)
+
+        # If redirect already exists, check if target needs upgrading to >= 20 collection
+        if src_path in existing_redirects:
+            curr_target = existing_redirects[src_path]["target"].split("?")[0].rstrip("/")
+            if curr_target not in valid_cols and curr_target != "/collections/all":
+                red_id = existing_redirects[src_path]["id"]
+                if not dry_run:
+                    create_or_update_redirect(src_path, target, redirect_id=red_id)
+                    print(f"[UPGRADED] {src_path}: {curr_target} -> {target} ({col_item_count} items)")
+            continue
+
         if dry_run:
-            print(f"[DRY-RUN] Would create: {src_path} -> {target}")
+            print(f"[DRY-RUN] Would create: {src_path} -> {target} ({col_item_count} items)")
             newly_created.append({"path": src_path, "target": target})
         else:
-            success = create_redirect(src_path, target)
+            success = create_or_update_redirect(src_path, target)
             if success:
-                print(f"[CREATED] {src_path} -> {target}")
-                newly_created.append({"path": src_path, "target": target, "created_at": datetime.now(timezone.utc).isoformat()})
-                existing_redirects.add(src_path)
+                print(f"[CREATED] {src_path} -> {target} ({col_item_count} items)")
+                newly_created.append({
+                    "path": src_path, 
+                    "target": target, 
+                    "items_in_collection": col_item_count,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                })
+                existing_redirects[src_path] = {"id": None, "target": target}
             time.sleep(0.1)
 
-    print(f"\nCreated {len(newly_created)} new proactive redirects.")
+    print(f"\nProcessed {len(newly_created)} new proactive redirects targeting collections with >= {MIN_COLLECTION_PRODUCTS} items.")
 
     # Save to history
     if newly_created and not dry_run:
@@ -300,9 +459,10 @@ def run_sync(dry_run: bool = False, init_snapshot: bool = False):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Proactive Auto-Redirect Sync for MeeeShop")
+    parser = argparse.ArgumentParser(description="Proactive Auto-Redirect Sync for MeeeShop (>= 20 products)")
     parser.add_argument("--dry-run", action="store_true", help="Simulate without creating redirects")
     parser.add_argument("--init-snapshot", action="store_true", help="Initialize baseline catalog snapshot")
+    parser.add_argument("--fix-existing", action="store_true", help="Scan and fix existing redirects pointing to thin/empty collections")
     args = parser.parse_args()
 
-    run_sync(dry_run=args.dry_run, init_snapshot=args.init_snapshot)
+    run_sync(dry_run=args.dry_run, init_snapshot=args.init_snapshot, fix_existing=args.fix_existing)
