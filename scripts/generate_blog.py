@@ -6,6 +6,8 @@ generate_blog.py — Full-Featured Google Discover & Multi-Category Blog Automat
   - Multi-Category Support: Balanced rotation & targeting across all 11 active category blogs
     (Announcements is strictly EXCLUDED — reserved for store-related news only)
   - Resilient Model Cascade: Dynamically discovers and falls back across available Gemini models
+  - Clean Editorial Titles: No clickbait parentheticals, filler phrases, or 9-to-5 fluff
+  - Verified Store Collections (>= 20 Active Products Rule): Live GraphQL validation prevents linking to empty or non-existent collections
   - Original Editorial Style: High-value first-person stylist voice, actionable advice, no single-product forced linking
   - Automatic Dawn OS 2.0 Template Suffix Mapping (article.dresses, article.jeans, etc.)
   - 1200x630 Google Discover Landscape Featured Images with descriptive 10-15 word ALT text
@@ -38,6 +40,8 @@ try:
 except Exception:
     pass
 
+MIN_COLLECTION_PRODUCTS = 20
+
 # ── Category & Template Registry for MeeeShop (11 Categories, Announcements Excluded) ──
 CATEGORY_REGISTRY = {
     "dresses-style-guide": {
@@ -45,13 +49,13 @@ CATEGORY_REGISTRY = {
         "aliases": ["dresses", "dress", "womens-dresses"],
         "template_suffix": "dresses",
         "product_keywords": ["dress", "maxi", "midi", "mini", "gown", "slip dress", "wrap dress", "sundress"],
-        "collection_handles": ["womens-dresses", "casual-dresses", "maxi-dresses", "mini-dresses"],
+        "collection_handles": ["womens-dresses", "womens-casual-dresses", "midi-dresses", "mini-dresses", "womens-maxi-dresses"],
         "topic_themes": [
-            "How to style casual dresses for everyday boutique looks",
-            "Best dress silhouettes for petite and tall body shapes",
-            "Transitioning summer dresses into fall with smart layering",
-            "Flattering midi and maxi dress outfit formulas for women",
-            "Choosing the right dress neckline and length for your proportions"
+            "How to Style Casual Dresses for Everyday Chic",
+            "Best Dress Silhouettes for Petite and Tall Frames",
+            "Transitioning Summer Dresses into Fall Outfits",
+            "Flattering Midi and Maxi Dress Styling Formulas",
+            "Choosing the Right Dress Length and Neckline for Your Body Shape"
         ]
     },
     "jeans-style-guide": {
@@ -59,13 +63,13 @@ CATEGORY_REGISTRY = {
         "aliases": ["jeans", "denim", "womens-jeans"],
         "template_suffix": "jeans",
         "product_keywords": ["jean", "denim", "jort", "wide leg", "flare", "straight leg", "high waist"],
-        "collection_handles": ["womens-jeans", "wide-leg-jeans", "flare-jeans", "skinny-jeans", "straight-leg-jeans"],
+        "collection_handles": ["womens-jeans", "womens-new-denim", "wide-leg-jeans", "straight-leg-jeans", "judy-blue-womens-jeans", "risen-womens-jeans-collection"],
         "topic_themes": [
-            "How to style wide leg and straight leg jeans in 2026",
-            "Finding the best fitting jeans for your body shape and proportions",
-            "Denim cuffing and hemline guide for ankle boots and sneakers",
-            "High-waisted vs mid-rise jeans: which silhouette is more flattering?",
-            "Elevating dark wash denim for casual office and evening looks"
+            "How to Style Wide-Leg and Straight-Leg Jeans",
+            "Finding the Best Fitting Jeans for Your Body Proportions",
+            "Denim Hemline and Shoe Pairing Guide for Boots and Sneakers",
+            "High-Waisted vs Mid-Rise Jeans Styling Comparison",
+            "How to Elevate Dark Wash Denim for Evening and Casual Looks"
         ]
     },
     "womens-shirts-tops-style-guide": {
@@ -73,13 +77,13 @@ CATEGORY_REGISTRY = {
         "aliases": ["shirts", "tops", "shirts-tops", "womens-shirts-tops", "blouses"],
         "template_suffix": "women-s-shirts-tops",
         "product_keywords": ["top", "blouse", "shirt", "tee", "t-shirt", "tank", "tunic", "cami", "button-down"],
-        "collection_handles": ["womens-tops", "womens-blouses", "womens-t-shirts", "tank-tops"],
+        "collection_handles": ["womens-tops", "womens-t-shirts", "womens-camis-tanks-tops", "womens-knit-tops", "long-sleeve-tops", "v-neck-tops"],
         "topic_themes": [
-            "How to style button-down shirts and blouses for everyday chic",
-            "Essential tops every woman needs in her capsule wardrobe",
-            "Elevating a basic tee into a polished outfit with smart layering",
-            "How to layer tops under blazers and cardigans effortlessly",
-            "Flattering necklines and sleeve cuts for different silhouettes"
+            "How to Style Classic Button-Down Shirts for Everyday Wear",
+            "Essential Tops Every Woman Needs in Her Capsule Wardrobe",
+            "Elevating a Basic T-Shirt into a Polished Outfit",
+            "How to Layer Tops Under Blazers and Lightweight Outerwear",
+            "Flattering Necklines and Sleeve Cuts for Different Body Silhouettes"
         ]
     },
     "womens-pants-style-guide": {
@@ -87,13 +91,13 @@ CATEGORY_REGISTRY = {
         "aliases": ["pants", "trousers", "womens-pants", "bottoms"],
         "template_suffix": "women-s-pants",
         "product_keywords": ["pant", "trouser", "legging", "jogger", "slack", "linen pant", "wide leg pant"],
-        "collection_handles": ["womens-pants", "wide-leg-pants", "womens-trousers", "womens-bottoms"],
+        "collection_handles": ["womens-pants-leggings", "womens-bottoms", "womens-loungewear"],
         "topic_themes": [
-            "How to style wide leg pants without looking shorter",
-            "Chic linen pants outfit ideas for warm weather and travel",
-            "Styling tailored trousers for casual chic and work outfits",
-            "Finding comfortable pants that look structured and flattering",
-            "Proportion rules for styling wide-leg vs slim trousers"
+            "How to Style Tailored Trousers for Everyday Casual Looks",
+            "Flattering Wide-Leg Pants Outfits for Balanced Proportions",
+            "Chic Linen and Lightweight Pants for Warm Weather",
+            "Finding Comfortable Pants That Look Structured and Tailored",
+            "How to Style High-Waisted Pants for an Elongated Silhouette"
         ]
     },
     "womens-skirts-style-guide": {
@@ -101,13 +105,13 @@ CATEGORY_REGISTRY = {
         "aliases": ["skirts", "skirt", "womens-skirts"],
         "template_suffix": "women-s-skirts",
         "product_keywords": ["skirt", "skort", "midi skirt", "mini skirt", "maxi skirt", "denim skirt"],
-        "collection_handles": ["womens-skirts", "midi-skirts", "maxi-skirts", "denim-skirts"],
+        "collection_handles": ["womens-skirts", "womens-bottoms"],
         "topic_themes": [
-            "How to style midi skirts for effortless year-round outfits",
-            "Building a versatile capsule wardrobe around essential skirts",
-            "Styling denim skirts for casual day-to-night looks",
-            "Flattering skirt proportions and footwear pairing guidelines",
-            "How to wear mini and maxi skirts with confidence"
+            "How to Style Midi Skirts for Versatile Year-Round Outfits",
+            "Building a Capsule Wardrobe Around Essential Skirt Silhouettes",
+            "Styling Denim and Knit Skirts for Daytime Looks",
+            "Flattering Skirt Lengths and Footwear Pairing Formulas",
+            "How to Wear Pleated and A-Line Skirts with Ease"
         ]
     },
     "cardigans-sweaters-style-guide": {
@@ -115,13 +119,13 @@ CATEGORY_REGISTRY = {
         "aliases": ["cardigans", "sweaters", "cardigans-sweaters", "knitwear", "knits"],
         "template_suffix": "cardigans-sweaters",
         "product_keywords": ["sweater", "cardigan", "knit", "pullover", "knitwear", "turtleneck", "crewneck"],
-        "collection_handles": ["womens-sweaters", "womens-cardigans", "knitwear"],
+        "collection_handles": ["womens-sweaters", "womens-sweatshirts-hoodies", "womens-knit-tops", "womens-tops"],
         "topic_themes": [
-            "How to style cardigans for modern outfits without looking dated",
-            "Slimming sweater cuts, knit textures, and flattering necklines",
-            "Layering chunky and lightweight knits across transitional seasons",
-            "Cozy chic sweater outfit ideas for work and weekends",
-            "How to prevent sweater pilling and keep knitwear looking new"
+            "How to Style Cardigans for Modern Tailored Outfits",
+            "Flattering Sweater Cuts, Textures, and Necklines",
+            "Layering Chunky and Lightweight Knitwear Seamlessly",
+            "Cozy and Polished Sweater Outfit Ideas",
+            "How to Prevent Sweater Pilling and Maintain Knitwear"
         ]
     },
     "coats-jackets-style-guide": {
@@ -129,13 +133,13 @@ CATEGORY_REGISTRY = {
         "aliases": ["coats", "jackets", "coats-jackets", "outerwear", "blazers"],
         "template_suffix": "coats-jackets",
         "product_keywords": ["jacket", "coat", "blazer", "outerwear", "shacket", "vest", "denim jacket", "trench"],
-        "collection_handles": ["womens-jackets", "womens-coats", "womens-outerwear", "womens-blazers"],
+        "collection_handles": ["womens-outerwear", "womens-blazers-vests-jackets", "womens-coats-jackets"],
         "topic_themes": [
-            "How to style an oversized blazer for effortless modern looks",
-            "Essential transitional jackets every modern wardrobe needs",
-            "Denim jacket styling formulas for spring and autumn",
-            "Choosing outerwear lengths that balance your outfit proportions",
-            "Styling tailored coats for polished day-to-evening transitions"
+            "How to Style an Oversized Blazer for Modern Outfits",
+            "Essential Transitional Jackets for Everyday Layering",
+            "Denim Jacket Styling Formulas Across Seasons",
+            "Choosing Outerwear Lengths That Complement Your Proportions",
+            "Styling Tailored Coats for Polished Day-to-Night Looks"
         ]
     },
     "plus-size-curvy-clothing": {
@@ -143,13 +147,13 @@ CATEGORY_REGISTRY = {
         "aliases": ["plus-size", "curvy", "plus-size-curvy", "curvy-clothing"],
         "template_suffix": "plus-size",
         "product_keywords": ["curvy", "plus size", "plus", "1x", "2x", "3x", "stretch"],
-        "collection_handles": ["plus-size", "curvy-clothing", "plus-size-dresses", "curvy-jeans"],
+        "collection_handles": ["womens-curvy-plus-size-clothing", "womens-dresses", "womens-jeans", "womens-tops"],
         "topic_themes": [
-            "Flattering dress and denim silhouettes for curvy women",
-            "Finding the perfect fit and stretch in curvy plus size clothing",
-            "Styling tips that celebrate and accentuate natural curves",
-            "Building an empowering plus size capsule wardrobe",
-            "Proportion and layering hacks for curvy figures"
+            "Flattering Dress and Denim Silhouettes for Curvy Frames",
+            "Finding the Perfect Stretch and Fit in Curvy Denim",
+            "Styling Strategies That Celebrate Natural Proportions",
+            "Building an Empowering Plus-Size Capsule Wardrobe",
+            "Layering and Proportion Tips for Curvy Outfits"
         ]
     },
     "womens-clothing": {
@@ -157,13 +161,13 @@ CATEGORY_REGISTRY = {
         "aliases": ["womens-clothing", "clothing", "apparel", "general"],
         "template_suffix": "women-s-clothing",
         "product_keywords": ["dress", "top", "jean", "pant", "jacket", "skirt", "jumpsuit", "romper"],
-        "collection_handles": ["womens-new-collection", "womens-clothing", "best-sellers"],
+        "collection_handles": ["womens-best-selling-collection", "womens-new-collection", "womens-dresses", "womens-tops"],
         "topic_themes": [
-            "Building a versatile 2026 boutique capsule wardrobe",
-            "3-piece outfit formulas that always look put together",
-            "French-girl inspired everyday fashion essentials for modern women",
-            "Seasonal wardrobe color palettes and styling pairing strategies",
-            "How to look expensive on a budget with boutique styling staples"
+            "Building a Versatile Boutique Capsule Wardrobe",
+            "3-Piece Outfit Formulas That Always Look Polished",
+            "Everyday Fashion Essentials for Modern Wardrobes",
+            "Curating Color Palettes and Texture Mixing for Outfits",
+            "Effortless Day-to-Evening Outfit Transitions"
         ]
     },
     "everything-anything-about-vegan": {
@@ -171,13 +175,13 @@ CATEGORY_REGISTRY = {
         "aliases": ["vegan", "veganism", "sustainable", "cruelty-free"],
         "template_suffix": "veganism",
         "product_keywords": ["linen", "cotton", "bamboo", "cruelty-free", "sustainable", "plant-based"],
-        "collection_handles": ["womens-clothing", "womens-tops", "womens-dresses"],
+        "collection_handles": ["womens-tops", "womens-dresses", "womens-new-collection"],
         "topic_themes": [
-            "How to build an ethical and sustainable vegan wardrobe",
-            "Styling breathable natural plant-based fabrics (linen & organic cotton)",
-            "Cruelty-free boutique fashion staples for conscious dressing",
-            "Caring for natural vegan textiles to maximize garment longevity",
-            "Sustainable minimalist outfit ideas for mindful living"
+            "How to Build an Ethical and Sustainable Wardrobe",
+            "Styling Breathable Natural Fabrics (Linen and Organic Cotton)",
+            "Cruelty-Free Boutique Fashion Staples for Conscious Dressing",
+            "Caring for Plant-Based Textiles for Long-Lasting Wear",
+            "Minimalist Sustainable Outfit Ideas for Everyday Living"
         ]
     },
     "our-tips": {
@@ -185,13 +189,13 @@ CATEGORY_REGISTRY = {
         "aliases": ["tips", "our-tips", "care", "advice"],
         "template_suffix": "our-tips",
         "product_keywords": ["top", "dress", "jean", "pant", "sweater"],
-        "collection_handles": ["womens-clothing", "womens-tops"],
+        "collection_handles": ["womens-tops", "womens-dresses", "womens-sweaters", "womens-new-collection"],
         "topic_themes": [
-            "How to spot high quality clothing stitching and fabric before buying",
-            "Predicting fabric shrinkage and behavior before you wash",
-            "How to organize your closet to save 15 minutes every morning",
-            "Fabric care masterclass: preventing color fading, pilling, and stretching",
-            "Stain removal and garment care hacks for your favorite boutique clothes"
+            "How to Identify High-Quality Fabric and Stitching",
+            "Predicting Garment Shrinkage and Fabric Behavior Before Washing",
+            "Closet Organization Strategies to Streamline Your Morning Routine",
+            "Fabric Care Guide: Preventing Fading, Stretching, and Pilling",
+            "Practical Garment Care Habits for Boutique Clothing"
         ]
     }
 }
@@ -210,10 +214,29 @@ AI_CLICHES = [
     "In today's fast-paced digital age", "In today's fast-paced world", "Embark on a journey",
     "delve into", "take a deep dive", "Tapestry", "robust", "multifaceted", "testament",
     "unlock", "elevate", "In conclusion", "it's important to note", "game changer",
-    "effortlessly chic", "timeless classic", "fashion-forward", "style game", "without further ado"
+    "effortlessly chic", "timeless classic", "fashion-forward", "style game", "without further ado",
+    "9-to-5", "9 to 5", "boardroom to break room"
 ]
 
 ENCRYPTED_SECRETS_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "secrets.enc")
+
+# ── Title Sanitizer ────────────────────────────────────────────────────────────
+def sanitize_editorial_title(title: str) -> str:
+    """
+    Cleans and standardizes editorial titles.
+    Strips conversational parentheticals, clickbait phrases, brackets, quotes, and punctuation.
+    E.g. "How to Style Tailored Trousers Casually (Without Looking Like You're Heading to a 9-to-5)"
+    -> "How to Style Tailored Trousers Casually"
+    """
+    clean = title.strip().strip('"').strip("'").strip('“').strip('”')
+    # Remove trailing parentheticals e.g. (Without Looking...) or (And Why...)
+    clean = re.sub(r'\s*\([^)]*\)\s*$', '', clean).strip()
+    # Remove bracketed tags e.g. [2026 Guide]
+    clean = re.sub(r'\s*\[[^\]]*\]\s*$', '', clean).strip()
+    # Remove trailing colons/dashes
+    clean = re.sub(r'[:\-–—\s]+$', '', clean).strip()
+    clean = clean.strip('"').strip("'").strip('“').strip('”')
+    return clean
 
 # ── Secrets & Auth ─────────────────────────────────────────────────────────────
 def load_all_secrets():
@@ -327,23 +350,79 @@ def resolve_target_category(session, store_url, blogs, requested_category="auto"
     print(f"[*] Auto-selected under-represented category: '{chosen['meta']['name']}' (Count: {chosen['count']})")
     return chosen["blog"], chosen["meta"]
 
-# ── Product & Collection Context ───────────────────────────────────────────────
+# ── Dynamic Collection & Product Fetching (>= 20 Products Rule) ────────────────
 def fetch_category_shopify_data(session, store_url, category_meta):
     """
-    Fetches active products and collections specifically relevant to the chosen category.
-    Selects 3 compatible products with valid raster images for the 1200x630 featured collage.
+    Fetches active products (for 1200x630 collage) and live store collections.
+    GUARANTEES that ONLY active collections with >= 20 products are provided for internal linking.
     """
     products = []
     collections = []
-    keywords = [k.lower() for k in category_meta.get("product_keywords", [])]
+    keywords = [k.lower() for k in category_meta.get("product_keywords", [])] + [category_meta["name"].lower()]
 
     try:
-        # Fetch active products pool
+        # 1. Fetch live collections with >= 20 products via Shopify GraphQL
+        graphql_query = """
+        query {
+          collections(first: 250) {
+            edges {
+              node {
+                handle
+                title
+                productsCount {
+                  count
+                }
+              }
+            }
+          }
+        }
+        """
+        g_resp = session.post(f"{store_url}/admin/api/2024-10/graphql.json", json={"query": graphql_query}, timeout=20)
+        valid_colls_by_handle = {}
+        if g_resp.status_code == 200:
+            edges = g_resp.json().get("data", {}).get("collections", {}).get("edges", [])
+            for e in edges:
+                node = e["node"]
+                handle = node["handle"]
+                title = node["title"]
+                count = node.get("productsCount", {}).get("count", 0)
+                if count >= MIN_COLLECTION_PRODUCTS and handle not in ["all-products_do_not_delete", "all"]:
+                    valid_colls_by_handle[handle] = {
+                        "title": title,
+                        "url": f"/collections/{handle}",
+                        "count": count
+                    }
+
+        # Match collections against category
+        matched_colls = []
+        # Priority 1: Check category_meta preferred handles
+        for ch in category_meta.get("collection_handles", []):
+            if ch in valid_colls_by_handle and valid_colls_by_handle[ch] not in matched_colls:
+                matched_colls.append(valid_colls_by_handle[ch])
+
+        # Priority 2: Keyword match in title/handle
+        for h, info in valid_colls_by_handle.items():
+            if info not in matched_colls:
+                text = f"{h} {info['title']}".lower()
+                if any(kw in text for kw in keywords):
+                    matched_colls.append(info)
+
+        # Priority 3: Fallback to high-volume general collections
+        if len(matched_colls) < 2:
+            general_fallbacks = ["womens-new-collection", "womens-best-selling-collection", "womens-tops", "womens-dresses"]
+            for gf in general_fallbacks:
+                if gf in valid_colls_by_handle and valid_colls_by_handle[gf] not in matched_colls:
+                    matched_colls.append(valid_colls_by_handle[gf])
+                    if len(matched_colls) >= 3:
+                        break
+
+        collections = matched_colls[:4]
+
+        # 2. Fetch active products pool for 1200x630 collage
         prod_resp = session.get(f"{store_url}/admin/api/2024-10/products.json?status=active&limit=100")
         prod_resp.raise_for_status()
         all_prods = prod_resp.json().get('products', [])
 
-        # Filter products with valid raster images (exclude SVGs)
         prods_with_imgs = []
         for p in all_prods:
             valid_src = None
@@ -356,7 +435,6 @@ def fetch_category_shopify_data(session, store_url, category_meta):
                 p['_valid_img'] = valid_src
                 prods_with_imgs.append(p)
 
-        # Match products by category keywords
         matched_prods = []
         for p in prods_with_imgs:
             text = f"{p.get('title', '')} {p.get('product_type', '')} {' '.join(p.get('tags', []))}".lower()
@@ -379,26 +457,6 @@ def fetch_category_shopify_data(session, store_url, category_meta):
                     "price": price,
                     "product_type": p.get('product_type', 'Apparel')
                 })
-
-        # Fetch relevant collections
-        coll_handles = category_meta.get("collection_handles", [])
-        for ch in coll_handles:
-            collections.append({
-                "title": ch.replace("-", " ").title(),
-                "url": f"/collections/{ch}"
-            })
-
-        # Also pull live custom collections as fallback
-        if len(collections) < 3:
-            c_resp = session.get(f"{store_url}/admin/api/2024-10/custom_collections.json?limit=10")
-            if c_resp.status_code == 200:
-                for c in c_resp.json().get('custom_collections', []):
-                    h = c.get('handle')
-                    if h and not any(col['url'] == f"/collections/{h}" for col in collections):
-                        collections.append({
-                            "title": c.get('title'),
-                            "url": f"/collections/{h}"
-                        })
 
     except Exception as e:
         print(f"Warning: Error fetching category data: {e}")
@@ -457,7 +515,7 @@ def call_gemini_with_backoff(client, prompt, retries=2):
             except Exception as e:
                 err_str = str(e)
                 if "404" in err_str or "NOT_FOUND" in err_str:
-                    print(f"  [Model Notice]: {model_name} not available. Trying next model...")
+                    print(f"  [Model Notice]: {model_name} not available. Trying next candidate...")
                     break
                 elif "429" in err_str or "Quota" in err_str or "503" in err_str:
                     time.sleep(2 * (attempt + 1))
@@ -467,11 +525,12 @@ def call_gemini_with_backoff(client, prompt, retries=2):
 
     raise RuntimeError("All Gemini model candidates failed or returned empty.")
 
-# ── High-Quality Content Generation Engine (Original Style) ───────────────────
+# ── High-Quality Content Generation Engine (Clean Editorial Style) ─────────────
 def generate_blog_content(api_key, category_meta, collections, existing_titles):
     """
     Generates high-value, Google Discover-ready blog content in the original
-    conversational first-person stylist voice, without single-product forced linking.
+    conversational first-person stylist voice, without single-product forced linking
+    and with verified collections.
     """
     from google import genai
     client = genai.Client(api_key=api_key)
@@ -487,32 +546,37 @@ def generate_blog_content(api_key, category_meta, collections, existing_titles):
 
     # Step 1: Generate Specific Trending Question for Category
     topic_prompt = f"""
-Act as an expert SEO strategist and boutique fashion editor for MeeeShop, a women's clothing brand in the USA.
-Provide ONE specific, highly trending 'People Also Ask' style question that women shoppers in the USA are currently searching for regarding {category_name}.
-It should be a practical, helpful styling question, NOT a product-specific pitch.
+Act as an expert boutique fashion editor for MeeeShop, a women's fashion boutique in the USA.
+Provide ONE specific, highly trending styling question or guide title regarding {category_name}.
+
+CRITICAL TITLE RULES:
+- Keep the title clean, direct, elegant, and concise (e.g. "How to Style Tailored Trousers Casually", "The Best Ways to Style High-Waisted Jeans", "How to Layer Midi Skirts for Everyday Chic").
+- Do NOT include conversational parentheticals like "(Without Looking Like You're Heading to a 9-to-5)", "(And Why It Matters)", or "(2026 Guide)".
+- Do NOT use filler or clickbait words like "9-to-5", "secrets", "must-haves".
+- Focus purely on wearable styling advice, body proportions, and outfit formulas.
 
 Core category focus areas:
 {sample_themes}
 
 {exclusion_text}
 
-Return ONLY the generated question as a clean single-line string (no markdown, no quotes, no extra text, English only).
+Return ONLY the clean single-line title/question (no markdown, no quotes, no extra text, English only).
 """
 
     topic_raw = call_gemini_with_backoff(client, topic_prompt)
-    topic = topic_raw.strip().strip('"').strip("'").split("\n")[0].strip()
+    topic = sanitize_editorial_title(topic_raw.split("\n")[0])
 
     # Safety deduplication check
     if any(topic.lower() == t.lower() for t in existing_titles):
         print("  [Notice]: Topic already exists. Selecting fresh theme variant...")
-        topic = random.choice(category_meta.get("topic_themes", [topic]))
+        topic = sanitize_editorial_title(random.choice(category_meta.get("topic_themes", [topic])))
 
     print(f"[*] Trending Topic Selected for {category_name}: '{topic}'")
 
     # Step 2: Store collections context for natural internal linking
     context = ""
     if collections:
-        context += "Here are our store collections. To ensure natural SEO, you MUST insert a MAXIMUM of 2 to 3 internal links to our collections across the entire article using exact HTML anchor tags (e.g. <a href='/collections/...'>...</a>). Select only the most relevant ones. ONLY link to these specific URLs. DO NOT hallucinate collection URLs:\n"
+        context += "Here are our store collections (verified active collections). You MUST insert a MAXIMUM of 2 to 3 internal links to our collections across the entire article using exact HTML anchor tags (e.g. <a href='/collections/...'>...</a>). Select only the most relevant ones. ONLY link to these specific URLs. DO NOT hallucinate collection URLs:\n"
         for c in collections:
             context += f"- {c['title']} (URL: {c['url']})\n"
 
@@ -526,7 +590,7 @@ STRICT GUIDELINES:
 3. Rhythm: Ensure "burstiness". Mix short, punchy sentences with longer explanations. Do not use monotonous sentence structures.
 4. Forbidden Words (AI Telltales): Do NOT use any of these phrases: {", ".join(AI_CLICHES)}.
 5. Modern Layout & Formatting (CRITICAL):
-   - The first line MUST be the <h1> title.
+   - The first line MUST be the <h1> title (keep it clean and concise: "{topic}").
    - Use engaging <h2> subheadings.
    - Break up walls of text. Use <blockquote> for key takeaways, stylist tips, or quotes.
    - Use bulleted lists (<ul><li>) with relevant emojis for easy scanning.
@@ -555,7 +619,8 @@ STRICT GUIDELINES:
     if "<h1>" in html_content and "</h1>" in html_content:
         h1_start = html_content.find("<h1>") + 4
         h1_end = html_content.find("</h1>")
-        article_title = html_content[h1_start:h1_end].strip()
+        extracted_h1 = html_content[h1_start:h1_end].strip()
+        article_title = sanitize_editorial_title(extracted_h1)
         html_content = html_content[:html_content.find("<h1>")] + html_content[h1_end + 5:]
         html_content = html_content.strip()
 
@@ -868,12 +933,14 @@ def main():
     existing_titles = get_all_existing_titles(session, shopify_store, blogs)
     print(f"  [OK] {len(existing_titles)} existing articles indexed to prevent duplicate topics")
 
-    # 5. Fetch Collections & Products for Chosen Category
-    print(f"\n[*] Fetching collection and product context for '{category_meta['name']}'...")
+    # 5. Fetch Verified Collections (>= 20 Products Rule) & Products for Chosen Category
+    print(f"\n[*] Fetching verified collections (>= 20 active products) & products for '{category_meta['name']}'...")
     products, collections = fetch_category_shopify_data(session, shopify_store, category_meta)
-    print(f"  [OK] Found {len(products)} category products & {len(collections)} collection links")
+    print(f"  [OK] Found {len(products)} category products & {len(collections)} verified active collection links:")
+    for c in collections:
+        print(f"    - {c['title']} (URL: {c['url']}, Active Products: {c['count']})")
 
-    # 6. Generate Content (Original High-Value Editorial Style)
+    # 6. Generate Content (Clean Editorial Style)
     print(f"\n[*] Generating Google Discover eligible article content...")
     title, seo_title, meta_desc, html_content = generate_blog_content(
         gemini_key, category_meta, collections, existing_titles
