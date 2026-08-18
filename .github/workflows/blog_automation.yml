@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       category:
-        description: 'Target Blog Category (or "auto" for balanced rotation across all 12 categories)'
+        description: 'Target Blog Category (or "auto" for balanced rotation across all 11 active category channels)'
         required: true
         type: choice
         default: 'auto'
@@ -24,7 +24,6 @@ on:
           - 'our-tips'
           - 'womens-clothing'
           - 'veganism'
-          - 'announcements'
       draft:
         description: 'Create as a Draft (requires manual review in Shopify Admin before publishing)?'
         required: true
