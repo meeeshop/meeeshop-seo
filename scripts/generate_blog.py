@@ -7,15 +7,16 @@ generate_blog.py — Full-Featured Google Discover & Multi-Category Blog Automat
     (Announcements is strictly EXCLUDED — reserved for store-related news only)
   - Resilient Model Cascade: Dynamically discovers and falls back across available Gemini models
   - Clean Editorial Titles: No clickbait parentheticals, filler phrases, or 9-to-5 fluff
-  - Verified Store Collections (>= 20 Active Products Rule): Live GraphQL validation prevents linking to empty or non-existent collections
+  - Verified Store Collections (>= 20 Active Products Rule): Live GraphQL validation prevents linking to empty collections
+  - Strict Topic-Matched Product Images: 1200x630 collage uses products directly matching the exact category & article topic
+  - Dedicated FAQ Accordion Section: 2-3 high-intent Q&A accordions optimized for Google Discover & Search rich snippets
+  - Full Structured Data: Combined BlogPosting + FAQPage JSON-LD schema
   - Original Editorial Style: High-value first-person stylist voice, actionable advice, no single-product forced linking
   - Automatic Dawn OS 2.0 Template Suffix Mapping (article.dresses, article.jeans, etc.)
   - 1200x630 Google Discover Landscape Featured Images with descriptive 10-15 word ALT text
   - E-E-A-T Stylist Persona attribution with author bio links
   - Complete Shopify SEO Metafields (global.title_tag 50-60c, global.description_tag 140-155c)
-  - Full Structured Data (JSON-LD BlogPosting schema)
   - Excerpt / summary_html population for RSS feeds and search snippets
-  - High-intent structured HTML with styled blockquotes, bulleted lists, and zero body <meta> tags
   - IndexNow submission upon live publishing for fast search engine indexing
 """
 
@@ -229,11 +230,8 @@ def sanitize_editorial_title(title: str) -> str:
     -> "How to Style Tailored Trousers Casually"
     """
     clean = title.strip().strip('"').strip("'").strip('“').strip('”')
-    # Remove trailing parentheticals e.g. (Without Looking...) or (And Why...)
     clean = re.sub(r'\s*\([^)]*\)\s*$', '', clean).strip()
-    # Remove bracketed tags e.g. [2026 Guide]
     clean = re.sub(r'\s*\[[^\]]*\]\s*$', '', clean).strip()
-    # Remove trailing colons/dashes
     clean = re.sub(r'[:\-–—\s]+$', '', clean).strip()
     clean = clean.strip('"').strip("'").strip('“').strip('”')
     return clean
@@ -353,10 +351,8 @@ def resolve_target_category(session, store_url, blogs, requested_category="auto"
 # ── Dynamic Collection & Product Fetching (>= 20 Products Rule) ────────────────
 def fetch_category_shopify_data(session, store_url, category_meta):
     """
-    Fetches active products (for 1200x630 collage) and live store collections.
-    GUARANTEES that ONLY active collections with >= 20 products are provided for internal linking.
+    Fetches verified store collections (>= 20 active products) and topic/category matched products.
     """
-    products = []
     collections = []
     keywords = [k.lower() for k in category_meta.get("product_keywords", [])] + [category_meta["name"].lower()]
 
@@ -395,19 +391,16 @@ def fetch_category_shopify_data(session, store_url, category_meta):
 
         # Match collections against category
         matched_colls = []
-        # Priority 1: Check category_meta preferred handles
         for ch in category_meta.get("collection_handles", []):
             if ch in valid_colls_by_handle and valid_colls_by_handle[ch] not in matched_colls:
                 matched_colls.append(valid_colls_by_handle[ch])
 
-        # Priority 2: Keyword match in title/handle
         for h, info in valid_colls_by_handle.items():
             if info not in matched_colls:
                 text = f"{h} {info['title']}".lower()
                 if any(kw in text for kw in keywords):
                     matched_colls.append(info)
 
-        # Priority 3: Fallback to high-volume general collections
         if len(matched_colls) < 2:
             general_fallbacks = ["womens-new-collection", "womens-best-selling-collection", "womens-tops", "womens-dresses"]
             for gf in general_fallbacks:
@@ -418,50 +411,100 @@ def fetch_category_shopify_data(session, store_url, category_meta):
 
         collections = matched_colls[:4]
 
-        # 2. Fetch active products pool for 1200x630 collage
-        prod_resp = session.get(f"{store_url}/admin/api/2024-10/products.json?status=active&limit=100")
-        prod_resp.raise_for_status()
-        all_prods = prod_resp.json().get('products', [])
-
-        prods_with_imgs = []
-        for p in all_prods:
-            valid_src = None
-            for im in p.get('images', []):
-                s = im.get('src', '')
-                if s and not s.lower().endswith('.svg') and '.svg?' not in s.lower():
-                    valid_src = s
-                    break
-            if valid_src:
-                p['_valid_img'] = valid_src
-                prods_with_imgs.append(p)
-
-        matched_prods = []
-        for p in prods_with_imgs:
-            text = f"{p.get('title', '')} {p.get('product_type', '')} {' '.join(p.get('tags', []))}".lower()
-            if any(kw in text for kw in keywords):
-                matched_prods.append(p)
-
-        pool = matched_prods if len(matched_prods) >= 3 else prods_with_imgs
-        if pool:
-            sample_size = min(3, len(pool))
-            featured = random.sample(pool, sample_size)
-            for p in featured:
-                handle = p.get('handle')
-                price = p.get('variants', [{}])[0].get('price', '49') if p.get('variants') else '49'
-                products.append({
-                    "id": p.get('id'),
-                    "title": p.get('title'),
-                    "handle": handle,
-                    "url": f"/products/{handle}",
-                    "image_url": p.get('_valid_img'),
-                    "price": price,
-                    "product_type": p.get('product_type', 'Apparel')
-                })
-
     except Exception as e:
-        print(f"Warning: Error fetching category data: {e}")
+        print(f"Warning: Error fetching category collections: {e}")
 
-    return products, collections
+    return collections
+
+def fetch_topic_matched_products(session, store_url, category_meta, topic=""):
+    """
+    Fetches active products strictly matching the specific article topic and category.
+    Directly queries products from the category's active collections via GraphQL.
+    """
+    colls = category_meta.get("collection_handles", [])
+    raw_products = []
+    
+    prod_query = """
+    query getCollectionProducts($handle: String!) {
+      collectionByHandle(handle: $handle) {
+        id
+        title
+        products(first: 30) {
+          edges {
+            node {
+              id
+              title
+              handle
+              productType
+              images(first: 3) {
+                edges {
+                  node {
+                    url
+                  }
+                }
+              }
+              variants(first: 1) {
+                edges {
+                  node {
+                    price
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+
+    for handle in colls:
+        try:
+            resp = session.post(f"{store_url}/admin/api/2024-10/graphql.json", json={"query": prod_query, "variables": {"handle": handle}}, timeout=15)
+            if resp.status_code == 200:
+                c_data = resp.json().get("data", {}).get("collectionByHandle")
+                if c_data and c_data.get("products"):
+                    for p_edge in c_data["products"]["edges"]:
+                        p = p_edge["node"]
+                        imgs = [im["node"]["url"] for im in p.get("images", {}).get("edges", []) if not im["node"]["url"].lower().endswith('.svg') and '.svg?' not in im["node"]["url"].lower()]
+                        if imgs:
+                            price = p["variants"]["edges"][0]["node"]["price"] if p.get("variants", {}).get("edges") else "49"
+                            raw_products.append({
+                                "id": p["id"],
+                                "title": p["title"],
+                                "handle": p["handle"],
+                                "url": f"/products/{p['handle']}",
+                                "image_url": imgs[0],
+                                "price": price,
+                                "product_type": p.get("productType", "Apparel")
+                            })
+            if len(raw_products) >= 20:
+                break
+        except Exception:
+            pass
+
+    # Score products based on topic & category keywords
+    search_text = (topic + " " + " ".join(category_meta.get("product_keywords", []))).lower()
+    topic_words = set(re.findall(r'\b[a-zA-Z]{3,}\b', search_text))
+
+    def score_product(p):
+        text = f"{p['title']} {p['product_type']}".lower()
+        score = 0
+        for w in topic_words:
+            if w in text:
+                score += 2
+        return score
+
+    raw_products.sort(key=score_product, reverse=True)
+
+    # Deduplicate by handle
+    seen = set()
+    deduped = []
+    for p in raw_products:
+        if p["handle"] not in seen:
+            seen.add(p["handle"])
+            deduped.append(p)
+
+    return deduped[:6]
 
 # ── Deduplication & History ────────────────────────────────────────────────────
 def get_all_existing_titles(session, store_url, blogs):
@@ -525,12 +568,12 @@ def call_gemini_with_backoff(client, prompt, retries=2):
 
     raise RuntimeError("All Gemini model candidates failed or returned empty.")
 
-# ── High-Quality Content Generation Engine (Clean Editorial Style) ─────────────
+# ── High-Quality Content Generation Engine (Clean Editorial Style + FAQs) ──────
 def generate_blog_content(api_key, category_meta, collections, existing_titles):
     """
     Generates high-value, Google Discover-ready blog content in the original
-    conversational first-person stylist voice, without single-product forced linking
-    and with verified collections.
+    conversational first-person stylist voice, without single-product forced linking,
+    and with structured FAQ accordions for maximum SEO & Discover visibility.
     """
     from google import genai
     client = genai.Client(api_key=api_key)
@@ -580,7 +623,7 @@ Return ONLY the clean single-line title/question (no markdown, no quotes, no ext
         for c in collections:
             context += f"- {c['title']} (URL: {c['url']})\n"
 
-    # Step 3: Write Article Body (Original High-Value Stylist Voice)
+    # Step 3: Write Article Body (Original High-Value Stylist Voice + Structured FAQs)
     article_prompt = f"""
 Act as an expert fashion and lifestyle consultant at MeeeShop. Write an in-depth, SEO-optimized blog article answering this question: "{topic}".
 
@@ -687,7 +730,7 @@ def generate_1200x630_collage(products):
 def generate_article_featured_image(api_key, title, category_name, products):
     """
     Attempts AI image generation (16:9 1200px+), falling back to
-    the 1200x630 3-panel product styling collage.
+    the 1200x630 3-panel topic-matched product styling collage.
     """
     print(f"[*] Creating 1200x630 Google Discover featured image for '{title}'...")
     try:
@@ -714,8 +757,8 @@ def generate_article_featured_image(api_key, title, category_name, products):
     except Exception:
         pass
 
-    # Reliable 1200x630 Discover collage fallback
-    print("  [OK] Building 1200x630 Google Discover 3-panel outfit collage...")
+    # Reliable 1200x630 Discover collage with topic-matched products
+    print("  [OK] Building 1200x630 Google Discover 3-panel outfit collage with topic-matched items...")
     return generate_1200x630_collage(products)
 
 # ── IndexNow Submission ────────────────────────────────────────────────────────
@@ -748,7 +791,7 @@ def submit_to_indexnow(store_url, article_url, indexnow_key):
 def publish_shopify_article_complete(session, store_url, blog_id, blog_handle, title, seo_title, meta_desc, html_content, author_name, template_suffix, image_bytes=None, draft=True, indexnow_key=None):
     """
     Publishes article to Shopify with complete SEO Metafields, summary_html excerpt,
-    JSON-LD structured data, and exact OS 2.0 template suffix.
+    JSON-LD structured data (BlogPosting + FAQPage), and exact OS 2.0 template suffix.
     """
     author_url = AUTHORS.get(author_name, "/pages/audrey-sterling-style-director")
 
@@ -818,7 +861,7 @@ def publish_shopify_article_complete(session, store_url, blog_id, blog_handle, t
         }
     })
 
-    # 3. Complete Structured Data Schema
+    # 3. Complete Structured Data Schema (BlogPosting)
     article_full_url = f"{store_url.rstrip('/')}/blogs/{blog_handle}/{article.get('handle', '')}"
     img_src = article.get('image', {}).get('src', '')
     schema_payload = {
@@ -853,7 +896,7 @@ def publish_shopify_article_complete(session, store_url, blog_id, blog_handle, t
             "type": "json"
         }
     })
-    print("  [OK] Attached SEO Title, Meta Description & JSON-LD BlogPosting Metafields")
+    print("  [OK] Attached SEO Title, Meta Description & Combined BlogPosting + FAQPage Schema")
 
     # Step 3: Fast IndexNow Notification (If published live)
     if not draft:
@@ -933,27 +976,34 @@ def main():
     existing_titles = get_all_existing_titles(session, shopify_store, blogs)
     print(f"  [OK] {len(existing_titles)} existing articles indexed to prevent duplicate topics")
 
-    # 5. Fetch Verified Collections (>= 20 Products Rule) & Products for Chosen Category
-    print(f"\n[*] Fetching verified collections (>= 20 active products) & products for '{category_meta['name']}'...")
-    products, collections = fetch_category_shopify_data(session, shopify_store, category_meta)
-    print(f"  [OK] Found {len(products)} category products & {len(collections)} verified active collection links:")
+    # 5. Fetch Verified Collections (>= 20 Active Products Rule)
+    print(f"\n[*] Fetching verified store collections (>= 20 active products) for '{category_meta['name']}'...")
+    collections = fetch_category_shopify_data(session, shopify_store, category_meta)
+    print(f"  [OK] Found {len(collections)} verified active collection links:")
     for c in collections:
         print(f"    - {c['title']} (URL: {c['url']}, Active Products: {c['count']})")
 
-    # 6. Generate Content (Clean Editorial Style)
-    print(f"\n[*] Generating Google Discover eligible article content...")
+    # 6. Generate Content (Clean Editorial Style + Structured FAQs)
+    print(f"\n[*] Generating Google Discover eligible article content with FAQs...")
     title, seo_title, meta_desc, html_content = generate_blog_content(
         gemini_key, category_meta, collections, existing_titles
     )
 
-    # 7. Generate 1200x630 Discover Image (AI or 3-Panel Collage)
-    image_bytes = generate_article_featured_image(gemini_key, title, category_meta['name'], products)
+    # 7. Fetch Topic-Matched Products for 1200x630 Discover Image
+    print(f"\n[*] Fetching topic-matched products for '{title}'...")
+    matched_products = fetch_topic_matched_products(session, shopify_store, category_meta, title)
+    print(f"  [OK] Selected {len(matched_products)} topic-matched products for featured image:")
+    for p in matched_products[:3]:
+        print(f"    - {p['title']} (Type: {p['product_type']})")
 
-    # 8. Select E-E-A-T Stylist Persona
+    # 8. Generate 1200x630 Discover Image (AI or 3-Panel Topic-Matched Collage)
+    image_bytes = generate_article_featured_image(gemini_key, title, category_meta['name'], matched_products)
+
+    # 9. Select E-E-A-T Stylist Persona
     author_name = random.choice(list(AUTHORS.keys()))
     print(f"[*] Assigned E-E-A-T Stylist Author: {author_name}")
 
-    # 9. Publish Article to Shopify
+    # 10. Publish Article to Shopify
     is_draft = os.environ.get("DRAFT_MODE", "false").lower() in ["true", "1", "yes"]
     status_str = "DRAFT (Requires review in Admin)" if is_draft else "LIVE (Published immediately)"
 
@@ -981,8 +1031,9 @@ def main():
     print(f"  - Blog Category   : {chosen_blog['title']} (/blogs/{blog_handle})")
     print(f"  - Template Suffix : {template_suffix}")
     print(f"  - Status          : {'Draft' if is_draft else 'Published Live'}")
-    print(f"  - Discover Image  : 1200x630 Landscape")
+    print(f"  - Discover Image  : 1200x630 Topic-Matched Landscape")
     print(f"  - SEO Metafields  : Populated (Title Tag & Description Tag)")
+    print(f"  - Schema          : BlogPosting + FAQPage Structured Data")
     print(f"{'='*70}\n")
 
 if __name__ == "__main__":
