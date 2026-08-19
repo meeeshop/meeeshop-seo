@@ -2,9 +2,9 @@ name: Flipboard Syndication Automation
 
 on:
   schedule:
-    # Run 3 times a week: Tuesday, Thursday, Sunday at 11:30 AM UTC
-    # (1.5 hours after blog_automation runs at 10:00 AM UTC, ensuring fresh store articles are live and indexed)
-    - cron: '30 11 * * 0,2,4'
+    # Run daily at 11:30 AM UTC (7:30 AM EDT / 4:30 AM PDT - peak US morning window)
+    # Tue/Thu/Sun: Flips fresh blog articles; Mon/Wed/Fri/Sat: Flips rotating evergreen guides (June Strategy)
+    - cron: '30 11 * * *'
   
   workflow_dispatch:
     inputs:

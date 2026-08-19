@@ -325,27 +325,29 @@ def fetch_articles(days: int, limit: int) -> list:
     logging.info(f"Found {len(pending)} MeeeShop article(s) ready for staggered flip.")
     return pending[:limit]
 
-def fetch_old_articles(limit: int) -> list:
-    """Fetch old Shopify articles (published > 30 days ago) to re-flip safely without spamming."""
-    logging.info("Fetching old Shopify articles (30+ days old) for safe periodic re-flipping...")
+def fetch_old_articles(limit: int = 2) -> list:
+    """
+    Fetch high-performing evergreen Shopify articles (> 7 days old) across different
+    categories for safe daily syndication on non-publishing days (June Strategy).
+    """
+    logging.info("Fetching evergreen Shopify articles (>7 days old) across categories...")
     try:
         r = requests.get(f"{SHOP_BASE}/blogs.json", headers=SHOP_HEADERS)
         r.raise_for_status()
-        blogs = r.json().get("blogs", [])
+        blogs = [b for b in r.json().get("blogs", []) if b.get("handle") != "announcements"]
     except Exception as e:
-        logging.error(f"Failed to fetch blogs for old articles: {e}")
+        logging.error(f"Failed to fetch blogs for evergreen articles: {e}")
         return []
 
-    all_articles = []
+    articles_by_cat = {}
     now = datetime.now(timezone.utc)
+
     for blog in blogs:
-        blog_id = blog["id"]
-        blog_handle = blog["handle"]
-        if blog_handle == "announcements":
-            continue
-        params = {"limit": 250}
+        b_id = blog["id"]
+        b_handle = blog["handle"]
+        params = {"limit": 50}
         try:
-            r = requests.get(f"{SHOP_BASE}/blogs/{blog_id}/articles.json", headers=SHOP_HEADERS, params=params)
+            r = requests.get(f"{SHOP_BASE}/blogs/{b_id}/articles.json", headers=SHOP_HEADERS, params=params)
             r.raise_for_status()
             articles_batch = r.json().get("articles", [])
         except Exception:
@@ -359,20 +361,43 @@ def fetch_old_articles(limit: int) -> list:
             except Exception:
                 age_days = 0
 
-            if age_days >= 30:
-                art["_full_url"] = f"{STORE_URL}/blogs/{blog_handle}/{art['handle']}?{UTM_TRACKING}"
-                art["_blog_id"] = blog_id
+            # Eligible if published > 7 days ago
+            if age_days >= 7:
+                target_mag = FLIPBOARD_MAGAZINE
+                title_text = f"{art.get('title','')} {art.get('tags','')}".lower()
+                for kw, mag in MAGAZINE_ROUTING.items():
+                    if kw in title_text or kw in b_handle:
+                        target_mag = mag
+                        break
+
+                art["_full_url"] = f"{STORE_URL}/blogs/{b_handle}/{art['handle']}?{UTM_TRACKING}"
+                art["_blog_id"] = b_id
                 art["_stagger_stage"] = 3
-                art["_target_mag"] = FLIPBOARD_MAGAZINE
+                art["_target_mag"] = target_mag
                 art["_next_tag"] = "flipboard_synced"
                 art["_caption"] = generate_flip_caption(art)
-                all_articles.append(art)
+                art["_cat_handle"] = b_handle
 
-    if not all_articles:
+                if b_handle not in articles_by_cat:
+                    articles_by_cat[b_handle] = []
+                articles_by_cat[b_handle].append(art)
+
+    if not articles_by_cat:
         return []
 
-    sample_size = min(limit, len(all_articles))
-    return random.sample(all_articles, sample_size)
+    # Select limit articles from different categories to ensure diversity
+    available_cats = list(articles_by_cat.keys())
+    random.shuffle(available_cats)
+
+    selected = []
+    for cat in available_cats:
+        if len(selected) >= limit:
+            break
+        art_choice = random.choice(articles_by_cat[cat])
+        selected.append(art_choice)
+
+    logging.info(f"Selected {len(selected)} diverse evergreen MeeeShop article(s) for daily syndication.")
+    return selected
 
 def mark_as_synced(blog_id: int, article_id: int, existing_tags: str, tag_to_add: str = "flipboard_synced"):
     """Add progressive flipboard tag (e.g. flipboard_mag1_synced, flipboard_mag2_synced, or flipboard_synced)."""
