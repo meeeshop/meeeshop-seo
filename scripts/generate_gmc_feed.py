@@ -17,6 +17,13 @@ import secrets_manager
 import gzip
 import json
 
+# Reconfigure stdout encoding to UTF-8 if supported
+import sys
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 # ── Configuration & Credentials ───────────────────────────────────────────────
 try:
     SHOPIFY_STORE = secrets_manager.get_secret("SHOPIFY_STORE")
@@ -227,7 +234,7 @@ def fetch_all_active_products():
         try:
             data = response.json()
         except json.JSONDecodeError:
-            print(f"⚠️ Shopify API response for products was not valid JSON: {response.text}", flush=True)
+            print(f"Shopify API response for products was not valid JSON: {response.text}", flush=True)
             raise Exception("Shopify API response for products was not valid JSON.")
         products.extend(data.get("products", []))
         
@@ -353,8 +360,8 @@ def upload_to_shopify_files(filepath):
             break
             
     if public_url:
-        print(f"✅ Feed uploaded successfully to Shopify CDN!", flush=True)
-        print(f"🔗 CDN URL: {public_url}", flush=True)
+        print(f"[OK] Feed uploaded successfully to Shopify CDN!", flush=True)
+        print(f"[OK] CDN URL: {public_url}", flush=True)
         create_or_update_redirect(public_url)
     else:
         raise Exception("Failed to retrieve public URL for uploaded file.")
@@ -408,8 +415,8 @@ def create_or_update_redirect(target_url):
         resp.raise_for_status()
 
     static_url = f"{STORE_BASE_URL.rstrip('/')}{redirect_path}"
-    print(f"✅ Redirect is live.", flush=True)
-    print(f"🔗 Static Google Merchant Center URL: {static_url}", flush=True)
+    print(f"[OK] Redirect is live.", flush=True)
+    print(f"[OK] Static Google Merchant Center URL: {static_url}", flush=True)
 
 def generate_feed():
     products = fetch_all_active_products()
@@ -523,7 +530,7 @@ def generate_feed():
         writer.writeheader()
         writer.writerows(rows)
         
-    print("✅ Google Merchant Feed generated successfully.", flush=True)
+    print("[OK] Google Merchant Feed generated successfully.", flush=True)
 
     upload_to_shopify_files(output_gz)
 
