@@ -29,17 +29,32 @@ if sys.stderr.encoding != 'utf-8':
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from secrets_manager import inject_to_env, get_secret
-inject_to_env()
-from shopify_graphql import run_graphql, parse_gid
+try:
+    from secrets_manager import inject_to_env, get_secret
+    inject_to_env()
+except Exception:
+    def get_secret(name):
+        return os.getenv(name)
+
+try:
+    from shopify_graphql import run_graphql, parse_gid
+except Exception:
+    pass
 
 try:
     from google_question_fetcher import GoogleQuestionFetcher
 except ImportError:
-    from scripts.google_question_fetcher import GoogleQuestionFetcher
+    try:
+        from scripts.google_question_fetcher import GoogleQuestionFetcher
+    except Exception:
+        GoogleQuestionFetcher = None
 
-STORE  = get_secret("SHOPIFY_STORE")
-TOKEN  = get_secret("SHOPIFY_ACCESS_TOKEN")
+try:
+    STORE = get_secret("SHOPIFY_STORE") or os.getenv("SHOPIFY_STORE", "us-meeeshop.myshopify.com")
+    TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN") or os.getenv("SHOPIFY_ACCESS_TOKEN", "")
+except Exception:
+    STORE = os.getenv("SHOPIFY_STORE", "us-meeeshop.myshopify.com")
+    TOKEN = os.getenv("SHOPIFY_ACCESS_TOKEN", "")
 HEADS  = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 BASE   = f"https://{STORE}/admin/api/2024-01"
 BRAND  = "us.meeeshop.com"
@@ -734,6 +749,62 @@ def build_size_chart(word):
     return size_chart
 
 
+
+# ── Build category-specific styling tips ──────────────────────────────────────
+def build_styling_tips(title, category, word):
+    """Generate dynamic, actionable styling tips for the product."""
+    tips_by_cat = {
+        'Dresses': [
+            f"<strong>Day to Night:</strong> Pair this {word} with clean white sneakers and a denim jacket for casual daytime outings, or elevate with block heels and delicate jewelry for an evening look.",
+            f"<strong>Layering:</strong> Elevate the silhouette by layering with a tailored blazer or lightweight knit cardigan during cooler evenings.",
+            f"<strong>Accessories:</strong> Complete the ensemble with a structured shoulder bag and minimalist gold or silver accents."
+        ],
+        'Tops': [
+            f"<strong>Effortless Tuck:</strong> Front-tuck this {word} into high-waisted denim or tailored trousers for an elongated, flattering silhouette.",
+            f"<strong>Work to Weekend:</strong> Layer under a blazer with tailored pants for the office, or style with relaxed shorts and sandals for weekend brunch.",
+            f"<strong>Shoe Pairing:</strong> Complements everyday loafers, clean leather sneakers, or strappy kitten heels."
+        ],
+        'Bottoms': [
+            f"<strong>Balanced Proportions:</strong> Pair these {word}s with a fitted ribbed top, tucked-in blouse, or cropped sweater.",
+            f"<strong>Footwear Versatility:</strong> Styles effortlessly with ankle boots, pointed-toe heels, or minimalist sneakers.",
+            f"<strong>Finishing Touches:</strong> Accentuate the waistline with a classic belt and a coordinated crossbody bag."
+        ],
+        'Outerwear': [
+            f"<strong>Chic Layering:</strong> Drape this {word} over a monochrome outfit or knit dress for instant polish and sophistication.",
+            f"<strong>Texture Play:</strong> Contrast the silhouette with chunky knit scarves and leather boots during cooler seasons.",
+            f"<strong>Versatile Fit:</strong> Wear open for a relaxed aesthetic or belt/button it for structured definition."
+        ],
+        'Skirts': [
+            f"<strong>Feminine Silhouette:</strong> Pair with a tucked-in bodysuit or relaxed blouse to highlight the waist.",
+            f"<strong>Footwear:</strong> Style with boots in autumn/winter or slide sandals during warm sunny days.",
+            f"<strong>Layering:</strong> Top off with a cropped jacket or lightweight cardigan."
+        ],
+        'One-Pieces': [
+            f"<strong>Instant Outfit:</strong> Cinch the waist with a statement belt and slip into heeled mules for an effortlessly elevated ensemble.",
+            f"<strong>Casual Appeal:</strong> Layer a fitted tee underneath or throw on a casual denim jacket and slip-on sneakers."
+        ],
+        'Bags': [
+            f"<strong>Daily Staple:</strong> An essential everyday accessory that pairs seamlessly with casual denim, tailored workwear, and evening dresses.",
+            f"<strong>Color Harmony:</strong> Coordinates easily with neutral footwear and polished jewelry accents."
+        ],
+        'Shoes': [
+            f"<strong>Style Anchor:</strong> An effortless anchor piece that completes midi dresses, cropped trousers, or relaxed denim.",
+            f"<strong>All-Day Comfort:</strong> Designed for versatility and comfort whether commuting, dining out, or shopping."
+        ]
+    }
+    
+    tips = tips_by_cat.get(category, [
+        f"<strong>Everyday Style:</strong> Easily style this {word} with your go-to wardrobe essentials for a chic, balanced aesthetic.",
+        f"<strong>Versatile Pairings:</strong> Dress up with tailored accents or keep it relaxed with casual staples and comfortable footwear."
+    ])
+    
+    html = ["<h3>Styling Tips & Outfit Ideas</h3>", "<ul>"]
+    for tip in tips:
+        html.append(f"  <li>{tip}</li>")
+    html.append("</ul>")
+    return "\n".join(html)
+
+
 # ── Build category-specific Q&As ──────────────────────────────────────────────
 def build_templated_qa(title, cat, word):
     """Generate 3 high-quality deterministic Q&As for the product page."""
@@ -854,6 +925,10 @@ def build_description(product, force=False, gsc_keywords=None):
             else:
                 final_body = cleaned_body
 
+        if "Styling Tips" not in final_body:
+            styling_html = build_styling_tips(title, cat, word)
+            final_body = final_body.strip() + "\n\n" + styling_html
+
         if "Frequently Asked Questions" not in final_body:
             qa_list = build_templated_qa(title, cat, word)
             qa_html = build_qa_html(qa_list)
@@ -924,10 +999,12 @@ def build_description(product, force=False, gsc_keywords=None):
         else:
             size_chart = build_size_chart(word)
 
+    styling_tips = build_styling_tips(title, cat, word)
+
     if not force and len(existing) >= 500:
         final_body = html_body
     else:
-        final_body = intro + features + why_choose + size_chart
+        final_body = intro + features + why_choose + "\n\n" + styling_tips + ("\n\n" + size_chart if size_chart else "")
 
     if "Frequently Asked Questions" not in final_body:
         qa_list = build_templated_qa(title, cat, word)
