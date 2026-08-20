@@ -521,88 +521,62 @@ def get_all_existing_titles(session, store_url, blogs):
             pass
     return list(set(titles))
 
-# ── Unified AI Client Content Generation Engine ───────────────────────────────
+# ── Unified Single-Call AI Content Generation Engine ──────────────────────────
 def generate_blog_content(api_key, category_meta, collections, existing_titles):
     """
     Generates high-value, Google Discover-ready blog content in the original
-    conversational first-person stylist voice using the unified AI Client
-    (Gemini -> Groq -> OpenRouter) with full failover protection.
+    conversational first-person stylist voice using a SINGLE optimized AI call
+    with minimal tokens to eliminate rate limits and API bursts.
     """
     from ai_client import generate as ai_generate
 
     category_name = category_meta["name"]
-    sample_themes = "\n".join(f"- {t}" for t in category_meta.get("topic_themes", []))
+    topic_themes = category_meta.get("topic_themes", [f"How to Style {category_name} for Everyday Elegance"])
 
-    # Exclusion list for anti-duplication
-    exclusion_text = ""
-    if existing_titles:
-        sample_exclusions = existing_titles[:250]
-        exclusion_text = "DO NOT use or rephrase any of these already covered topics:\n" + "\n".join(f"- {t}" for t in sample_exclusions) + "\n"
-
-    # Step 1: Generate Specific Trending Question for Category
-    topic_prompt = f"""
-Act as an expert boutique fashion editor for MeeeShop, a women's fashion boutique in the USA.
-Provide ONE specific, highly trending styling question or guide title regarding {category_name}.
-
-CRITICAL TITLE RULES:
-- Keep the title clean, direct, elegant, and concise (e.g. "How to Style Tailored Trousers Casually", "The Best Ways to Style High-Waisted Jeans", "How to Layer Midi Skirts for Everyday Chic").
-- Do NOT include conversational parentheticals like "(Without Looking Like You're Heading to a 9-to-5)", "(And Why It Matters)", or "(2026 Guide)".
-- Do NOT use filler or clickbait words like "9-to-5", "secrets", "must-haves".
-- Focus purely on wearable styling advice, body proportions, and outfit formulas.
-
-Core category focus areas:
-{sample_themes}
-
-{exclusion_text}
-
-Return ONLY the clean single-line title/question (no markdown, no quotes, no extra text, English only).
-"""
-
-    topic_raw = ai_generate(topic_prompt, max_tokens=150, temperature=0.7)
-    if not topic_raw:
-        topic_raw = random.choice(category_meta.get("topic_themes", ["Essential Style Guide"]))
+    # Step 1: Select a fresh trending topic theme avoiding existing titles
+    existing_lower = {t.lower() for t in existing_titles}
+    available_themes = [t for t in topic_themes if t.lower() not in existing_lower]
     
-    topic = sanitize_editorial_title(topic_raw.split("\n")[0])
-
-    # Safety deduplication check
-    if any(topic.lower() == t.lower() for t in existing_titles):
-        print("  [Notice]: Topic already exists. Selecting fresh theme variant...")
-        topic = sanitize_editorial_title(random.choice(category_meta.get("topic_themes", [topic])))
-
+    if available_themes:
+        topic = random.choice(available_themes)
+    else:
+        # Generate clean topic variant deterministically
+        qualifiers = ["Everyday Chic", "Effortless Outfits", "Modern Proportions", "Versatile Styling", "Capsule Wardrobes"]
+        chosen_qualifier = random.choice(qualifiers)
+        topic = f"How to Style {category_name} for {chosen_qualifier}"
+    
+    topic = sanitize_editorial_title(topic)
     print(f"[*] Trending Topic Selected for {category_name}: '{topic}'")
 
-    # Step 2: Store collections context for natural internal linking
+    # Step 2: Store collections context for natural internal linking (max 2-3)
     context = ""
     if collections:
         context += "Here are our store collections (verified active collections). You MUST insert a MAXIMUM of 2 to 3 internal links to our collections across the entire article using exact HTML anchor tags (e.g. <a href='/collections/...'>...</a>). Select only the most relevant ones. ONLY link to these specific URLs. DO NOT hallucinate collection URLs:\n"
-        for c in collections:
+        for c in collections[:3]:
             context += f"- {c['title']} (URL: {c['url']})\n"
 
-    # Step 3: Write Article Body (Original High-Value Stylist Voice + Structured FAQs)
+    # Step 3: Write Complete Article Body in ONE Single Token-Efficient Call (~600 words)
     article_prompt = f"""
-Act as an expert fashion and lifestyle consultant at MeeeShop. Write an in-depth, SEO-optimized blog article answering this question: "{topic}".
+Act as an expert fashion and lifestyle consultant at MeeeShop. Write a high-value, concise SEO-optimized boutique blog guide answering this question: "{topic}".
 
 STRICT GUIDELINES:
 1. Target Audience: Women shoppers in the USA searching for authentic style advice.
-2. Tone: Active, conversational, first-person stylist voice. Speak from real-world styling and fitting room experience.
-3. Rhythm: Ensure "burstiness". Mix short, punchy sentences with longer explanations. Do not use monotonous sentence structures.
-4. Forbidden Words (AI Telltales): Do NOT use any of these phrases: {", ".join(AI_CLICHES)}.
-5. Modern Layout & Formatting (CRITICAL):
-   - The first line MUST be the <h1> title (keep it clean and concise: "{topic}").
-   - Use engaging <h2> subheadings.
-   - Break up walls of text. Use <blockquote> for key takeaways, stylist tips, or quotes.
-   - Use bulleted lists (<ul><li>) with relevant emojis for easy scanning.
-   - Bold important phrases.
-   - The article must genuinely help the reader with actionable styling guidance and NOT sound like a sales pitch.
-   - Do NOT insert single product links or specific vendor item names into the body text. Keep the focus on styling formulas and wardrobe advice.
-   - Interlink provided collections naturally within the text using HTML anchor tags.
-6. Language: Pure English only. Do NOT output any foreign characters, non-English words, or broken tokens.
-7. Output Format: Return ONLY valid HTML. Do not wrap in ```html markdown blocks.
+2. Tone: Conversational, first-person stylist voice based on real fitting room experience.
+3. Forbidden Words: Do NOT use {", ".join(AI_CLICHES[:8])}.
+4. Layout & Formatting:
+   - Line 1 MUST be: <h1>{topic}</h1>
+   - 2-3 punchy <h2> sections with outfit formulas and practical advice.
+   - Use a <blockquote> for a key stylist takeaway tip.
+   - Use bullet points (<ul><li>) for scanning.
+   - Include a short FAQ section (<h2>Frequently Asked Questions</h2>) with 2 quick, helpful Q&As.
+   - Do NOT insert individual product names; focus on styling formulas.
+   - Naturally include 2-3 links to our store collections provided below.
+5. Output Format: Return ONLY raw valid HTML. Do NOT wrap in markdown code blocks.
 
 {context}
 """
 
-    html_content = ai_generate(article_prompt, max_tokens=3000, temperature=0.75)
+    html_content = ai_generate(article_prompt, max_tokens=900, temperature=0.7)
     if not html_content:
         raise RuntimeError("Failed generating article body across all AI providers.")
     
