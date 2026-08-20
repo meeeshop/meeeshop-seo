@@ -521,62 +521,14 @@ def get_all_existing_titles(session, store_url, blogs):
             pass
     return list(set(titles))
 
-# ── Robust Multi-Model Gemini Caller ───────────────────────────────────────────
-def call_gemini_with_backoff(client, prompt, retries=2):
-    """
-    Calls Google GenAI client with automatic model discovery and error fallback.
-    Tries modern available model candidates in cascade.
-    """
-    try:
-        available_models = [m.name.replace("models/", "") for m in client.models.list()]
-    except Exception:
-        available_models = []
-
-    priority = [
-        "gemini-3.6-flash",
-        "gemini-3.6-pro",
-        "gemini-3.1-flash",
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro"
-    ]
-
-    models_to_try = [p for p in priority if p in available_models]
-    if not models_to_try:
-        models_to_try = priority + [m for m in available_models if m not in priority]
-
-    for model_name in models_to_try:
-        for attempt in range(retries):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt
-                )
-                if response and response.text and len(response.text.strip()) > 10:
-                    return response.text.strip()
-            except Exception as e:
-                err_str = str(e)
-                if "404" in err_str or "NOT_FOUND" in err_str:
-                    print(f"  [Model Notice]: {model_name} not available. Trying next candidate...")
-                    break
-                elif "429" in err_str or "Quota" in err_str or "503" in err_str:
-                    time.sleep(2 * (attempt + 1))
-                else:
-                    print(f"  [Model Notice]: {model_name} error: {err_str[:80]}")
-                    break
-
-    raise RuntimeError("All Gemini model candidates failed or returned empty.")
-
-# ── High-Quality Content Generation Engine (Clean Editorial Style + FAQs) ──────
+# ── Unified AI Client Content Generation Engine ───────────────────────────────
 def generate_blog_content(api_key, category_meta, collections, existing_titles):
     """
     Generates high-value, Google Discover-ready blog content in the original
-    conversational first-person stylist voice, without single-product forced linking,
-    and with structured FAQ accordions for maximum SEO & Discover visibility.
+    conversational first-person stylist voice using the unified AI Client
+    (Gemini -> Groq -> OpenRouter) with full failover protection.
     """
-    from google import genai
-    client = genai.Client(api_key=api_key)
+    from ai_client import generate as ai_generate
 
     category_name = category_meta["name"]
     sample_themes = "\n".join(f"- {t}" for t in category_meta.get("topic_themes", []))
@@ -606,7 +558,10 @@ Core category focus areas:
 Return ONLY the clean single-line title/question (no markdown, no quotes, no extra text, English only).
 """
 
-    topic_raw = call_gemini_with_backoff(client, topic_prompt)
+    topic_raw = ai_generate(topic_prompt, max_tokens=150, temperature=0.7)
+    if not topic_raw:
+        topic_raw = random.choice(category_meta.get("topic_themes", ["Essential Style Guide"]))
+    
     topic = sanitize_editorial_title(topic_raw.split("\n")[0])
 
     # Safety deduplication check
@@ -647,7 +602,11 @@ STRICT GUIDELINES:
 {context}
 """
 
-    html_content = call_gemini_with_backoff(client, article_prompt).strip()
+    html_content = ai_generate(article_prompt, max_tokens=3000, temperature=0.75)
+    if not html_content:
+        raise RuntimeError("Failed generating article body across all AI providers.")
+    
+    html_content = html_content.strip()
 
     if html_content.startswith("```html"):
         html_content = html_content[7:]
@@ -734,6 +693,9 @@ def generate_article_featured_image(api_key, title, category_name, products):
     """
     print(f"[*] Creating 1200x630 Google Discover featured image for '{title}'...")
     try:
+        import warnings
+        warnings.filterwarnings("ignore", category=UserWarning)
+        warnings.filterwarnings("ignore", message=".*deprecated.*")
         from google import genai
         client = genai.Client(api_key=api_key)
         prompt = (
