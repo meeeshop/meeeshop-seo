@@ -521,133 +521,65 @@ def get_all_existing_titles(session, store_url, blogs):
             pass
     return list(set(titles))
 
-# ── Robust Multi-Model Gemini Caller ───────────────────────────────────────────
-def call_gemini_with_backoff(client, prompt, retries=2):
-    """
-    Calls Google GenAI client with automatic model discovery and error fallback.
-    Tries modern available model candidates in cascade.
-    """
-    try:
-        available_models = [m.name.replace("models/", "") for m in client.models.list()]
-    except Exception:
-        available_models = []
-
-    priority = [
-        "gemini-3.6-flash",
-        "gemini-3.6-pro",
-        "gemini-3.1-flash",
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro"
-    ]
-
-    models_to_try = [p for p in priority if p in available_models]
-    if not models_to_try:
-        models_to_try = priority + [m for m in available_models if m not in priority]
-
-    for model_name in models_to_try:
-        for attempt in range(retries):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt
-                )
-                if response and response.text and len(response.text.strip()) > 10:
-                    return response.text.strip()
-            except Exception as e:
-                err_str = str(e)
-                if "404" in err_str or "NOT_FOUND" in err_str:
-                    print(f"  [Model Notice]: {model_name} not available. Trying next candidate...")
-                    break
-                elif "429" in err_str or "Quota" in err_str or "503" in err_str:
-                    time.sleep(2 * (attempt + 1))
-                else:
-                    print(f"  [Model Notice]: {model_name} error: {err_str[:80]}")
-                    break
-
-    raise RuntimeError("All Gemini model candidates failed or returned empty.")
-
-# ── High-Quality Content Generation Engine (Clean Editorial Style + FAQs) ──────
+# ── Unified Single-Call AI Content Generation Engine ──────────────────────────
 def generate_blog_content(api_key, category_meta, collections, existing_titles):
     """
     Generates high-value, Google Discover-ready blog content in the original
-    conversational first-person stylist voice, without single-product forced linking,
-    and with structured FAQ accordions for maximum SEO & Discover visibility.
+    conversational first-person stylist voice using a SINGLE optimized AI call
+    with minimal tokens to eliminate rate limits and API bursts.
     """
-    from google import genai
-    client = genai.Client(api_key=api_key)
+    from ai_client import generate as ai_generate
 
     category_name = category_meta["name"]
-    sample_themes = "\n".join(f"- {t}" for t in category_meta.get("topic_themes", []))
+    topic_themes = category_meta.get("topic_themes", [f"How to Style {category_name} for Everyday Elegance"])
 
-    # Exclusion list for anti-duplication
-    exclusion_text = ""
-    if existing_titles:
-        sample_exclusions = existing_titles[:250]
-        exclusion_text = "DO NOT use or rephrase any of these already covered topics:\n" + "\n".join(f"- {t}" for t in sample_exclusions) + "\n"
-
-    # Step 1: Generate Specific Trending Question for Category
-    topic_prompt = f"""
-Act as an expert boutique fashion editor for MeeeShop, a women's fashion boutique in the USA.
-Provide ONE specific, highly trending styling question or guide title regarding {category_name}.
-
-CRITICAL TITLE RULES:
-- Keep the title clean, direct, elegant, and concise (e.g. "How to Style Tailored Trousers Casually", "The Best Ways to Style High-Waisted Jeans", "How to Layer Midi Skirts for Everyday Chic").
-- Do NOT include conversational parentheticals like "(Without Looking Like You're Heading to a 9-to-5)", "(And Why It Matters)", or "(2026 Guide)".
-- Do NOT use filler or clickbait words like "9-to-5", "secrets", "must-haves".
-- Focus purely on wearable styling advice, body proportions, and outfit formulas.
-
-Core category focus areas:
-{sample_themes}
-
-{exclusion_text}
-
-Return ONLY the clean single-line title/question (no markdown, no quotes, no extra text, English only).
-"""
-
-    topic_raw = call_gemini_with_backoff(client, topic_prompt)
-    topic = sanitize_editorial_title(topic_raw.split("\n")[0])
-
-    # Safety deduplication check
-    if any(topic.lower() == t.lower() for t in existing_titles):
-        print("  [Notice]: Topic already exists. Selecting fresh theme variant...")
-        topic = sanitize_editorial_title(random.choice(category_meta.get("topic_themes", [topic])))
-
+    # Step 1: Select a fresh trending topic theme avoiding existing titles
+    existing_lower = {t.lower() for t in existing_titles}
+    available_themes = [t for t in topic_themes if t.lower() not in existing_lower]
+    
+    if available_themes:
+        topic = random.choice(available_themes)
+    else:
+        # Generate clean topic variant deterministically
+        qualifiers = ["Everyday Chic", "Effortless Outfits", "Modern Proportions", "Versatile Styling", "Capsule Wardrobes"]
+        chosen_qualifier = random.choice(qualifiers)
+        topic = f"How to Style {category_name} for {chosen_qualifier}"
+    
+    topic = sanitize_editorial_title(topic)
     print(f"[*] Trending Topic Selected for {category_name}: '{topic}'")
 
-    # Step 2: Store collections context for natural internal linking
+    # Step 2: Store collections context for natural internal linking (max 2-3)
     context = ""
     if collections:
         context += "Here are our store collections (verified active collections). You MUST insert a MAXIMUM of 2 to 3 internal links to our collections across the entire article using exact HTML anchor tags (e.g. <a href='/collections/...'>...</a>). Select only the most relevant ones. ONLY link to these specific URLs. DO NOT hallucinate collection URLs:\n"
-        for c in collections:
+        for c in collections[:3]:
             context += f"- {c['title']} (URL: {c['url']})\n"
 
-    # Step 3: Write Article Body (Original High-Value Stylist Voice + Structured FAQs)
+    # Step 3: Write Complete Article Body in ONE Single Token-Efficient Call (600-800 words)
     article_prompt = f"""
-Act as an expert fashion and lifestyle consultant at MeeeShop. Write an in-depth, SEO-optimized blog article answering this question: "{topic}".
+Act as a senior fashion director and boutique stylist at MeeeShop (USA). Write a comprehensive, highly engaging, Google Discover-eligible fashion styling guide answering: "{topic}".
 
-STRICT GUIDELINES:
-1. Target Audience: Women shoppers in the USA searching for authentic style advice.
-2. Tone: Active, conversational, first-person stylist voice. Speak from real-world styling and fitting room experience.
-3. Rhythm: Ensure "burstiness". Mix short, punchy sentences with longer explanations. Do not use monotonous sentence structures.
-4. Forbidden Words (AI Telltales): Do NOT use any of these phrases: {", ".join(AI_CLICHES)}.
-5. Modern Layout & Formatting (CRITICAL):
-   - The first line MUST be the <h1> title (keep it clean and concise: "{topic}").
-   - Use engaging <h2> subheadings.
-   - Break up walls of text. Use <blockquote> for key takeaways, stylist tips, or quotes.
-   - Use bulleted lists (<ul><li>) with relevant emojis for easy scanning.
-   - Bold important phrases.
-   - The article must genuinely help the reader with actionable styling guidance and NOT sound like a sales pitch.
-   - Do NOT insert single product links or specific vendor item names into the body text. Keep the focus on styling formulas and wardrobe advice.
-   - Interlink provided collections naturally within the text using HTML anchor tags.
-6. Language: Pure English only. Do NOT output any foreign characters, non-English words, or broken tokens.
-7. Output Format: Return ONLY valid HTML. Do not wrap in ```html markdown blocks.
-
+GOOGLE DISCOVER & EDITORIAL REQUIREMENTS:
+1. Audience & Voice: Authentic, conversational, first-person stylist voice sharing real fitting room experience.
+2. Structure & Formatting:
+   - Line 1 MUST be: <h1>{topic}</h1>
+   - Introduction: Set a relatable scene (coffee runs, morning commute, event dressing) explaining why proportions matter.
+   - 2 Detailed Styling Sections with <h2> subheadings (e.g. Daytime Proportions vs Evening Layering).
+     Include an explanation paragraph + a clear outfit formula checklist (<ul><li>).
+   - A styled <blockquote> with a pro stylist rule-of-thumb tip.
+   - A dedicated <h2>Frequently Asked Questions</h2> section with EXACTLY 2 complete, well-reasoned Q&As (<p><strong>Q: ...</strong></p><p>A: ...</p>).
+3. Forbidden AI Telltales: Do NOT use phrases like {", ".join(AI_CLICHES[:8])}.
+4. Length & Completion: Ensure ALL sentences and FAQs are 100% complete and not cut off. Total length should be ~600-800 words.
+5. Internal Linking: Naturally integrate 2-3 links to our store collections below using exact HTML anchor tags:
 {context}
+6. Output: Return ONLY raw valid HTML. Do NOT wrap in ```html markdown fences.
 """
 
-    html_content = call_gemini_with_backoff(client, article_prompt).strip()
+    html_content = ai_generate(article_prompt, max_tokens=1600, temperature=0.7)
+    if not html_content:
+        raise RuntimeError("Failed generating article body across all AI providers.")
+    
+    html_content = html_content.strip()
 
     if html_content.startswith("```html"):
         html_content = html_content[7:]
@@ -656,6 +588,15 @@ STRICT GUIDELINES:
     if html_content.endswith("```"):
         html_content = html_content[:-3]
     html_content = re.sub(r'<meta[^>]*>', '', html_content, flags=re.IGNORECASE).strip()
+
+    # Safeguard: ensure HTML doesn't end on a broken unclosed tag or sentence
+    if not html_content.endswith((".", "</p>", "</ul>", "</blockquote>", "</div>", ">")):
+        # Cleanly trim back to last completed period or tag
+        last_period = max(html_content.rfind("."), html_content.rfind("</p>"))
+        if last_period > len(html_content) - 150:
+            html_content = html_content[:last_period + 1]
+            if not html_content.endswith("</p>") and "<p>" in html_content:
+                html_content += "</p>"
 
     # Extract <h1> title and strip from body to avoid double H1 in Dawn theme
     article_title = topic
@@ -734,6 +675,9 @@ def generate_article_featured_image(api_key, title, category_name, products):
     """
     print(f"[*] Creating 1200x630 Google Discover featured image for '{title}'...")
     try:
+        import warnings
+        warnings.filterwarnings("ignore", category=UserWarning)
+        warnings.filterwarnings("ignore", message=".*deprecated.*")
         from google import genai
         client = genai.Client(api_key=api_key)
         prompt = (
