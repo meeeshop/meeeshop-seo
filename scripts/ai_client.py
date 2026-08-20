@@ -1,8 +1,8 @@
 """
 ai_client.py — Free AI provider with intelligent multi-level fallback
-Primary   : Gemini (Google AI Studio — gemini-flash-latest)
-Secondary : Groq with Primary & Fallback API Keys (openai/gpt-oss-120b, qwen3.6, etc.)
-Tertiary  : OpenRouter Free Models with Primary & Fallback API Keys (poolside, gemma, gpt-oss, etc.)
+Primary   : Groq with Primary & Fallback API Keys (openai/gpt-oss-120b, qwen3.6, etc.)
+Secondary : OpenRouter Free Models with Primary & Fallback API Keys (poolside, gemma, gpt-oss, etc.)
+Fallback  : returns None → caller uses standard template
 """
 
 import os
@@ -47,19 +47,11 @@ def _get_api_keys(primary_name: str, fallback_names: List[str]) -> List[str]:
     return keys
 
 
-_GEMINI_KEYS = _get_api_keys("GEMINI_API_KEY", ["GEMINI_API_KEY_FALLBACK"])
 _GROQ_KEYS = _get_api_keys("GROQ_API_KEY", ["GROQ_API_KEY_FALLBACK", "FALLBACK_GROQ_API_KEY"])
 _OPENROUTER_KEYS = _get_api_keys("OPENROUTER_API_KEY", ["OPENROUTER_API_KEY_FALLBACK", "FALLBACK_OPENROUTER_API_KEY"])
 
-GEMINI_KEY = _GEMINI_KEYS[0] if _GEMINI_KEYS else ""
 GROQ_KEY = _GROQ_KEYS[0] if _GROQ_KEYS else ""
 OPENROUTER_KEY = _OPENROUTER_KEYS[0] if _OPENROUTER_KEYS else ""
-
-_GEMINI_MODELS = [
-    "gemini-flash-latest",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-]
 
 _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -104,7 +96,6 @@ _OPENROUTER_MODEL_CATEGORIES = {
 }
 
 _session = requests.Session()
-_last_success_provider: Optional[str] = None
 
 
 def _clean_response_text(text: Optional[str]) -> str:
@@ -129,48 +120,6 @@ def _get_openrouter_models(category: Optional[str] = None) -> List[str]:
     if category and category in _OPENROUTER_MODEL_CATEGORIES:
         return _OPENROUTER_MODEL_CATEGORIES[category]
     return _OPENROUTER_FREE_MODELS
-
-
-def _call_gemini(prompt: str, max_tokens: int = 400, temperature: float = 0.7) -> str:
-    if not _GEMINI_KEYS:
-        raise RuntimeError("No GEMINI_API_KEY configured")
-
-    last_error = None
-    for key in _GEMINI_KEYS:
-        for model in _GEMINI_MODELS:
-            try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-                r = _session.post(
-                    url,
-                    params={"key": key},
-                    json={
-                        "contents": [{"parts": [{"text": prompt}]}],
-                        "generationConfig": {
-                            "maxOutputTokens": max(max_tokens, 200),
-                            "temperature": temperature,
-                            "thinkingConfig": {"thinkingBudget": 0},
-                        },
-                    },
-                    timeout=30,
-                )
-                if r.status_code == 200:
-                    data = r.json()
-                    candidates = data.get("candidates", [])
-                    if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        if parts and "text" in parts[0]:
-                            return parts[0]["text"].strip()
-                if r.status_code == 404:
-                    continue  # Try next gemini model
-                if r.status_code == 429:
-                    last_error = f"Gemini {model} rate-limited (HTTP 429)"
-                    break  # Key rate-limited, try next key
-                last_error = f"Gemini HTTP {r.status_code}: {r.text[:120]}"
-            except Exception as e:
-                last_error = str(e)
-                continue
-
-    raise RuntimeError(f"All Gemini attempts failed: {last_error}")
 
 
 def _call_groq(prompt: str, max_tokens: int = 400, temperature: float = 0.7) -> str:
@@ -272,16 +221,13 @@ def _call_openrouter(prompt: str, max_tokens: int = 400, temperature: float = 0.
 
 
 _PROVIDERS = [
-    ("Gemini", _call_gemini),
-    ("Groq", _call_groq),
-    ("OpenRouter", lambda p, m, t: _call_openrouter(p, m, t, None)),
+    ("Groq",       _call_groq),
+    ("OpenRouter", lambda p, m, t: _call_openrouter(p, m, t, "seo")),
 ]
 
 
 def generate(prompt: str, max_tokens: int = 400, temperature: float = 0.8, category: Optional[str] = None) -> Optional[str]:
-    """Try Gemini → Groq → OpenRouter. Returns text on first success, None if all fail."""
-    global _last_success_provider
-
+    """Try Groq (Primary -> Fallback Key) → OpenRouter (Primary -> Fallback Key). Returns text on first success, None if all fail."""
     if category == "pricing":
         try:
             text = _call_openrouter(prompt, max_tokens, temperature, category="pricing")
@@ -291,26 +237,12 @@ def generate(prompt: str, max_tokens: int = 400, temperature: float = 0.8, categ
         except Exception as e:
             print(f"  [AI:OpenRouter-Pricing] {e} - falling back...")
 
-    # If sticky provider was recorded, try it first
-    if _last_success_provider:
-        provider_fn = next((fn for name, fn in _PROVIDERS if name == _last_success_provider), None)
-        if provider_fn:
-            try:
-                text = provider_fn(prompt, max_tokens, temperature)
-                if text:
-                    print(f"  [AI:{_last_success_provider} (sticky)] OK")
-                    return text
-            except Exception as e:
-                print(f"  [AI:{_last_success_provider} (sticky)] {e} - resetting and trying all providers...")
-                _last_success_provider = None
-
-    # Try providers in order: Gemini → Groq → OpenRouter
+    # Try providers in order: Groq → OpenRouter
     for name, fn in _PROVIDERS:
         try:
             text = fn(prompt, max_tokens, temperature)
             if text:
                 print(f"  [AI:{name}] OK")
-                _last_success_provider = name
                 return text
         except Exception as e:
             print(f"  [AI:{name}] {e} - trying next provider...", flush=True)
@@ -325,7 +257,7 @@ def test_providers() -> dict:
     probe = "Reply with the single word: ok"
     for name, fn in _PROVIDERS:
         try:
-            r = fn(probe, 10, 0.1)
+            r = fn(probe, 50, 0.1)
             results[name] = "OK  " + (r[:40] if r else "(empty)")
         except Exception as e:
             results[name] = f"FAIL {e}"
