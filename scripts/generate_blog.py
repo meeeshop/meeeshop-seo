@@ -555,28 +555,27 @@ def generate_blog_content(api_key, category_meta, collections, existing_titles):
         for c in collections[:3]:
             context += f"- {c['title']} (URL: {c['url']})\n"
 
-    # Step 3: Write Complete Article Body in ONE Single Token-Efficient Call (~600 words)
+    # Step 3: Write Complete Article Body in ONE Single Token-Efficient Call (600-800 words)
     article_prompt = f"""
-Act as an expert fashion and lifestyle consultant at MeeeShop. Write a high-value, concise SEO-optimized boutique blog guide answering this question: "{topic}".
+Act as a senior fashion director and boutique stylist at MeeeShop (USA). Write a comprehensive, highly engaging, Google Discover-eligible fashion styling guide answering: "{topic}".
 
-STRICT GUIDELINES:
-1. Target Audience: Women shoppers in the USA searching for authentic style advice.
-2. Tone: Conversational, first-person stylist voice based on real fitting room experience.
-3. Forbidden Words: Do NOT use {", ".join(AI_CLICHES[:8])}.
-4. Layout & Formatting:
+GOOGLE DISCOVER & EDITORIAL REQUIREMENTS:
+1. Audience & Voice: Authentic, conversational, first-person stylist voice sharing real fitting room experience.
+2. Structure & Formatting:
    - Line 1 MUST be: <h1>{topic}</h1>
-   - 2-3 punchy <h2> sections with outfit formulas and practical advice.
-   - Use a <blockquote> for a key stylist takeaway tip.
-   - Use bullet points (<ul><li>) for scanning.
-   - Include a short FAQ section (<h2>Frequently Asked Questions</h2>) with 2 quick, helpful Q&As.
-   - Do NOT insert individual product names; focus on styling formulas.
-   - Naturally include 2-3 links to our store collections provided below.
-5. Output Format: Return ONLY raw valid HTML. Do NOT wrap in markdown code blocks.
-
+   - Introduction: Set a relatable scene (coffee runs, morning commute, event dressing) explaining why proportions matter.
+   - 2 Detailed Styling Sections with <h2> subheadings (e.g. Daytime Proportions vs Evening Layering).
+     Include an explanation paragraph + a clear outfit formula checklist (<ul><li>).
+   - A styled <blockquote> with a pro stylist rule-of-thumb tip.
+   - A dedicated <h2>Frequently Asked Questions</h2> section with EXACTLY 2 complete, well-reasoned Q&As (<p><strong>Q: ...</strong></p><p>A: ...</p>).
+3. Forbidden AI Telltales: Do NOT use phrases like {", ".join(AI_CLICHES[:8])}.
+4. Length & Completion: Ensure ALL sentences and FAQs are 100% complete and not cut off. Total length should be ~600-800 words.
+5. Internal Linking: Naturally integrate 2-3 links to our store collections below using exact HTML anchor tags:
 {context}
+6. Output: Return ONLY raw valid HTML. Do NOT wrap in ```html markdown fences.
 """
 
-    html_content = ai_generate(article_prompt, max_tokens=900, temperature=0.7)
+    html_content = ai_generate(article_prompt, max_tokens=1600, temperature=0.7)
     if not html_content:
         raise RuntimeError("Failed generating article body across all AI providers.")
     
@@ -589,6 +588,15 @@ STRICT GUIDELINES:
     if html_content.endswith("```"):
         html_content = html_content[:-3]
     html_content = re.sub(r'<meta[^>]*>', '', html_content, flags=re.IGNORECASE).strip()
+
+    # Safeguard: ensure HTML doesn't end on a broken unclosed tag or sentence
+    if not html_content.endswith((".", "</p>", "</ul>", "</blockquote>", "</div>", ">")):
+        # Cleanly trim back to last completed period or tag
+        last_period = max(html_content.rfind("."), html_content.rfind("</p>"))
+        if last_period > len(html_content) - 150:
+            html_content = html_content[:last_period + 1]
+            if not html_content.endswith("</p>") and "<p>" in html_content:
+                html_content += "</p>"
 
     # Extract <h1> title and strip from body to avoid double H1 in Dawn theme
     article_title = topic

@@ -127,7 +127,7 @@ def _call_groq(prompt: str, max_tokens: int = 400, temperature: float = 0.7) -> 
         raise RuntimeError("No GROQ_API_KEY configured")
 
     last_error = None
-    effective_tokens = min(max(max_tokens, 500), 1000)
+    effective_tokens = min(max(max_tokens, 500), 1800)
     for key_idx, key in enumerate(_GROQ_KEYS):
         key_label = "primary" if key_idx == 0 else f"fallback-{key_idx}"
         for model in _GROQ_MODELS:
