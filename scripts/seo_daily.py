@@ -424,6 +424,59 @@ SMALL_WORDS = {
 
 ACRONYMS = {'USA','UK','US','UV','XL','XS','XXL','XXXL','2XL','3XL','NYC','LA','NY','DJ','TV','PC'}
 
+def standardize_product_title(title, vendor='', product_type=''):
+    """
+    Standardize product title according to [Brand] + [Style/Model] + [Category] + [Key Feature]
+    Removes supplier codes, prevents duplication, and ensures category keyword presence.
+    """
+    if not title:
+        return title
+    original = title.strip()
+    v_clean = (vendor or '').strip()
+    if v_clean.upper() == 'YMI JEANS':
+        v_clean = 'YMI'
+    elif v_clean.upper() == 'ORANGE FARM CLOTHING':
+        v_clean = 'Orange Farm'
+    elif v_clean.upper() == 'CCWHOLESALECLOTHING' and 'HYFVE' in original.upper():
+        v_clean = 'Hyfve'
+    elif v_clean.upper() == 'MKF DROPSHIP':
+        v_clean = 'MKF Collection'
+    
+    # Remove awkward symbols, brackets, supplier codes like Hj128, Hj103
+    cleaned = re.sub(r'^\*+|\*+$', '', original).strip()
+    cleaned = re.sub(r'\[.*?\]', '', cleaned).strip()
+    cleaned = re.sub(r'\b(Hj\d{3}|HJ\d{3})\b', '', cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    
+    # Ensure brand is prefixed if vendor exists
+    if v_clean and v_clean.lower() not in ('unknown', 'other', ''):
+        has_brand = False
+        for v_part in [v_clean, v_clean.split()[0]]:
+            if cleaned.lower().startswith(v_part.lower()):
+                has_brand = True
+                break
+        if 'judy blue' in cleaned.lower() or 'risen' in cleaned.lower() or 'artemis' in cleaned.lower():
+            has_brand = True
+            
+        if not has_brand:
+            cleaned = f"{v_clean} {cleaned}"
+            
+    # Ensure category keywords
+    ptype_lower = (product_type or '').lower()
+    c_lower = cleaned.lower()
+    if ('jean' in ptype_lower or 'denim' in ptype_lower) and 'jean' not in c_lower and 'short' not in c_lower and 'pant' not in c_lower and 'jacket' not in c_lower and 'vest' not in c_lower:
+        cleaned += " Jeans"
+    elif 'dress' in ptype_lower and 'dress' not in c_lower and 'set' not in c_lower:
+        cleaned += " Dress"
+    elif ('top' in ptype_lower or 'shirt' in ptype_lower) and 'top' not in c_lower and 'shirt' not in c_lower and 'blouse' not in c_lower and 'sweater' not in c_lower and 'tee' not in c_lower and 'tank' not in c_lower:
+        cleaned += " Top"
+    elif ('tote' in ptype_lower or 'bag' in ptype_lower or 'handbag' in ptype_lower) and 'bag' not in c_lower and 'tote' not in c_lower and 'handbag' not in c_lower:
+        cleaned += " Handbag"
+
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return title_case(cleaned)
+
+
 def title_case(text):
     words = text.strip().split()
     if not words:
@@ -440,6 +493,7 @@ def title_case(text):
         else:
             out.append(w.capitalize())
     return ' '.join(out)
+
 
 
 def slugify(text):
@@ -1983,8 +2037,8 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
             changes.append({"field": "tags", "before": product.get('tags', ''), "after": new_tags_str})
             print(f"  + Added keywords to product tags: {gsc_kw}")
     if not only_images:
-        # ── 1. Title Case ─────────────────────────────────────────────────────────
-        new_title    = title_case(old_title)
+        # ── 1. Title Standardization & SEO Formula ──────────────────────────────
+        new_title = standardize_product_title(old_title, product.get('vendor', ''), product.get('product_type', ''))
         if new_title != old_title:
             prod_updates['title'] = new_title
             stats['titles'] += 1
