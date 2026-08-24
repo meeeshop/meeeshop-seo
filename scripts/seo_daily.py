@@ -437,15 +437,21 @@ def standardize_product_title(title, vendor='', product_type=''):
         v_clean = 'YMI'
     elif v_clean.upper() == 'ORANGE FARM CLOTHING':
         v_clean = 'Orange Farm'
-    elif v_clean.upper() == 'CCWHOLESALECLOTHING' and 'HYFVE' in original.upper():
-        v_clean = 'Hyfve'
+    elif v_clean.upper() in ('CCWHOLESALECLOTHING', 'CC WHOLESALE CLOTHING', 'WHOLESALE'):
+        if 'HYFVE' in original.upper():
+            v_clean = 'Hyfve'
+        else:
+            v_clean = ''
     elif v_clean.upper() == 'MKF DROPSHIP':
         v_clean = 'MKF Collection'
+    elif v_clean.upper() in ('UNKNOWN', 'OTHER', 'D&J', 'TRENDSI'):
+        v_clean = ''
     
-    # Remove awkward symbols, brackets, supplier codes like Hj128, Hj103
+    # Remove awkward symbols, brackets, supplier codes, and wholesale distributor prefixes
     cleaned = re.sub(r'^\*+|\*+$', '', original).strip()
     cleaned = re.sub(r'\[.*?\]', '', cleaned).strip()
     cleaned = re.sub(r'\b(Hj\d{3}|HJ\d{3})\b', '', cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r'\bCCWHOLESALECLOTHING\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     
     # Ensure brand is prefixed if vendor exists
