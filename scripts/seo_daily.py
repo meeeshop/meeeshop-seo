@@ -437,7 +437,7 @@ def standardize_product_title(title, vendor='', product_type=''):
         v_clean = 'YMI'
     elif v_clean.upper() == 'ORANGE FARM CLOTHING':
         v_clean = 'Orange Farm'
-    elif v_clean.upper() in ('CCWHOLESALECLOTHING', 'CC WHOLESALE CLOTHING', 'WHOLESALE'):
+    elif v_clean.upper() in ('CCWHOLESALECLOTHING', 'CC WHOLESALE CLOTHING', 'WHOLESALE', 'ATHINA RETAIL', 'ATHINA'):
         if 'HYFVE' in original.upper():
             v_clean = 'Hyfve'
         else:
@@ -452,6 +452,8 @@ def standardize_product_title(title, vendor='', product_type=''):
     cleaned = re.sub(r'\[.*?\]', '', cleaned).strip()
     cleaned = re.sub(r'\b(Hj\d{3}|HJ\d{3})\b', '', cleaned, flags=re.IGNORECASE).strip()
     cleaned = re.sub(r'\bCCWHOLESALECLOTHING\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r'\bATHINA\s+RETAIL\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r'\bATHINA\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     
     # Ensure brand is prefixed if vendor exists
