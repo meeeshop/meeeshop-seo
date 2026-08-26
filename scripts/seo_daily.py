@@ -517,8 +517,8 @@ def standardize_product_title(title, vendor='', product_type=''):
     ]
     for pat in wholesale_patterns:
         cleaned = re.sub(pat, '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r'[\s\-–—:]+$', '', cleaned).strip()
-    cleaned = re.sub(r'^[\s\-–—:]+', '', cleaned).strip()
+    cleaned = re.sub(r'[\s\-–—:\.]+$', '', cleaned).strip()
+    cleaned = re.sub(r'^[\s\.\,\*\-\–\—\:\_]+', '', cleaned).strip()
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     
     # Ensure recognized brand is prefixed ONLY if it is a popular consumer brand

@@ -92,8 +92,8 @@ def clean_title(title, vendor, ptype):
     ]
     for pat in wholesale_patterns:
         cleaned = re.sub(pat, '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r'[\s\-–—:]+$', '', cleaned).strip()
-    cleaned = re.sub(r'^[\s\-–—:]+', '', cleaned).strip()
+    cleaned = re.sub(r'[\s\-–—:\.]+$', '', cleaned).strip()
+    cleaned = re.sub(r'^[\s\.\,\*\-\–\—\:\_]+', '', cleaned).strip()
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     
     recognized_brands_to_prefix = {
