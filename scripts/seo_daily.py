@@ -438,21 +438,20 @@ def standardize_product_title(title, vendor='', product_type=''):
     elif v_clean.upper() == 'ORANGE FARM CLOTHING':
         v_clean = 'Orange Farm'
     blocked_suppliers = (
-        'CCWHOLESALECLOTHING', 'CC WHOLESALE CLOTHING', 'WHOLESALE',
+        'CCWHOLESALECLOTHING', 'CC WHOLESALE CLOTHING', 'CC WHOLESALE', 'WHOLESALE',
         'ATHINA RETAIL', 'ATHINA', 'BOHO CLOTHING AND ACCESSORIES', 'BOHO CLOTHING',
         'AILI\'S CORNER', 'AILIS CORNER', 'SUPREME FASHION', 'COTTONWAYS',
-        'SHOPBASICBAE', 'HELLODAY.US', 'HELLO DAY', 'ELLISONYOUNG.COM', 'ELLISONYOUNG',
-        'LUCKY FEET SHOES', 'SPUN BAMBOO', 'TRENDSI', 'D&J', 'UNKNOWN', 'OTHER', 'DEFAULT'
+        'SHOPBASICBAE', 'BASIC BAE', 'HELLODAY.US', 'HELLO DAY', 'ELLISONYOUNG.COM', 'ELLISONYOUNG',
+        'LUCKY FEET SHOES', 'SPUN BAMBOO', 'TRENDSI', 'D&J', 'UNKNOWN', 'OTHER', 'DEFAULT', '',
+        'MKF DROPSHIP', 'GLEE + CO', 'GLEE AND CO', 'ORANGE FARM CLOTHING', 'ORANGE FARM',
+        'GRACE+EMMA', 'GRACE AND EMMA', 'GRACE & EMMA', 'ARTEMIS VINTAGE', 'ARTEMIS',
+        'INDIE & CO.', 'INDIE AND CO.', 'INDIE & CO', 'INDIE AND CO', 'HEY JOANIE',
+        'PRETTY SIMPLE', 'MADELINE LOVE', 'MISSFINCHNYC', 'MISS FINCH NYC', 'SNOSKINS',
+        'ALYTH ACTIVE', 'DIZZY-LIZZIE', 'DIZZY LIZZIE', 'TROPHY YOGA', 'VAILA SHOES', 'VAILA',
+        'BOTORI EQUESTRIAN', 'BOTORI', 'VALENTINE', 'TYCHE', 'DIOSA', 'CEFIAN', 'SOVELLA'
     )
     if v_clean.upper() in blocked_suppliers:
-        if 'HYFVE' in original.upper():
-            v_clean = 'Hyfve'
-        elif 'SOVELLA' in original.upper():
-            v_clean = 'Sovella'
-        elif 'BASIC BAE' in original.upper():
-            v_clean = 'Basic Bae'
-        else:
-            v_clean = ''
+        v_clean = ''
     elif v_clean.upper() == 'MKF DROPSHIP':
         v_clean = 'MKF Collection'
     
@@ -461,32 +460,79 @@ def standardize_product_title(title, vendor='', product_type=''):
     cleaned = re.sub(r'\[.*?\]', '', cleaned).strip()
     cleaned = re.sub(r'\b(Hj\d{3}|HJ\d{3})\b', '', cleaned, flags=re.IGNORECASE).strip()
     cleaned = re.sub(r'\b(?:Clearance|New|Sale)\s+', '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r'\bCCWHOLESALECLOTHING\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r'\bATHINA\s+RETAIL\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r'\bATHINA\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r'\bBoho Clothing and Accessories\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r'\bBoho Clothing\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r'\bAili\'s Corner\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r'\bSUPREME FASHION\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r'\bCottonways\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r'\bShopbasicbae\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r'\bHelloday\.us\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r'\bHello Day\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r'\bEllisonyoung\.com\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r'\bLucky Feet Shoes\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r'\bSpun Bamboo\b[\s\-\:\—]*', '', cleaned, flags=re.IGNORECASE).strip()
+    
+    # Comprehensive removal of all 31 wholesale suppliers from titles
+    wholesale_patterns = [
+        r'\bBoho Clothing and Accessories\b[\s\-\:\—]*',
+        r'\bBoho Clothing\b[\s\-\:\—]*',
+        r'\bAili\'s Corner\b[\s\-\:\—]*',
+        r'\bAilis Corner\b[\s\-\:\—]*',
+        r'\bSUPREME FASHION\b[\s\-\:\—]*',
+        r'\bSupreme Fashion\b[\s\-\:\—]*',
+        r'\bCottonways\b[\s\-\:\—]*',
+        r'\bShopbasicbae\b[\s\-\:\—]*',
+        r'\bBasic Bae\b[\s\-\:\—]*',
+        r'\bHelloday\.us\b[\s\-\:\—]*',
+        r'\bHello Day\b[\s\-\:\—]*',
+        r'\bEllisonyoung\.com\b[\s\-\:\—]*',
+        r'\bEllisonyoung\b[\s\-\:\—]*',
+        r'\bLucky Feet Shoes\b[\s\-\:\—]*',
+        r'\bSpun Bamboo\b[\s\-\:\—]*',
+        r'\bCCWHOLESALECLOTHING\b[\s\-\:\—]*',
+        r'\bCC\s+WHOLESALE\s+CLOTHING\b[\s\-\:\—]*',
+        r'\bCC\s+WHOLESALE\b[\s\-\:\—]*',
+        r'\bATHINA\s+RETAIL\b[\s\-\:\—]*',
+        r'\bATHINA\b[\s\-\:\—]*',
+        r'\bTrendsi\b[\s\-\:\—]*',
+        r'\bMKF\s+Dropship\b[\s\-\:\—]*',
+        r'\bglee\s*\+\s*co\b[\s\-\:\—]*',
+        r'\bGlee\s+and\s+Co\b[\s\-\:\—]*',
+        r'\bOrange\s+Farm\s+Clothing\b[\s\-\:\—]*',
+        r'\bOrange\s+Farm\b[\s\-\:\—]*',
+        r'\bGrace\s*\+\s*Emma\b[\s\-\:\—]*',
+        r'\bGrace\s+and\s+Emma\b[\s\-\:\—]*',
+        r'\bArtemis\s+Vintage\b[\s\-\:\—]*',
+        r'\bArtemis\b[\s\-\:\—]*',
+        r'\bIndie\s*&\s*Co\.?\b[\s\-\:\—]*',
+        r'\bIndie\s+and\s+Co\.?\b[\s\-\:\—]*',
+        r'\bHey\s+Joanie\b[\s\-\:\—]*',
+        r'\bPretty\s+Simple\b[\s\-\:\—]*',
+        r'\bMadeline\s+Love\b[\s\-\:\—]*',
+        r'\bMissFinchNYC\b[\s\-\:\—]*',
+        r'\bMiss\s+Finch\s+NYC\b[\s\-\:\—]*',
+        r'\bSnoSkins\b[\s\-\:\—]*',
+        r'\bAlyth\s+Active\b[\s\-\:\—]*',
+        r'\bDizzy\-Lizzie\b[\s\-\:\—]*',
+        r'\bDizzy\s+Lizzie\b[\s\-\:\—]*',
+        r'\bTrophy\s+Yoga\b[\s\-\:\—]*',
+        r'\bVaila\s+Shoes\b[\s\-\:\—]*',
+        r'\bVaila\b[\s\-\:\—]*',
+        r'\bBOTORI\s+Equestrian\b[\s\-\:\—]*',
+        r'\bBOTORI\b[\s\-\:\—]*',
+        r'\bVALENTINE\b[\s\-\:\—]*',
+        r'\bTYCHE\b[\s\-\:\—]*',
+        r'\bDIOSA\b[\s\-\:\—]*',
+        r'\bCEFIAN\b[\s\-\:\—]*',
+        r'\bSovella\b[\s\-\:\—]*'
+    ]
+    for pat in wholesale_patterns:
+        cleaned = re.sub(pat, '', cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r'[\s\-–—:]+$', '', cleaned).strip()
+    cleaned = re.sub(r'^[\s\-–—:]+', '', cleaned).strip()
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     
-    # Ensure brand is prefixed if vendor exists
-    if v_clean and v_clean.lower() not in ('unknown', 'other', ''):
+    # Ensure recognized brand is prefixed ONLY if it is a popular consumer brand
+    recognized_brands_to_prefix = {
+        'JUDY BLUE', 'YMI', 'RISEN', 'EMORY PARK', 'FLYING TOMATO',
+        'RETROLICIOUS', 'DOWNEAST', 'HYFVE', 'BUKI', 'GOAL FIVE',
+        'ELASTIQUE ATHLETICS', 'MKF COLLECTION'
+    }
+    if v_clean and v_clean.upper() in recognized_brands_to_prefix:
         has_brand = False
         for v_part in [v_clean, v_clean.split()[0]]:
             if cleaned.lower().startswith(v_part.lower()):
                 has_brand = True
                 break
-        if 'judy blue' in cleaned.lower() or 'risen' in cleaned.lower() or 'artemis' in cleaned.lower():
-            has_brand = True
-            
         if not has_brand:
             cleaned = f"{v_clean} {cleaned}"
             
