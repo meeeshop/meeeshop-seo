@@ -571,10 +571,72 @@ def title_case(text):
 
 
 
+BLOCKED_HANDLE_PATTERNS = [
+    r'boho-clothing-and-accessories',
+    r'boho-clothing',
+    r'ailis-corner',
+    r'aili-s-corner',
+    r'supreme-fashion',
+    r'cottonways',
+    r'shopbasicbae',
+    r'basic-bae',
+    r'basicbae',
+    r'helloday-us',
+    r'hellodayus',
+    r'helloday',
+    r'hello-day',
+    r'ellisonyoung-com',
+    r'ellisonyoungcom',
+    r'ellisonyoung',
+    r'lucky-feet-shoes',
+    r'spun-bamboo',
+    r'ccwholesaleclothing',
+    r'cc-wholesale-clothing',
+    r'cc-wholesale',
+    r'athina-retail',
+    r'athina',
+    r'trendsi',
+    r'mkf-dropship',
+    r'glee-co',
+    r'glee-and-co',
+    r'orange-farm-clothing',
+    r'orange-farm',
+    r'grace-emma',
+    r'grace-and-emma',
+    r'artemis-vintage',
+    r'artemis',
+    r'indie-co',
+    r'indie-and-co',
+    r'hey-joanie',
+    r'pretty-simple',
+    r'madeline-love',
+    r'missfinchnyc',
+    r'miss-finch-nyc',
+    r'snoskins',
+    r'alyth-active',
+    r'dizzy-lizzie',
+    r'trophy-yoga',
+    r'vaila-shoes',
+    r'vaila',
+    r'botori-equestrian',
+    r'botori',
+    r'valentine',
+    r'tyche',
+    r'diosa',
+    r'cefian',
+    r'sovella'
+]
+
+
 def slugify(text):
+    if not text:
+        return ""
     s = re.sub(r'[^a-z0-9\s-]', '', text.lower())
     s = re.sub(r'[\s_]+', '-', s.strip())
-    return re.sub(r'-+', '-', s)[:70].strip('-')
+    for pat in BLOCKED_HANDLE_PATTERNS:
+        s = re.sub(rf'(?:^|-){pat}(?:-|$)', '-', s, flags=re.IGNORECASE).strip('-')
+    s = re.sub(r'-+', '-', s)
+    return s[:70].strip('-')
 
 
 def strip_html(html):
@@ -2082,6 +2144,15 @@ def validate_seo(item, item_type, existing_mfs, gsc_keywords=None):
                     "_img_idx": i
                 })
 
+        # Handle validation: ensure no blocked supplier names in URL handles
+        cur_handle = item.get('handle', '')
+        if any(re.search(pat, cur_handle, re.IGNORECASE) for pat in BLOCKED_HANDLE_PATTERNS):
+            mismatches.append({
+                "field": "handle",
+                "before": cur_handle,
+                "after": slugify(title)
+            })
+
     return mismatches
 
 
@@ -2151,7 +2222,8 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
         # ── 3. URL handle + redirect ──────────────────────────────────────────────
         final_title  = prod_updates.get('title', old_title)
         ideal_handle = slugify(final_title)
-        if ideal_handle and ideal_handle != old_handle and len(ideal_handle) > 4:
+        has_blocked_handle = any(re.search(pat, old_handle, re.IGNORECASE) for pat in BLOCKED_HANDLE_PATTERNS)
+        if ideal_handle and (ideal_handle != old_handle or has_blocked_handle) and len(ideal_handle) > 4:
             missing.append(f"handle (was '{old_handle}')")
             prod_updates['handle'] = ideal_handle
             if dry_run:
