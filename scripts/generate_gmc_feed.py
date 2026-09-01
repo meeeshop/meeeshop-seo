@@ -491,8 +491,8 @@ def upload_to_shopify_files(filepath):
             break
             
     if public_url:
-        print(f"[OK] Feed uploaded successfully to Shopify CDN!", flush=True)
-        print(f"[OK] CDN URL: {public_url}", flush=True)
+        print(f"✅ Feed uploaded successfully to Shopify CDN!")
+        print(f"🔗 CDN URL: {public_url}")
         create_or_update_redirect(public_url)
     else:
         raise Exception("Failed to retrieve public URL for uploaded file.")
@@ -607,6 +607,7 @@ def generate_feed():
             is_available = not management or policy == "continue" or qty > 0
             availability = "in_stock" if is_available else "out_of_stock"
             
+            # Price mapping
             price = f"{variant.get('price')} USD"
              
             # GTIN validation (Excludes 20-29, 40-49 internal barcode prefixes and coupon codes)
