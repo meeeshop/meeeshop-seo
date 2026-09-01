@@ -1,44 +1,119 @@
 """
-ai_client.py — Free AI provider with intelligent fallback
-Primary   : Gemini 2.0 Flash  (Google AI Studio — 1M tokens/day, free)
-Secondary : Groq Llama-3.3-70B (groq.com — ~500K tokens/day, free)
-Tertiary  : OpenRouter free models with auto-fallback
+ai_client.py — Free AI provider with intelligent multi-level fallback
+Primary   : Groq with Primary & Fallback API Keys (openai/gpt-oss-120b, qwen3.6, etc.)
+Secondary : OpenRouter Free Models with Primary & Fallback API Keys (poolside, gemma, gpt-oss, etc.)
+Fallback  : returns None → caller uses standard template
 """
 
 import os
+import re
 import sys
 import time
 import requests
-from pathlib import Path
 from typing import List, Optional
 
-
+# Add parent directory to path to load secrets_manager
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from secrets_manager import inject_to_env, get_secret
-inject_to_env()
+try:
+    from secrets_manager import inject_to_env, get_secret
+    inject_to_env()
+except Exception:
+    get_secret = lambda k: os.getenv(k, "")
 
-GEMINI_KEY = get_secret("GEMINI_API_KEY")
-GROQ_KEY = get_secret("GROQ_API_KEY")
-OPENROUTER_KEY = get_secret("OPENROUTER_API_KEY")
 
-_GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+def _get_api_keys(primary_name: str, fallback_names: List[str]) -> List[str]:
+    """Retrieve all available API keys (primary + fallbacks), deduplicated and non-empty."""
+    keys: List[str] = []
+    try:
+        k = get_secret(primary_name)
+        if k and k.strip():
+            keys.append(k.strip())
+    except Exception:
+        pass
+
+    for name in fallback_names:
+        try:
+            k = get_secret(name)
+            if k and k.strip() and k.strip() not in keys:
+                keys.append(k.strip())
+        except Exception:
+            pass
+
+    for name in [primary_name] + fallback_names:
+        k = os.getenv(name, "").strip()
+        if k and k not in keys:
+            keys.append(k)
+
+    return keys
+
+
+_GROQ_KEYS = _get_api_keys("GROQ_API_KEY", ["GROQ_API_KEY_FALLBACK", "FALLBACK_GROQ_API_KEY"])
+_OPENROUTER_KEYS = _get_api_keys("OPENROUTER_API_KEY", ["OPENROUTER_API_KEY_FALLBACK", "FALLBACK_OPENROUTER_API_KEY"])
+
+GROQ_KEY = _GROQ_KEYS[0] if _GROQ_KEYS else ""
+OPENROUTER_KEY = _OPENROUTER_KEYS[0] if _OPENROUTER_KEYS else ""
+
 _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
+# Active and validated model pools
+_GROQ_MODELS = [
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.6-27b",
+    "groq/compound-mini",
+    "groq/compound",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+]
+
 _OPENROUTER_FREE_MODELS = [
     "openrouter/free",
+    "poolside/laguna-s-2.1:free",
+    "poolside/laguna-xs-2.1:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "google/gemma-4-31b-it:free",
+    "openai/gpt-oss-20b:free",
+    "nvidia/nemotron-3-nano-30b-a3b:free",
+    "z-ai/glm-5.2:free",
+    "liquid/lfm-2.5-2.6b:free",
+    "dots-studio/dots-3-note-preview:free",
 ]
 
 _OPENROUTER_MODEL_CATEGORIES = {
     "pricing": [
         "openrouter/free",
+        "poolside/laguna-s-2.1:free",
+        "google/gemma-4-26b-a4b-it:free",
+    ],
+    "seo": [
+        "openrouter/free",
+        "poolside/laguna-s-2.1:free",
+        "google/gemma-4-26b-a4b-it:free",
+        "openai/gpt-oss-20b:free",
     ],
     "general": _OPENROUTER_FREE_MODELS,
 }
 
-# Persistent session and last successful provider tracking
 _session = requests.Session()
-_last_success_provider = None
+
+
+def _clean_response_text(text: Optional[str]) -> str:
+    """Clean markdown artifacts, thinking blocks, and whitespace."""
+    if not text:
+        return ""
+    if "</think>" in text:
+        text = text.split("</think>", 1)[1]
+    elif "<think>" in text:
+        text = ""
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE)
+    lines = text.strip().splitlines()
+    cleaned_lines = []
+    for line in lines:
+        if line.startswith("Here's a thinking process:") or line.startswith("Analysis:"):
+            continue
+        cleaned_lines.append(line)
+    return "\n".join(cleaned_lines).strip()
 
 
 def _get_openrouter_models(category: Optional[str] = None) -> List[str]:
@@ -47,118 +122,113 @@ def _get_openrouter_models(category: Optional[str] = None) -> List[str]:
     return _OPENROUTER_FREE_MODELS
 
 
-def _call_gemini(prompt: str, max_tokens: int, temperature: float) -> str:
-    if not GEMINI_KEY:
-        raise RuntimeError("GEMINI_API_KEY not set")
-    r = _session.post(
-        _GEMINI_URL,
-        params={"key": GEMINI_KEY},
-        json={
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": temperature},
-        },
-        timeout=30,
-    )
-    if r.status_code == 429:
-        raise RuntimeError("rate-limited")
-    r.raise_for_status()
-    return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+def _call_groq(prompt: str, max_tokens: int = 400, temperature: float = 0.7) -> str:
+    if not _GROQ_KEYS:
+        raise RuntimeError("No GROQ_API_KEY configured")
+
+    last_error = None
+    effective_tokens = min(max(max_tokens, 500), 1800)
+    for key_idx, key in enumerate(_GROQ_KEYS):
+        key_label = "primary" if key_idx == 0 else f"fallback-{key_idx}"
+        for model in _GROQ_MODELS:
+            try:
+                r = _session.post(
+                    _GROQ_URL,
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": effective_tokens,
+                        "temperature": temperature,
+                    },
+                    timeout=25,
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    msg = data.get("choices", [{}])[0].get("message", {})
+                    content = _clean_response_text(msg.get("content") or msg.get("reasoning"))
+                    if content:
+                        return content
+
+                if r.status_code == 404:
+                    continue  # Try next model
+
+                if r.status_code in (401, 403, 429):
+                    last_error = f"Groq {key_label} returned HTTP {r.status_code}"
+                    time.sleep(0.5)
+                    break  # Key invalid/rate-limited, try next key
+
+                last_error = f"HTTP {r.status_code}: {r.text[:120]}"
+            except Exception as e:
+                last_error = str(e)
+                continue
+
+    raise RuntimeError(f"All Groq keys and models failed: {last_error}")
 
 
-def _call_groq(prompt: str, max_tokens: int, temperature: float) -> str:
-    if not GROQ_KEY:
-        raise RuntimeError("GROQ_API_KEY not set")
-    r = _session.post(
-        _GROQ_URL,
-        headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
-        json={
-            "model": "llama-3.3-70b-versatile",
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-        },
-        timeout=30,
-    )
-    if r.status_code == 429:
-        raise RuntimeError("rate-limited")
-    r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"].strip()
-
-
-def _call_openrouter(prompt: str, max_tokens: int, temperature: float, category: Optional[str] = None) -> str:
-    if not OPENROUTER_KEY:
-        raise RuntimeError("OPENROUTER_API_KEY not set")
+def _call_openrouter(prompt: str, max_tokens: int = 400, temperature: float = 0.7, category: Optional[str] = None) -> str:
+    if not _OPENROUTER_KEYS:
+        raise RuntimeError("No OPENROUTER_API_KEY configured")
 
     models = _get_openrouter_models(category)
-    attempt_logs: List[str] = []
+    last_error = None
 
-    for model in models:
-        try:
-            print(f"    [OpenRouter] Trying model: {model}...", flush=True)
-            r = _session.post(
-                _OPENROUTER_URL,
-                headers={
-                    "Authorization": f"Bearer {OPENROUTER_KEY}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://us.meeeshop.com",
-                    "X-Title": "MeeeShop",
-                },
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                },
-                timeout=45,
-            )
+    for key_idx, key in enumerate(_OPENROUTER_KEYS):
+        key_label = "primary" if key_idx == 0 else f"fallback-{key_idx}"
+        for model in models:
+            try:
+                r = _session.post(
+                    _OPENROUTER_URL,
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://us.meeeshop.com",
+                        "X-Title": "MeeeShop",
+                    },
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": max_tokens,
+                        "temperature": temperature,
+                    },
+                    timeout=30,
+                )
 
-            if r.status_code == 429:
-                print(f"      [OpenRouter] {model}: rate-limited (HTTP 429)", flush=True)
-                attempt_logs.append(f"{model}: rate-limited (HTTP 429)")
+                if r.status_code == 200:
+                    data = r.json()
+                    choices = data.get("choices", [])
+                    if choices:
+                        msg = choices[0].get("message", {})
+                        content = _clean_response_text(msg.get("content") or msg.get("reasoning"))
+                        if content:
+                            return content
+
+                if r.status_code in (400, 404):
+                    continue  # Model slug unavailable, try next model
+
+                if r.status_code in (401, 403):
+                    last_error = f"OpenRouter {key_label} returned HTTP {r.status_code}"
+                    break  # Key invalid, switch to fallback key
+
+                if r.status_code == 429:
+                    continue  # Model rate-limited upstream, try next free model
+
+                last_error = f"HTTP {r.status_code}: {r.text[:120]}"
+            except Exception as e:
+                last_error = str(e)
                 continue
 
-            if r.status_code >= 400:
-                try:
-                    err_json = r.json()
-                    err_msg = str(err_json.get("error", ""))
-                except Exception:
-                    err_msg = r.text
-
-                if "context_length_exceeded" in err_msg.lower() or "token" in err_msg.lower():
-                    print(f"      [OpenRouter] {model}: token limit - {err_msg[:120]}", flush=True)
-                    attempt_logs.append(f"{model}: token limit - {err_msg}")
-                    continue
-
-                print(f"      [OpenRouter] {model}: error {r.status_code} - {err_msg[:120]}", flush=True)
-                attempt_logs.append(f"{model}: error {r.status_code} - {err_msg}")
-                continue
-
-            print(f"      [OpenRouter] {model}: success", flush=True)
-            attempt_logs.append(f"{model}: OK")
-            content = r.json().get("choices", [{}])[0].get("message", {}).get("content")
-            if content:
-                return content.strip()
-            attempt_logs.append(f"{model}: empty content")
-            continue
-        except Exception as e:
-            print(f"      [OpenRouter] {model}: exception - {e}", flush=True)
-            attempt_logs.append(f"{model}: exception - {e}")
-            continue
-
-    log_blob = " | ".join(attempt_logs) if attempt_logs else "no attempts"
-    raise RuntimeError(f"All OpenRouter models failed: {log_blob}")
+    raise RuntimeError(f"All OpenRouter keys and models failed: {last_error}")
 
 
 _PROVIDERS = [
-    ("Gemini", _call_gemini),
-    ("Groq", _call_groq),
-    ("OpenRouter", lambda p, m, t: _call_openrouter(p, m, t, None)),
+    ("Groq",       _call_groq),
+    ("OpenRouter", lambda p, m, t: _call_openrouter(p, m, t, "seo")),
 ]
 
 
-def generate(prompt: str, max_tokens: int = 400, temperature: float = 0.8, category: str = None) -> str | None:
-    """Try Gemini → Groq → OpenRouter. Returns text on first success, None if all fail."""
-    global _last_success_provider
+def generate(prompt: str, max_tokens: int = 400, temperature: float = 0.8, category: Optional[str] = None) -> Optional[str]:
+    """Try Groq (Primary -> Fallback Key) → OpenRouter (Primary -> Fallback Key). Returns text on first success, None if all fail."""
     if category == "pricing":
         try:
             text = _call_openrouter(prompt, max_tokens, temperature, category="pricing")
@@ -168,37 +238,16 @@ def generate(prompt: str, max_tokens: int = 400, temperature: float = 0.8, categ
         except Exception as e:
             print(f"  [AI:OpenRouter-Pricing] {e} - falling back...")
 
-    # If we already have a successful provider, try ONLY that provider to avoid rate-limit loops
-    if _last_success_provider:
-        provider_fn = next((fn for name, fn in _PROVIDERS if name == _last_success_provider), None)
-        if provider_fn:
-            try:
-                if category == "pricing":
-                    text = _call_openrouter(prompt, max_tokens, temperature, category="pricing")
-                else:
-                    text = provider_fn(prompt, max_tokens, temperature)
-                if text:
-                    print(f"  [AI:{_last_success_provider} (sticky)] OK")
-                    return text
-            except Exception as e:
-                print(f"  [AI:{_last_success_provider} (sticky)] {e} - failed. Resetting sticky provider and trying others...", flush=True)
-                _last_success_provider = None
-
-
-    # Try providers in default order on first call/success search
+    # Try providers in order: Groq → OpenRouter
     for name, fn in _PROVIDERS:
         try:
-            if category == "pricing":
-                text = _call_openrouter(prompt, max_tokens, temperature, category="pricing")
-            else:
-                text = fn(prompt, max_tokens, temperature)
+            text = fn(prompt, max_tokens, temperature)
             if text:
                 print(f"  [AI:{name}] OK")
-                _last_success_provider = name
                 return text
         except Exception as e:
-            print(f"  [AI:{name}] {e} - trying next...", flush=True)
-            time.sleep(1.5)
+            print(f"  [AI:{name}] {e} - trying next provider...", flush=True)
+            time.sleep(0.3)
 
     print("  [AI] all providers failed - returning None", flush=True)
     return None
@@ -209,7 +258,7 @@ def test_providers() -> dict:
     probe = "Reply with the single word: ok"
     for name, fn in _PROVIDERS:
         try:
-            r = fn(probe, 10, 0.1)
+            r = fn(probe, 50, 0.1)
             results[name] = "OK  " + (r[:40] if r else "(empty)")
         except Exception as e:
             results[name] = f"FAIL {e}"

@@ -60,7 +60,7 @@ _sanitizer_installed = False
 
 def _load_dotenv() -> None:
     """Load PRIMARY and FALLBACK keys from .env if not already in environment."""
-    for candidate in [Path(__file__).with_name(".env"), Path(".env")]:
+    for candidate in [Path(__file__).with_name(".env"), Path(__file__).resolve().parent.parent / ".env", Path(".env"), Path("..") / ".env"]:
         if not candidate.exists():
             continue
         for line in candidate.read_text(encoding="utf-8").splitlines():
@@ -95,7 +95,7 @@ def _get_keys() -> tuple[bytes, bytes]:
 # ── Vault loading ─────────────────────────────────────────────────────────────
 
 def _load_vault() -> dict:
-    for candidate in [Path(__file__).with_name("secrets.enc"), Path("secrets.enc")]:
+    for candidate in [Path(__file__).with_name("secrets.enc"), Path(__file__).resolve().parent.parent / "secrets.enc", Path("secrets.enc"), Path("..") / "secrets.enc"]:
         if candidate.exists():
             with open(candidate, "r", encoding="utf-8") as f:
                 return json.load(f)

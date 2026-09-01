@@ -1,4 +1,4 @@
-name: Daily Flipboard Syndication
+name: Flipboard Syndication Automation
 
 on:
   schedule:
@@ -8,22 +8,22 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Dry Run (Test connections, do not post)'
+        description: 'Dry Run (Preview flips without posting)'
         required: false
         type: boolean
-        default: true
+        default: false
       days:
         description: 'Sync articles published in the last X days'
         required: false
         type: string
         default: '14'
       limit:
-        description: 'Max articles to flip'
+        description: 'Max MeeeShop store articles to flip'
         required: false
         type: string
         default: '5'
       reflip_limit:
-        description: 'Max trending articles to flip'
+        description: 'Max trending women fashion articles to curate first'
         required: false
         type: string
         default: '3'

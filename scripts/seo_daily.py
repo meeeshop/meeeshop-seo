@@ -29,17 +29,32 @@ if sys.stderr.encoding != 'utf-8':
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from secrets_manager import inject_to_env, get_secret
-inject_to_env()
-from shopify_graphql import run_graphql, parse_gid
+try:
+    from secrets_manager import inject_to_env, get_secret
+    inject_to_env()
+except Exception:
+    def get_secret(name):
+        return os.getenv(name)
+
+try:
+    from shopify_graphql import run_graphql, parse_gid
+except Exception:
+    pass
 
 try:
     from google_question_fetcher import GoogleQuestionFetcher
 except ImportError:
-    from scripts.google_question_fetcher import GoogleQuestionFetcher
+    try:
+        from scripts.google_question_fetcher import GoogleQuestionFetcher
+    except Exception:
+        GoogleQuestionFetcher = None
 
-STORE  = get_secret("SHOPIFY_STORE")
-TOKEN  = get_secret("SHOPIFY_ACCESS_TOKEN")
+try:
+    STORE = get_secret("SHOPIFY_STORE") or os.getenv("SHOPIFY_STORE", "us-meeeshop.myshopify.com")
+    TOKEN = get_secret("SHOPIFY_ACCESS_TOKEN") or os.getenv("SHOPIFY_ACCESS_TOKEN", "")
+except Exception:
+    STORE = os.getenv("SHOPIFY_STORE", "us-meeeshop.myshopify.com")
+    TOKEN = os.getenv("SHOPIFY_ACCESS_TOKEN", "")
 HEADS  = {"X-Shopify-Access-Token": TOKEN, "Content-Type": "application/json"}
 BASE   = f"https://{STORE}/admin/api/2024-01"
 BRAND  = "us.meeeshop.com"
@@ -409,6 +424,134 @@ SMALL_WORDS = {
 
 ACRONYMS = {'USA','UK','US','UV','XL','XS','XXL','XXXL','2XL','3XL','NYC','LA','NY','DJ','TV','PC'}
 
+def standardize_product_title(title, vendor='', product_type=''):
+    """
+    Standardize product title according to [Brand] + [Style/Model] + [Category] + [Key Feature]
+    Removes supplier codes, prevents duplication, and ensures category keyword presence.
+    """
+    if not title:
+        return title
+    original = title.strip()
+    v_clean = (vendor or '').strip()
+    if v_clean.upper() == 'YMI JEANS':
+        v_clean = 'YMI'
+    elif v_clean.upper() == 'ORANGE FARM CLOTHING':
+        v_clean = 'Orange Farm'
+    blocked_suppliers = (
+        'CCWHOLESALECLOTHING', 'CC WHOLESALE CLOTHING', 'CC WHOLESALE', 'WHOLESALE',
+        'ATHINA RETAIL', 'ATHINA', 'BOHO CLOTHING AND ACCESSORIES', 'BOHO CLOTHING',
+        'AILI\'S CORNER', 'AILIS CORNER', 'SUPREME FASHION', 'COTTONWAYS',
+        'SHOPBASICBAE', 'BASIC BAE', 'HELLODAY.US', 'HELLO DAY', 'ELLISONYOUNG.COM', 'ELLISONYOUNG',
+        'LUCKY FEET SHOES', 'SPUN BAMBOO', 'TRENDSI', 'D&J', 'UNKNOWN', 'OTHER', 'DEFAULT', '',
+        'MKF DROPSHIP', 'GLEE + CO', 'GLEE AND CO', 'ORANGE FARM CLOTHING', 'ORANGE FARM',
+        'GRACE+EMMA', 'GRACE AND EMMA', 'GRACE & EMMA', 'ARTEMIS VINTAGE', 'ARTEMIS',
+        'INDIE & CO.', 'INDIE AND CO.', 'INDIE & CO', 'INDIE AND CO', 'HEY JOANIE',
+        'PRETTY SIMPLE', 'MADELINE LOVE', 'MISSFINCHNYC', 'MISS FINCH NYC', 'SNOSKINS',
+        'ALYTH ACTIVE', 'DIZZY-LIZZIE', 'DIZZY LIZZIE', 'TROPHY YOGA', 'VAILA SHOES', 'VAILA',
+        'BOTORI EQUESTRIAN', 'BOTORI', 'VALENTINE', 'TYCHE', 'DIOSA', 'CEFIAN', 'SOVELLA'
+    )
+    if v_clean.upper() in blocked_suppliers:
+        v_clean = ''
+    elif v_clean.upper() == 'MKF DROPSHIP':
+        v_clean = 'MKF Collection'
+    
+    # Remove awkward symbols, brackets, supplier codes, and wholesale distributor prefixes
+    cleaned = re.sub(r'^\*+|\*+$', '', original).strip()
+    cleaned = re.sub(r'\[.*?\]', '', cleaned).strip()
+    cleaned = re.sub(r'\b(Hj\d{3}|HJ\d{3})\b', '', cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r'\b(?:Clearance|New|Sale)\s+', '', cleaned, flags=re.IGNORECASE).strip()
+    
+    # Comprehensive removal of all 31 wholesale suppliers from titles
+    wholesale_patterns = [
+        r'\bBoho Clothing and Accessories\b[\s\-\:\—]*',
+        r'\bBoho Clothing\b[\s\-\:\—]*',
+        r'\bAili\'s Corner\b[\s\-\:\—]*',
+        r'\bAilis Corner\b[\s\-\:\—]*',
+        r'\bSUPREME FASHION\b[\s\-\:\—]*',
+        r'\bSupreme Fashion\b[\s\-\:\—]*',
+        r'\bCottonways\b[\s\-\:\—]*',
+        r'\bShopbasicbae\b[\s\-\:\—]*',
+        r'\bBasic Bae\b[\s\-\:\—]*',
+        r'\bHelloday\.us\b[\s\-\:\—]*',
+        r'\bHello Day\b[\s\-\:\—]*',
+        r'\bEllisonyoung\.com\b[\s\-\:\—]*',
+        r'\bEllisonyoung\b[\s\-\:\—]*',
+        r'\bLucky Feet Shoes\b[\s\-\:\—]*',
+        r'\bSpun Bamboo\b[\s\-\:\—]*',
+        r'\bCCWHOLESALECLOTHING\b[\s\-\:\—]*',
+        r'\bCC\s+WHOLESALE\s+CLOTHING\b[\s\-\:\—]*',
+        r'\bCC\s+WHOLESALE\b[\s\-\:\—]*',
+        r'\bATHINA\s+RETAIL\b[\s\-\:\—]*',
+        r'\bATHINA\b[\s\-\:\—]*',
+        r'\bTrendsi\b[\s\-\:\—]*',
+        r'\bMKF\s+Dropship\b[\s\-\:\—]*',
+        r'\bglee\s*\+\s*co\b[\s\-\:\—]*',
+        r'\bGlee\s+and\s+Co\b[\s\-\:\—]*',
+        r'\bOrange\s+Farm\s+Clothing\b[\s\-\:\—]*',
+        r'\bOrange\s+Farm\b[\s\-\:\—]*',
+        r'\bGrace\s*\+\s*Emma\b[\s\-\:\—]*',
+        r'\bGrace\s+and\s+Emma\b[\s\-\:\—]*',
+        r'\bArtemis\s+Vintage\b[\s\-\:\—]*',
+        r'\bArtemis\b[\s\-\:\—]*',
+        r'\bIndie\s*&\s*Co\.?\b[\s\-\:\—]*',
+        r'\bIndie\s+and\s+Co\.?\b[\s\-\:\—]*',
+        r'\bHey\s+Joanie\b[\s\-\:\—]*',
+        r'\bPretty\s+Simple\b[\s\-\:\—]*',
+        r'\bMadeline\s+Love\b[\s\-\:\—]*',
+        r'\bMissFinchNYC\b[\s\-\:\—]*',
+        r'\bMiss\s+Finch\s+NYC\b[\s\-\:\—]*',
+        r'\bSnoSkins\b[\s\-\:\—]*',
+        r'\bAlyth\s+Active\b[\s\-\:\—]*',
+        r'\bDizzy\-Lizzie\b[\s\-\:\—]*',
+        r'\bDizzy\s+Lizzie\b[\s\-\:\—]*',
+        r'\bTrophy\s+Yoga\b[\s\-\:\—]*',
+        r'\bVaila\s+Shoes\b[\s\-\:\—]*',
+        r'\bVaila\b[\s\-\:\—]*',
+        r'\bBOTORI\s+Equestrian\b[\s\-\:\—]*',
+        r'\bBOTORI\b[\s\-\:\—]*',
+        r'\bVALENTINE\b[\s\-\:\—]*',
+        r'\bTYCHE\b[\s\-\:\—]*',
+        r'\bDIOSA\b[\s\-\:\—]*',
+        r'\bCEFIAN\b[\s\-\:\—]*',
+        r'\bSovella\b[\s\-\:\—]*'
+    ]
+    for pat in wholesale_patterns:
+        cleaned = re.sub(pat, '', cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r'[\s\-–—:\.]+$', '', cleaned).strip()
+    cleaned = re.sub(r'^[\s\.\,\*\-\–\—\:\_]+', '', cleaned).strip()
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    
+    # Ensure recognized brand is prefixed ONLY if it is a popular consumer brand
+    recognized_brands_to_prefix = {
+        'JUDY BLUE', 'YMI', 'RISEN', 'EMORY PARK', 'FLYING TOMATO',
+        'RETROLICIOUS', 'DOWNEAST', 'HYFVE', 'BUKI', 'GOAL FIVE',
+        'ELASTIQUE ATHLETICS', 'MKF COLLECTION'
+    }
+    if v_clean and v_clean.upper() in recognized_brands_to_prefix:
+        has_brand = False
+        for v_part in [v_clean, v_clean.split()[0]]:
+            if cleaned.lower().startswith(v_part.lower()):
+                has_brand = True
+                break
+        if not has_brand:
+            cleaned = f"{v_clean} {cleaned}"
+            
+    # Ensure category keywords
+    ptype_lower = (product_type or '').lower()
+    c_lower = cleaned.lower()
+    if ('jean' in ptype_lower or 'denim' in ptype_lower) and 'jean' not in c_lower and 'short' not in c_lower and 'pant' not in c_lower and 'jacket' not in c_lower and 'vest' not in c_lower:
+        cleaned += " Jeans"
+    elif 'dress' in ptype_lower and 'dress' not in c_lower and 'set' not in c_lower:
+        cleaned += " Dress"
+    elif ('top' in ptype_lower or 'shirt' in ptype_lower) and 'top' not in c_lower and 'shirt' not in c_lower and 'blouse' not in c_lower and 'sweater' not in c_lower and 'tee' not in c_lower and 'tank' not in c_lower:
+        cleaned += " Top"
+    elif ('tote' in ptype_lower or 'bag' in ptype_lower or 'handbag' in ptype_lower) and 'bag' not in c_lower and 'tote' not in c_lower and 'handbag' not in c_lower:
+        cleaned += " Handbag"
+
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return title_case(cleaned)
+
+
 def title_case(text):
     words = text.strip().split()
     if not words:
@@ -427,10 +570,73 @@ def title_case(text):
     return ' '.join(out)
 
 
+
+BLOCKED_HANDLE_PATTERNS = [
+    r'boho-clothing-and-accessories',
+    r'boho-clothing',
+    r'ailis-corner',
+    r'aili-s-corner',
+    r'supreme-fashion',
+    r'cottonways',
+    r'shopbasicbae',
+    r'basic-bae',
+    r'basicbae',
+    r'helloday-us',
+    r'hellodayus',
+    r'helloday',
+    r'hello-day',
+    r'ellisonyoung-com',
+    r'ellisonyoungcom',
+    r'ellisonyoung',
+    r'lucky-feet-shoes',
+    r'spun-bamboo',
+    r'ccwholesaleclothing',
+    r'cc-wholesale-clothing',
+    r'cc-wholesale',
+    r'athina-retail',
+    r'athina',
+    r'trendsi',
+    r'mkf-dropship',
+    r'glee-co',
+    r'glee-and-co',
+    r'orange-farm-clothing',
+    r'orange-farm',
+    r'grace-emma',
+    r'grace-and-emma',
+    r'artemis-vintage',
+    r'artemis',
+    r'indie-co',
+    r'indie-and-co',
+    r'hey-joanie',
+    r'pretty-simple',
+    r'madeline-love',
+    r'missfinchnyc',
+    r'miss-finch-nyc',
+    r'snoskins',
+    r'alyth-active',
+    r'dizzy-lizzie',
+    r'trophy-yoga',
+    r'vaila-shoes',
+    r'vaila',
+    r'botori-equestrian',
+    r'botori',
+    r'valentine',
+    r'tyche',
+    r'diosa',
+    r'cefian',
+    r'sovella'
+]
+
+
 def slugify(text):
+    if not text:
+        return ""
     s = re.sub(r'[^a-z0-9\s-]', '', text.lower())
     s = re.sub(r'[\s_]+', '-', s.strip())
-    return re.sub(r'-+', '-', s)[:70].strip('-')
+    for pat in BLOCKED_HANDLE_PATTERNS:
+        s = re.sub(rf'(?:^|-){pat}(?:-|$)', '-', s, flags=re.IGNORECASE).strip('-')
+    s = re.sub(r'-+', '-', s)
+    return s[:70].strip('-')
 
 
 def strip_html(html):
@@ -734,6 +940,62 @@ def build_size_chart(word):
     return size_chart
 
 
+
+# ── Build category-specific styling tips ──────────────────────────────────────
+def build_styling_tips(title, category, word):
+    """Generate dynamic, actionable styling tips for the product."""
+    tips_by_cat = {
+        'Dresses': [
+            f"<strong>Day to Night:</strong> Pair this {word} with clean white sneakers and a denim jacket for casual daytime outings, or elevate with block heels and delicate jewelry for an evening look.",
+            f"<strong>Layering:</strong> Elevate the silhouette by layering with a tailored blazer or lightweight knit cardigan during cooler evenings.",
+            f"<strong>Accessories:</strong> Complete the ensemble with a structured shoulder bag and minimalist gold or silver accents."
+        ],
+        'Tops': [
+            f"<strong>Effortless Tuck:</strong> Front-tuck this {word} into high-waisted denim or tailored trousers for an elongated, flattering silhouette.",
+            f"<strong>Work to Weekend:</strong> Layer under a blazer with tailored pants for the office, or style with relaxed shorts and sandals for weekend brunch.",
+            f"<strong>Shoe Pairing:</strong> Complements everyday loafers, clean leather sneakers, or strappy kitten heels."
+        ],
+        'Bottoms': [
+            f"<strong>Balanced Proportions:</strong> Pair these {word}s with a fitted ribbed top, tucked-in blouse, or cropped sweater.",
+            f"<strong>Footwear Versatility:</strong> Styles effortlessly with ankle boots, pointed-toe heels, or minimalist sneakers.",
+            f"<strong>Finishing Touches:</strong> Accentuate the waistline with a classic belt and a coordinated crossbody bag."
+        ],
+        'Outerwear': [
+            f"<strong>Chic Layering:</strong> Drape this {word} over a monochrome outfit or knit dress for instant polish and sophistication.",
+            f"<strong>Texture Play:</strong> Contrast the silhouette with chunky knit scarves and leather boots during cooler seasons.",
+            f"<strong>Versatile Fit:</strong> Wear open for a relaxed aesthetic or belt/button it for structured definition."
+        ],
+        'Skirts': [
+            f"<strong>Feminine Silhouette:</strong> Pair with a tucked-in bodysuit or relaxed blouse to highlight the waist.",
+            f"<strong>Footwear:</strong> Style with boots in autumn/winter or slide sandals during warm sunny days.",
+            f"<strong>Layering:</strong> Top off with a cropped jacket or lightweight cardigan."
+        ],
+        'One-Pieces': [
+            f"<strong>Instant Outfit:</strong> Cinch the waist with a statement belt and slip into heeled mules for an effortlessly elevated ensemble.",
+            f"<strong>Casual Appeal:</strong> Layer a fitted tee underneath or throw on a casual denim jacket and slip-on sneakers."
+        ],
+        'Bags': [
+            f"<strong>Daily Staple:</strong> An essential everyday accessory that pairs seamlessly with casual denim, tailored workwear, and evening dresses.",
+            f"<strong>Color Harmony:</strong> Coordinates easily with neutral footwear and polished jewelry accents."
+        ],
+        'Shoes': [
+            f"<strong>Style Anchor:</strong> An effortless anchor piece that completes midi dresses, cropped trousers, or relaxed denim.",
+            f"<strong>All-Day Comfort:</strong> Designed for versatility and comfort whether commuting, dining out, or shopping."
+        ]
+    }
+    
+    tips = tips_by_cat.get(category, [
+        f"<strong>Everyday Style:</strong> Easily style this {word} with your go-to wardrobe essentials for a chic, balanced aesthetic.",
+        f"<strong>Versatile Pairings:</strong> Dress up with tailored accents or keep it relaxed with casual staples and comfortable footwear."
+    ])
+    
+    html = ["<h3>Styling Tips & Outfit Ideas</h3>", "<ul>"]
+    for tip in tips:
+        html.append(f"  <li>{tip}</li>")
+    html.append("</ul>")
+    return "\n".join(html)
+
+
 # ── Build category-specific Q&As ──────────────────────────────────────────────
 def build_templated_qa(title, cat, word):
     """Generate 3 high-quality deterministic Q&As for the product page."""
@@ -854,6 +1116,10 @@ def build_description(product, force=False, gsc_keywords=None):
             else:
                 final_body = cleaned_body
 
+        if "Styling Tips" not in final_body:
+            styling_html = build_styling_tips(title, cat, word)
+            final_body = final_body.strip() + "\n\n" + styling_html
+
         if "Frequently Asked Questions" not in final_body:
             qa_list = build_templated_qa(title, cat, word)
             qa_html = build_qa_html(qa_list)
@@ -924,10 +1190,12 @@ def build_description(product, force=False, gsc_keywords=None):
         else:
             size_chart = build_size_chart(word)
 
+    styling_tips = build_styling_tips(title, cat, word)
+
     if not force and len(existing) >= 500:
         final_body = html_body
     else:
-        final_body = intro + features + why_choose + size_chart
+        final_body = intro + features + why_choose + "\n\n" + styling_tips + ("\n\n" + size_chart if size_chart else "")
 
     if "Frequently Asked Questions" not in final_body:
         qa_list = build_templated_qa(title, cat, word)
@@ -1876,6 +2144,15 @@ def validate_seo(item, item_type, existing_mfs, gsc_keywords=None):
                     "_img_idx": i
                 })
 
+        # Handle validation: ensure no blocked supplier names in URL handles
+        cur_handle = item.get('handle', '')
+        if any(re.search(pat, cur_handle, re.IGNORECASE) for pat in BLOCKED_HANDLE_PATTERNS):
+            mismatches.append({
+                "field": "handle",
+                "before": cur_handle,
+                "after": slugify(title)
+            })
+
     return mismatches
 
 
@@ -1906,8 +2183,8 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
             changes.append({"field": "tags", "before": product.get('tags', ''), "after": new_tags_str})
             print(f"  + Added keywords to product tags: {gsc_kw}")
     if not only_images:
-        # ── 1. Title Case ─────────────────────────────────────────────────────────
-        new_title    = title_case(old_title)
+        # ── 1. Title Standardization & SEO Formula ──────────────────────────────
+        new_title = standardize_product_title(old_title, product.get('vendor', ''), product.get('product_type', ''))
         if new_title != old_title:
             prod_updates['title'] = new_title
             stats['titles'] += 1
@@ -1945,7 +2222,8 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
         # ── 3. URL handle + redirect ──────────────────────────────────────────────
         final_title  = prod_updates.get('title', old_title)
         ideal_handle = slugify(final_title)
-        if ideal_handle and ideal_handle != old_handle and len(ideal_handle) > 4:
+        has_blocked_handle = any(re.search(pat, old_handle, re.IGNORECASE) for pat in BLOCKED_HANDLE_PATTERNS)
+        if ideal_handle and (ideal_handle != old_handle or has_blocked_handle) and len(ideal_handle) > 4:
             missing.append(f"handle (was '{old_handle}')")
             prod_updates['handle'] = ideal_handle
             if dry_run:
