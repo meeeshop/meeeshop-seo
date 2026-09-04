@@ -253,6 +253,8 @@ def fetch_google_search_keywords(handle: str, limit: int = 3) -> list[str]:
                     # Exclude competitor brands, non-US location terms, competitor retailers, and local brick-and-mortar terms
                     if any(ob in s_clean for ob in other_brands):
                         continue
+                    if hasattr(GoogleQuestionFetcher, "is_fashion_relevant") and not GoogleQuestionFetcher.is_fashion_relevant(s_clean, allowed_brand=brand_found or handle):
+                        continue
                     if GoogleQuestionFetcher.has_non_us_location(s_clean):
                         continue
                     if GoogleQuestionFetcher.has_competitor_retailer(s_clean, allowed_brand=brand_found or handle):
@@ -269,7 +271,8 @@ def fetch_google_search_keywords(handle: str, limit: int = 3) -> list[str]:
         
     return [
         kw for kw in generate_long_tail_keywords(handle) 
-        if not GoogleQuestionFetcher.has_non_us_location(kw) 
+        if (not hasattr(GoogleQuestionFetcher, "is_fashion_relevant") or GoogleQuestionFetcher.is_fashion_relevant(kw, allowed_brand=handle))
+        and not GoogleQuestionFetcher.has_non_us_location(kw) 
         and not GoogleQuestionFetcher.has_competitor_retailer(kw, allowed_brand=handle)
         and not GoogleQuestionFetcher.has_local_intent(kw)
     ][:limit]
@@ -338,7 +341,7 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
                 position = row.get("position", 0)
                 ctr = row.get("ctr", 0)
                 impressions = row.get("impressions", 0)
-                if 8.0 <= position <= 20.0 and ctr < 0.05 and not GoogleQuestionFetcher.has_non_us_location(query) and not GoogleQuestionFetcher.has_competitor_retailer(query, allowed_brand=handle) and not GoogleQuestionFetcher.has_local_intent(query):
+                if 8.0 <= position <= 20.0 and ctr < 0.05 and (not hasattr(GoogleQuestionFetcher, "is_fashion_relevant") or GoogleQuestionFetcher.is_fashion_relevant(query, allowed_brand=handle)) and not GoogleQuestionFetcher.has_non_us_location(query) and not GoogleQuestionFetcher.has_competitor_retailer(query, allowed_brand=handle) and not GoogleQuestionFetcher.has_local_intent(query):
                     candidates.append((query, impressions))
                     
         candidates.sort(key=lambda x: x[1], reverse=True)
@@ -351,7 +354,8 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
                 queries = fetch_google_search_keywords(handle, limit)
                 queries = [
                     q for q in queries 
-                    if not GoogleQuestionFetcher.has_non_us_location(q) 
+                    if (not hasattr(GoogleQuestionFetcher, "is_fashion_relevant") or GoogleQuestionFetcher.is_fashion_relevant(q, allowed_brand=handle))
+                    and not GoogleQuestionFetcher.has_non_us_location(q) 
                     and not GoogleQuestionFetcher.has_competitor_retailer(q, allowed_brand=handle)
                     and not GoogleQuestionFetcher.has_local_intent(q)
                 ]
@@ -941,9 +945,31 @@ def build_size_chart(word):
 
 
 
+# ── Clean legacy raw query injections ─────────────────────────────────────────
+def clean_legacy_query_injections(html: str) -> str:
+    """Strip legacy raw '<p>Perfect if you are looking for...</p>' blocks and inline duplicate patterns."""
+    if not html:
+        return ""
+    # 1. Strip standalone paragraphs where the paragraph starts with or consists mainly of 'Perfect if you are looking for'
+    cleaned = re.sub(
+        r'<p\b[^>]*>\s*Perfect\s+if\s+you\s+are\s+looking\s+for(?:(?!</p>)[\s\S])*?</p>\s*',
+        '',
+        html,
+        flags=re.IGNORECASE
+    )
+    # 2. Strip inline sentence inside any remaining paragraph
+    cleaned = re.sub(
+        r'\s*Perfect\s+if\s+you\s+are\s+looking\s+for(?:(?!</p>)[^.?!])*[.?!]',
+        '',
+        cleaned,
+        flags=re.IGNORECASE
+    )
+    return re.sub(r'\n{3,}', '\n\n', cleaned).strip()
+
+
 # ── Build category-specific styling tips ──────────────────────────────────────
-def build_styling_tips(title, category, word):
-    """Generate dynamic, actionable styling tips for the product."""
+def build_styling_tips(title, category, word, relevant_keywords=None):
+    """Generate dynamic, actionable styling tips for the product incorporating vetted fashion terms."""
     tips_by_cat = {
         'Dresses': [
             f"<strong>Day to Night:</strong> Pair this {word} with clean white sneakers and a denim jacket for casual daytime outings, or elevate with block heels and delicate jewelry for an evening look.",
@@ -984,16 +1010,72 @@ def build_styling_tips(title, category, word):
         ]
     }
     
-    tips = tips_by_cat.get(category, [
+    tips = list(tips_by_cat.get(category, [
         f"<strong>Everyday Style:</strong> Easily style this {word} with your go-to wardrobe essentials for a chic, balanced aesthetic.",
         f"<strong>Versatile Pairings:</strong> Dress up with tailored accents or keep it relaxed with casual staples and comfortable footwear."
-    ])
+    ]))
     
+    if relevant_keywords:
+        for kw in relevant_keywords:
+            kw_clean = kw.strip()
+            if not kw_clean:
+                continue
+            tip_str = f"<strong>Style Inspiration:</strong> Ideal if you are styling for an effortless {kw_clean} look. Pair with versatile accessories for a polished finish."
+            if not any(kw_clean.lower() in t.lower() for t in tips):
+                tips.append(tip_str)
+                if len(tips) >= 4:
+                    break
+
     html = ["<h3>Styling Tips & Outfit Ideas</h3>", "<ul>"]
     for tip in tips:
         html.append(f"  <li>{tip}</li>")
     html.append("</ul>")
     return "\n".join(html)
+
+
+def integrate_styling_tips(body_html: str, title: str, category: str, word: str, relevant_keywords=None) -> str:
+    """
+    Ensure styling tips exist in body_html.
+    If Styling Tips section already exists, append new relevant keywords as list items (without duplicates).
+    If it does not exist, build and append a new Styling Tips section.
+    """
+    body = body_html or ""
+    st_pattern = re.compile(
+        r'(<h3>(?:Styling\s+Tips[^<]*|Outfit\s+Ideas[^<]*)</h3>\s*<ul\b[^>]*>)([\s\S]*?)(</ul>)',
+        re.IGNORECASE
+    )
+    match = st_pattern.search(body)
+    if match:
+        prefix = match.group(1)
+        ul_content = match.group(2)
+        suffix = match.group(3)
+        if relevant_keywords:
+            new_items = []
+            existing_items = re.findall(r'<li\b[^>]*>([\s\S]*?)</li>', ul_content, re.IGNORECASE)
+            existing_text = " ".join(existing_items).lower()
+            for kw in relevant_keywords:
+                kw_clean = kw.strip()
+                if not kw_clean:
+                    continue
+                if kw_clean.lower() in existing_text:
+                    continue
+                new_item = f"  <li><strong>Style Inspiration:</strong> Ideal if you are styling for an effortless {kw_clean} look. Pair with versatile accessories for a polished finish.</li>"
+                new_items.append(new_item)
+                existing_text += " " + kw_clean.lower()
+            if new_items:
+                if len(existing_items) + len(new_items) <= 5:
+                    combined_ul = ul_content.rstrip() + "\n" + "\n".join(new_items) + "\n"
+                    updated_section = prefix + combined_ul + suffix
+                    body = body[:match.start()] + updated_section + body[match.end():]
+        return body
+    else:
+        st_html = build_styling_tips(title, category, word, relevant_keywords=relevant_keywords)
+        if "<h3>Frequently Asked Questions</h3>" in body:
+            parts = body.split("<h3>Frequently Asked Questions</h3>", 1)
+            return parts[0].strip() + "\n\n" + st_html + "\n\n<h3>Frequently Asked Questions</h3>" + parts[1]
+        else:
+            sep = "\n\n" if body.strip() else ""
+            return body.strip() + sep + st_html
 
 
 # ── Build category-specific Q&As ──────────────────────────────────────────────
@@ -1095,13 +1177,26 @@ def build_qa_html(qa_list):
 # ── SEO description with keywords + size chart ───────────────────────────────
 def build_description(product, force=False, gsc_keywords=None):
     title    = product['title']
-    html_body = product.get('body_html', '') or ''
+    html_body = clean_legacy_query_injections(product.get('body_html', '') or '')
     cat, word = detect_cat(title)
     
     if cat not in APPAREL_CATEGORIES:
         html_body = remove_clothing_size_table(html_body)
         
     existing = strip_html(html_body)
+
+    # Filter and vet GSC/Google suggestions to only fashion-relevant terms
+    vetted_keywords = []
+    if gsc_keywords:
+        for kw in gsc_keywords:
+            kw_str = str(kw).strip()
+            if not kw_str:
+                continue
+            if hasattr(GoogleQuestionFetcher, 'is_fashion_relevant'):
+                if GoogleQuestionFetcher.is_fashion_relevant(kw_str, allowed_brand=title):
+                    vetted_keywords.append(kw_str)
+            elif not GoogleQuestionFetcher.has_non_us_location(kw_str):
+                vetted_keywords.append(kw_str)
 
     # Detect if product already has a custom/storytelling description
     if len(existing) >= 200 and not ("Discover the" in html_body and "Why Choose" in html_body):
@@ -1116,32 +1211,15 @@ def build_description(product, force=False, gsc_keywords=None):
             else:
                 final_body = cleaned_body
 
-        if "Styling Tips" not in final_body:
-            styling_html = build_styling_tips(title, cat, word)
-            final_body = final_body.strip() + "\n\n" + styling_html
+        # Seamlessly integrate vetted keywords into styling tips without duplicate sections or tips
+        final_body = integrate_styling_tips(final_body, title, cat, word, relevant_keywords=vetted_keywords)
 
         if "Frequently Asked Questions" not in final_body:
             qa_list = build_templated_qa(title, cat, word)
             qa_html = build_qa_html(qa_list)
             final_body = final_body.strip() + "\n\n" + qa_html
 
-        # Append GSC/Google suggestions to the custom description
-        if gsc_keywords:
-            kw_list = [f"<strong>{kw}</strong>" for kw in gsc_keywords]
-            kw_html = ""
-            if len(kw_list) == 1:
-                kw_html = f"<p>Perfect if you are looking for {kw_list[0]}.</p>"
-            elif len(kw_list) > 1:
-                kw_html = f"<p>Perfect if you are looking for {', '.join(kw_list[:-1])} or {kw_list[-1]}.</p>"
-            
-            if kw_html:
-                if "<h3>Frequently Asked Questions</h3>" in final_body:
-                    parts = final_body.split("<h3>Frequently Asked Questions</h3>", 1)
-                    final_body = parts[0].strip() + "\n\n" + kw_html + "\n\n<h3>Frequently Asked Questions</h3>" + parts[1]
-                else:
-                    final_body = final_body.strip() + "\n\n" + kw_html
-
-        return final_body
+        return clean_legacy_query_injections(final_body)
 
     keywords = extract_keywords(title)
     keywords_str = ' '.join(keywords) if keywords else ''
@@ -1149,15 +1227,8 @@ def build_description(product, force=False, gsc_keywords=None):
     intro = (
         f"<p><strong>Discover the {title} at {DISPLAY_BRAND}.</strong> This {word} combines "
         f"exceptional quality with style, perfect for women looking for women's {word}s. "
-        f"Enjoy free US shipping and easy returns on every order."
+        f"Enjoy free US shipping and easy returns on every order.</p>"
     )
-    if gsc_keywords:
-        kw_list = [f"<strong>{kw}</strong>" for kw in gsc_keywords]
-        if len(kw_list) == 1:
-            intro += f" Perfect if you are looking for {kw_list[0]}."
-        elif len(kw_list) > 1:
-            intro += f" Perfect if you are looking for {', '.join(kw_list[:-1])} or {kw_list[-1]}."
-    intro += "</p>"
 
     features = (
         f"<h3>Product Features</h3>"
@@ -1190,10 +1261,10 @@ def build_description(product, force=False, gsc_keywords=None):
         else:
             size_chart = build_size_chart(word)
 
-    styling_tips = build_styling_tips(title, cat, word)
+    styling_tips = build_styling_tips(title, cat, word, relevant_keywords=vetted_keywords)
 
     if not force and len(existing) >= 500:
-        final_body = html_body
+        final_body = integrate_styling_tips(html_body, title, cat, word, relevant_keywords=vetted_keywords)
     else:
         final_body = intro + features + why_choose + "\n\n" + styling_tips + ("\n\n" + size_chart if size_chart else "")
 
@@ -1202,7 +1273,7 @@ def build_description(product, force=False, gsc_keywords=None):
         qa_html = build_qa_html(qa_list)
         final_body = final_body.strip() + "\n\n" + qa_html
 
-    return final_body
+    return clean_legacy_query_injections(final_body)
 
 
 
