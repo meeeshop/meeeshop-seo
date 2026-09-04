@@ -420,18 +420,26 @@ STRICT STRUCTURE AND CONTENT REQUIREMENTS:
    Detailed stylist advice paragraph + 3 specific outfit formulas formatted as a bulleted checklist (<ul><li>).
 3. <h2>2. Textile Selection, Color Harmonies & Footwear</h2>:
    In-depth advice covering specific fabric blends (e.g. breathable organic cotton, linen, high-recovery stretch denim, fine knitwear) and exact shoe pairing rules.
-4. <blockquote>Memorable stylist rule-of-thumb takeaway quote</blockquote>
-5. <h2>Frequently Asked Questions</h2>:
-   You MUST include EXACTLY 3 complete, well-explained Q&As using this exact format:
+4. <h2>Quick Reference: Silhouette & Fit Comparison</h2>:
+   Include a clean, responsive HTML <table> comparing 3-4 silhouettes/cuts relevant to this guide.
+   Columns MUST be:
+   - Silhouette / Cut
+   - Flattering For (Body Proportions)
+   - Key Proportion Rule
+   - Best Footwear Pairing
+   Wrap inside: <div class="table-responsive-wrapper"><table class="stylist-comparison-table"><thead><tr><th>...</th></tr></thead><tbody><tr><td>...</td></tr></tbody></table></div>
+5. <blockquote>Memorable stylist rule-of-thumb takeaway quote</blockquote>
+6. <h2>Frequently Asked Questions</h2>:
+   You MUST include EXACTLY 3 complete, well-explained styling Q&As using this exact format:
    <div class="faq-item">
      <p><strong>Q: [Insert shopper question]?</strong></p>
      <p>A: [Insert comprehensive stylist answer].</p>
    </div>
-6. Internal Links: Naturally link 2-3 of these active store collections using exact HTML anchor tags (<a href="...">...</a>):
+7. Internal Links: Naturally link 2-3 of these active store collections using exact HTML anchor tags (<a href="...">...</a>):
 {context}
-7. Length: Write ~750 to 950 words of rich, complete, valuable editorial content.
-8. Forbidden Phrases: Do NOT use phrases like {", ".join(AI_CLICHES[:8])}.
-9. Output: Return ONLY clean, valid raw HTML. Do NOT include markdown code blocks.
+8. Length: Write ~750 to 950 words of rich, complete, valuable editorial content.
+9. Forbidden Phrases: Do NOT use phrases like {", ".join(AI_CLICHES[:8])}.
+10. Output: Return ONLY clean, valid raw HTML. Do NOT include markdown code blocks.
 """
 
     html_content = ai_generate(prompt, max_tokens=2200, temperature=0.7)
@@ -461,6 +469,17 @@ STRICT STRUCTURE AND CONTENT REQUIREMENTS:
             if not html_content.endswith("</p>") and "<p>" in html_content:
                 html_content += "</p>"
 
+    # Inject table styling if comparison table is present
+    if "<table" in html_content and ".stylist-comparison-table" not in html_content:
+        table_style = """<style>
+.table-responsive-wrapper { overflow-x: auto; margin: 28px 0; -webkit-overflow-scrolling: touch; }
+.stylist-comparison-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95rem; border: 1px solid #ede7df; border-radius: 8px; overflow: hidden; }
+.stylist-comparison-table th { background: #f7f4f0; color: #24211e; font-weight: 600; padding: 12px 14px; border-bottom: 2px solid #ede7df; }
+.stylist-comparison-table td { padding: 12px 14px; border-bottom: 1px solid #f0eae1; color: #4a433d; line-height: 1.45; }
+.stylist-comparison-table tr:nth-child(even) td { background: #faf8f5; }
+</style>"""
+        html_content = table_style + "\n" + html_content
+
     # Extract H1 and clean title
     article_title = topic
     if "<h1>" in html_content and "</h1>" in html_content:
@@ -481,22 +500,37 @@ STRICT STRUCTURE AND CONTENT REQUIREMENTS:
 
     meta_desc = f"Expert styling advice for {category_name.lower()}: learn how to balance proportions, choose quality fabrics, and style effortless outfits with free US shipping!"[:155]
 
-    # Robust FAQ Extraction across multiple formats
+    # Robust Dual-Engine FAQ Extraction across multiple formats
     faq_items = []
-    # Pattern 1: <p><strong>Q: ...</strong></p><p>A: ...</p>
-    q_matches = re.findall(r'<p><strong>(?:Q:|Question:)?\s*(.*?)</strong></p>\s*<p>(?:A:|Answer:)?\s*(.*?)</p>', html_content, re.DOTALL | re.IGNORECASE)
+    # Pattern 1: <p><strong>Q: ...?</strong></p><p>A: ...</p>
+    q_matches = re.findall(r'<p><strong>(?:Q:?|Question:?)?\s*(.*?\?)</strong></p>\s*<p>(?:A:?|Answer:?)?\s*(.*?)</p>', html_content, re.DOTALL | re.IGNORECASE)
     for q, a in q_matches:
         q_clean = re.sub(r'<[^>]+>', '', q).strip()
         a_clean = re.sub(r'<[^>]+>', '', a).strip()
+        q_clean = re.sub(r'^(?:Q:?|Question:?)\s*', '', q_clean, flags=re.IGNORECASE).strip()
+        a_clean = re.sub(r'^(?:A:?|Answer:?)\s*', '', a_clean, flags=re.IGNORECASE).strip()
         if q_clean and a_clean and len(q_clean) > 8:
             faq_items.append({"question": q_clean, "answer": a_clean})
 
-    # Pattern 2: <h3>Q: ...</h3><p>...
+    # Pattern 2: Any strong question ending in ? followed by <p>
     if not faq_items:
-        h3_matches = re.findall(r'<h[34]>(?:Q:|Question:)?\s*(.*?)</h[34]>\s*<p>(?:A:|Answer:)?\s*(.*?)</p>', html_content, re.DOTALL | re.IGNORECASE)
+        q_matches2 = re.findall(r'<strong>\s*(?:Q:?|Question:?)?\s*(.*?\?)\s*</strong>\s*(?:</p>)?\s*<p>(?:A:?|Answer:?)?\s*(.*?)</p>', html_content, re.DOTALL | re.IGNORECASE)
+        for q, a in q_matches2:
+            q_clean = re.sub(r'<[^>]+>', '', q).strip()
+            a_clean = re.sub(r'<[^>]+>', '', a).strip()
+            q_clean = re.sub(r'^(?:Q:?|Question:?)\s*', '', q_clean, flags=re.IGNORECASE).strip()
+            a_clean = re.sub(r'^(?:A:?|Answer:?)\s*', '', a_clean, flags=re.IGNORECASE).strip()
+            if q_clean and a_clean and len(q_clean) > 8 and len(a_clean) > 15:
+                faq_items.append({"question": q_clean, "answer": a_clean})
+
+    # Pattern 3: <h3/4> ...? </h3/4> followed by <p>
+    if not faq_items:
+        h3_matches = re.findall(r'<h[34]>(?:Q:?|Question:?)?\s*(.*?)</h[34]>\s*<p>(?:A:?|Answer:?)?\s*(.*?)</p>', html_content, re.DOTALL | re.IGNORECASE)
         for q, a in h3_matches:
             q_clean = re.sub(r'<[^>]+>', '', q).strip()
             a_clean = re.sub(r'<[^>]+>', '', a).strip()
+            q_clean = re.sub(r'^(?:Q:?|Question:?)\s*', '', q_clean, flags=re.IGNORECASE).strip()
+            a_clean = re.sub(r'^(?:A:?|Answer:?)\s*', '', a_clean, flags=re.IGNORECASE).strip()
             if q_clean and a_clean and len(q_clean) > 8:
                 faq_items.append({"question": q_clean, "answer": a_clean})
 
@@ -702,9 +736,11 @@ def publish_discover_article(session, store_url, blog_id, blog_handle, title, se
     })
 
     # 3. Attach Native FAQPage Schema in json_ld_schema.faq
-    article_full_url = f"{store_url.rstrip('/')}/blogs/{blog_handle}/{article.get('handle', '')}"
+    canonical_host = os.environ.get("STORE_BASE_URL", "us.meeeshop.com").replace("https://", "").replace("http://", "").strip("/")
+    article_full_url = f"https://{canonical_host}/blogs/{blog_handle}/{article.get('handle', '')}"
     if faq_items:
         faq_schema = {
+            "@context": "https://schema.org",
             "@type": "FAQPage",
             "@id": f"{article_full_url}#faq",
             "mainEntity": [
@@ -732,10 +768,9 @@ def publish_discover_article(session, store_url, blog_id, blog_handle, title, se
     # 4. Instant IndexNow Submission
     if not draft and indexnow_key:
         try:
-            host = store_url.replace("https://", "").replace("http://", "").split("/")[0]
             requests.post(
                 "https://api.indexnow.org/indexnow",
-                json={"host": host, "key": indexnow_key, "keyLocation": f"https://{host}/{indexnow_key}.txt", "urlList": [article_full_url]},
+                json={"host": canonical_host, "key": indexnow_key, "keyLocation": f"https://{canonical_host}/{indexnow_key}.txt", "urlList": [article_full_url]},
                 headers={"Content-Type": "application/json; charset=utf-8"},
                 timeout=10
             )
