@@ -116,6 +116,15 @@ NON_US_LOCATION_TERMS = {
     "germany", "german", "france", "french", "italy", "italian", "spain", "spanish",
     "india", "indian", "japan", "japanese", "china", "chinese", "mexico", "mexican",
     "asia", "asian", "africa", "african",
+    "singapore", "malaysia", "thailand", "philippines", "indonesia", "vietnam", "bali",
+    "dubai", "uae", "pakistan", "bangladesh", "sri lanka", "nepal", "korea", "south korea",
+    "seoul", "taipei", "taiwan", "hong kong",
+    "delhi", "mumbai", "bangalore", "hyderabad", "kolkata", "chennai",
+    "sweden", "norway", "denmark", "finland", "netherlands", "amsterdam", "belgium", "brussels",
+    "switzerland", "zurich", "austria", "vienna", "poland", "warsaw", "portugal", "lisbon",
+    "greece", "athens", "czech", "prague", "hungary", "budapest",
+    "brazil", "argentina", "chile", "colombia", "peru",
+    "egypt", "cairo", "south africa", "kenya", "nigeria",
     "london", "sydney", "melbourne", "birmingham", "manchester", "glasgow", "edinburgh",
     "brisbane", "perth", "adelaide", "toronto", "vancouver", "montreal", "calgary", "ottawa",
     "auckland", "wellington", "dublin", "paris", "berlin", "tokyo", "rome", "madrid",
@@ -313,6 +322,68 @@ class GoogleQuestionFetcher:
         for term in LOCAL_BRICK_MORTAR_TERMS:
             if re.search(r"\b" + re.escape(term) + r"\b", t_lower):
                 return True
+        return False
+
+    @classmethod
+    def is_fashion_relevant(cls, text: str, allowed_brand: str = "") -> bool:
+        """Strictly validate that a query/keyword is relevant to women's boutique fashion and not travel/medical/noise."""
+        if not text:
+            return False
+        q = text.lower().strip()
+        if not cls.is_for_women_only(q):
+            return False
+        if cls.has_non_us_location(q):
+            return False
+        if cls.has_competitor_retailer(q, allowed_brand=allowed_brand):
+            return False
+        if cls.has_local_intent(q):
+            return False
+
+        # Blacklisted non-fashion, travel, and noise patterns
+        irrelevant_patterns = [
+            r"\b(places?\s+to\s+(?:visit|go|stay|see|travel))\b",
+            r"\b(meaning|quotes?|lyrics|wikipedia|definition|synonyms?)\b",
+            r"\b(reviews?|reviewing|rating|ratings)\b",
+            r"\b(hotel|hotels|resort|resorts|flight|flights|ticket|tickets|travel|tourism|tourist|destinations?)\b",
+            r"\b(movie|film|cast|trailer|songs?|actors?|actress|episodes?|game|games?|gaming)\b",
+            r"\b(rug|rugs|carpet|carpets|curtain|curtains|blanket|bedding|furniture|pillow|cushion)\b",
+            r"\b(dog|dogs|puppy|cat|cats|kitten|pet|pets|rabbit|rabbits|hedgehog)\b",
+            r"\b(apple\s+watch|iphone|ipad|android|samsung|gadget|charger|phone)\b",
+            r"\b(pregnancy|pregnant|breastfeeding|baby|babies|infant|toddler|kids?)\b",
+            r"\b(theory|headquarters|lawsuit|lawyer|clinic|hospital|doctor|symptoms?)\b",
+            r"\b(car\s+parts?|brakes?|motor|engine|rv\s+brands?)\b",
+            r"\b(recipes?|cooking|salad\s+dressing|honey\s+warmer|honey\s+mustard)\b",
+            r"\b(donde|consigo|jednobojne|precio)\b",
+            r"\b(shop-app-banner|shopify|app\s+banner)\b",
+        ]
+        for pat in irrelevant_patterns:
+            if re.search(pat, q):
+                return False
+
+        # Positive fashion indicators
+        fashion_indicators = {
+            "dress", "dresses", "midi", "maxi", "mini", "gown", "sundress", "slip dress", "shirtdress",
+            "top", "tops", "blouse", "blouses", "shirt", "shirts", "tee", "tees", "t-shirt", "tank",
+            "camisole", "cami", "sweater", "sweaters", "cardigan", "knit", "knits", "pullover", "hoodie",
+            "sweatshirt", "jacket", "jackets", "coat", "coats", "blazer", "blazers", "vest",
+            "skirt", "skirts", "pants", "jeans", "trousers", "denim", "shorts", "leggings", "breeches", "riding",
+            "romper", "rompers", "jumpsuit", "jumpsuits", "bodysuit", "bodysuits", "one-piece", "swimsuit",
+            "bag", "bags", "purse", "purses", "handbag", "handbags", "tote", "totes", "clutch", "satchel", "crossbody",
+            "shoes", "shoe", "heels", "boots", "booties", "sandals", "mules", "sneakers", "flats", "loafers", "pumps", "wedges",
+            "outfit", "outfits", "wear", "attire", "fashion", "style", "styling", "chic", "aesthetic", "look", "looks",
+            "silhouette", "sleeve", "sleeves", "sleeveless", "waist", "high-waist", "wrap", "floral", "boho", "linen",
+            "lace", "silk", "satin", "cotton", "velvet", "leather", "pleated", "ruffle", "tier", "tiered", "casual",
+            "formal", "cocktail", "party", "wedding", "brunch", "work", "office", "summer", "fall", "winter", "spring"
+        }
+        words = set(re.findall(r"\b[a-z]{3,}\b", q))
+        if words.intersection(fashion_indicators):
+            return True
+
+        if allowed_brand:
+            ctx_words = set(re.findall(r"\b[a-z]{4,}\b", allowed_brand.lower()))
+            if words.intersection(ctx_words):
+                return True
+
         return False
 
     @classmethod
