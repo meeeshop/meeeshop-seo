@@ -26,7 +26,7 @@ import io
 import re
 import argparse
 from datetime import datetime
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageFilter, ImageDraw
 from io import BytesIO
 from urllib.parse import quote_plus
 from requests.adapters import HTTPAdapter
@@ -471,40 +471,71 @@ Requirements:
     # 2. Contextual internal linking
     context = ""
     if collections:
-        context += "Here are our verified store collections. Insert a MAXIMUM of 2 to 3 internal links across the entire article using exact HTML anchor tags:\n"
+        context += "Here are our verified store collections. Insert a MAXIMUM of 2 to 3 internal links across the entire article using exact HTML anchor tags (<a href='/collections/...'>...</a>):\n"
         for c in collections:
             context += f"- {c['title']} (URL: {c['url']})\n"
 
-    # 3. AI Editorial Styling Prompt
+    # 3. AI Editorial Styling Prompt for Google Discover & Bing
     prompt = f"""
-Act as a senior fashion director and boutique stylist at MeeeShop (USA). Write a comprehensive, Google Discover-eligible styling guide for women: "{topic}".
+Act as a senior fashion director and editorial stylist at MeeeShop boutique (USA). Write a world-class, Google Discover and Bing News eligible fashion styling guide: "{topic}".
 
-STRICT STRUCTURE AND CONTENT REQUIREMENTS:
-1. Introduction (120-150 words): Relatable real-world scene (morning commute, coffee run, event dressing) explaining why fabric quality and proportion balance matter.
-2. <h2>1. Mastering Proportions & Silhouette Balance</h2>:
-   Detailed stylist advice paragraph + 3 specific outfit formulas formatted as a bulleted checklist (<ul><li>).
-3. <h2>2. Textile Selection, Color Harmonies & Footwear</h2>:
-   In-depth advice covering specific fabric blends (e.g. breathable organic cotton, linen, high-recovery stretch denim, fine knitwear) and exact shoe pairing rules.
-4. <h2>Quick Reference: Silhouette & Fit Comparison</h2>:
-   Include a clean, responsive HTML <table> comparing 3-4 silhouettes/cuts relevant to this guide.
-   Columns MUST be:
+STRICT EDITORIAL & VISUAL STRUCTURE:
+1. Quick Stylist Key Takeaways Box:
+   <div class="stylist-takeaway-box">
+     <p class="takeaway-title"><strong>Stylist Key Takeaways:</strong></p>
+     <ul>
+       <li><strong>Proportion Rule:</strong> [1 clear sentence on balancing silhouette]</li>
+       <li><strong>Fabric Focus:</strong> [1 clear sentence on fabric composition and drape]</li>
+       <li><strong>Footwear Pairing:</strong> [1 clear sentence on exact footwear choices]</li>
+     </ul>
+   </div>
+
+2. Introduction (120-150 words):
+   Set an authentic, relatable morning scene (coffee run, commuter routine, dinner transition) explaining why proportion balance and quality tailoring outperform fast-fashion impulses.
+
+3. <h2>1. Mastering Proportions & Silhouette Balance</h2>
+   In-depth styling philosophy paragraph, followed by 3 actionable outfit formulas formatted as:
+   <div class="formula-card">
+     <p><strong>Formula 1: [Formula Name]</strong> — [Garment A] + [Garment B] + [Footwear Choice]. <em>Styling tip on waistband/hemline.</em></p>
+   </div>
+   <div class="formula-card">
+     <p><strong>Formula 2: [Formula Name]</strong> — [Garment A] + [Garment B] + [Footwear Choice]. <em>Styling tip on waistband/hemline.</em></p>
+   </div>
+   <div class="formula-card">
+     <p><strong>Formula 3: [Formula Name]</strong> — [Garment A] + [Garment B] + [Footwear Choice]. <em>Styling tip on waistband/hemline.</em></p>
+   </div>
+
+4. <h2>2. Textile Selection, Color Harmonies & Footwear</h2>
+   Detailed fabric advice (e.g. breathable cotton weaves, structured high-recovery denim, fine-gauge knits, plant-based linens) and color pairings (e.g. oat milk, camel, espresso, washed black, olive).
+
+5. <h2>Quick Reference: Silhouette & Fit Comparison</h2>
+   Include a clean, responsive HTML <table> comparing 3-4 silhouettes/cuts.
+   Columns:
    - Silhouette / Cut
    - Flattering For (Body Proportions)
    - Key Proportion Rule
    - Best Footwear Pairing
    Wrap inside: <div class="table-responsive-wrapper"><table class="stylist-comparison-table"><thead><tr><th>...</th></tr></thead><tbody><tr><td>...</td></tr></tbody></table></div>
-5. <blockquote>Memorable stylist rule-of-thumb takeaway quote</blockquote>
-6. <h2>Frequently Asked Questions</h2>:
-   You MUST include EXACTLY 3 complete, well-explained styling Q&As using this exact format:
-   <div class="faq-item">
-     <p><strong>Q: [Insert shopper question]?</strong></p>
-     <p>A: [Insert comprehensive stylist answer].</p>
+
+6. Do's and Don'ts Stylist Cheat Sheet:
+   <div class="dos-donts-grid">
+     <div class="do-card"><p><strong>DO:</strong> [Actionable styling rule for clean lines]</p></div>
+     <div class="dont-card"><p><strong>AVOID:</strong> [Common styling mistake that distorts proportions]</p></div>
    </div>
-7. Internal Links: Naturally link 2-3 of these active store collections using exact HTML anchor tags (<a href="...">...</a>):
+
+7. <blockquote>Memorable rule-of-thumb takeaway quote from the stylist director.</blockquote>
+
+8. <h2>Frequently Asked Questions</h2>
+   EXACTLY 3 comprehensive shopper styling Q&As formatted as:
+   <div class="faq-item">
+     <p><strong>Q: [Insert Question]?</strong></p>
+     <p>A: [Insert comprehensive, expert answer].</p>
+   </div>
+
+9. Internal Links: Naturally weave 2-3 links to these collections:
 {context}
-8. Length: Write ~750 to 950 words of rich, complete, valuable editorial content.
-9. Forbidden Phrases: Do NOT use phrases like {", ".join(AI_CLICHES[:8])}.
-10. Output: Return ONLY clean, valid raw HTML. Do NOT include markdown code blocks.
+
+10. Output: Return ONLY raw, valid HTML. Do NOT include markdown blocks.
 """
 
     html_content = ai_generate(prompt, max_tokens=2200, temperature=0.7)
@@ -534,16 +565,30 @@ STRICT STRUCTURE AND CONTENT REQUIREMENTS:
             if not html_content.endswith("</p>") and "<p>" in html_content:
                 html_content += "</p>"
 
-    # Inject table styling if comparison table is present
-    if "<table" in html_content and ".stylist-comparison-table" not in html_content:
-        table_style = """<style>
+    # Inject Magazine-Grade Editorial CSS Styling
+    editorial_style = """<style>
+.stylist-takeaway-box { background: #fbf9f6; border-left: 4px solid #b8977e; padding: 18px 22px; margin: 24px 0 32px 0; border-radius: 0 8px 8px 0; }
+.stylist-takeaway-box .takeaway-title { margin: 0 0 10px 0; font-size: 1.05rem; color: #222; font-weight: 700; }
+.stylist-takeaway-box ul { margin: 0; padding-left: 20px; color: #444; line-height: 1.6; }
+.formula-card { background: #ffffff; border: 1px solid #ebe5dc; border-radius: 8px; padding: 14px 18px; margin: 12px 0; box-shadow: 0 2px 5px rgba(0,0,0,0.03); }
+.formula-card p { margin: 0; color: #333; line-height: 1.5; font-size: 0.95rem; }
+.dos-donts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 28px 0; }
+@media (max-width: 600px) { .dos-donts-grid { grid-template-columns: 1fr; } }
+.do-card { background: #f4f8f4; border-left: 4px solid #488259; padding: 14px 16px; border-radius: 0 6px 6px 0; }
+.do-card p { margin: 0; color: #234d2f; font-size: 0.95rem; line-height: 1.45; }
+.dont-card { background: #fdf5f5; border-left: 4px solid #bf5252; padding: 14px 16px; border-radius: 0 6px 6px 0; }
+.dont-card p { margin: 0; color: #6e2727; font-size: 0.95rem; line-height: 1.45; }
 .table-responsive-wrapper { overflow-x: auto; margin: 28px 0; -webkit-overflow-scrolling: touch; }
 .stylist-comparison-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95rem; border: 1px solid #ede7df; border-radius: 8px; overflow: hidden; }
 .stylist-comparison-table th { background: #f7f4f0; color: #24211e; font-weight: 600; padding: 12px 14px; border-bottom: 2px solid #ede7df; }
 .stylist-comparison-table td { padding: 12px 14px; border-bottom: 1px solid #f0eae1; color: #4a433d; line-height: 1.45; }
 .stylist-comparison-table tr:nth-child(even) td { background: #faf8f5; }
+.faq-item { background: #ffffff; border: 1px solid #ebe5dc; border-radius: 8px; padding: 16px 20px; margin: 14px 0; }
+.faq-item p { margin: 0 0 8px 0; line-height: 1.5; color: #333; }
+.faq-item p:last-child { margin: 0; color: #555; }
+blockquote { border-left: 3px solid #b8977e; margin: 28px 0; padding: 12px 20px; font-style: italic; background: #faf8f5; color: #444; }
 </style>"""
-        html_content = table_style + "\n" + html_content
+    html_content = editorial_style + "\n" + html_content
 
     # Extract H1 and clean title
     article_title = topic
@@ -565,176 +610,124 @@ STRICT STRUCTURE AND CONTENT REQUIREMENTS:
 
     meta_desc = f"Expert styling advice for {category_name.lower()}: learn how to balance proportions, choose quality fabrics, and style effortless outfits with free US shipping!"[:155]
 
-    # Robust Dual-Engine FAQ Extraction across multiple formats
+    # Robust Multi-Pattern FAQ Extraction across multiple HTML formats
     faq_items = []
-    # Pattern 1: <p><strong>Q: ...?</strong></p><p>A: ...</p>
-    q_matches = re.findall(r'<p><strong>(?:Q:?|Question:?)?\s*(.*?\?)</strong></p>\s*<p>(?:A:?|Answer:?)?\s*(.*?)</p>', html_content, re.DOTALL | re.IGNORECASE)
-    for q, a in q_matches:
-        q_clean = re.sub(r'<[^>]+>', '', q).strip()
-        a_clean = re.sub(r'<[^>]+>', '', a).strip()
-        q_clean = re.sub(r'^(?:Q:?|Question:?)\s*', '', q_clean, flags=re.IGNORECASE).strip()
-        a_clean = re.sub(r'^(?:A:?|Answer:?)\s*', '', a_clean, flags=re.IGNORECASE).strip()
-        if q_clean and a_clean and len(q_clean) > 8:
-            faq_items.append({"question": q_clean, "answer": a_clean})
+    
+    # Format A: Inside <div class="faq-item">
+    faq_blocks = re.findall(r'<div class="faq-item">(.*?)</div>', html_content, re.DOTALL | re.IGNORECASE)
+    for block in faq_blocks:
+        q_m = re.search(r'<strong>\s*(?:Q:?|Question:?)?\s*(.*?\?)\s*</strong>', block, re.DOTALL | re.IGNORECASE)
+        a_m = re.search(r'<p>(?:A:?|Answer:?)?\s*(.*?)</p>', block, re.DOTALL | re.IGNORECASE)
+        if q_m and a_m:
+            q_clean = re.sub(r'<[^>]+>', '', q_m.group(1)).strip()
+            a_clean = re.sub(r'<[^>]+>', '', a_m.group(1)).strip()
+            q_clean = re.sub(r'^(?:Q:?|Question:?)\s*', '', q_clean, flags=re.IGNORECASE).strip()
+            a_clean = re.sub(r'^(?:A:?|Answer:?)\s*', '', a_clean, flags=re.IGNORECASE).strip()
+            if q_clean and a_clean and len(q_clean) > 8:
+                faq_items.append({"question": q_clean, "answer": a_clean})
 
-    # Pattern 2: Any strong question ending in ? followed by <p>
-    if not faq_items:
+    # Format B: <p><strong>Q: ...?</strong></p><p>A: ...</p>
+    if len(faq_items) < 2:
+        q_matches = re.findall(r'<p><strong>(?:Q:?|Question:?)?\s*(.*?\?)</strong></p>\s*<p>(?:A:?|Answer:?)?\s*(.*?)</p>', html_content, re.DOTALL | re.IGNORECASE)
+        for q, a in q_matches:
+            q_clean = re.sub(r'<[^>]+>', '', q).strip()
+            a_clean = re.sub(r'<[^>]+>', '', a).strip()
+            q_clean = re.sub(r'^(?:Q:?|Question:?)\s*', '', q_clean, flags=re.IGNORECASE).strip()
+            a_clean = re.sub(r'^(?:A:?|Answer:?)\s*', '', a_clean, flags=re.IGNORECASE).strip()
+            if q_clean and a_clean and len(q_clean) > 8 and not any(f['question'] == q_clean for f in faq_items):
+                faq_items.append({"question": q_clean, "answer": a_clean})
+
+    # Format C: General <strong>... ?</strong> followed by <p>...</p>
+    if len(faq_items) < 2:
         q_matches2 = re.findall(r'<strong>\s*(?:Q:?|Question:?)?\s*(.*?\?)\s*</strong>\s*(?:</p>)?\s*<p>(?:A:?|Answer:?)?\s*(.*?)</p>', html_content, re.DOTALL | re.IGNORECASE)
         for q, a in q_matches2:
             q_clean = re.sub(r'<[^>]+>', '', q).strip()
             a_clean = re.sub(r'<[^>]+>', '', a).strip()
             q_clean = re.sub(r'^(?:Q:?|Question:?)\s*', '', q_clean, flags=re.IGNORECASE).strip()
             a_clean = re.sub(r'^(?:A:?|Answer:?)\s*', '', a_clean, flags=re.IGNORECASE).strip()
-            if q_clean and a_clean and len(q_clean) > 8 and len(a_clean) > 15:
+            if q_clean and a_clean and len(q_clean) > 8 and len(a_clean) > 15 and not any(f['question'] == q_clean for f in faq_items):
                 faq_items.append({"question": q_clean, "answer": a_clean})
 
-    # Pattern 3: <h3/4> ...? </h3/4> followed by <p>
-    if not faq_items:
+    # Format D: <h3> ...? </h3> followed by <p>
+    if len(faq_items) < 2:
         h3_matches = re.findall(r'<h[34]>(?:Q:?|Question:?)?\s*(.*?)</h[34]>\s*<p>(?:A:?|Answer:?)?\s*(.*?)</p>', html_content, re.DOTALL | re.IGNORECASE)
         for q, a in h3_matches:
             q_clean = re.sub(r'<[^>]+>', '', q).strip()
             a_clean = re.sub(r'<[^>]+>', '', a).strip()
             q_clean = re.sub(r'^(?:Q:?|Question:?)\s*', '', q_clean, flags=re.IGNORECASE).strip()
             a_clean = re.sub(r'^(?:A:?|Answer:?)\s*', '', a_clean, flags=re.IGNORECASE).strip()
-            if q_clean and a_clean and len(q_clean) > 8:
+            if q_clean and a_clean and len(q_clean) > 8 and not any(f['question'] == q_clean for f in faq_items):
                 faq_items.append({"question": q_clean, "answer": a_clean})
 
     return article_title, seo_title, meta_desc, html_content, faq_items
 
-# ── Shopify Free Image Library & Curated HD Lifestyle Photography ──────────────
-SHOPIFY_FREE_LIFESTYLE_LIBRARY = {
-    "dresses-style-guide": [
-        "https://images.unsplash.com/photo-1496747611176-843222e1e57c?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1515372039744-b8f02a3ae446?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1492707892479-7bc8d5a4ee93?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1572804013309-59a88b7e92f1?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1595777457583-95e059d581b8?auto=format&fit=crop&w=1600&h=900&q=85"
-    ],
-    "jeans-style-guide": [
-        "https://images.unsplash.com/photo-1541099649105-f69ad21f3246?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1582418702059-97ebafb35d09?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1576995853123-5a10305d93c0?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1506152983158-b4a74a01c721?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=1600&h=900&q=85"
-    ],
-    "womens-shirts-tops-style-guide": [
-        "https://images.unsplash.com/photo-1485968579580-b6d095142e6e?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1564257631407-4deb1f99d992?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1485230895905-ec40ba36b9bc?auto=format&fit=crop&w=1600&h=900&q=85"
-    ],
-    "womens-pants-style-guide": [
-        "https://images.unsplash.com/photo-1509631179647-0177331693ae?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1469334031218-e382a71b716b?auto=format&fit=crop&w=1600&h=900&q=85"
-    ],
-    "womens-skirts-style-guide": [
-        "https://images.unsplash.com/photo-1583496661160-fb5886a0aaaa?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1508427953056-b00b8d78ebf5?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=1600&h=900&q=85"
-    ],
-    "cardigans-sweaters-style-guide": [
-        "https://images.unsplash.com/photo-1576871337632-b9aef4c17ab9?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1434389677669-e08b4cac3105?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1516762689617-e1cffcef479d?auto=format&fit=crop&w=1600&h=900&q=85"
-    ],
-    "coats-jackets-style-guide": [
-        "https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=1600&h=900&q=85"
-    ],
-    "plus-size-curvy-clothing": [
-        "https://images.unsplash.com/photo-1569388330292-79cc1ec67270?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1581044777550-4cfa60707c03?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1529139574466-a303027c1d8b?auto=format&fit=crop&w=1600&h=900&q=85"
-    ],
-    "womens-clothing": [
-        "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1469334031218-e382a71b716b?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1445205170230-053b83016050?auto=format&fit=crop&w=1600&h=900&q=85"
-    ],
-    "everything-anything-about-vegan": [
-        "https://images.unsplash.com/photo-1537832816519-689ad163238b?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1508427953056-b00b8d78ebf5?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1512436991641-6745cdb1723f?auto=format&fit=crop&w=1600&h=900&q=85"
-    ],
-    "our-tips": [
-        "https://images.unsplash.com/photo-1558769132-cb1aea458c5e?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1582533561751-ef6f6ab93a2e?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?auto=format&fit=crop&w=1600&h=900&q=85"
-    ]
-}
-
-def generate_ai_lifestyle_image(title, category_name):
-    """
-    Tier 1: Bespoke AI Photorealistic Editorial Lifestyle Photoshoot Generation
-    Generates a crystal-clear, 1200x675 landscape fashion editorial photo matching the exact article title.
-    """
-    clean_title = re.sub(r'[^\w\s-]', '', title).strip()
-    prompt = f"high fashion editorial street style photography of a chic woman, {clean_title}, natural warm morning lighting, boutique fashion lookbook aesthetic, 35mm photography, sharp focus, 8k resolution"
-    encoded = quote_plus(prompt)
-    
-    # Try Pollinations Flux engine first, then standard photorealistic endpoint
-    endpoints = [
-        f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=675&model=flux&nologo=true",
-        f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=675&nologo=true"
-    ]
-    
-    for ep in endpoints:
-        try:
-            print(f"  [*] Generating AI photorealistic editorial lifestyle photo matching: '{clean_title}'...")
-            resp = requests.get(ep, timeout=25)
-            if resp.status_code == 200 and len(resp.content) > 15000:
-                img = Image.open(BytesIO(resp.content)).convert("RGB")
-                fitted = ImageOps.fit(img, (1200, 675), method=Image.Resampling.LANCZOS)
-                out = BytesIO()
-                fitted.save(out, format="JPEG", quality=95, optimize=True)
-                print(f"  [OK] Successfully generated AI lifestyle editorial photo (1200x675, {len(out.getvalue())} bytes)")
-                return out.getvalue()
-        except Exception as e:
-            print(f"  [Notice] AI image generator endpoint attempt failed: {e}")
-            
-    return None
-
-def fetch_shopify_free_lifestyle_image(category_handle, title):
-    """
-    Tier 3 Fallback: Picks high-resolution lifestyle photography from curated fashion image library
-    matching the exact category, formatted to 1200x675 landscape with maximum sharpness.
-    """
-    urls = SHOPIFY_FREE_LIFESTYLE_LIBRARY.get(category_handle, SHOPIFY_FREE_LIFESTYLE_LIBRARY["womens-clothing"])
-    selected_url = random.choice(urls)
-
-    for url in [selected_url] + urls:
-        try:
-            resp = requests.get(url, timeout=15)
-            if resp.status_code == 200 and len(resp.content) > 15000:
-                img = Image.open(BytesIO(resp.content)).convert("RGB")
-                fitted = ImageOps.fit(img, (1200, 675), method=Image.Resampling.LANCZOS)
-                out = BytesIO()
-                fitted.save(out, format="JPEG", quality=95, optimize=True)
-                print(f"  [OK] Picked high-resolution photoshoot image from curated lifestyle library (1200x675)")
-                return out.getvalue()
-        except Exception as e:
-            print(f"Warning: Failed downloading stock photo: {e}")
-
-    return None
-
-def fetch_store_lifestyle_media(session, store_url, category_meta, title=""):
-    """Tier 2 Fallback: Shopify Store Media Library / High-Res Catalog Shoot via GraphQL (1200x675)"""
-    colls = category_meta.get("collection_handles", [])
+# ── Studio-Grade Lookbook Image Engine & Fallbacks ──────────────────────────────
+def fetch_catalog_products_for_image(session, store_url, category_meta, title=""):
+    """Fetches high-res catalog products matching category keywords & title terms from GraphQL."""
     query = """
-    query getStoreImages($handle: String!) {
+    query getProducts($query: String!) {
+      products(first: 20, query: $query) {
+        edges {
+          node {
+            id
+            title
+            handle
+            productType
+            images(first: 3) {
+              edges {
+                node {
+                  url(transform: {maxWidth: 2048})
+                  width
+                  height
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+    keywords = category_meta.get("product_keywords", [])
+    title_words = [w.lower() for w in re.findall(r'\b[A-Za-z]{4,}\b', title) if w.lower() not in ["style", "with", "your", "looks", "outfit", "every", "flatter", "balance"]]
+    all_search_terms = list(set(title_words + keywords[:4]))
+    search_query = " OR ".join([f"title:*{term}* OR tag:*{term}*" for term in all_search_terms[:4]])
+    full_filter = f"status:active AND ({search_query})"
+
+    try:
+        resp = session.post(f"{store_url}/admin/api/2024-10/graphql.json", json={"query": query, "variables": {"query": full_filter}}, timeout=20)
+        if resp.status_code == 200:
+            edges = resp.json().get("data", {}).get("products", {}).get("edges", [])
+            prods = []
+            for e in edges:
+                node = e["node"]
+                imgs = [im["node"]["url"] for im in node["images"]["edges"] if im["node"]["url"] and not im["node"]["url"].lower().endswith('.svg')]
+                if imgs:
+                    prods.append({
+                        "id": node["id"],
+                        "title": node["title"],
+                        "handle": node["handle"],
+                        "image_url": imgs[0]
+                    })
+            if prods:
+                return prods
+    except Exception as e:
+        print(f"Warning: GraphQL product search failed: {e}")
+
+    # Fallback to collection products
+    colls = category_meta.get("collection_handles", [])
+    c_query = """
+    query getColProducts($handle: String!) {
       collectionByHandle(handle: $handle) {
         products(first: 10) {
           edges {
             node {
-              images(first: 3) {
+              id
+              title
+              handle
+              images(first: 2) {
                 edges {
                   node {
-                    url(transform: {maxWidth: 1600})
-                    width
-                    height
+                    url(transform: {maxWidth: 2048})
                   }
                 }
               }
@@ -746,43 +739,169 @@ def fetch_store_lifestyle_media(session, store_url, category_meta, title=""):
     """
     for ch in colls:
         try:
-            resp = session.post(f"{store_url}/admin/api/2024-10/graphql.json", json={"query": query, "variables": {"handle": ch}}, timeout=15)
-            if resp.status_code == 200:
-                c_data = resp.json().get("data", {}).get("collectionByHandle")
+            c_resp = session.post(f"{store_url}/admin/api/2024-10/graphql.json", json={"query": c_query, "variables": {"handle": ch}}, timeout=15)
+            if c_resp.status_code == 200:
+                c_data = c_resp.json().get("data", {}).get("collectionByHandle")
                 if c_data and c_data.get("products"):
-                    for p_edge in c_data["products"]["edges"]:
-                        for im_edge in p_edge["node"]["images"]["edges"]:
-                            im_url = im_edge["node"]["url"]
-                            if im_url and not im_url.lower().endswith('.svg'):
-                                r = requests.get(im_url, timeout=12)
-                                if r.status_code == 200:
-                                    img = Image.open(BytesIO(r.content))
-                                    if img.width >= 800:
-                                        fitted = ImageOps.fit(img.convert("RGB"), (1200, 675), method=Image.Resampling.LANCZOS)
-                                        out = BytesIO()
-                                        fitted.save(out, format="JPEG", quality=95, optimize=True)
-                                        print(f"  [OK] Formatted high-res store media photo from GraphQL to 1200x675 landscape")
-                                        return out.getvalue()
+                    prods = []
+                    for p in c_data["products"]["edges"]:
+                        node = p["node"]
+                        imgs = [im["node"]["url"] for im in node["images"]["edges"] if im["node"]["url"] and not im["node"]["url"].lower().endswith('.svg')]
+                        if imgs:
+                            prods.append({"id": node["id"], "title": node["title"], "handle": node["handle"], "image_url": imgs[0]})
+                    if len(prods) >= 2:
+                        return prods
         except Exception:
             pass
+
+    return []
+
+def create_studio_lookbook_collage(products, title_text="MeeeShop Style Guide"):
+    """
+    Tier 1 (Primary): Creates an ultra-sharp, studio-grade 1200x675 landscape featured image.
+    Uses 3 high-resolution catalog photos on a luxury minimalist cream background
+    with crisp white borders, subtle elegant drop shadows, and high-fidelity 4:4:4 rendering.
+    """
+    if len(products) < 2:
+        return None
+
+    CANVAS_W, CANVAS_H = 1200, 675
+    BG_COLOR = (248, 246, 242) # Luxury warm boutique cream
+    
+    canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), BG_COLOR)
+    
+    downloaded = []
+    for p in products[:3]:
+        try:
+            r = requests.get(p["image_url"], timeout=15)
+            if r.status_code == 200 and len(r.content) > 10000:
+                img = Image.open(BytesIO(r.content)).convert("RGB")
+                downloaded.append((img, p.get("title", "")))
+        except Exception as e:
+            print(f"Warning downloading product image: {e}")
+
+    if len(downloaded) < 2:
+        return None
+
+    if len(downloaded) >= 3:
+        card_w, card_h = 350, 560
+        spacing = 35
+        start_x = (CANVAS_W - (3 * card_w + 2 * spacing)) // 2
+        start_y = (CANVAS_H - card_h) // 2
+
+        for i, (img, ptitle) in enumerate(downloaded[:3]):
+            x = start_x + i * (card_w + spacing)
+            y = start_y
+
+            # Draw subtle drop shadow
+            shadow = Image.new("RGBA", (card_w + 16, card_h + 16), (0, 0, 0, 0))
+            sdraw = ImageDraw.Draw(shadow)
+            sdraw.rectangle([8, 8, card_w + 8, card_h + 8], fill=(0, 0, 0, 25))
+            shadow = shadow.filter(ImageFilter.GaussianBlur(radius=6))
+            canvas.paste(shadow, (x - 4, y - 4), shadow)
+
+            # Fit product image with clean white mat border
+            border = 8
+            inner_w = card_w - (2 * border)
+            inner_h = card_h - (2 * border)
+            fitted = ImageOps.fit(img, (inner_w, inner_h), method=Image.Resampling.LANCZOS)
+            
+            card = Image.new("RGB", (card_w, card_h), (255, 255, 255))
+            card.paste(fitted, (border, border))
+            cdraw = ImageDraw.Draw(card)
+            cdraw.rectangle([0, 0, card_w - 1, card_h - 1], outline=(230, 226, 220), width=1)
+            canvas.paste(card, (x, y))
+
+    elif len(downloaded) == 2:
+        card_w, card_h = 450, 560
+        spacing = 50
+        start_x = (CANVAS_W - (2 * card_w + spacing)) // 2
+        start_y = (CANVAS_H - card_h) // 2
+
+        for i, (img, ptitle) in enumerate(downloaded[:2]):
+            x = start_x + i * (card_w + spacing)
+            y = start_y
+            border = 10
+            fitted = ImageOps.fit(img, (card_w - 2 * border, card_h - 2 * border), method=Image.Resampling.LANCZOS)
+            card = Image.new("RGB", (card_w, card_h), (255, 255, 255))
+            card.paste(fitted, (border, border))
+            canvas.paste(card, (x, y))
+
+    # Apply unsharp masking to guarantee razor-sharp definition for Discover / Bing
+    canvas = canvas.filter(ImageFilter.UnsharpMask(radius=1.2, percent=110, threshold=3))
+
+    out = BytesIO()
+    # Save with 4:4:4 chroma subsampling (subsampling=0) and 98% quality
+    canvas.save(out, format="JPEG", quality=98, subsampling=0, optimize=True)
+    print(f"  [OK] Generated ultra-sharp Studio Lookbook featured image (1200x675, {len(out.getvalue())} bytes)")
+    return out.getvalue()
+
+def generate_ai_lifestyle_image(title, category_name):
+    """Tier 2 Fallback: AI Photorealistic Editorial Photoshoot Generation with Unsharp Sharpening"""
+    clean_title = re.sub(r'[^\w\s-]', '', title).strip()
+    prompt = f"high fashion editorial street style photography of a chic woman, {clean_title}, natural warm morning lighting, boutique fashion lookbook aesthetic, 35mm photography, sharp focus, 8k resolution"
+    encoded = quote_plus(prompt)
+    
+    endpoints = [
+        f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=675&model=flux&nologo=true",
+        f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=675&nologo=true"
+    ]
+    
+    for ep in endpoints:
+        try:
+            resp = requests.get(ep, timeout=25)
+            if resp.status_code == 200 and len(resp.content) > 15000:
+                img = Image.open(BytesIO(resp.content)).convert("RGB")
+                fitted = ImageOps.fit(img, (1200, 675), method=Image.Resampling.LANCZOS)
+                fitted = fitted.filter(ImageFilter.UnsharpMask(radius=1.2, percent=115, threshold=3))
+                out = BytesIO()
+                fitted.save(out, format="JPEG", quality=98, subsampling=0, optimize=True)
+                print(f"  [OK] Generated AI lifestyle editorial photo (1200x675, {len(out.getvalue())} bytes)")
+                return out.getvalue()
+        except Exception as e:
+            print(f"  [Notice] AI image generator endpoint attempt failed: {e}")
+            
+    return None
+
+def fetch_shopify_free_lifestyle_image(category_handle, title):
+    """Tier 3 Fallback: Curated high-resolution fashion stock library with unsharp mask"""
+    urls = SHOPIFY_FREE_LIFESTYLE_LIBRARY.get(category_handle, SHOPIFY_FREE_LIFESTYLE_LIBRARY["womens-clothing"])
+    selected_url = random.choice(urls)
+
+    for url in [selected_url] + urls:
+        try:
+            resp = requests.get(url, timeout=15)
+            if resp.status_code == 200 and len(resp.content) > 15000:
+                img = Image.open(BytesIO(resp.content)).convert("RGB")
+                fitted = ImageOps.fit(img, (1200, 675), method=Image.Resampling.LANCZOS)
+                fitted = fitted.filter(ImageFilter.UnsharpMask(radius=1.2, percent=110, threshold=3))
+                out = BytesIO()
+                fitted.save(out, format="JPEG", quality=98, subsampling=0, optimize=True)
+                print(f"  [OK] Formatted curated photoshoot image with unsharp mask (1200x675)")
+                return out.getvalue()
+        except Exception as e:
+            print(f"Warning: Failed downloading stock photo: {e}")
+
     return None
 
 def resolve_discover_lifestyle_image(session, store_url, title, category_meta, blog_handle):
     """
-    Resolves 1200px+ Lifestyle Imagery matching the exact article title:
-    1. Tier 1: AI Photorealistic Editorial Lifestyle Photoshoot Generation
-    2. Tier 2: Shopify GraphQL Catalog Media Resolution
-    3. Tier 3: Curated High-Res Fashion Stock Library
+    Resolves 1200px+ High-Resolution Featured Imagery matching Google Discover & Bing standards:
+    1. Tier 1 (Primary): Ultra-sharp Studio Lookbook 3-Product Collage from store's authentic catalog
+    2. Tier 2: AI Photorealistic Editorial Lifestyle Generation with Unsharp Mask
+    3. Tier 3: Curated High-Res Fashion Stock with Unsharp Mask
     """
-    print(f"[*] Resolving 1200px+ crystal-clear lifestyle featured imagery for '{title}'...")
+    print(f"[*] Resolving 1200px+ crystal-clear featured imagery for '{title}'...")
     
-    # 1. Tier 1: AI Photorealistic Generation Matching the Topic
-    img_bytes = generate_ai_lifestyle_image(title, category_meta["name"])
-    if img_bytes:
-        return img_bytes
+    # 1. Tier 1: Authentic High-Res Store Catalog Lookbook Collage
+    products = fetch_catalog_products_for_image(session, store_url, category_meta, title)
+    if len(products) >= 2:
+        img_bytes = create_studio_lookbook_collage(products, title)
+        if img_bytes:
+            return img_bytes
 
-    # 2. Tier 2: Shopify GraphQL Store Media Fallback
-    img_bytes = fetch_store_lifestyle_media(session, store_url, category_meta, title)
+    # 2. Tier 2: AI Photorealistic Generation Matching Topic
+    img_bytes = generate_ai_lifestyle_image(title, category_meta["name"])
     if img_bytes:
         return img_bytes
 
