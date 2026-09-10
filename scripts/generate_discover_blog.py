@@ -775,8 +775,8 @@ REAL_EDITORIAL_PHOTO_LIBRARY = {
         "https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=1600&h=900&q=90"
     ],
     "curvy": [
-        "https://images.unsplash.com/photo-1569388330292-79cc1ec67270?auto=format&fit=crop&w=1600&h=900&q=90",
         "https://images.unsplash.com/photo-1581044777550-4cfa60707c03?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1569388330292-79cc1ec67270?auto=format&fit=crop&w=1600&h=900&q=90",
         "https://images.unsplash.com/photo-1529139574466-a303027c1d8b?auto=format&fit=crop&w=1600&h=900&q=90"
     ],
     "vegan": [
@@ -785,9 +785,9 @@ REAL_EDITORIAL_PHOTO_LIBRARY = {
         "https://images.unsplash.com/photo-1512436991641-6745cdb1723f?auto=format&fit=crop&w=1600&h=900&q=90"
     ],
     "tips": [
-        "https://images.unsplash.com/photo-1558769132-cb1aea458c5e?auto=format&fit=crop&w=1600&h=900&q=90",
-        "https://images.unsplash.com/photo-1582533561751-ef6f6ab93a2e?auto=format&fit=crop&w=1600&h=900&q=90",
-        "https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?auto=format&fit=crop&w=1600&h=900&q=90"
+        "https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=1600&h=900&q=90"
     ]
 }
 
@@ -795,40 +795,89 @@ REAL_EDITORIAL_PHOTO_LIBRARY = {
 def fetch_store_catalog_model_photo(session, store_url, garment_type, category_meta, title=""):
     """
     Priority 1: Authentic Store Catalog Model Photography (Shopify GraphQL at 2048px).
-    Queries real inventory matching the specific garment type in the article title.
+    Queries real boutique inventory matching the specific garment type or category collection.
     """
-    query = """
-    query getGarmentProducts($query: String!) {
-      products(first: 8, query: $query) {
-        edges {
-          node {
-            id
-            title
-            handle
-            productType
-            images(first: 2) {
-              edges {
-                node {
-                  url(transform: {maxWidth: 2048})
-                  width
-                  height
+    edges = []
+
+    # Step 1: Query by specific garment type if known
+    if garment_type in ["dress", "top", "jean", "pant", "skirt", "sweater", "jacket"]:
+        query_by_type = """
+        query getGarmentProducts($query: String!) {
+          products(first: 8, query: $query) {
+            edges {
+              node {
+                id
+                title
+                handle
+                productType
+                images(first: 2) {
+                  edges {
+                    node {
+                      url(transform: {maxWidth: 2048})
+                      width
+                      height
+                    }
+                  }
                 }
               }
             }
           }
         }
-      }
-    }
-    """
-    search_query = f"status:active AND (product_type:*{garment_type}* OR title:*{garment_type}*)"
-    try:
-        resp = session.post(f"{store_url}/admin/api/2024-10/graphql.json", json={"query": query, "variables": {"query": search_query}}, timeout=15)
-        if resp.status_code == 200:
-            edges = resp.json().get("data", {}).get("products", {}).get("edges", [])
-            for e in edges:
-                for im in e["node"]["images"]["edges"]:
-                    im_url = im["node"]["url"]
-                    if im_url and not im_url.lower().endswith('.svg'):
+        """
+        search_query = f"status:active AND (product_type:*{garment_type}* OR title:*{garment_type}*)"
+        try:
+            resp = session.post(f"{store_url}/admin/api/2024-10/graphql.json", json={"query": query_by_type, "variables": {"query": search_query}}, timeout=15)
+            if resp.status_code == 200:
+                edges = resp.json().get("data", {}).get("products", {}).get("edges", [])
+        except Exception as e:
+            print(f"Warning: GraphQL store catalog photo fetch by type failed: {e}")
+
+    # Step 2: If no edges found or garment_type is general (curvy, vegan, tips), query category collections directly
+    if not edges:
+        col_handles = category_meta.get("collection_handles", [])
+        query_by_col = """
+        query getColProducts($handle: String!) {
+          collectionByHandle(handle: $handle) {
+            products(first: 8) {
+              edges {
+                node {
+                  id
+                  title
+                  handle
+                  productType
+                  images(first: 2) {
+                    edges {
+                      node {
+                        url(transform: {maxWidth: 2048})
+                        width
+                        height
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+        for handle in col_handles:
+            try:
+                resp = session.post(f"{store_url}/admin/api/2024-10/graphql.json", json={"query": query_by_col, "variables": {"handle": handle}}, timeout=15)
+                if resp.status_code == 200:
+                    found_edges = resp.json().get("data", {}).get("collectionByHandle", {}).get("products", {}).get("edges", [])
+                    if found_edges:
+                        edges = found_edges
+                        break
+            except Exception as e:
+                print(f"Warning: GraphQL store collection fetch failed for {handle}: {e}")
+
+    # Process first valid model photo from edges
+    if edges:
+        for e in edges:
+            for im in e["node"]["images"]["edges"]:
+                im_url = im["node"]["url"]
+                if im_url and not im_url.lower().endswith('.svg'):
+                    try:
                         r = requests.get(im_url, timeout=12)
                         if r.status_code == 200 and len(r.content) > 20000:
                             orig = Image.open(BytesIO(r.content)).convert("RGB")
@@ -866,8 +915,8 @@ def fetch_store_catalog_model_photo(session, store_url, garment_type, category_m
                             canvas.save(out, format="JPEG", quality=98, subsampling=0, optimize=True)
                             print(f"  [OK] Real store catalog model photo for '{e['node']['title']}' formatted to editorial spread (1200x675, {len(out.getvalue())} bytes)")
                             return out.getvalue()
-    except Exception as e:
-        print(f"Warning: GraphQL store catalog photo fetch failed: {e}")
+                    except Exception as err:
+                        print(f"Warning: Image download/processing error: {err}")
 
     return None
 
