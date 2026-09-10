@@ -47,112 +47,136 @@ CATEGORY_REGISTRY = {
         "name": "Dresses",
         "aliases": ["dresses", "dress", "womens-dresses"],
         "template_suffix": "dresses",
-        "product_keywords": ["dress", "maxi", "midi", "mini", "gown", "slip dress", "wrap dress", "sundress"],
+        "product_keywords": ["dress", "maxi", "midi", "mini", "gown", "slip dress", "wrap dress", "sundress", "linen dress"],
         "collection_handles": ["womens-dresses", "womens-casual-dresses", "midi-dresses", "mini-dresses", "womens-maxi-dresses"],
         "seasonal_hooks": [
             "Transitional Layering Formulas for Late Summer to Fall",
             "Midi Dress and Boot Pairings We're Seeing Everywhere",
             "Flattering Proportions: Styling Slip Dresses for Day and Night",
             "How to Style Casual Maxi Dresses Without Looking Overdressed",
-            "The 3 Dress Silhouettes That Flatter Every Body Proportion"
+            "The 3 Dress Silhouettes That Flatter Every Body Proportion",
+            "Effortless Shirt Dress Outfits for Work and Weekend",
+            "Tiered Midi Dresses: How to Style Volume Without Overwhelming Your Frame",
+            "Wrap Dresses: Proportions, Necklines, and Footwear Pairings"
         ]
     },
     "jeans-style-guide": {
         "name": "Jeans",
         "aliases": ["jeans", "denim", "womens-jeans"],
         "template_suffix": "jeans",
-        "product_keywords": ["jean", "denim", "jort", "wide leg", "flare", "straight leg", "high waist"],
+        "product_keywords": ["jean", "denim", "jort", "wide leg", "flare", "straight leg", "high waist", "ankle crop"],
         "collection_handles": ["womens-jeans", "womens-new-denim", "wide-leg-jeans", "straight-leg-jeans", "judy-blue-womens-jeans", "risen-womens-jeans-collection"],
         "seasonal_hooks": [
             "Wide-Leg vs Straight-Leg Denim: Which Cut flatters Your Frame?",
             "How to Style Barrel and Wide-Leg Jeans with Everyday Footwear",
             "The Shoe and Denim Hemline Pairing Guide for Fall",
             "How to Elevate Dark Wash Denim for an Effortless Polished Look",
-            "Finding the Perfect High-Rise Stretch Denim for All-Day Comfort"
+            "Finding the Perfect High-Rise Stretch Denim for All-Day Comfort",
+            "Cropped Denim and Ankle Boots: Hemline Rules That Work",
+            "Denim-on-Denim Outfits: Balancing Washes and Proportions",
+            "Straight-Leg Jeans Outfit Formulas for Every Body Shape"
         ]
     },
     "womens-shirts-tops-style-guide": {
         "name": "Women's Shirts & Tops",
         "aliases": ["shirts", "tops", "shirts-tops", "womens-shirts-tops", "blouses"],
         "template_suffix": "women-s-shirts-tops",
-        "product_keywords": ["top", "blouse", "shirt", "tee", "t-shirt", "tank", "tunic", "cami", "button-down"],
+        "product_keywords": ["top", "blouse", "shirt", "tee", "t-shirt", "tank", "tunic", "cami", "button-down", "linen shirt"],
         "collection_handles": ["womens-tops", "womens-t-shirts", "womens-camis-tanks-tops", "womens-knit-tops", "long-sleeve-tops", "v-neck-tops"],
         "seasonal_hooks": [
             "How to Style an Oversized Button-Down for Relaxed Elegance",
             "Essential Layering Tops for Your Capsule Wardrobe",
             "Elevating a Basic White Tee into a Statement Outfit",
             "How to Layer Lightweight Knit Tops Under Blazers and Jackets",
-            "Flattering Sleeve Cuts and Necklines for Balanced Silhouettes"
+            "Flattering Sleeve Cuts and Necklines for Balanced Silhouettes",
+            "Silk Blouse Outfit Ideas for Seamless Day-to-Night Transitions",
+            "Linen and Cotton Shirts: Breathable Styling for Warm Transitions",
+            "French Tuck vs Full Tuck: How to Style Tops with High-Waisted Bottoms"
         ]
     },
     "womens-pants-style-guide": {
         "name": "Women's Pants",
         "aliases": ["pants", "trousers", "womens-pants", "bottoms"],
         "template_suffix": "women-s-pants",
-        "product_keywords": ["pant", "trouser", "legging", "jogger", "slack", "linen pant", "wide leg pant"],
+        "product_keywords": ["pant", "trouser", "legging", "jogger", "slack", "linen pant", "wide leg pant", "cargo"],
         "collection_handles": ["womens-pants-leggings", "womens-bottoms", "womens-loungewear"],
         "seasonal_hooks": [
             "How to Style Tailored Trousers with Sneakers for a Weekend Look",
             "Wide-Leg Pants Styling Formulas for Balanced Body Proportions",
             "Transitioning Lightweight Linen and Cotton Pants into Autumn",
             "How to Choose Comfortable Structured Pants for All-Day Wear",
-            "High-Waisted Trousers: How to Elongate Your Legs Effortlessly"
+            "High-Waisted Trousers: How to Elongate Your Legs Effortlessly",
+            "Pleated Trousers vs Flat-Front Pants: Fit and Silhouette Rules",
+            "Cropped Ankle Pants: Footwear Pairings from Flats to Loafers",
+            "Elevated Loungewear and Joggers: How to Style Casual Bottoms"
         ]
     },
     "womens-skirts-style-guide": {
         "name": "Women's Skirts",
         "aliases": ["skirts", "skirt", "womens-skirts"],
         "template_suffix": "women-s-skirts",
-        "product_keywords": ["skirt", "skort", "midi skirt", "mini skirt", "maxi skirt", "denim skirt"],
+        "product_keywords": ["skirt", "skort", "midi skirt", "mini skirt", "maxi skirt", "denim skirt", "pleated skirt"],
         "collection_handles": ["womens-skirts", "womens-bottoms"],
         "seasonal_hooks": [
             "How to Style Midi Skirts Across Changing Seasons",
             "Denim and Knit Skirt Formulas for Modern Everyday Looks",
             "Footwear Pairings for Pleated, A-Line, and Column Skirts",
             "Building a Versatile Wardrobe Around Essential Skirt Cuts",
-            "How to Style a Silk or Satin Skirt for Casual Daytime Outfits"
+            "How to Style a Silk or Satin Skirt for Casual Daytime Outfits",
+            "Maxi Skirts and Sweaters: Balancing Lengths and Texture",
+            "A-Line Skirts: Flattering Proportions for Every Silhouette",
+            "Pencil and Column Skirts: Casual Styling Beyond the Office"
         ]
     },
     "cardigans-sweaters-style-guide": {
         "name": "Cardigans & Sweaters",
         "aliases": ["cardigans", "sweaters", "cardigans-sweaters", "knitwear", "knits"],
         "template_suffix": "cardigans-sweaters",
-        "product_keywords": ["sweater", "cardigan", "knit", "pullover", "knitwear", "turtleneck", "crewneck"],
+        "product_keywords": ["sweater", "cardigan", "knit", "pullover", "knitwear", "turtleneck", "crewneck", "chunky knit"],
         "collection_handles": ["womens-sweaters", "womens-sweatshirts-hoodies", "womens-knit-tops", "womens-tops"],
         "seasonal_hooks": [
             "How to Style Cropped and Relaxed Cardigans with High-Rise Bottoms",
             "Chunky Knit vs Fine-Gauge Sweaters: Layering Proportions",
             "How to Prevent Sweater Pilling and Maintain Knitwear Softness",
             "Effortless French-Tuck Styling Formulas for Oversized Sweaters",
-            "Cozy Color Palettes and Textures for Autumn Knitwear"
+            "Cozy Color Palettes and Textures for Autumn Knitwear",
+            "Turtlenecks and Mock Necks: Layering Under Blazers and Dresses",
+            "Open-Front Long Cardigans: How to Create Clean Vertical Lines",
+            "Cotton-Blend Knits: Lightweight Sweater Styling for Changing Weather"
         ]
     },
     "coats-jackets-style-guide": {
         "name": "Coats & Jackets",
         "aliases": ["coats", "jackets", "coats-jackets", "outerwear", "blazers"],
         "template_suffix": "coats-jackets",
-        "product_keywords": ["jacket", "coat", "blazer", "outerwear", "shacket", "vest", "denim jacket", "trench"],
+        "product_keywords": ["jacket", "coat", "blazer", "outerwear", "shacket", "vest", "denim jacket", "trench", "utility jacket"],
         "collection_handles": ["womens-outerwear", "womens-blazers-vests-jackets", "womens-coats-jackets"],
         "seasonal_hooks": [
             "How to Style an Oversized Blazer Without Overwhelming Your Frame",
             "Transitional Jacket Formulas for Cool Mornings and Warm Afternoons",
             "The Classic Denim Jacket: Modern Styling Rules for This Year",
             "Choosing the Right Outerwear Length for Dresses vs Pants",
-            "Shackets and Utility Jackets: Casual Layering Masterclass"
+            "Shackets and Utility Jackets: Casual Layering Masterclass",
+            "Trench Coats: Styling Classic Outerwear with Modern Casual Staples",
+            "Cropped Jackets vs Long Duster Coats: Silhouette Comparison",
+            "Quilted and Puffer Vests: Lightweight Outerwear Layering Formulas"
         ]
     },
     "plus-size-curvy-clothing": {
         "name": "Plus Size | Curvy Clothing",
         "aliases": ["plus-size", "curvy", "plus-size-curvy", "curvy-clothing"],
         "template_suffix": "plus-size",
-        "product_keywords": ["curvy", "plus size", "plus", "1x", "2x", "3x", "stretch"],
+        "product_keywords": ["curvy", "plus size", "plus", "1x", "2x", "3x", "stretch", "flattering"],
         "collection_handles": ["womens-curvy-plus-size-clothing", "womens-dresses", "womens-jeans", "womens-tops"],
         "seasonal_hooks": [
             "Flattering Denim and Dress Silhouettes That Celebrate Curvy Frames",
             "How to Find the Perfect Balance in Stretch Denim and High Rises",
             "Layering and Proportion Secrets for Curvy Silhouette Styling",
             "Building an Empowering and Versatile Plus-Size Capsule Wardrobe",
-            "3-Piece Outfit Formulas for Curvy Proportions That Never Fail"
+            "3-Piece Outfit Formulas for Curvy Proportions That Never Fail",
+            "Wrap Tops and A-Line Dresses: Defining Proportions Effortlessly",
+            "Wide-Leg Trousers for Curvy Shapes: Balanced Silhouette Guide",
+            "Confidence-Boosting Wardrobe Essentials for Everyday Elegance"
         ]
     },
     "womens-clothing": {
@@ -166,7 +190,10 @@ CATEGORY_REGISTRY = {
             "Curating an Intentional Boutique Capsule Wardrobe This Season",
             "Mixing Textures and Neutral Palettes for High-End Casual Looks",
             "Effortless Day-to-Evening Transitions with Minimal Changes",
-            "Modern Proportions: How to Balance Fitted and Relaxed Garments"
+            "Modern Proportions: How to Balance Fitted and Relaxed Garments",
+            "Color Harmony in Fashion: Building Cohesive Everyday Outfits",
+            "Investment Pieces vs Trend Accents: Where to Spend Your Wardrobe Budget",
+            "Monochrome Dressing: Creating Polished Tonal Outfits"
         ]
     },
     "everything-anything-about-vegan": {
@@ -180,21 +207,27 @@ CATEGORY_REGISTRY = {
             "How to Build a Sustainable and Cruelty-Free Wardrobe",
             "Caring for Natural Fabrics to Extend the Lifespan of Your Clothes",
             "Minimalist Plant-Based Textile Styling for Everyday Living",
-            "Conscious Boutique Fashion: Choosing Quality Over Fast Fashion"
+            "Conscious Boutique Fashion: Choosing Quality Over Fast Fashion",
+            "Linen Care 101: Keeping Plant Fibers Soft and Wrinkle-Free",
+            "Cruelty-Free Capsule Wardrobes: Breathable Textiles That Last",
+            "Natural Dye and Organic Cotton Styling for Mindful Fashion"
         ]
     },
     "our-tips": {
         "name": "Our Tips",
         "aliases": ["tips", "our-tips", "care", "advice"],
         "template_suffix": "our-tips",
-        "product_keywords": ["top", "dress", "jean", "pant", "sweater"],
+        "product_keywords": ["top", "dress", "jean", "pant", "sweater", "fabric care"],
         "collection_handles": ["womens-tops", "womens-dresses", "womens-sweaters", "womens-new-collection"],
         "seasonal_hooks": [
             "How to Spot High-Quality Stitching and Fabric Construction",
             "Fabric Shrinkage and Garment Care Habits That Save Your Clothes",
             "Closet Editing and Organization Habits for a Stress-Free Morning",
             "How to Care for Delicates and Boutique Knits at Home",
-            "Fitting Room Secrets: How to Know If a Garment Really Fits"
+            "Fitting Room Secrets: How to Know If a Garment Really Fits",
+            "Steam vs Iron: The Best Ways to Refresh Boutique Fabrics",
+            "How to Measure Your Body Correctly for Online Boutique Shopping",
+            "Seasonal Wardrobe Rotation: Storing Clothes to Prevent Damage"
         ]
     }
 }
@@ -270,7 +303,7 @@ def get_shopify_session(store_url, access_token):
     session.mount('https://', HTTPAdapter(max_retries=retries))
     return session
 
-# ── Dynamic Category Selection ────────────────────────────────────────────────
+# ── Dynamic Category Selection with Strict Round-Robin Rotation ───────────────
 def get_shopify_blogs(session, store_url):
     resp = session.get(f"{store_url}/admin/api/2024-10/blogs.json")
     resp.raise_for_status()
@@ -285,6 +318,7 @@ def resolve_target_category(session, store_url, blogs, requested_category="auto"
             if req_clean == handle.lower() or req_clean in [a.lower() for a in meta["aliases"]]:
                 matched_blog = next((b for b in blogs if b.get("handle") == handle), None)
                 if matched_blog:
+                    print(f"[*] Manual Category Override Selected: '{matched_blog['title']}' (/blogs/{handle})")
                     return matched_blog, meta
 
     blog_stats = []
@@ -293,16 +327,38 @@ def resolve_target_category(session, store_url, blogs, requested_category="auto"
         if handle == "announcements" or handle not in CATEGORY_REGISTRY:
             continue
         meta = CATEGORY_REGISTRY[handle]
+        latest_date_str = "1970-01-01T00:00:00Z"
+        latest_title = "None"
         try:
-            count_resp = session.get(f"{store_url}/admin/api/2024-10/blogs/{b['id']}/articles/count.json")
-            count = count_resp.json().get("count", 0) if count_resp.status_code == 200 else 99
-        except Exception:
-            count = 99
-        blog_stats.append({"blog": b, "meta": meta, "count": count})
+            # Query the single most recent article in this blog to determine publishing freshness
+            art_resp = session.get(
+                f"{store_url}/admin/api/2024-10/blogs/{b['id']}/articles.json?limit=1&fields=id,title,created_at,published_at",
+                timeout=15
+            )
+            if art_resp.status_code == 200:
+                articles = art_resp.json().get("articles", [])
+                if articles:
+                    latest_date_str = articles[0].get("published_at") or articles[0].get("created_at") or "1970-01-01T00:00:00Z"
+                    latest_title = articles[0].get("title", "")
+        except Exception as e:
+            print(f"Warning: Could not fetch latest article for {handle}: {e}")
 
-    blog_stats.sort(key=lambda x: x["count"])
-    candidates = blog_stats[:min(4, len(blog_stats))]
-    chosen = random.choice(candidates)
+        blog_stats.append({
+            "blog": b,
+            "meta": meta,
+            "latest_date": latest_date_str,
+            "latest_title": latest_title
+        })
+
+    # Sort strictly by oldest latest_date (ascending) -> True Round-Robin Rotation across all 11 channels
+    blog_stats.sort(key=lambda x: x["latest_date"])
+
+    print("\n[*] Category Rotation Queue (Oldest Updated -> Most Recently Published):")
+    for i, item in enumerate(blog_stats, 1):
+        print(f"    {i:2d}. {item['blog']['handle']:<32} | Last Published: {item['latest_date']} | Title: {item['latest_title'][:40]}")
+    
+    chosen = blog_stats[0]
+    print(f"\n[*] Round-Robin Winner: '{chosen['blog']['handle']}' (Least recently published channel)\n")
     return chosen["blog"], chosen["meta"]
 
 # ── Collection Link Resolution (>= 20 Products Rule) ──────────────────────────
@@ -383,7 +439,7 @@ def generate_discover_article(category_meta, collections, existing_titles, topic
     category_name = category_meta["name"]
     seasonal_hooks = category_meta.get("seasonal_hooks", [f"How to Style {category_name} for Everyday Elegance"])
 
-    # 1. Determine Topic with Season/Trend Context
+    # 1. Determine Topic with Season/Trend Context & Deduplication
     existing_lower = {t.lower().strip() for t in existing_titles}
     if topic_override:
         topic = topic_override.strip()
@@ -392,14 +448,23 @@ def generate_discover_article(category_meta, collections, existing_titles, topic
         if available_hooks:
             topic = random.choice(available_hooks)
         else:
-            qualifiers = [
-                "Transitional Styling Formulas",
-                "How to Balance Proportions for Everyday Chic",
-                "Effortless Casual Outfit Ideas",
-                "Footwear and Layering Guide",
-                "Capsule Wardrobe Essentials"
-            ]
-            topic = f"How to Style {category_name}: {random.choice(qualifiers)}"
+            # Dynamic AI Topic Brainstorming when static hooks are exhausted
+            brainstorm_prompt = f"""
+Act as a trend forecaster and fashion director for MeeeShop boutique.
+Generate ONE fresh, high-CTR, Google Discover-eligible editorial article title for the category: "{category_name}".
+Requirements:
+- Topic should focus on modern silhouette balance, fabric styling, or seasonal transitions.
+- Do NOT use any of these existing titles: {json.dumps(list(existing_lower)[:15])}
+- Output ONLY the single raw title string (e.g. 'How to Style Linen Pants with Tailored Blazers for Late Summer'). No quotes, no markdown.
+"""
+            try:
+                ai_topic = ai_generate(brainstorm_prompt, max_tokens=60, temperature=0.8)
+                if ai_topic and len(ai_topic.strip()) > 15 and ai_topic.strip().lower() not in existing_lower:
+                    topic = ai_topic.strip().replace('"', '').replace("'", "").strip()
+                else:
+                    topic = f"How to Style {category_name}: Flattering Formulas & Proportions"
+            except Exception:
+                topic = f"How to Style {category_name}: Flattering Formulas & Proportions"
 
     print(f"[*] Discover Topic Angle Selected: '{topic}'")
 
@@ -541,22 +606,28 @@ SHOPIFY_FREE_LIFESTYLE_LIBRARY = {
     "dresses-style-guide": [
         "https://images.unsplash.com/photo-1496747611176-843222e1e57c?auto=format&fit=crop&w=1600&h=900&q=85",
         "https://images.unsplash.com/photo-1515372039744-b8f02a3ae446?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1492707892479-7bc8d5a4ee93?auto=format&fit=crop&w=1600&h=900&q=85"
+        "https://images.unsplash.com/photo-1492707892479-7bc8d5a4ee93?auto=format&fit=crop&w=1600&h=900&q=85",
+        "https://images.unsplash.com/photo-1572804013309-59a88b7e92f1?auto=format&fit=crop&w=1600&h=900&q=85",
+        "https://images.unsplash.com/photo-1595777457583-95e059d581b8?auto=format&fit=crop&w=1600&h=900&q=85"
     ],
     "jeans-style-guide": [
         "https://images.unsplash.com/photo-1541099649105-f69ad21f3246?auto=format&fit=crop&w=1600&h=900&q=85",
         "https://images.unsplash.com/photo-1582418702059-97ebafb35d09?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1576995853123-5a10305d93c0?auto=format&fit=crop&w=1600&h=900&q=85"
+        "https://images.unsplash.com/photo-1576995853123-5a10305d93c0?auto=format&fit=crop&w=1600&h=900&q=85",
+        "https://images.unsplash.com/photo-1506152983158-b4a74a01c721?auto=format&fit=crop&w=1600&h=900&q=85",
+        "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=1600&h=900&q=85"
     ],
     "womens-shirts-tops-style-guide": [
         "https://images.unsplash.com/photo-1485968579580-b6d095142e6e?auto=format&fit=crop&w=1600&h=900&q=85",
         "https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1564257631407-4deb1f99d992?auto=format&fit=crop&w=1600&h=900&q=85"
+        "https://images.unsplash.com/photo-1564257631407-4deb1f99d992?auto=format&fit=crop&w=1600&h=900&q=85",
+        "https://images.unsplash.com/photo-1485230895905-ec40ba36b9bc?auto=format&fit=crop&w=1600&h=900&q=85"
     ],
     "womens-pants-style-guide": [
         "https://images.unsplash.com/photo-1509631179647-0177331693ae?auto=format&fit=crop&w=1600&h=900&q=85",
         "https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?auto=format&fit=crop&w=1600&h=900&q=85",
-        "https://images.unsplash.com/photo-1485230895905-ec40ba36b9bc?auto=format&fit=crop&w=1600&h=900&q=85"
+        "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=1600&h=900&q=85",
+        "https://images.unsplash.com/photo-1469334031218-e382a71b716b?auto=format&fit=crop&w=1600&h=900&q=85"
     ],
     "womens-skirts-style-guide": [
         "https://images.unsplash.com/photo-1583496661160-fb5886a0aaaa?auto=format&fit=crop&w=1600&h=900&q=85",
@@ -595,9 +666,40 @@ SHOPIFY_FREE_LIFESTYLE_LIBRARY = {
     ]
 }
 
+def generate_ai_lifestyle_image(title, category_name):
+    """
+    Tier 1: Bespoke AI Photorealistic Editorial Lifestyle Photoshoot Generation
+    Generates a crystal-clear, 1200x675 landscape fashion editorial photo matching the exact article title.
+    """
+    clean_title = re.sub(r'[^\w\s-]', '', title).strip()
+    prompt = f"high fashion editorial street style photography of a chic woman, {clean_title}, natural warm morning lighting, boutique fashion lookbook aesthetic, 35mm photography, sharp focus, 8k resolution"
+    encoded = quote_plus(prompt)
+    
+    # Try Pollinations Flux engine first, then standard photorealistic endpoint
+    endpoints = [
+        f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=675&model=flux&nologo=true",
+        f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=675&nologo=true"
+    ]
+    
+    for ep in endpoints:
+        try:
+            print(f"  [*] Generating AI photorealistic editorial lifestyle photo matching: '{clean_title}'...")
+            resp = requests.get(ep, timeout=25)
+            if resp.status_code == 200 and len(resp.content) > 15000:
+                img = Image.open(BytesIO(resp.content)).convert("RGB")
+                fitted = ImageOps.fit(img, (1200, 675), method=Image.Resampling.LANCZOS)
+                out = BytesIO()
+                fitted.save(out, format="JPEG", quality=95, optimize=True)
+                print(f"  [OK] Successfully generated AI lifestyle editorial photo (1200x675, {len(out.getvalue())} bytes)")
+                return out.getvalue()
+        except Exception as e:
+            print(f"  [Notice] AI image generator endpoint attempt failed: {e}")
+            
+    return None
+
 def fetch_shopify_free_lifestyle_image(category_handle, title):
     """
-    Picks crystal-clear, high-resolution lifestyle photography from Shopify's free fashion image library
+    Tier 3 Fallback: Picks high-resolution lifestyle photography from curated fashion image library
     matching the exact category, formatted to 1200x675 landscape with maximum sharpness.
     """
     urls = SHOPIFY_FREE_LIFESTYLE_LIBRARY.get(category_handle, SHOPIFY_FREE_LIFESTYLE_LIBRARY["womens-clothing"])
@@ -611,15 +713,15 @@ def fetch_shopify_free_lifestyle_image(category_handle, title):
                 fitted = ImageOps.fit(img, (1200, 675), method=Image.Resampling.LANCZOS)
                 out = BytesIO()
                 fitted.save(out, format="JPEG", quality=95, optimize=True)
-                print(f"  [OK] Picked high-resolution photoshoot image from Shopify free image library (1200x675)")
+                print(f"  [OK] Picked high-resolution photoshoot image from curated lifestyle library (1200x675)")
                 return out.getvalue()
         except Exception as e:
             print(f"Warning: Failed downloading stock photo: {e}")
 
     return None
 
-def fetch_store_lifestyle_media(session, store_url, category_meta):
-    """Fallback: Shopify Store Media Library / High-Res Catalog Shoot (1200x675)"""
+def fetch_store_lifestyle_media(session, store_url, category_meta, title=""):
+    """Tier 2 Fallback: Shopify Store Media Library / High-Res Catalog Shoot via GraphQL (1200x675)"""
     colls = category_meta.get("collection_handles", [])
     query = """
     query getStoreImages($handle: String!) {
@@ -659,23 +761,33 @@ def fetch_store_lifestyle_media(session, store_url, category_meta):
                                         fitted = ImageOps.fit(img.convert("RGB"), (1200, 675), method=Image.Resampling.LANCZOS)
                                         out = BytesIO()
                                         fitted.save(out, format="JPEG", quality=95, optimize=True)
-                                        print(f"  [OK] Formatted high-res store media photo to 1200x675 landscape")
+                                        print(f"  [OK] Formatted high-res store media photo from GraphQL to 1200x675 landscape")
                                         return out.getvalue()
         except Exception:
             pass
     return None
 
 def resolve_discover_lifestyle_image(session, store_url, title, category_meta, blog_handle):
-    """Resolves 1200px+ Lifestyle Imagery from Shopify Free Image Library with Store Media Fallback"""
+    """
+    Resolves 1200px+ Lifestyle Imagery matching the exact article title:
+    1. Tier 1: AI Photorealistic Editorial Lifestyle Photoshoot Generation
+    2. Tier 2: Shopify GraphQL Catalog Media Resolution
+    3. Tier 3: Curated High-Res Fashion Stock Library
+    """
     print(f"[*] Resolving 1200px+ crystal-clear lifestyle featured imagery for '{title}'...")
     
-    # 1. Primary: Curated Shopify Free Image Library (Burst / High-Res Stock)
-    img_bytes = fetch_shopify_free_lifestyle_image(blog_handle, title)
+    # 1. Tier 1: AI Photorealistic Generation Matching the Topic
+    img_bytes = generate_ai_lifestyle_image(title, category_meta["name"])
     if img_bytes:
         return img_bytes
 
-    # 2. Fallback: Store Media / High-Res Shoot
-    img_bytes = fetch_store_lifestyle_media(session, store_url, category_meta)
+    # 2. Tier 2: Shopify GraphQL Store Media Fallback
+    img_bytes = fetch_store_lifestyle_media(session, store_url, category_meta, title)
+    if img_bytes:
+        return img_bytes
+
+    # 3. Tier 3: Curated Lifestyle Library Fallback
+    img_bytes = fetch_shopify_free_lifestyle_image(blog_handle, title)
     if img_bytes:
         return img_bytes
 
