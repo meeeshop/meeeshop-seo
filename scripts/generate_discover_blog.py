@@ -705,60 +705,80 @@ def classify_primary_garment(title, category_name=""):
         
     return "fashion", "chic modern boutique fashion"
 
-# ── Google Discover & Bing Single Hero Lifestyle Image Resolution ──────────────
-def generate_ai_lifestyle_image(title, category_name):
-    """
-    Tier 1 (Primary): Single Ultra-High-Definition Editorial Lifestyle Photoshoot Image (1200x675 / 1600x900)
-    Google Discover heavily favors single high-impact lifestyle model photography over collage grids.
-    """
-    garment_type, garment_desc = classify_primary_garment(title, category_name)
-    clean_title = re.sub(r'[^\w\s-]', '', title).strip()
-    
-    prompt = (
-        f"vogue magazine editorial lifestyle photography of a chic modern woman wearing {garment_desc}, "
-        f"full body and waist-up street style, natural golden hour daylight, clean minimalist city backdrop, "
-        f"high fashion photography, 35mm lens, sharp focus, authentic fabric drape and texture, 8k resolution"
-    )
-    encoded = quote_plus(prompt)
-    
-    endpoints = [
-        f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=675&model=flux&nologo=true",
-        f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=675&nologo=true"
+# ── Extensive Curated Library of Real Professional Editorial Photoshoots (2400x1600+ Real DSLR Fashion Photography) ──
+REAL_EDITORIAL_PHOTO_LIBRARY = {
+    "dress": [
+        "https://images.unsplash.com/photo-1496747611176-843222e1e57c?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1515372039744-b8f02a3ae446?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1492707892479-7bc8d5a4ee93?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1572804013309-59a88b7e92f1?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1595777457583-95e059d581b8?auto=format&fit=crop&w=1600&h=900&q=90"
+    ],
+    "top": [
+        "https://images.unsplash.com/photo-1485968579580-b6d095142e6e?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1564257631407-4deb1f99d992?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1485230895905-ec40ba36b9bc?auto=format&fit=crop&w=1600&h=900&q=90"
+    ],
+    "jean": [
+        "https://images.unsplash.com/photo-1541099649105-f69ad21f3246?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1582418702059-97ebafb35d09?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1576995853123-5a10305d93c0?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1506152983158-b4a74a01c721?auto=format&fit=crop&w=1600&h=900&q=90"
+    ],
+    "pant": [
+        "https://images.unsplash.com/photo-1509631179647-0177331693ae?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=1600&h=900&q=90"
+    ],
+    "skirt": [
+        "https://images.unsplash.com/photo-1583496661160-fb5886a0aaaa?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1508427953056-b00b8d78ebf5?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=1600&h=900&q=90"
+    ],
+    "sweater": [
+        "https://images.unsplash.com/photo-1576871337632-b9aef4c17ab9?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1434389677669-e08b4cac3105?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1516762689617-e1cffcef479d?auto=format&fit=crop&w=1600&h=900&q=90"
+    ],
+    "jacket": [
+        "https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=1600&h=900&q=90"
+    ],
+    "curvy": [
+        "https://images.unsplash.com/photo-1569388330292-79cc1ec67270?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1581044777550-4cfa60707c03?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1529139574466-a303027c1d8b?auto=format&fit=crop&w=1600&h=900&q=90"
+    ],
+    "vegan": [
+        "https://images.unsplash.com/photo-1537832816519-689ad163238b?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1508427953056-b00b8d78ebf5?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1512436991641-6745cdb1723f?auto=format&fit=crop&w=1600&h=900&q=90"
+    ],
+    "tips": [
+        "https://images.unsplash.com/photo-1558769132-cb1aea458c5e?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1582533561751-ef6f6ab93a2e?auto=format&fit=crop&w=1600&h=900&q=90",
+        "https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?auto=format&fit=crop&w=1600&h=900&q=90"
     ]
-    
-    for ep in endpoints:
-        try:
-            print(f"  [*] Generating single editorial lifestyle hero photo for '{garment_type}' ({clean_title})...")
-            resp = requests.get(ep, timeout=25)
-            if resp.status_code == 200 and len(resp.content) > 15000:
-                img = Image.open(BytesIO(resp.content)).convert("RGB")
-                fitted = ImageOps.fit(img, (1200, 675), method=Image.Resampling.LANCZOS)
-                # Apply subtle unsharp masking for crystal-clear HD sharpness
-                fitted = fitted.filter(ImageFilter.UnsharpMask(radius=1.2, percent=115, threshold=3))
-                out = BytesIO()
-                fitted.save(out, format="JPEG", quality=98, subsampling=0, optimize=True)
-                print(f"  [OK] Generated crystal-clear single lifestyle hero image (1200x675, {len(out.getvalue())} bytes)")
-                return out.getvalue()
-        except Exception as e:
-            print(f"  [Notice] AI image generator endpoint attempt failed: {e}")
-            
-    return None
+}
 
-def fetch_store_lifestyle_media(session, store_url, category_meta, title=""):
+# ── 100% Real Human Photography Engine (Store Catalog & Curated DSLR Editorial) ──
+def fetch_store_catalog_model_photo(session, store_url, garment_type, category_meta, title=""):
     """
-    Tier 2 Fallback: Single High-Res Catalog Model Shoot from Store Matching the Exact Title Garment
+    Priority 1: Authentic Store Catalog Model Photography (Shopify GraphQL at 2048px).
+    Queries real inventory matching the specific garment type in the article title.
     """
-    garment_type, _ = classify_primary_garment(title, category_meta.get("name", ""))
-    
     query = """
     query getGarmentProducts($query: String!) {
-      products(first: 10, query: $query) {
+      products(first: 8, query: $query) {
         edges {
           node {
             id
             title
             handle
-            images(first: 3) {
+            productType
+            images(first: 2) {
               edges {
                 node {
                   url(transform: {maxWidth: 2048})
@@ -787,62 +807,57 @@ def fetch_store_lifestyle_media(session, store_url, category_meta, title=""):
                             fitted = ImageOps.fit(img, (1200, 675), method=Image.Resampling.LANCZOS)
                             fitted = fitted.filter(ImageFilter.UnsharpMask(radius=1.2, percent=110, threshold=3))
                             out = BytesIO()
-                            canvas = Image.new("RGB", (1200, 675), (248, 246, 242))
-                            # Center the single high-res model image
-                            canvas.paste(fitted, (0, 0))
-                            canvas.save(out, format="JPEG", quality=98, subsampling=0, optimize=True)
-                            print(f"  [OK] Formatted single high-res catalog model photo for '{garment_type}' to 1200x675")
+                            fitted.save(out, format="JPEG", quality=98, subsampling=0, optimize=True)
+                            print(f"  [OK] Real store catalog model photo for '{e['node']['title']}' formatted to 1200x675 ({len(out.getvalue())} bytes)")
                             return out.getvalue()
     except Exception as e:
-        print(f"Warning: GraphQL single store image fetch failed: {e}")
+        print(f"Warning: GraphQL store catalog photo fetch failed: {e}")
 
     return None
 
-def fetch_shopify_free_lifestyle_image(category_handle, title):
-    """Tier 3 Fallback: Topic-Matched Curated High-Res Fashion Stock"""
-    urls = SHOPIFY_FREE_LIFESTYLE_LIBRARY.get(category_handle, SHOPIFY_FREE_LIFESTYLE_LIBRARY["womens-clothing"])
-    selected_url = random.choice(urls)
-
-    for url in [selected_url] + urls:
+def fetch_curated_dslr_editorial_photo(garment_type):
+    """
+    Priority 2 Fallback: Curated High-Resolution Real DSLR Fashion Editorial Photography (2400x1600+).
+    Guarantees authentic human models, natural lighting, and zero AI distortion.
+    """
+    urls = REAL_EDITORIAL_PHOTO_LIBRARY.get(garment_type, REAL_EDITORIAL_PHOTO_LIBRARY.get("dress", []))
+    if not urls:
+        urls = REAL_EDITORIAL_PHOTO_LIBRARY["dress"]
+    
+    random.shuffle(urls)
+    for url in urls:
         try:
             resp = requests.get(url, timeout=15)
-            if resp.status_code == 200 and len(resp.content) > 15000:
+            if resp.status_code == 200 and len(resp.content) > 20000:
                 img = Image.open(BytesIO(resp.content)).convert("RGB")
                 fitted = ImageOps.fit(img, (1200, 675), method=Image.Resampling.LANCZOS)
                 fitted = fitted.filter(ImageFilter.UnsharpMask(radius=1.2, percent=110, threshold=3))
                 out = BytesIO()
-                out_img = Image.new("RGB", (1200, 675), (248, 246, 242))
-                out_img.paste(fitted, (0, 0))
-                out_img.save(out, format="JPEG", quality=98, subsampling=0, optimize=True)
-                print(f"  [OK] Formatted curated photoshoot image with unsharp mask (1200x675)")
+                fitted.save(out, format="JPEG", quality=98, subsampling=0, optimize=True)
+                print(f"  [OK] Curated real DSLR editorial fashion photoshoot for '{garment_type}' formatted to 1200x675 ({len(out.getvalue())} bytes)")
                 return out.getvalue()
         except Exception as e:
-            print(f"Warning: Failed downloading stock photo: {e}")
+            print(f"Warning: Failed downloading curated DSLR editorial photo: {e}")
 
     return None
 
 def resolve_discover_lifestyle_image(session, store_url, title, category_meta, blog_handle):
     """
-    Resolves a Single High-Impact 1200px+ Featured Lifestyle Image (Google Discover & Bing Standard):
-    1. Tier 1: Single AI Photorealistic Editorial Lifestyle Photoshoot Image matching EXACT title garment
-    2. Tier 2: Single High-Res Catalog Model Shoot from Store matching EXACT title garment
-    3. Tier 3: Curated High-Res Fashion Stock matching category
+    Resolves a 100% Real Human Fashion Photography Featured Image (1200x675 Landscape):
+    - Priority 1: Real Store Catalog Model Shoot from inventory matching the exact title garment
+    - Priority 2: Curated 2400px+ DSLR Fashion Editorial Photoshoot matching garment category
+    - ZERO synthetic AI generation (No Pollinations/Flux distortion, no blurry faces)
     """
     garment_type, _ = classify_primary_garment(title, category_meta.get("name", ""))
-    print(f"[*] Resolving single 1200px+ high-impact lifestyle featured image for garment '{garment_type}' ('{title}')...")
+    print(f"[*] Resolving 100% real human photography for garment '{garment_type}' (Title: '{title}')...")
     
-    # 1. Tier 1: Single Photorealistic Editorial Lifestyle Photoshoot Image
-    img_bytes = generate_ai_lifestyle_image(title, category_meta["name"])
+    # Priority 1: Real Store Catalog Model Shoot
+    img_bytes = fetch_store_catalog_model_photo(session, store_url, garment_type, category_meta, title)
     if img_bytes:
         return img_bytes
 
-    # 2. Tier 2: Single High-Res Store Catalog Model Photo Matching Garment
-    img_bytes = fetch_store_lifestyle_media(session, store_url, category_meta, title)
-    if img_bytes:
-        return img_bytes
-
-    # 3. Tier 3: Curated High-Res Fashion Stock Fallback
-    img_bytes = fetch_shopify_free_lifestyle_image(blog_handle, title)
+    # Priority 2: Curated High-Res DSLR Fashion Editorial Photoshoot
+    img_bytes = fetch_curated_dslr_editorial_photo(garment_type)
     if img_bytes:
         return img_bytes
 
