@@ -631,25 +631,35 @@ blockquote { border-left: 3px solid #b8977e; margin: 28px 0; padding: 12px 20px;
     # Format A: Inside <div class="faq-item">
     faq_blocks = re.findall(r'<div class="faq-item">(.*?)</div>', html_content, re.DOTALL | re.IGNORECASE)
     for block in faq_blocks:
-        q_m = re.search(r'<strong>\s*(?:Q:?|Question:?)?\s*(.*?\?)\s*</strong>', block, re.DOTALL | re.IGNORECASE)
-        a_m = re.search(r'<p>(?:A:?|Answer:?)?\s*(.*?)</p>', block, re.DOTALL | re.IGNORECASE)
-        if q_m and a_m:
-            q_clean = re.sub(r'<[^>]+>', '', q_m.group(1)).strip()
-            a_clean = re.sub(r'<[^>]+>', '', a_m.group(1)).strip()
+        # Check for <p><strong>Q...</strong></p> and <p>A...</p>
+        paragraphs = re.findall(r'<p>(.*?)</p>', block, re.DOTALL | re.IGNORECASE)
+        if len(paragraphs) >= 2:
+            q_clean = re.sub(r'<[^>]+>', '', paragraphs[0]).strip()
+            a_clean = re.sub(r'<[^>]+>', '', paragraphs[1]).strip()
             q_clean = re.sub(r'^(?:Q:?|Question:?)\s*', '', q_clean, flags=re.IGNORECASE).strip()
             a_clean = re.sub(r'^(?:A:?|Answer:?)\s*', '', a_clean, flags=re.IGNORECASE).strip()
-            if q_clean and a_clean and len(q_clean) > 8:
+            if q_clean and a_clean and len(q_clean) > 8 and len(a_clean) > 15:
                 faq_items.append({"question": q_clean, "answer": a_clean})
+        else:
+            q_m = re.search(r'<strong>\s*(?:Q:?|Question:?)?\s*(.*?)\s*</strong>', block, re.DOTALL | re.IGNORECASE)
+            a_m = re.search(r'<p>(?:A:?|Answer:?)?\s*(.*?)</p>', block, re.DOTALL | re.IGNORECASE)
+            if q_m and a_m:
+                q_clean = re.sub(r'<[^>]+>', '', q_m.group(1)).strip()
+                a_clean = re.sub(r'<[^>]+>', '', a_m.group(1)).strip()
+                q_clean = re.sub(r'^(?:Q:?|Question:?)\s*', '', q_clean, flags=re.IGNORECASE).strip()
+                a_clean = re.sub(r'^(?:A:?|Answer:?)\s*', '', a_clean, flags=re.IGNORECASE).strip()
+                if q_clean and a_clean and len(q_clean) > 8 and len(a_clean) > 15:
+                    faq_items.append({"question": q_clean, "answer": a_clean})
 
     # Format B: <p><strong>Q: ...?</strong></p><p>A: ...</p>
     if len(faq_items) < 2:
-        q_matches = re.findall(r'<p><strong>(?:Q:?|Question:?)?\s*(.*?\?)</strong></p>\s*<p>(?:A:?|Answer:?)?\s*(.*?)</p>', html_content, re.DOTALL | re.IGNORECASE)
+        q_matches = re.findall(r'<p><strong>(?:Q:?|Question:?)?\s*(.*?)</strong></p>\s*<p>(?:A:?|Answer:?)?\s*(.*?)</p>', html_content, re.DOTALL | re.IGNORECASE)
         for q, a in q_matches:
             q_clean = re.sub(r'<[^>]+>', '', q).strip()
             a_clean = re.sub(r'<[^>]+>', '', a).strip()
             q_clean = re.sub(r'^(?:Q:?|Question:?)\s*', '', q_clean, flags=re.IGNORECASE).strip()
             a_clean = re.sub(r'^(?:A:?|Answer:?)\s*', '', a_clean, flags=re.IGNORECASE).strip()
-            if q_clean and a_clean and len(q_clean) > 8 and not any(f['question'] == q_clean for f in faq_items):
+            if q_clean and a_clean and len(q_clean) > 8 and len(a_clean) > 15 and not any(f['question'] == q_clean for f in faq_items):
                 faq_items.append({"question": q_clean, "answer": a_clean})
 
     # Format C: General <strong>... ?</strong> followed by <p>...</p>
@@ -663,7 +673,7 @@ blockquote { border-left: 3px solid #b8977e; margin: 28px 0; padding: 12px 20px;
             if q_clean and a_clean and len(q_clean) > 8 and len(a_clean) > 15 and not any(f['question'] == q_clean for f in faq_items):
                 faq_items.append({"question": q_clean, "answer": a_clean})
 
-    # Format D: <h3> ...? </h3> followed by <p>
+    # Format D: <h3> ... </h3> followed by <p>
     if len(faq_items) < 2:
         h3_matches = re.findall(r'<h[34]>(?:Q:?|Question:?)?\s*(.*?)</h[34]>\s*<p>(?:A:?|Answer:?)?\s*(.*?)</p>', html_content, re.DOTALL | re.IGNORECASE)
         for q, a in h3_matches:
@@ -671,7 +681,7 @@ blockquote { border-left: 3px solid #b8977e; margin: 28px 0; padding: 12px 20px;
             a_clean = re.sub(r'<[^>]+>', '', a).strip()
             q_clean = re.sub(r'^(?:Q:?|Question:?)\s*', '', q_clean, flags=re.IGNORECASE).strip()
             a_clean = re.sub(r'^(?:A:?|Answer:?)\s*', '', a_clean, flags=re.IGNORECASE).strip()
-            if q_clean and a_clean and len(q_clean) > 8 and not any(f['question'] == q_clean for f in faq_items):
+            if q_clean and a_clean and len(q_clean) > 8 and len(a_clean) > 15 and not any(f['question'] == q_clean for f in faq_items):
                 faq_items.append({"question": q_clean, "answer": a_clean})
 
     return article_title, seo_title, meta_desc, html_content, faq_items
@@ -803,12 +813,40 @@ def fetch_store_catalog_model_photo(session, store_url, garment_type, category_m
                     if im_url and not im_url.lower().endswith('.svg'):
                         r = requests.get(im_url, timeout=12)
                         if r.status_code == 200 and len(r.content) > 20000:
-                            img = Image.open(BytesIO(r.content)).convert("RGB")
-                            fitted = ImageOps.fit(img, (1200, 675), method=Image.Resampling.LANCZOS)
-                            fitted = fitted.filter(ImageFilter.UnsharpMask(radius=1.2, percent=110, threshold=3))
+                            orig = Image.open(BytesIO(r.content)).convert("RGB")
+                            ow, oh = orig.size
+                            
+                            TARGET_W, TARGET_H = 1200, 675
+                            
+                            # 1. Create luxury editorial ambient backdrop matching the photo's exact colors
+                            bg = orig.copy()
+                            bg = ImageOps.fit(bg, (TARGET_W, TARGET_H), method=Image.Resampling.BICUBIC)
+                            bg = bg.filter(ImageFilter.GaussianBlur(radius=35))
+                            
+                            # 2. Blend with subtle warm boutique linen tint (#FBF9F5)
+                            tint = Image.new("RGB", (TARGET_W, TARGET_H), (251, 249, 245))
+                            bg = Image.blend(bg, tint, alpha=0.35)
+                            
+                            # 3. Scale sharp product photo to full vertical height without cropping out head or hem
+                            model_h = TARGET_H
+                            model_w = int(ow * (model_h / oh))
+                            if model_w > TARGET_W:
+                                model_w = TARGET_W
+                                model_h = int(oh * (model_w / ow))
+                            
+                            model_resized = orig.resize((model_w, model_h), Image.Resampling.LANCZOS)
+                            model_resized = model_resized.filter(ImageFilter.UnsharpMask(radius=1.2, percent=110, threshold=3))
+                            
+                            # 4. Center the sharp model photo on the editorial spread canvas
+                            offset_x = (TARGET_W - model_w) // 2
+                            offset_y = (TARGET_H - model_h) // 2
+                            
+                            canvas = bg.copy()
+                            canvas.paste(model_resized, (offset_x, offset_y))
+                            
                             out = BytesIO()
-                            fitted.save(out, format="JPEG", quality=98, subsampling=0, optimize=True)
-                            print(f"  [OK] Real store catalog model photo for '{e['node']['title']}' formatted to 1200x675 ({len(out.getvalue())} bytes)")
+                            canvas.save(out, format="JPEG", quality=98, subsampling=0, optimize=True)
+                            print(f"  [OK] Real store catalog model photo for '{e['node']['title']}' formatted to editorial spread (1200x675, {len(out.getvalue())} bytes)")
                             return out.getvalue()
     except Exception as e:
         print(f"Warning: GraphQL store catalog photo fetch failed: {e}")
