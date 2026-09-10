@@ -606,17 +606,10 @@ STRICT EDITORIAL & VISUAL STRUCTURE (Make all headings UNIQUE and SPECIFIC to "{
 
 7. <blockquote>Memorable rule-of-thumb takeaway quote from the stylist director specific to "{topic}".</blockquote>
 
-8. <h2>Frequently Asked Questions</h2>
-   EXACTLY 3 comprehensive shopper styling Q&As specifically addressing common doubts about "{topic}":
-   <div class="faq-item">
-     <p><strong>Q: [Insert Question specific to {topic}]?</strong></p>
-     <p>A: [Insert comprehensive, expert answer].</p>
-   </div>
-
-9. Internal Links: Naturally weave 2-3 links to these collections:
+8. Internal Links: Naturally weave 2-3 links to these collections:
 {context}
 
-10. Output: Return ONLY raw, valid HTML. Do NOT include markdown blocks. Do NOT use static or generic boilerplate headings. Every headline must be customized to "{topic}".
+9. Output: Return ONLY raw, valid HTML for the body. Do NOT include FAQ sections (they are injected automatically). Do NOT include markdown blocks. Do NOT use static boilerplate headings.
 """
 
     html_content = ai_generate(prompt, max_tokens=2800, temperature=0.7)
