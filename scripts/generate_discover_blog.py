@@ -475,9 +475,22 @@ Requirements:
         for c in collections:
             context += f"- {c['title']} (URL: {c['url']})\n"
 
+    # Rotating Diverse Real-World Opening Scenarios (Avoiding repetitive 7:30 AM commute cliché)
+    scenarios = [
+        "Fitting room proportions: navigating the balance between defined waists and flowing hemlines without compromising all-day comfort.",
+        "A busy Saturday morning in the city: stepping out for coffee, gallery visits, and lunch with friends while looking intentionally put-together.",
+        "Streamlining your daily capsule wardrobe: investing in versatile boutique cuts that eliminate morning decision fatigue.",
+        "Day-to-evening transitions: styling adaptable silhouettes that move effortlessly from client meetings to dinner reservations.",
+        "Seasonal climate shifts: mastering lightweight layering and breathable drape during unpredictable transitional weather."
+    ]
+    chosen_scenario = random.choice(scenarios)
+
     # 3. AI Editorial Styling Prompt for Google Discover & Bing
     prompt = f"""
 Act as a senior fashion director and editorial stylist at MeeeShop boutique (USA). Write a world-class, Google Discover and Bing News eligible fashion styling guide: "{topic}".
+
+SCENARIO INSPIRATION:
+Open with this relatable context: {chosen_scenario}. Explain why proportion balance, garment cut, and fabric quality matter more than chasing fast-fashion trends.
 
 STRICT EDITORIAL & VISUAL STRUCTURE:
 1. Quick Stylist Key Takeaways Box:
@@ -491,7 +504,7 @@ STRICT EDITORIAL & VISUAL STRUCTURE:
    </div>
 
 2. Introduction (120-150 words):
-   Set an authentic, relatable morning scene (coffee run, commuter routine, dinner transition) explaining why proportion balance and quality tailoring outperform fast-fashion impulses.
+   Hook the reader immediately with the scenario above. Establish an authoritative yet warm stylist tone.
 
 3. <h2>1. Mastering Proportions & Silhouette Balance</h2>
    In-depth styling philosophy paragraph, followed by 3 actionable outfit formulas formatted as:
@@ -557,13 +570,15 @@ STRICT EDITORIAL & VISUAL STRUCTURE:
     html_content = re.sub(r'</body>', '', html_content, flags=re.IGNORECASE).strip()
     html_content = re.sub(r'<meta[^>]*>', '', html_content, flags=re.IGNORECASE).strip()
 
-    # Clean unclosed sentences
+    # Clean unclosed sentences and strip dangling unclosed tags
+    html_content = re.sub(r'<[^>]*$', '', html_content).strip()
     if not html_content.endswith((".", "</p>", "</ul>", "</blockquote>", "</div>", ">")):
         last_p = max(html_content.rfind("."), html_content.rfind("</p>"), html_content.rfind("</div>"))
         if last_p > len(html_content) - 150:
             html_content = html_content[:last_p + 1]
             if not html_content.endswith("</p>") and "<p>" in html_content:
                 html_content += "</p>"
+    html_content = re.sub(r'<[^>]*$', '', html_content).strip()
 
     # Inject Magazine-Grade Editorial CSS Styling
     editorial_style = """<style>
@@ -661,18 +676,88 @@ blockquote { border-left: 3px solid #b8977e; margin: 28px 0; padding: 12px 20px;
 
     return article_title, seo_title, meta_desc, html_content, faq_items
 
-# ── Studio-Grade Lookbook Image Engine & Fallbacks ──────────────────────────────
-def fetch_catalog_products_for_image(session, store_url, category_meta, title=""):
-    """Fetches high-res catalog products matching category keywords & title terms from GraphQL."""
+# ── Semantic Garment Classifier ───────────────────────────────────────────────
+def classify_primary_garment(title, category_name=""):
+    """
+    Extracts the precise primary garment type from the article title to guarantee
+    that the featured image strictly matches the specific garment in the article.
+    """
+    t_lower = f"{title} {category_name}".lower()
+    
+    if any(k in t_lower for k in ["dress", "gown", "maxi", "midi", "mini dress", "wrap dress", "slip dress", "a-line dress"]):
+        return "dress", "an elegant boutique dress"
+    if any(k in t_lower for k in ["wrap top", "blouse", "shirt", "button-down", "top", "tee", "t-shirt", "tank", "cami"]):
+        return "top", "a chic boutique wrap top or blouse"
+    if any(k in t_lower for k in ["jean", "denim", "wide leg jean", "straight leg jean", "flare jean", "high rise jean"]):
+        return "jean", "flattering boutique denim jeans"
+    if any(k in t_lower for k in ["pant", "trouser", "linen pant", "wide leg pant", "cargo pant", "slack"]):
+        return "pant", "tailored boutique trousers"
+    if any(k in t_lower for k in ["skirt", "midi skirt", "maxi skirt", "pleated skirt", "a-line skirt", "denim skirt"]):
+        return "skirt", "a stylish boutique skirt"
+    if any(k in t_lower for k in ["cardigan", "sweater", "knit", "pullover", "knitwear", "turtleneck"]):
+        return "sweater", "a cozy boutique knit sweater or cardigan"
+    if any(k in t_lower for k in ["jacket", "coat", "blazer", "outerwear", "shacket", "trench", "vest"]):
+        return "jacket", "a tailored blazer or outerwear jacket"
+    if any(k in t_lower for k in ["curvy", "plus size"]):
+        return "curvy", "flattering plus-size boutique fashion"
+    if any(k in t_lower for k in ["vegan", "linen", "plant-based"]):
+        return "vegan", "sustainable plant-based natural linen fashion"
+        
+    return "fashion", "chic modern boutique fashion"
+
+# ── Google Discover & Bing Single Hero Lifestyle Image Resolution ──────────────
+def generate_ai_lifestyle_image(title, category_name):
+    """
+    Tier 1 (Primary): Single Ultra-High-Definition Editorial Lifestyle Photoshoot Image (1200x675 / 1600x900)
+    Google Discover heavily favors single high-impact lifestyle model photography over collage grids.
+    """
+    garment_type, garment_desc = classify_primary_garment(title, category_name)
+    clean_title = re.sub(r'[^\w\s-]', '', title).strip()
+    
+    prompt = (
+        f"vogue magazine editorial lifestyle photography of a chic modern woman wearing {garment_desc}, "
+        f"full body and waist-up street style, natural golden hour daylight, clean minimalist city backdrop, "
+        f"high fashion photography, 35mm lens, sharp focus, authentic fabric drape and texture, 8k resolution"
+    )
+    encoded = quote_plus(prompt)
+    
+    endpoints = [
+        f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=675&model=flux&nologo=true",
+        f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=675&nologo=true"
+    ]
+    
+    for ep in endpoints:
+        try:
+            print(f"  [*] Generating single editorial lifestyle hero photo for '{garment_type}' ({clean_title})...")
+            resp = requests.get(ep, timeout=25)
+            if resp.status_code == 200 and len(resp.content) > 15000:
+                img = Image.open(BytesIO(resp.content)).convert("RGB")
+                fitted = ImageOps.fit(img, (1200, 675), method=Image.Resampling.LANCZOS)
+                # Apply subtle unsharp masking for crystal-clear HD sharpness
+                fitted = fitted.filter(ImageFilter.UnsharpMask(radius=1.2, percent=115, threshold=3))
+                out = BytesIO()
+                fitted.save(out, format="JPEG", quality=98, subsampling=0, optimize=True)
+                print(f"  [OK] Generated crystal-clear single lifestyle hero image (1200x675, {len(out.getvalue())} bytes)")
+                return out.getvalue()
+        except Exception as e:
+            print(f"  [Notice] AI image generator endpoint attempt failed: {e}")
+            
+    return None
+
+def fetch_store_lifestyle_media(session, store_url, category_meta, title=""):
+    """
+    Tier 2 Fallback: Single High-Res Catalog Model Shoot from Store Matching the Exact Title Garment
+    """
+    garment_type, _ = classify_primary_garment(title, category_meta.get("name", ""))
+    
     query = """
-    query getProducts($query: String!) {
-      products(first: 20, query: $query) {
+    query getGarmentProducts($query: String!) {
+      products(first: 10, query: $query) {
         edges {
           node {
             id
             title
             handle
-            productType
             images(first: 3) {
               edges {
                 node {
@@ -687,184 +772,34 @@ def fetch_catalog_products_for_image(session, store_url, category_meta, title=""
       }
     }
     """
-    keywords = category_meta.get("product_keywords", [])
-    title_words = [w.lower() for w in re.findall(r'\b[A-Za-z]{4,}\b', title) if w.lower() not in ["style", "with", "your", "looks", "outfit", "every", "flatter", "balance"]]
-    all_search_terms = list(set(title_words + keywords[:4]))
-    search_query = " OR ".join([f"title:*{term}* OR tag:*{term}*" for term in all_search_terms[:4]])
-    full_filter = f"status:active AND ({search_query})"
-
+    search_query = f"status:active AND (product_type:*{garment_type}* OR title:*{garment_type}*)"
     try:
-        resp = session.post(f"{store_url}/admin/api/2024-10/graphql.json", json={"query": query, "variables": {"query": full_filter}}, timeout=20)
+        resp = session.post(f"{store_url}/admin/api/2024-10/graphql.json", json={"query": query, "variables": {"query": search_query}}, timeout=15)
         if resp.status_code == 200:
             edges = resp.json().get("data", {}).get("products", {}).get("edges", [])
-            prods = []
             for e in edges:
-                node = e["node"]
-                imgs = [im["node"]["url"] for im in node["images"]["edges"] if im["node"]["url"] and not im["node"]["url"].lower().endswith('.svg')]
-                if imgs:
-                    prods.append({
-                        "id": node["id"],
-                        "title": node["title"],
-                        "handle": node["handle"],
-                        "image_url": imgs[0]
-                    })
-            if prods:
-                return prods
+                for im in e["node"]["images"]["edges"]:
+                    im_url = im["node"]["url"]
+                    if im_url and not im_url.lower().endswith('.svg'):
+                        r = requests.get(im_url, timeout=12)
+                        if r.status_code == 200 and len(r.content) > 20000:
+                            img = Image.open(BytesIO(r.content)).convert("RGB")
+                            fitted = ImageOps.fit(img, (1200, 675), method=Image.Resampling.LANCZOS)
+                            fitted = fitted.filter(ImageFilter.UnsharpMask(radius=1.2, percent=110, threshold=3))
+                            out = BytesIO()
+                            canvas = Image.new("RGB", (1200, 675), (248, 246, 242))
+                            # Center the single high-res model image
+                            canvas.paste(fitted, (0, 0))
+                            canvas.save(out, format="JPEG", quality=98, subsampling=0, optimize=True)
+                            print(f"  [OK] Formatted single high-res catalog model photo for '{garment_type}' to 1200x675")
+                            return out.getvalue()
     except Exception as e:
-        print(f"Warning: GraphQL product search failed: {e}")
+        print(f"Warning: GraphQL single store image fetch failed: {e}")
 
-    # Fallback to collection products
-    colls = category_meta.get("collection_handles", [])
-    c_query = """
-    query getColProducts($handle: String!) {
-      collectionByHandle(handle: $handle) {
-        products(first: 10) {
-          edges {
-            node {
-              id
-              title
-              handle
-              images(first: 2) {
-                edges {
-                  node {
-                    url(transform: {maxWidth: 2048})
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-    """
-    for ch in colls:
-        try:
-            c_resp = session.post(f"{store_url}/admin/api/2024-10/graphql.json", json={"query": c_query, "variables": {"handle": ch}}, timeout=15)
-            if c_resp.status_code == 200:
-                c_data = c_resp.json().get("data", {}).get("collectionByHandle")
-                if c_data and c_data.get("products"):
-                    prods = []
-                    for p in c_data["products"]["edges"]:
-                        node = p["node"]
-                        imgs = [im["node"]["url"] for im in node["images"]["edges"] if im["node"]["url"] and not im["node"]["url"].lower().endswith('.svg')]
-                        if imgs:
-                            prods.append({"id": node["id"], "title": node["title"], "handle": node["handle"], "image_url": imgs[0]})
-                    if len(prods) >= 2:
-                        return prods
-        except Exception:
-            pass
-
-    return []
-
-def create_studio_lookbook_collage(products, title_text="MeeeShop Style Guide"):
-    """
-    Tier 1 (Primary): Creates an ultra-sharp, studio-grade 1200x675 landscape featured image.
-    Uses 3 high-resolution catalog photos on a luxury minimalist cream background
-    with crisp white borders, subtle elegant drop shadows, and high-fidelity 4:4:4 rendering.
-    """
-    if len(products) < 2:
-        return None
-
-    CANVAS_W, CANVAS_H = 1200, 675
-    BG_COLOR = (248, 246, 242) # Luxury warm boutique cream
-    
-    canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), BG_COLOR)
-    
-    downloaded = []
-    for p in products[:3]:
-        try:
-            r = requests.get(p["image_url"], timeout=15)
-            if r.status_code == 200 and len(r.content) > 10000:
-                img = Image.open(BytesIO(r.content)).convert("RGB")
-                downloaded.append((img, p.get("title", "")))
-        except Exception as e:
-            print(f"Warning downloading product image: {e}")
-
-    if len(downloaded) < 2:
-        return None
-
-    if len(downloaded) >= 3:
-        card_w, card_h = 350, 560
-        spacing = 35
-        start_x = (CANVAS_W - (3 * card_w + 2 * spacing)) // 2
-        start_y = (CANVAS_H - card_h) // 2
-
-        for i, (img, ptitle) in enumerate(downloaded[:3]):
-            x = start_x + i * (card_w + spacing)
-            y = start_y
-
-            # Draw subtle drop shadow
-            shadow = Image.new("RGBA", (card_w + 16, card_h + 16), (0, 0, 0, 0))
-            sdraw = ImageDraw.Draw(shadow)
-            sdraw.rectangle([8, 8, card_w + 8, card_h + 8], fill=(0, 0, 0, 25))
-            shadow = shadow.filter(ImageFilter.GaussianBlur(radius=6))
-            canvas.paste(shadow, (x - 4, y - 4), shadow)
-
-            # Fit product image with clean white mat border
-            border = 8
-            inner_w = card_w - (2 * border)
-            inner_h = card_h - (2 * border)
-            fitted = ImageOps.fit(img, (inner_w, inner_h), method=Image.Resampling.LANCZOS)
-            
-            card = Image.new("RGB", (card_w, card_h), (255, 255, 255))
-            card.paste(fitted, (border, border))
-            cdraw = ImageDraw.Draw(card)
-            cdraw.rectangle([0, 0, card_w - 1, card_h - 1], outline=(230, 226, 220), width=1)
-            canvas.paste(card, (x, y))
-
-    elif len(downloaded) == 2:
-        card_w, card_h = 450, 560
-        spacing = 50
-        start_x = (CANVAS_W - (2 * card_w + spacing)) // 2
-        start_y = (CANVAS_H - card_h) // 2
-
-        for i, (img, ptitle) in enumerate(downloaded[:2]):
-            x = start_x + i * (card_w + spacing)
-            y = start_y
-            border = 10
-            fitted = ImageOps.fit(img, (card_w - 2 * border, card_h - 2 * border), method=Image.Resampling.LANCZOS)
-            card = Image.new("RGB", (card_w, card_h), (255, 255, 255))
-            card.paste(fitted, (border, border))
-            canvas.paste(card, (x, y))
-
-    # Apply unsharp masking to guarantee razor-sharp definition for Discover / Bing
-    canvas = canvas.filter(ImageFilter.UnsharpMask(radius=1.2, percent=110, threshold=3))
-
-    out = BytesIO()
-    # Save with 4:4:4 chroma subsampling (subsampling=0) and 98% quality
-    canvas.save(out, format="JPEG", quality=98, subsampling=0, optimize=True)
-    print(f"  [OK] Generated ultra-sharp Studio Lookbook featured image (1200x675, {len(out.getvalue())} bytes)")
-    return out.getvalue()
-
-def generate_ai_lifestyle_image(title, category_name):
-    """Tier 2 Fallback: AI Photorealistic Editorial Photoshoot Generation with Unsharp Sharpening"""
-    clean_title = re.sub(r'[^\w\s-]', '', title).strip()
-    prompt = f"high fashion editorial street style photography of a chic woman, {clean_title}, natural warm morning lighting, boutique fashion lookbook aesthetic, 35mm photography, sharp focus, 8k resolution"
-    encoded = quote_plus(prompt)
-    
-    endpoints = [
-        f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=675&model=flux&nologo=true",
-        f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=675&nologo=true"
-    ]
-    
-    for ep in endpoints:
-        try:
-            resp = requests.get(ep, timeout=25)
-            if resp.status_code == 200 and len(resp.content) > 15000:
-                img = Image.open(BytesIO(resp.content)).convert("RGB")
-                fitted = ImageOps.fit(img, (1200, 675), method=Image.Resampling.LANCZOS)
-                fitted = fitted.filter(ImageFilter.UnsharpMask(radius=1.2, percent=115, threshold=3))
-                out = BytesIO()
-                fitted.save(out, format="JPEG", quality=98, subsampling=0, optimize=True)
-                print(f"  [OK] Generated AI lifestyle editorial photo (1200x675, {len(out.getvalue())} bytes)")
-                return out.getvalue()
-        except Exception as e:
-            print(f"  [Notice] AI image generator endpoint attempt failed: {e}")
-            
     return None
 
 def fetch_shopify_free_lifestyle_image(category_handle, title):
-    """Tier 3 Fallback: Curated high-resolution fashion stock library with unsharp mask"""
+    """Tier 3 Fallback: Topic-Matched Curated High-Res Fashion Stock"""
     urls = SHOPIFY_FREE_LIFESTYLE_LIBRARY.get(category_handle, SHOPIFY_FREE_LIFESTYLE_LIBRARY["womens-clothing"])
     selected_url = random.choice(urls)
 
@@ -876,7 +811,9 @@ def fetch_shopify_free_lifestyle_image(category_handle, title):
                 fitted = ImageOps.fit(img, (1200, 675), method=Image.Resampling.LANCZOS)
                 fitted = fitted.filter(ImageFilter.UnsharpMask(radius=1.2, percent=110, threshold=3))
                 out = BytesIO()
-                fitted.save(out, format="JPEG", quality=98, subsampling=0, optimize=True)
+                out_img = Image.new("RGB", (1200, 675), (248, 246, 242))
+                out_img.paste(fitted, (0, 0))
+                out_img.save(out, format="JPEG", quality=98, subsampling=0, optimize=True)
                 print(f"  [OK] Formatted curated photoshoot image with unsharp mask (1200x675)")
                 return out.getvalue()
         except Exception as e:
@@ -886,26 +823,25 @@ def fetch_shopify_free_lifestyle_image(category_handle, title):
 
 def resolve_discover_lifestyle_image(session, store_url, title, category_meta, blog_handle):
     """
-    Resolves 1200px+ High-Resolution Featured Imagery matching Google Discover & Bing standards:
-    1. Tier 1 (Primary): Ultra-sharp Studio Lookbook 3-Product Collage from store's authentic catalog
-    2. Tier 2: AI Photorealistic Editorial Lifestyle Generation with Unsharp Mask
-    3. Tier 3: Curated High-Res Fashion Stock with Unsharp Mask
+    Resolves a Single High-Impact 1200px+ Featured Lifestyle Image (Google Discover & Bing Standard):
+    1. Tier 1: Single AI Photorealistic Editorial Lifestyle Photoshoot Image matching EXACT title garment
+    2. Tier 2: Single High-Res Catalog Model Shoot from Store matching EXACT title garment
+    3. Tier 3: Curated High-Res Fashion Stock matching category
     """
-    print(f"[*] Resolving 1200px+ crystal-clear featured imagery for '{title}'...")
+    garment_type, _ = classify_primary_garment(title, category_meta.get("name", ""))
+    print(f"[*] Resolving single 1200px+ high-impact lifestyle featured image for garment '{garment_type}' ('{title}')...")
     
-    # 1. Tier 1: Authentic High-Res Store Catalog Lookbook Collage
-    products = fetch_catalog_products_for_image(session, store_url, category_meta, title)
-    if len(products) >= 2:
-        img_bytes = create_studio_lookbook_collage(products, title)
-        if img_bytes:
-            return img_bytes
-
-    # 2. Tier 2: AI Photorealistic Generation Matching Topic
+    # 1. Tier 1: Single Photorealistic Editorial Lifestyle Photoshoot Image
     img_bytes = generate_ai_lifestyle_image(title, category_meta["name"])
     if img_bytes:
         return img_bytes
 
-    # 3. Tier 3: Curated Lifestyle Library Fallback
+    # 2. Tier 2: Single High-Res Store Catalog Model Photo Matching Garment
+    img_bytes = fetch_store_lifestyle_media(session, store_url, category_meta, title)
+    if img_bytes:
+        return img_bytes
+
+    # 3. Tier 3: Curated High-Res Fashion Stock Fallback
     img_bytes = fetch_shopify_free_lifestyle_image(blog_handle, title)
     if img_bytes:
         return img_bytes
