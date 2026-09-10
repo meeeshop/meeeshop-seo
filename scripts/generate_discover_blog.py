@@ -492,37 +492,37 @@ Act as a senior fashion director and editorial stylist at MeeeShop boutique (USA
 SCENARIO INSPIRATION:
 Open with this relatable context: {chosen_scenario}. Explain why proportion balance, garment cut, and fabric quality matter more than chasing fast-fashion trends.
 
-STRICT EDITORIAL & VISUAL STRUCTURE:
+STRICT EDITORIAL & VISUAL STRUCTURE (Make all headings UNIQUE and SPECIFIC to "{topic}"):
 1. Quick Stylist Key Takeaways Box:
    <div class="stylist-takeaway-box">
      <p class="takeaway-title"><strong>Stylist Key Takeaways:</strong></p>
      <ul>
-       <li><strong>Proportion Rule:</strong> [1 clear sentence on balancing silhouette]</li>
-       <li><strong>Fabric Focus:</strong> [1 clear sentence on fabric composition and drape]</li>
-       <li><strong>Footwear Pairing:</strong> [1 clear sentence on exact footwear choices]</li>
+       <li><strong>Proportion Rule:</strong> [1 clear, actionable sentence on silhouette balance for this specific topic]</li>
+       <li><strong>Fabric Focus:</strong> [1 clear sentence on recommended fabric compositions, recovery, and drape for this specific garment]</li>
+       <li><strong>Footwear Pairing:</strong> [1 clear sentence on exact footwear styles and toe shapes that elevate this look]</li>
      </ul>
    </div>
 
 2. Introduction (120-150 words):
-   Hook the reader immediately with the scenario above. Establish an authoritative yet warm stylist tone.
+   Hook the reader immediately with the scenario above. Establish an authoritative yet approachable boutique stylist tone.
 
-3. <h2>1. Mastering Proportions & Silhouette Balance</h2>
-   In-depth styling philosophy paragraph, followed by 3 actionable outfit formulas formatted as:
+3. <h2>1. [Generate a compelling, TOPIC-SPECIFIC H2 headline about silhouette cuts and styling architecture for "{topic}"]</h2>
+   In-depth styling breakdown paragraph, followed by 3 actionable, uniquely named outfit formulas tailored to "{topic}":
    <div class="formula-card">
-     <p><strong>Formula 1: [Formula Name]</strong> — [Garment A] + [Garment B] + [Footwear Choice]. <em>Styling tip on waistband/hemline.</em></p>
+     <p><strong>Formula 1: [Creative Formula Name]</strong> — [Garment A] + [Garment B] + [Footwear Choice]. <em>Specific styling tip on tucking, waistband placement, or cuffing.</em></p>
    </div>
    <div class="formula-card">
-     <p><strong>Formula 2: [Formula Name]</strong> — [Garment A] + [Garment B] + [Footwear Choice]. <em>Styling tip on waistband/hemline.</em></p>
+     <p><strong>Formula 2: [Creative Formula Name]</strong> — [Garment A] + [Garment B] + [Footwear Choice]. <em>Specific styling tip on proportions and layering.</em></p>
    </div>
    <div class="formula-card">
-     <p><strong>Formula 3: [Formula Name]</strong> — [Garment A] + [Garment B] + [Footwear Choice]. <em>Styling tip on waistband/hemline.</em></p>
+     <p><strong>Formula 3: [Creative Formula Name]</strong> — [Garment A] + [Garment B] + [Footwear Choice]. <em>Specific styling tip on accessories and finish.</em></p>
    </div>
 
-4. <h2>2. Textile Selection, Color Harmonies & Footwear</h2>
-   Detailed fabric advice (e.g. breathable cotton weaves, structured high-recovery denim, fine-gauge knits, plant-based linens) and color pairings (e.g. oat milk, camel, espresso, washed black, olive).
+4. <h2>2. [Generate a compelling, TOPIC-SPECIFIC H2 headline about textiles, color palettes, and footwear for "{topic}"]</h2>
+   Detailed fabric advice (e.g. natural linen breathability, high-recovery stretch denim, fine-gauge knits, structured cotton twills) and specific color harmonies (e.g. oat milk, camel, espresso, washed black, olive, slate).
 
-5. <h2>Quick Reference: Silhouette & Fit Comparison</h2>
-   Include a clean, responsive HTML <table> comparing 3-4 silhouettes/cuts.
+5. <h2>[Generate a TOPIC-SPECIFIC H2 title for the Comparison Table, e.g. "Quick Reference: Cut & Silhouette Fit Guide"]</h2>
+   Include a clean, responsive HTML <table> comparing 3-4 specific cuts/styles relevant to "{topic}".
    Columns:
    - Silhouette / Cut
    - Flattering For (Body Proportions)
@@ -532,26 +532,26 @@ STRICT EDITORIAL & VISUAL STRUCTURE:
 
 6. Do's and Don'ts Stylist Cheat Sheet:
    <div class="dos-donts-grid">
-     <div class="do-card"><p><strong>DO:</strong> [Actionable styling rule for clean lines]</p></div>
-     <div class="dont-card"><p><strong>AVOID:</strong> [Common styling mistake that distorts proportions]</p></div>
+     <div class="do-card"><p><strong>DO:</strong> [Actionable styling rule specific to {topic}]</p></div>
+     <div class="dont-card"><p><strong>AVOID:</strong> [Common styling mistake that distorts proportions for {topic}]</p></div>
    </div>
 
-7. <blockquote>Memorable rule-of-thumb takeaway quote from the stylist director.</blockquote>
+7. <blockquote>Memorable rule-of-thumb takeaway quote from the stylist director specific to "{topic}".</blockquote>
 
 8. <h2>Frequently Asked Questions</h2>
-   EXACTLY 3 comprehensive shopper styling Q&As formatted as:
+   EXACTLY 3 comprehensive shopper styling Q&As specifically addressing common doubts about "{topic}":
    <div class="faq-item">
-     <p><strong>Q: [Insert Question]?</strong></p>
+     <p><strong>Q: [Insert Question specific to {topic}]?</strong></p>
      <p>A: [Insert comprehensive, expert answer].</p>
    </div>
 
 9. Internal Links: Naturally weave 2-3 links to these collections:
 {context}
 
-10. Output: Return ONLY raw, valid HTML. Do NOT include markdown blocks.
+10. Output: Return ONLY raw, valid HTML. Do NOT include markdown blocks. Do NOT use static or generic boilerplate headings. Every headline must be customized to "{topic}".
 """
 
-    html_content = ai_generate(prompt, max_tokens=2200, temperature=0.7)
+    html_content = ai_generate(prompt, max_tokens=2800, temperature=0.7)
     if not html_content:
         raise RuntimeError("AI content generation failed across all providers.")
 
@@ -570,14 +570,15 @@ STRICT EDITORIAL & VISUAL STRUCTURE:
     html_content = re.sub(r'</body>', '', html_content, flags=re.IGNORECASE).strip()
     html_content = re.sub(r'<meta[^>]*>', '', html_content, flags=re.IGNORECASE).strip()
 
-    # Clean unclosed sentences and strip dangling unclosed tags
+    # Clean unclosed sentences, strip dangling unclosed tags, and ensure proper tag closure
     html_content = re.sub(r'<[^>]*$', '', html_content).strip()
-    if not html_content.endswith((".", "</p>", "</ul>", "</blockquote>", "</div>", ">")):
-        last_p = max(html_content.rfind("."), html_content.rfind("</p>"), html_content.rfind("</div>"))
-        if last_p > len(html_content) - 150:
-            html_content = html_content[:last_p + 1]
-            if not html_content.endswith("</p>") and "<p>" in html_content:
-                html_content += "</p>"
+    # If trailing div is incomplete, close it or trim to last complete closed tag
+    if html_content.count("<div") > html_content.count("</div>"):
+        diff = html_content.count("<div") - html_content.count("</div>")
+        html_content += "</div>" * diff
+    if html_content.count("<p") > html_content.count("</p>"):
+        diff = html_content.count("<p") - html_content.count("</p>")
+        html_content += "</p>" * diff
     html_content = re.sub(r'<[^>]*$', '', html_content).strip()
 
     # Inject Magazine-Grade Editorial CSS Styling
