@@ -19,10 +19,11 @@ import re
 import json
 import time
 import random
+import math
 import requests
 from io import BytesIO
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageOps, ImageFilter
 
 if sys.platform == "win32":
     try:
@@ -64,7 +65,11 @@ def crop_to_fit(img: Image.Image, target_w: int, target_h: int) -> Image.Image:
 
 
 def create_3product_collage(image_urls: list[str], output_path: Path) -> bool:
-    """Builds a 1200x630 3-product collage image from product image URLs."""
+    """Builds a 1200x630 Google Discover / Bing eligible single-frame 3-product image.
+    Zero split visuals, zero split panels, zero borders, cards, or divider lines.
+    Seamless panoramic blend with smooth S-curve feathering so all products appear
+    naturally together in the exact same visual frame.
+    """
     downloaded = []
     for url in image_urls:
         if not url:
@@ -81,26 +86,64 @@ def create_3product_collage(image_urls: list[str], output_path: Path) -> bool:
         return False
 
     canvas_w, canvas_h = 1200, 630
-    collage = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
     num_imgs = len(downloaded)
 
     if num_imgs == 1:
-        collage.paste(crop_to_fit(downloaded[0], canvas_w, canvas_h), (0, 0))
+        canvas = Image.new("RGB", (canvas_w, canvas_h), (250, 249, 247))
+        bg = ImageOps.fit(downloaded[0], (canvas_w, canvas_h), method=Image.Resampling.BICUBIC)
+        bg = bg.filter(ImageFilter.GaussianBlur(radius=50))
+        canvas = Image.blend(bg, canvas, alpha=0.5)
+        h = int(canvas_h * 0.96)
+        w = int(downloaded[0].width * (h / downloaded[0].height))
+        fg = ImageOps.fit(downloaded[0], (w, h), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
+        canvas.paste(fg, ((canvas_w - w) // 2, (canvas_h - h) // 2))
+        collage = canvas.filter(ImageFilter.UnsharpMask(radius=1.1, percent=105, threshold=3))
     elif num_imgs == 2:
-        spacing = 25
-        col_w = (canvas_w - (3 * spacing)) // 2
-        col_h = canvas_h - (2 * spacing)
-        for i, img in enumerate(downloaded):
-            collage.paste(crop_to_fit(img, col_w, col_h), (spacing + i * (col_w + spacing), spacing))
+        fade_width = 80
+        col_w = (canvas_w + fade_width) // 2
+        f_left = ImageOps.fit(downloaded[0], (col_w, canvas_h), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
+        f_right = ImageOps.fit(downloaded[1], (col_w, canvas_h), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
+        canvas = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
+        canvas.paste(f_left, (0, 0))
+        mask = Image.new("L", (col_w, canvas_h), 255)
+        for x in range(fade_width):
+            factor = (1.0 - math.cos(math.pi * x / fade_width)) / 2.0
+            alpha = int(255 * factor)
+            for y in range(canvas_h):
+                mask.putpixel((x, y), alpha)
+        canvas.paste(f_right, (col_w - fade_width, 0), mask)
+        collage = canvas.filter(ImageFilter.UnsharpMask(radius=1.1, percent=105, threshold=3))
     else:
-        spacing = 20
-        col_w = (canvas_w - (4 * spacing)) // 3
-        col_h = canvas_h - (2 * spacing)
-        for i, img in enumerate(downloaded[:3]):
-            collage.paste(crop_to_fit(img, col_w, col_h), (spacing + i * (col_w + spacing), spacing))
+        fade_width = 70
+        col_w = (canvas_w + 2 * fade_width) // 3
+        feat_img = downloaded[0]
+        left_img = downloaded[1]
+        right_img = downloaded[2]
+
+        f_left = ImageOps.fit(left_img, (col_w, canvas_h), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
+        f_center = ImageOps.fit(feat_img, (col_w, canvas_h), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
+        f_right = ImageOps.fit(right_img, (col_w, canvas_h), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
+
+        canvas = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
+        canvas.paste(f_left, (0, 0))
+
+        mask = Image.new("L", (col_w, canvas_h), 255)
+        for x in range(fade_width):
+            factor = (1.0 - math.cos(math.pi * x / fade_width)) / 2.0
+            alpha = int(255 * factor)
+            for y in range(canvas_h):
+                mask.putpixel((x, y), alpha)
+
+        x_center = col_w - fade_width
+        canvas.paste(f_center, (x_center, 0), mask)
+
+        x_right = x_center + col_w - fade_width
+        canvas.paste(f_right, (x_right, 0), mask)
+
+        collage = canvas.filter(ImageFilter.UnsharpMask(radius=1.1, percent=105, threshold=3))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    collage.save(output_path, "JPEG", quality=92)
+    collage.save(output_path, "JPEG", quality=95, optimize=True)
     return True
 
 

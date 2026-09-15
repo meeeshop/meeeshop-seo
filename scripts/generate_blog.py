@@ -28,8 +28,9 @@ import random
 import requests
 import io
 import re
+import math
 from datetime import datetime
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageFilter
 from io import BytesIO
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -617,10 +618,10 @@ GOOGLE DISCOVER & EDITORIAL REQUIREMENTS:
 # ── 1200x630 Google Discover Image Generation ──────────────────────────────────
 def generate_1200x630_collage(products):
     """
-    Creates a 1200x630 Google Discover eligible landscape 3-panel collage.
-    Center featured image: TALLER (380x600) with white border.
-    Side images: SHORTER (360x500), vertically centered.
-    Background: Premium cream (#F8F6F3).
+    Creates a 1200x630 Google Discover / Bing eligible single-frame image of 3 products.
+    Zero split visuals, zero split panels, zero borders, cards, or divider lines.
+    Seamless panoramic blend with smooth S-curve feathering so all 3 products appear
+    naturally together in the exact same visual frame.
     """
     image_urls = [
         p['image_url'] for p in products 
@@ -642,38 +643,95 @@ def generate_1200x630_collage(products):
         return None
 
     CANVAS_W, CANVAS_H = 1200, 630
-    BG_COLOR = (248, 246, 243)
-    BORDER_COLOR = (255, 255, 255)
 
-    canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), BG_COLOR)
+    if len(images) == 1:
+        # Single hero product centered on continuous studio ambient backdrop
+        canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), (250, 249, 247))
+        bg = ImageOps.fit(images[0], (CANVAS_W, CANVAS_H), method=Image.Resampling.BICUBIC)
+        bg = bg.filter(ImageFilter.GaussianBlur(radius=50))
+        canvas = Image.blend(bg, canvas, alpha=0.5)
+        h = int(CANVAS_H * 0.96)
+        w = int(images[0].width * (h / images[0].height))
+        fg = ImageOps.fit(images[0], (w, h), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
+        canvas.paste(fg, ((CANVAS_W - w) // 2, (CANVAS_H - h) // 2))
+        canvas = canvas.filter(ImageFilter.UnsharpMask(radius=1.1, percent=105, threshold=3))
+        out_buf = BytesIO()
+        canvas.save(out_buf, format="JPEG", quality=95, optimize=True)
+        return out_buf.getvalue()
+
+    if len(images) == 2:
+        fade_width = 80
+        col_w = (CANVAS_W + fade_width) // 2
+        f_left = ImageOps.fit(images[0], (col_w, CANVAS_H), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
+        f_right = ImageOps.fit(images[1], (col_w, CANVAS_H), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
+        canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), (255, 255, 255))
+        canvas.paste(f_left, (0, 0))
+        mask = Image.new("L", (col_w, CANVAS_H), 255)
+        for x in range(fade_width):
+            factor = (1.0 - math.cos(math.pi * x / fade_width)) / 2.0
+            alpha = int(255 * factor)
+            for y in range(CANVAS_H):
+                mask.putpixel((x, y), alpha)
+        canvas.paste(f_right, (col_w - fade_width, 0), mask)
+        canvas = canvas.filter(ImageFilter.UnsharpMask(radius=1.1, percent=105, threshold=3))
+        out_buf = BytesIO()
+        canvas.save(out_buf, format="JPEG", quality=95, optimize=True)
+        return out_buf.getvalue()
+
+    # 3 products: seamless single frame without split panels or border cards
+    fade_width = 70
+    col_w = (CANVAS_W + 2 * fade_width) // 3
 
     feat_img = images[0]
-    left_img = images[1] if len(images) > 1 else images[0]
-    right_img = images[2] if len(images) > 2 else (images[1] if len(images) > 1 else images[0])
+    left_img = images[1]
+    right_img = images[2]
 
-    # Left tile
-    fitted_left = ImageOps.fit(left_img, (360, 500), method=Image.Resampling.LANCZOS)
-    canvas.paste(fitted_left, (20, (CANVAS_H - 500) // 2))
+    f_left = ImageOps.fit(left_img, (col_w, CANVAS_H), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
+    f_center = ImageOps.fit(feat_img, (col_w, CANVAS_H), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
+    f_right = ImageOps.fit(right_img, (col_w, CANVAS_H), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
 
-    # Right tile
-    fitted_right = ImageOps.fit(right_img, (360, 500), method=Image.Resampling.LANCZOS)
-    canvas.paste(fitted_right, (820, (CANVAS_H - 500) // 2))
+    canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), (255, 255, 255))
+    canvas.paste(f_left, (0, 0))
 
-    # Center tile (Featured with white border)
-    inner_feat = ImageOps.fit(feat_img, (368, 588), method=Image.Resampling.LANCZOS)
-    bordered_feat = ImageOps.expand(inner_feat, border=6, fill=BORDER_COLOR)
-    canvas.paste(bordered_feat, (410, (CANVAS_H - 600) // 2))
+    # Smooth S-curve (cosine interpolation) transition mask
+    mask = Image.new("L", (col_w, CANVAS_H), 255)
+    for x in range(fade_width):
+        factor = (1.0 - math.cos(math.pi * x / fade_width)) / 2.0
+        alpha = int(255 * factor)
+        for y in range(CANVAS_H):
+            mask.putpixel((x, y), alpha)
+
+    x_center = col_w - fade_width
+    canvas.paste(f_center, (x_center, 0), mask)
+
+    x_right = x_center + col_w - fade_width
+    canvas.paste(f_right, (x_right, 0), mask)
+
+    # Apply subtle unsharp mask filter for crisp editorial definition
+    canvas = canvas.filter(ImageFilter.UnsharpMask(radius=1.1, percent=105, threshold=3))
 
     out_buf = BytesIO()
-    canvas.save(out_buf, format="JPEG", quality=92, optimize=True)
+    canvas.save(out_buf, format="JPEG", quality=95, optimize=True)
     return out_buf.getvalue()
 
 def generate_article_featured_image(api_key, title, category_name, products):
     """
-    Attempts AI image generation (16:9 1200px+), falling back to
-    the 1200x630 3-panel topic-matched product styling collage.
+    Creates a 1200x630 Google Discover / Bing eligible single-frame image of 3 products.
+    Seamless composition in the same visual frame with no split visuals or panels.
     """
     print(f"[*] Creating 1200x630 Google Discover featured image for '{title}'...")
+
+    # 1. Primary: Seamless single-frame 3-product editorial composition
+    if products:
+        try:
+            collage_bytes = generate_1200x630_collage(products)
+            if collage_bytes:
+                print("  [OK] Successfully built 1200x630 single-frame 3-product featured image")
+                return collage_bytes
+        except Exception as e:
+            print(f"  [!] Warning: Failed generating 3-product single frame image: {e}")
+
+    # 2. Fallback: AI image generation if no products could be retrieved
     try:
         import warnings
         warnings.filterwarnings("ignore", category=UserWarning)
@@ -701,9 +759,7 @@ def generate_article_featured_image(api_key, title, category_name, products):
     except Exception:
         pass
 
-    # Reliable 1200x630 Discover collage with topic-matched products
-    print("  [OK] Building 1200x630 Google Discover 3-panel outfit collage with topic-matched items...")
-    return generate_1200x630_collage(products)
+    return None
 
 # ── IndexNow Submission ────────────────────────────────────────────────────────
 def submit_to_indexnow(store_url, article_url, indexnow_key):
