@@ -19,6 +19,11 @@ on:
         default: '10'
         required: false
         type: string
+      handle:
+        description: 'Specific product handle to run cleanup on (optional, e.g. retrolicious-zombies-vintage-dress)'
+        default: ''
+        required: false
+        type: string
 
 jobs:
   cleanup:
@@ -45,6 +50,7 @@ jobs:
           ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
           MIN_INVENTORY: ${{ github.event.inputs.min_inventory || '10' }}
+          TARGET_HANDLE: ${{ github.event.inputs.handle || '' }}
         run: |
           ARGS=""
           if [ "$DRY_RUN" = "true" ]; then
@@ -52,6 +58,9 @@ jobs:
           fi
           if [ -n "$MIN_INVENTORY" ]; then
             ARGS="$ARGS --min-inventory $MIN_INVENTORY"
+          fi
+          if [ -n "$TARGET_HANDLE" ]; then
+            ARGS="$ARGS --handle $TARGET_HANDLE"
           fi
           echo "Executing delete_out_of_stock_variants.py with args: $ARGS"
           python scripts/delete_out_of_stock_variants.py $ARGS

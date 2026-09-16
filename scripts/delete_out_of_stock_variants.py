@@ -10,14 +10,14 @@ Automated script to:
    ensuring customers cannot place orders for out-of-stock variants while keeping in-stock variants available.
 
 Logging & Audit:
-- Logs every deleted product and variant to stdout with full identifiers (Title, SKU, Price, Qty, IDs).
+- Logs every deleted product and variant to stdout with full identifiers (Title, Vendor, SKU, Price, Qty, IDs).
 - Updates deleted_inventory_history.json with complete metadata for every deleted product and variant for future review/recovery.
 - Produces timestamped run reports in logs/delete_out_of_stock_YYYYMMDD_HHMMSS.json and logs/delete_out_of_stock_latest.json.
 
-Uses:
-- Double-Fernet encryption via secrets_manager.py and secrets.enc for secure credential retrieval.
-- Shopify Admin GraphQL API with automatic rate-limiting, cost throttling, and retry logic.
-- Configurable --dry-run, --min-inventory, and --limit CLI options.
+Targeting & Flexibility:
+- Supports scanning all products (default), or targeting a single product via --handle or --product-id for fast testing.
+- Supports --dry-run to simulate without making changes.
+- Uses Double-Fernet encryption via secrets_manager.py and secrets.enc.
 """
 
 import argparse
@@ -66,6 +66,7 @@ query GetProducts($first: Int!, $after: String) {
         id
         title
         handle
+        vendor
         status
         totalInventory
         variants(first: 100) {
@@ -79,6 +80,56 @@ query GetProducts($first: Int!, $after: String) {
               inventoryQuantity
             }
           }
+        }
+      }
+    }
+  }
+}
+"""
+
+QUERY_PRODUCT_BY_HANDLE = """
+query GetProductByHandle($handle: String!) {
+  productByHandle(handle: $handle) {
+    id
+    title
+    handle
+    vendor
+    status
+    totalInventory
+    variants(first: 100) {
+      edges {
+        node {
+          id
+          title
+          sku
+          price
+          barcode
+          inventoryQuantity
+        }
+      }
+    }
+  }
+}
+"""
+
+QUERY_PRODUCT_BY_ID = """
+query GetProductById($id: ID!) {
+  product(id: $id) {
+    id
+    title
+    handle
+    vendor
+    status
+    totalInventory
+    variants(first: 100) {
+      edges {
+        node {
+          id
+          title
+          sku
+          price
+          barcode
+          inventoryQuantity
         }
       }
     }
@@ -208,16 +259,175 @@ def save_history(history: Dict[str, Any]) -> None:
         logger.error(f"Failed to save {HISTORY_FILE}: {e}")
 
 
+def process_single_product(
+    node: Dict[str, Any],
+    client: ShopifyGraphQLClient,
+    stats: Dict[str, Any],
+    history: Dict[str, Any],
+    min_combined_inventory: int,
+    dry_run: bool,
+    iso_timestamp: str,
+) -> int:
+    """Process a single product node, applying inventory rules."""
+    new_entries = 0
+    product_id = node.get("id")
+    title = node.get("title", "Untitled")
+    handle = node.get("handle", "")
+    vendor = node.get("vendor", "")
+
+    variant_edges = node.get("variants", {}).get("edges", [])
+    variants = [v["node"] for v in variant_edges]
+
+    # Calculate combined in-stock inventory (sum of positive stock across all variants)
+    combined_stock = sum(max(0, v.get("inventoryQuantity") or 0) for v in variants)
+    total_variants_count = len(variants)
+
+    # Identify out-of-stock variants
+    out_of_stock_variants = [
+        v for v in variants if (v.get("inventoryQuantity") or 0) <= 0
+    ]
+    out_of_stock_ids = [v["id"] for v in out_of_stock_variants]
+
+    # Case 1: Combined inventory is less than threshold (e.g. < 10) OR all variants 0
+    if combined_stock < min_combined_inventory:
+        action_tag = "[SIMULATED PRODUCT DELETE]" if dry_run else "[PRODUCT DELETED]"
+        logger.info(
+            f"🗑️  {action_tag} '{title}' ({handle}) | Vendor: {vendor} | ID: {product_id} | "
+            f"Stock: {combined_stock} (< {min_combined_inventory}) | Variants: {total_variants_count}"
+        )
+
+        prod_record = {
+            "deleted_at": iso_timestamp,
+            "dry_run": dry_run,
+            "product_id": product_id,
+            "title": title,
+            "handle": handle,
+            "vendor": vendor,
+            "combined_stock": combined_stock,
+            "variants_count": total_variants_count,
+            "reason": f"Combined inventory ({combined_stock}) < threshold ({min_combined_inventory})",
+            "variants": [
+                {
+                    "id": v["id"],
+                    "title": v.get("title"),
+                    "sku": v.get("sku"),
+                    "price": v.get("price"),
+                    "barcode": v.get("barcode"),
+                    "inventoryQuantity": v.get("inventoryQuantity"),
+                }
+                for v in variants
+            ],
+        }
+        stats["products_deleted_count"] += 1
+        stats["deleted_products"].append(prod_record)
+
+        if not dry_run:
+            history["deleted_products"][product_id] = prod_record
+            new_entries += 1
+            try:
+                del_res = client.execute(MUTATION_DELETE_PRODUCT, {"input": {"id": product_id}})
+                user_errors = del_res.get("data", {}).get("productDelete", {}).get("userErrors", [])
+                if user_errors:
+                    err_msg = f"Failed to delete product {product_id}: {user_errors}"
+                    logger.error(err_msg)
+                    stats["errors_count"] += 1
+                    stats["errors"].append(err_msg)
+            except Exception as e:
+                err_msg = f"Exception deleting product {product_id}: {e}"
+                logger.error(err_msg)
+                stats["errors_count"] += 1
+                stats["errors"].append(err_msg)
+
+    # Case 2: Combined inventory >= threshold, but some variants are out of stock
+    elif out_of_stock_ids:
+        action_tag = "[SIMULATED VARIANT DELETE]" if dry_run else "[VARIANT DELETED]"
+        logger.info(
+            f"✂️  {action_tag} '{title}' ({handle}) | Vendor: {vendor} | Stock: {combined_stock} >= {min_combined_inventory} | "
+            f"Deleting {len(out_of_stock_ids)}/{total_variants_count} out-of-stock variants"
+        )
+
+        deleted_var_details = []
+        for v in out_of_stock_variants:
+            var_detail = {
+                "deleted_at": iso_timestamp,
+                "dry_run": dry_run,
+                "product_id": product_id,
+                "product_title": title,
+                "product_handle": handle,
+                "vendor": vendor,
+                "variant_id": v["id"],
+                "variant_title": v.get("title"),
+                "sku": v.get("sku"),
+                "price": v.get("price"),
+                "barcode": v.get("barcode"),
+                "inventoryQuantity": v.get("inventoryQuantity"),
+                "reason": "Variant out of stock (inventory <= 0) on in-stock product",
+            }
+            deleted_var_details.append(var_detail)
+            logger.info(
+                f"   ↳ {action_tag} Variant: '{v.get('title')}' | SKU: {v.get('sku') or 'N/A'} | "
+                f"Qty: {v.get('inventoryQuantity')} | Price: ${v.get('price')} | ID: {v['id']}"
+            )
+
+            if not dry_run:
+                history["deleted_variants"][v["id"]] = var_detail
+                new_entries += 1
+
+        stats["variants_deleted_count"] += len(out_of_stock_ids)
+        stats["products_variants_cleaned_count"] += 1
+        stats["cleaned_products"].append({
+            "product_id": product_id,
+            "title": title,
+            "handle": handle,
+            "vendor": vendor,
+            "combined_stock": combined_stock,
+            "deleted_variants": deleted_var_details,
+        })
+
+        if not dry_run:
+            try:
+                # Delete in chunks of 250 (Shopify max per mutation)
+                for i in range(0, len(out_of_stock_ids), 250):
+                    chunk_ids = out_of_stock_ids[i:i + 250]
+                    del_var_res = client.execute(
+                        MUTATION_DELETE_VARIANTS,
+                        {"productId": product_id, "variantsIds": chunk_ids},
+                    )
+                    user_errors = (
+                        del_var_res.get("data", {})
+                        .get("productVariantsBulkDelete", {})
+                        .get("userErrors", [])
+                    )
+                    if user_errors:
+                        err_msg = f"Failed to delete variants on product {product_id}: {user_errors}"
+                        logger.error(err_msg)
+                        stats["errors_count"] += 1
+                        stats["errors"].append(err_msg)
+            except Exception as e:
+                err_msg = f"Exception deleting variants for {product_id}: {e}"
+                logger.error(err_msg)
+                stats["errors_count"] += 1
+                stats["errors"].append(err_msg)
+
+    # Case 3: Fully in-stock and >= threshold
+    else:
+        stats["products_kept_untouched_count"] += 1
+
+    return new_entries
+
+
 def run_inventory_cleanup(
     client: ShopifyGraphQLClient,
     min_combined_inventory: int = 10,
     dry_run: bool = False,
     limit: Optional[int] = None,
+    handle: Optional[str] = None,
+    product_id: Optional[str] = None,
     log_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Main cleanup engine:
-    1. Fetches all products and their variants.
+    1. Fetches products (either single targeted product, or paginated scan).
     2. Deletes products if combined in-stock inventory < min_combined_inventory.
     3. Otherwise, deletes any variants with inventoryQuantity <= 0.
     4. Logs all deleted items and updates persistent history.
@@ -237,6 +447,8 @@ def run_inventory_cleanup(
         "start_time": iso_timestamp,
         "dry_run": dry_run,
         "min_combined_inventory": min_combined_inventory,
+        "targeted_handle": handle,
+        "targeted_product_id": product_id,
         "total_products_scanned": 0,
         "products_deleted_count": 0,
         "variants_deleted_count": 0,
@@ -252,188 +464,105 @@ def run_inventory_cleanup(
     logger.info("=" * 70)
     logger.info(f"STARTING OUT-OF-STOCK CLEANUP | Mode: {mode_label}")
     logger.info(f"Threshold: Delete products if combined inventory < {min_combined_inventory}")
+    if handle:
+        logger.info(f"Targeting single product by handle: {handle}")
+    elif product_id:
+        logger.info(f"Targeting single product by ID: {product_id}")
     logger.info("=" * 70)
 
-    after_cursor: Optional[str] = None
-    processed_count = 0
-    batch_size = 100
-
     try:
-        while True:
-            fetch_size = batch_size
-            if limit is not None:
-                remaining = limit - processed_count
-                if remaining <= 0:
-                    break
-                fetch_size = min(batch_size, remaining)
-
-            variables: Dict[str, Any] = {"first": fetch_size, "after": after_cursor}
-            result = client.execute(QUERY_PRODUCTS, variables)
-
-            products_data = result.get("data", {}).get("products", {})
-            edges = products_data.get("edges", [])
-            page_info = products_data.get("pageInfo", {})
-
-            if not edges:
-                break
-
-            for edge in edges:
-                processed_count += 1
+        # Option A: Single product targeting by handle
+        if handle:
+            res = client.execute(QUERY_PRODUCT_BY_HANDLE, {"handle": handle})
+            prod_node = res.get("data", {}).get("productByHandle")
+            if not prod_node:
+                logger.error(f"Product with handle '{handle}' not found.")
+                stats["errors"].append(f"Handle '{handle}' not found")
+                stats["errors_count"] += 1
+            else:
                 stats["total_products_scanned"] += 1
-                node = edge.get("node", {})
-                product_id = node.get("id")
-                title = node.get("title", "Untitled")
-                handle = node.get("handle", "")
+                new_history_entries += process_single_product(
+                    node=prod_node,
+                    client=client,
+                    stats=stats,
+                    history=history,
+                    min_combined_inventory=min_combined_inventory,
+                    dry_run=dry_run,
+                    iso_timestamp=iso_timestamp,
+                )
 
-                variant_edges = node.get("variants", {}).get("edges", [])
-                variants = [v["node"] for v in variant_edges]
+        # Option B: Single product targeting by ID
+        elif product_id:
+            formatted_id = product_id if product_id.startswith("gid://") else f"gid://shopify/Product/{product_id}"
+            res = client.execute(QUERY_PRODUCT_BY_ID, {"id": formatted_id})
+            prod_node = res.get("data", {}).get("product")
+            if not prod_node:
+                logger.error(f"Product with ID '{product_id}' not found.")
+                stats["errors"].append(f"Product ID '{product_id}' not found")
+                stats["errors_count"] += 1
+            else:
+                stats["total_products_scanned"] += 1
+                new_history_entries += process_single_product(
+                    node=prod_node,
+                    client=client,
+                    stats=stats,
+                    history=history,
+                    min_combined_inventory=min_combined_inventory,
+                    dry_run=dry_run,
+                    iso_timestamp=iso_timestamp,
+                )
 
-                # Calculate combined in-stock inventory (sum of positive stock across all variants)
-                combined_stock = sum(max(0, v.get("inventoryQuantity") or 0) for v in variants)
-                total_variants_count = len(variants)
+        # Option C: Storewide paginated scan
+        else:
+            after_cursor: Optional[str] = None
+            processed_count = 0
+            batch_size = 100
 
-                # Identify out-of-stock variants
-                out_of_stock_variants = [
-                    v for v in variants if (v.get("inventoryQuantity") or 0) <= 0
-                ]
-                out_of_stock_ids = [v["id"] for v in out_of_stock_variants]
+            while True:
+                fetch_size = batch_size
+                if limit is not None:
+                    remaining = limit - processed_count
+                    if remaining <= 0:
+                        break
+                    fetch_size = min(batch_size, remaining)
 
-                # Case 1: Combined inventory is less than threshold (e.g. < 10) OR all variants 0
-                if combined_stock < min_combined_inventory:
-                    action_tag = "[SIMULATED PRODUCT DELETE]" if dry_run else "[PRODUCT DELETED]"
-                    logger.info(
-                        f"🗑️  {action_tag} '{title}' ({handle}) | ID: {product_id} | "
-                        f"Stock: {combined_stock} (< {min_combined_inventory}) | Variants: {total_variants_count}"
-                    )
+                variables: Dict[str, Any] = {"first": fetch_size, "after": after_cursor}
+                result = client.execute(QUERY_PRODUCTS, variables)
 
-                    prod_record = {
-                        "deleted_at": iso_timestamp,
-                        "dry_run": dry_run,
-                        "product_id": product_id,
-                        "title": title,
-                        "handle": handle,
-                        "combined_stock": combined_stock,
-                        "variants_count": total_variants_count,
-                        "reason": f"Combined inventory ({combined_stock}) < threshold ({min_combined_inventory})",
-                        "variants": [
-                            {
-                                "id": v["id"],
-                                "title": v.get("title"),
-                                "sku": v.get("sku"),
-                                "price": v.get("price"),
-                                "barcode": v.get("barcode"),
-                                "inventoryQuantity": v.get("inventoryQuantity"),
-                            }
-                            for v in variants
-                        ],
-                    }
-                    stats["products_deleted_count"] += 1
-                    stats["deleted_products"].append(prod_record)
+                products_data = result.get("data", {}).get("products", {})
+                edges = products_data.get("edges", [])
+                page_info = products_data.get("pageInfo", {})
 
-                    if not dry_run:
-                        # Add to persistent history
-                        history["deleted_products"][product_id] = prod_record
-                        new_history_entries += 1
-                        try:
-                            del_res = client.execute(MUTATION_DELETE_PRODUCT, {"input": {"id": product_id}})
-                            user_errors = del_res.get("data", {}).get("productDelete", {}).get("userErrors", [])
-                            if user_errors:
-                                err_msg = f"Failed to delete product {product_id}: {user_errors}"
-                                logger.error(err_msg)
-                                stats["errors_count"] += 1
-                                stats["errors"].append(err_msg)
-                        except Exception as e:
-                            err_msg = f"Exception deleting product {product_id}: {e}"
-                            logger.error(err_msg)
-                            stats["errors_count"] += 1
-                            stats["errors"].append(err_msg)
-
-                # Case 2: Combined inventory >= threshold, but some variants are out of stock
-                elif out_of_stock_ids:
-                    action_tag = "[SIMULATED VARIANT DELETE]" if dry_run else "[VARIANT DELETED]"
-                    logger.info(
-                        f"✂️  {action_tag} '{title}' ({handle}) | Total Stock: {combined_stock} >= {min_combined_inventory} | "
-                        f"Deleting {len(out_of_stock_ids)}/{total_variants_count} out-of-stock variants"
-                    )
-
-                    deleted_var_details = []
-                    for v in out_of_stock_variants:
-                        var_detail = {
-                            "deleted_at": iso_timestamp,
-                            "dry_run": dry_run,
-                            "product_id": product_id,
-                            "product_title": title,
-                            "product_handle": handle,
-                            "variant_id": v["id"],
-                            "variant_title": v.get("title"),
-                            "sku": v.get("sku"),
-                            "price": v.get("price"),
-                            "barcode": v.get("barcode"),
-                            "inventoryQuantity": v.get("inventoryQuantity"),
-                            "reason": "Variant out of stock (inventory <= 0) on in-stock product",
-                        }
-                        deleted_var_details.append(var_detail)
-                        logger.info(
-                            f"   ↳ {action_tag} Variant: '{v.get('title')}' | SKU: {v.get('sku') or 'N/A'} | "
-                            f"Qty: {v.get('inventoryQuantity')} | Price: ${v.get('price')} | ID: {v['id']}"
-                        )
-
-                        if not dry_run:
-                            history["deleted_variants"][v["id"]] = var_detail
-                            new_history_entries += 1
-
-                    stats["variants_deleted_count"] += len(out_of_stock_ids)
-                    stats["products_variants_cleaned_count"] += 1
-                    stats["cleaned_products"].append({
-                        "product_id": product_id,
-                        "title": title,
-                        "handle": handle,
-                        "combined_stock": combined_stock,
-                        "deleted_variants": deleted_var_details,
-                    })
-
-                    if not dry_run:
-                        try:
-                            # Delete in chunks of 250 (Shopify max per mutation)
-                            for i in range(0, len(out_of_stock_ids), 250):
-                                chunk_ids = out_of_stock_ids[i:i + 250]
-                                del_var_res = client.execute(
-                                    MUTATION_DELETE_VARIANTS,
-                                    {"productId": product_id, "variantsIds": chunk_ids},
-                                )
-                                user_errors = (
-                                    del_var_res.get("data", {})
-                                    .get("productVariantsBulkDelete", {})
-                                    .get("userErrors", [])
-                                )
-                                if user_errors:
-                                    err_msg = f"Failed to delete variants on product {product_id}: {user_errors}"
-                                    logger.error(err_msg)
-                                    stats["errors_count"] += 1
-                                    stats["errors"].append(err_msg)
-                        except Exception as e:
-                            err_msg = f"Exception deleting variants for {product_id}: {e}"
-                            logger.error(err_msg)
-                            stats["errors_count"] += 1
-                            stats["errors"].append(err_msg)
-
-                # Case 3: Fully in-stock and >= threshold
-                else:
-                    stats["products_kept_untouched_count"] += 1
-
-                if limit is not None and processed_count >= limit:
+                if not edges:
                     break
 
-            if not page_info.get("hasNextPage"):
-                break
-            after_cursor = page_info.get("endCursor")
+                for edge in edges:
+                    processed_count += 1
+                    stats["total_products_scanned"] += 1
+                    node = edge.get("node", {})
+                    new_history_entries += process_single_product(
+                        node=node,
+                        client=client,
+                        stats=stats,
+                        history=history,
+                        min_combined_inventory=min_combined_inventory,
+                        dry_run=dry_run,
+                        iso_timestamp=iso_timestamp,
+                    )
 
-            if stats["total_products_scanned"] % 500 == 0:
-                logger.info(
-                    f"Progress: {stats['total_products_scanned']} products scanned | "
-                    f"Products to delete: {stats['products_deleted_count']} | "
-                    f"Variants to delete: {stats['variants_deleted_count']}"
-                )
+                    if limit is not None and processed_count >= limit:
+                        break
+
+                if not page_info.get("hasNextPage"):
+                    break
+                after_cursor = page_info.get("endCursor")
+
+                if stats["total_products_scanned"] % 500 == 0:
+                    logger.info(
+                        f"Progress: {stats['total_products_scanned']} products scanned | "
+                        f"Products to delete: {stats['products_deleted_count']} | "
+                        f"Variants to delete: {stats['variants_deleted_count']}"
+                    )
 
     except KeyboardInterrupt:
         logger.warning("Execution interrupted by user.")
@@ -501,6 +630,18 @@ def main():
         help="Limit number of products to scan (useful for quick local tests).",
     )
     parser.add_argument(
+        "--handle",
+        type=str,
+        default=None,
+        help="Target a single product by handle (e.g. retrolicious-zombies-vintage-dress).",
+    )
+    parser.add_argument(
+        "--product-id",
+        type=str,
+        default=None,
+        help="Target a single product by Shopify ID (e.g. 8988062515371).",
+    )
+    parser.add_argument(
         "--log-dir",
         type=str,
         default=None,
@@ -525,6 +666,8 @@ def main():
         min_combined_inventory=args.min_inventory,
         dry_run=args.dry_run,
         limit=args.limit,
+        handle=args.handle,
+        product_id=args.product_id,
         log_dir=log_path,
     )
 
