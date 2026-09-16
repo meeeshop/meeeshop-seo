@@ -22,12 +22,12 @@ on:
         description: 'Max MeeeShop store articles to flip'
         required: false
         type: string
-        default: '5'
+        default: '2'
       reflip_limit:
         description: 'Max trending women fashion articles to curate first'
         required: false
         type: string
-        default: '3'
+        default: '2'
 
 jobs:
   flipboard-sync:
