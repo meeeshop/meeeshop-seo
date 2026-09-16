@@ -53,6 +53,88 @@ logger = logging.getLogger("delete_out_of_stock")
 # Persistent history tracking file
 HISTORY_FILE = REPO_ROOT / "deleted_inventory_history.json"
 
+# Primary store fulfillment location (where non-Collective / store wholesale products are stocked)
+STORE_PRIMARY_LOCATION_ID = "85751005355"
+
+# Known Shopify Collective Suppliers
+# Products from these suppliers automatically sync with supplier catalogs.
+# Deleting individual 0-stock variants causes Collective to recreate them in Admin.
+# We skip variant deletion for these suppliers to conserve API limits and runner minutes.
+COLLECTIVE_VENDORS = {
+    "RETROLICIOUS",
+    "ALYTH ACTIVE",
+    "ARTEMIS VINTAGE",
+    "ATHINA RETAIL",
+    "BOHO CLOTHING AND ACCESSORIES",
+    "BOTORI EQUESTRIAN",
+    "BUKI",
+    "COTTONWAYS",
+    "DIZZY-LIZZIE",
+    "DOWNEAST",
+    "ELLISONYOUNG.COM",
+    "FLYING TOMATO",
+    "GLEE + CO",
+    "GOAL FIVE",
+    "HELLODAY.US",
+    "INDIE & CO.",
+    "LUCKY FEET SHOES",
+    "MADELINE LOVE",
+    "MISSFINCHNYC",
+    "ORANGE FARM CLOTHING",
+    "PRETTY SIMPLE",
+    "TROPHY YOGA",
+    "VAILA SHOES",
+    "YMI JEANS",
+}
+
+
+def is_shopify_collective_product(
+    vendor: str,
+    variants: Optional[List[Dict[str, Any]]] = None,
+    extra_collective_vendors: Optional[set] = None,
+) -> Tuple[bool, str]:
+    """
+    Determines if a product originates from a Shopify Collective supplier.
+    
+    Collective products automatically synchronize with the supplier's price list / catalog.
+    If individual 0-stock variants are deleted via API, Collective automatically restores them
+    within seconds. Skipping individual variant deletion for Collective suppliers avoids
+    burning API rate limits and execution time (while the storefront theme rule hides them).
+    
+    Returns:
+        (is_collective, reason)
+    """
+    v_clean = (vendor or "").strip().upper()
+    
+    # 1. Check known / configured Collective vendor list
+    all_collective = set(COLLECTIVE_VENDORS)
+    if extra_collective_vendors:
+        all_collective.update(ev.strip().upper() for ev in extra_collective_vendors if ev.strip())
+        
+    if v_clean in all_collective:
+        return True, f"Vendor '{vendor}' is a known Shopify Collective supplier"
+        
+    for cv in all_collective:
+        if cv in v_clean or v_clean in cv:
+            return True, f"Vendor '{vendor}' matches Shopify Collective supplier '{cv}'"
+
+    # 2. Check variant inventory location (Collective suppliers have dedicated fulfillment locations)
+    if variants:
+        for v in variants:
+            levels = (
+                v.get("inventoryItem", {})
+                .get("inventoryLevels", {})
+                .get("edges", [])
+            )
+            for lvl in levels:
+                loc_id = lvl.get("node", {}).get("location", {}).get("id", "").split("/")[-1]
+                # If location is not the store primary location and not Trendsi app
+                if loc_id and loc_id not in (STORE_PRIMARY_LOCATION_ID, "65746272427", "85754413227"):
+                    return True, f"Variant stocked at dedicated Collective supplier location ({loc_id})"
+
+    return False, "Standard / non-Collective supplier"
+
+
 # GraphQL Queries & Mutations
 QUERY_PRODUCTS = """
 query GetProducts($first: Int!, $after: String) {
@@ -78,6 +160,17 @@ query GetProducts($first: Int!, $after: String) {
               price
               barcode
               inventoryQuantity
+              inventoryItem {
+                inventoryLevels(first: 2) {
+                  edges {
+                    node {
+                      location {
+                        id
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         }
@@ -105,6 +198,17 @@ query GetProductByHandle($handle: String!) {
           price
           barcode
           inventoryQuantity
+          inventoryItem {
+            inventoryLevels(first: 2) {
+              edges {
+                node {
+                  location {
+                    id
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -130,6 +234,17 @@ query GetProductById($id: ID!) {
           price
           barcode
           inventoryQuantity
+          inventoryItem {
+            inventoryLevels(first: 2) {
+              edges {
+                node {
+                  location {
+                    id
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -168,8 +283,9 @@ class ShopifyGraphQLClient:
     """GraphQL client with rate-limiting, cost management, and exponential backoff."""
 
     def __init__(self, store: str, token: str, api_version: str = "2024-01"):
-        self.store = store
-        self.endpoint = f"https://{store}/admin/api/{api_version}/graphql.json"
+        clean_store = store.replace("https://", "").replace("http://", "").rstrip("/")
+        self.store = clean_store
+        self.endpoint = f"https://{clean_store}/admin/api/{api_version}/graphql.json"
         self.headers = {
             "X-Shopify-Access-Token": token,
             "Content-Type": "application/json",
@@ -267,6 +383,8 @@ def process_single_product(
     min_combined_inventory: int,
     dry_run: bool,
     iso_timestamp: str,
+    skip_collective_variants: bool = True,
+    extra_collective_vendors: Optional[set] = None,
 ) -> int:
     """Process a single product node, applying inventory rules."""
     new_entries = 0
@@ -289,6 +407,7 @@ def process_single_product(
     out_of_stock_ids = [v["id"] for v in out_of_stock_variants]
 
     # Case 1: Combined inventory is less than threshold (e.g. < 10) OR all variants 0
+    # Rule applies to ALL products (standard and Collective). Collective does NOT recreate deleted products.
     if combined_stock < min_combined_inventory:
         action_tag = "[SIMULATED PRODUCT DELETE]" if dry_run else "[PRODUCT DELETED]"
         logger.info(
@@ -340,6 +459,32 @@ def process_single_product(
 
     # Case 2: Combined inventory >= threshold, but some variants are out of stock
     elif out_of_stock_ids:
+        # Check if product is from a Shopify Collective supplier
+        is_collective, collective_reason = is_shopify_collective_product(
+            vendor=vendor,
+            variants=variants,
+            extra_collective_vendors=extra_collective_vendors,
+        )
+
+        # Skip deleting individual variants for Collective products to conserve API limits & runner minutes
+        if is_collective and skip_collective_variants:
+            logger.info(
+                f"🛡️  [COLLECTIVE SKIP] '{title}' ({handle}) | Vendor: {vendor} | Stock: {combined_stock} >= {min_combined_inventory} | "
+                f"{len(out_of_stock_ids)}/{total_variants_count} variants out of stock. "
+                f"Skipping variant deletion to save API limits & runner minutes ({collective_reason}). Storefront theme hides them."
+            )
+            stats["collective_products_skipped_count"] += 1
+            stats["collective_skipped_products"].append({
+                "product_id": product_id,
+                "title": title,
+                "handle": handle,
+                "vendor": vendor,
+                "combined_stock": combined_stock,
+                "out_of_stock_variants_count": len(out_of_stock_ids),
+                "reason": collective_reason,
+            })
+            return 0
+
         action_tag = "[SIMULATED VARIANT DELETE]" if dry_run else "[VARIANT DELETED]"
         logger.info(
             f"✂️  {action_tag} '{title}' ({handle}) | Vendor: {vendor} | Stock: {combined_stock} >= {min_combined_inventory} | "
@@ -424,12 +569,16 @@ def run_inventory_cleanup(
     handle: Optional[str] = None,
     product_id: Optional[str] = None,
     log_dir: Optional[Path] = None,
+    skip_collective_variants: bool = True,
+    extra_collective_vendors: Optional[set] = None,
 ) -> Dict[str, Any]:
     """
     Main cleanup engine:
     1. Fetches products (either single targeted product, or paginated scan).
-    2. Deletes products if combined in-stock inventory < min_combined_inventory.
-    3. Otherwise, deletes any variants with inventoryQuantity <= 0.
+    2. Deletes products if combined in-stock inventory < min_combined_inventory (all suppliers, including Collective).
+    3. For products with combined inventory >= threshold:
+       - Skips variant deletion for Shopify Collective products to conserve API limits and runner minutes.
+       - Deletes 0-inventory variants for standard / non-Collective products.
     4. Logs all deleted items and updates persistent history.
     """
     if log_dir is None:
@@ -447,16 +596,19 @@ def run_inventory_cleanup(
         "start_time": iso_timestamp,
         "dry_run": dry_run,
         "min_combined_inventory": min_combined_inventory,
+        "skip_collective_variants": skip_collective_variants,
         "targeted_handle": handle,
         "targeted_product_id": product_id,
         "total_products_scanned": 0,
         "products_deleted_count": 0,
         "variants_deleted_count": 0,
+        "collective_products_skipped_count": 0,
         "products_kept_untouched_count": 0,
         "products_variants_cleaned_count": 0,
         "errors_count": 0,
         "deleted_products": [],
         "cleaned_products": [],
+        "collective_skipped_products": [],
         "errors": [],
     }
 
@@ -464,6 +616,7 @@ def run_inventory_cleanup(
     logger.info("=" * 70)
     logger.info(f"STARTING OUT-OF-STOCK CLEANUP | Mode: {mode_label}")
     logger.info(f"Threshold: Delete products if combined inventory < {min_combined_inventory}")
+    logger.info(f"Skip Collective Variants: {skip_collective_variants} (conserve API limits & minutes)")
     if handle:
         logger.info(f"Targeting single product by handle: {handle}")
     elif product_id:
@@ -489,6 +642,8 @@ def run_inventory_cleanup(
                     min_combined_inventory=min_combined_inventory,
                     dry_run=dry_run,
                     iso_timestamp=iso_timestamp,
+                    skip_collective_variants=skip_collective_variants,
+                    extra_collective_vendors=extra_collective_vendors,
                 )
 
         # Option B: Single product targeting by ID
@@ -510,6 +665,8 @@ def run_inventory_cleanup(
                     min_combined_inventory=min_combined_inventory,
                     dry_run=dry_run,
                     iso_timestamp=iso_timestamp,
+                    skip_collective_variants=skip_collective_variants,
+                    extra_collective_vendors=extra_collective_vendors,
                 )
 
         # Option C: Storewide paginated scan
@@ -548,6 +705,8 @@ def run_inventory_cleanup(
                         min_combined_inventory=min_combined_inventory,
                         dry_run=dry_run,
                         iso_timestamp=iso_timestamp,
+                        skip_collective_variants=skip_collective_variants,
+                        extra_collective_vendors=extra_collective_vendors,
                     )
 
                     if limit is not None and processed_count >= limit:
@@ -561,7 +720,8 @@ def run_inventory_cleanup(
                     logger.info(
                         f"Progress: {stats['total_products_scanned']} products scanned | "
                         f"Products to delete: {stats['products_deleted_count']} | "
-                        f"Variants to delete: {stats['variants_deleted_count']}"
+                        f"Variants to delete: {stats['variants_deleted_count']} | "
+                        f"Collective skipped: {stats['collective_products_skipped_count']}"
                     )
 
     except KeyboardInterrupt:
@@ -598,6 +758,7 @@ def run_inventory_cleanup(
     logger.info(f"Products Deleted (< {min_combined_inventory} inventory): {stats['products_deleted_count']}")
     logger.info(f"Products with Variants Cleaned:     {stats['products_variants_cleaned_count']}")
     logger.info(f"Total Out-of-Stock Variants Deleted:{stats['variants_deleted_count']}")
+    logger.info(f"Collective Skipped (Saved API calls):{stats['collective_products_skipped_count']}")
     logger.info(f"Products In-Stock (Untouched):      {stats['products_kept_untouched_count']}")
     logger.info(f"Errors Encountered:                 {stats['errors_count']}")
     logger.info(f"Duration:                           {stats['duration_seconds']}s")
@@ -642,6 +803,17 @@ def main():
         help="Target a single product by Shopify ID (e.g. 8988062515371).",
     )
     parser.add_argument(
+        "--no-skip-collective",
+        action="store_true",
+        help="Do not skip variant deletion for Shopify Collective products (default is to skip to conserve API limits).",
+    )
+    parser.add_argument(
+        "--collective-vendors",
+        type=str,
+        default="",
+        help="Comma-separated additional Shopify Collective vendor names.",
+    )
+    parser.add_argument(
         "--log-dir",
         type=str,
         default=None,
@@ -661,6 +833,9 @@ def main():
     log_path = Path(args.log_dir) if args.log_dir else None
     client = ShopifyGraphQLClient(store=store, token=token)
 
+    extra_vendors = {v.strip() for v in args.collective_vendors.split(",") if v.strip()}
+    skip_collective = not args.no_skip_collective
+
     run_inventory_cleanup(
         client=client,
         min_combined_inventory=args.min_inventory,
@@ -669,6 +844,8 @@ def main():
         handle=args.handle,
         product_id=args.product_id,
         log_dir=log_path,
+        skip_collective_variants=skip_collective,
+        extra_collective_vendors=extra_vendors,
     )
 
 
