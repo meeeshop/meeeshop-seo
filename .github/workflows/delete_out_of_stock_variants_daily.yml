@@ -56,6 +56,17 @@ jobs:
           echo "Executing delete_out_of_stock_variants.py with args: $ARGS"
           python scripts/delete_out_of_stock_variants.py $ARGS
 
+      - name: Commit and push deleted inventory history
+        if: always() && github.event.inputs.dry_run != 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -f "deleted_inventory_history.json" ]; then
+            git add deleted_inventory_history.json
+            git commit -m "chore(inventory): update deleted inventory history log [skip ci]" || echo "No changes to commit"
+            git push origin ${{ github.ref_name }} || echo "Failed to push history commit"
+          fi
+
       - name: Upload execution audit logs
         if: always()
         uses: actions/upload-artifact@v4

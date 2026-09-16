@@ -9,11 +9,15 @@ Automated script to:
    Delete individual variants that have 0 or negative inventory (inventoryQuantity <= 0),
    ensuring customers cannot place orders for out-of-stock variants while keeping in-stock variants available.
 
+Logging & Audit:
+- Logs every deleted product and variant to stdout with full identifiers (Title, SKU, Price, Qty, IDs).
+- Updates deleted_inventory_history.json with complete metadata for every deleted product and variant for future review/recovery.
+- Produces timestamped run reports in logs/delete_out_of_stock_YYYYMMDD_HHMMSS.json and logs/delete_out_of_stock_latest.json.
+
 Uses:
 - Double-Fernet encryption via secrets_manager.py and secrets.enc for secure credential retrieval.
 - Shopify Admin GraphQL API with automatic rate-limiting, cost throttling, and retry logic.
 - Configurable --dry-run, --min-inventory, and --limit CLI options.
-- Detailed audit logging to logs/ directory.
 """
 
 import argparse
@@ -46,6 +50,9 @@ LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 logger = logging.getLogger("delete_out_of_stock")
 
+# Persistent history tracking file
+HISTORY_FILE = REPO_ROOT / "deleted_inventory_history.json"
+
 # GraphQL Queries & Mutations
 QUERY_PRODUCTS = """
 query GetProducts($first: Int!, $after: String) {
@@ -67,6 +74,8 @@ query GetProducts($first: Int!, $after: String) {
               id
               title
               sku
+              price
+              barcode
               inventoryQuantity
             }
           }
@@ -175,9 +184,28 @@ class ShopifyGraphQLClient:
         raise RuntimeError("Failed to execute GraphQL query after maximum retries")
 
 
-def clean_gid(gid: str) -> str:
-    """Ensure GID format."""
-    return gid.strip() if gid else ""
+def load_history() -> Dict[str, Any]:
+    """Load persistent deletion history from disk."""
+    if HISTORY_FILE.exists():
+        try:
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    data.setdefault("deleted_products", {})
+                    data.setdefault("deleted_variants", {})
+                    return data
+        except Exception as e:
+            logger.warning(f"Could not read {HISTORY_FILE}: {e}")
+    return {"deleted_products": {}, "deleted_variants": {}}
+
+
+def save_history(history: Dict[str, Any]) -> None:
+    """Save persistent deletion history to disk."""
+    try:
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history, f, indent=2)
+    except Exception as e:
+        logger.error(f"Failed to save {HISTORY_FILE}: {e}")
 
 
 def run_inventory_cleanup(
@@ -192,6 +220,7 @@ def run_inventory_cleanup(
     1. Fetches all products and their variants.
     2. Deletes products if combined in-stock inventory < min_combined_inventory.
     3. Otherwise, deletes any variants with inventoryQuantity <= 0.
+    4. Logs all deleted items and updates persistent history.
     """
     if log_dir is None:
         log_dir = REPO_ROOT / "logs"
@@ -199,9 +228,13 @@ def run_inventory_cleanup(
 
     start_time = datetime.datetime.now(datetime.timezone.utc)
     timestamp_str = start_time.strftime("%Y%m%d_%H%M%S")
+    iso_timestamp = start_time.isoformat()
+
+    history = load_history()
+    new_history_entries = 0
 
     stats = {
-        "start_time": start_time.isoformat(),
+        "start_time": iso_timestamp,
         "dry_run": dry_run,
         "min_combined_inventory": min_combined_inventory,
         "total_products_scanned": 0,
@@ -215,8 +248,10 @@ def run_inventory_cleanup(
         "errors": [],
     }
 
+    mode_label = "DRY-RUN (SIMULATION - NO DELETIONS)" if dry_run else "LIVE EXECUTION (PERMANENT DELETIONS)"
     logger.info("=" * 70)
-    logger.info(f"STARTING OUT-OF-STOCK CLEANUP | Dry-Run: {dry_run} | Min Inventory: {min_combined_inventory}")
+    logger.info(f"STARTING OUT-OF-STOCK CLEANUP | Mode: {mode_label}")
+    logger.info(f"Threshold: Delete products if combined inventory < {min_combined_inventory}")
     logger.info("=" * 70)
 
     after_cursor: Optional[str] = None
@@ -265,20 +300,40 @@ def run_inventory_cleanup(
 
                 # Case 1: Combined inventory is less than threshold (e.g. < 10) OR all variants 0
                 if combined_stock < min_combined_inventory:
+                    action_tag = "[SIMULATED PRODUCT DELETE]" if dry_run else "[PRODUCT DELETED]"
                     logger.info(
-                        f"[PRODUCT DELETE] '{title}' ({handle}) | Total Stock: {combined_stock} (< {min_combined_inventory}) | Variants: {total_variants_count}"
+                        f"🗑️  {action_tag} '{title}' ({handle}) | ID: {product_id} | "
+                        f"Stock: {combined_stock} (< {min_combined_inventory}) | Variants: {total_variants_count}"
                     )
-                    stats["products_deleted_count"] += 1
-                    stats["deleted_products"].append({
+
+                    prod_record = {
+                        "deleted_at": iso_timestamp,
+                        "dry_run": dry_run,
                         "product_id": product_id,
                         "title": title,
                         "handle": handle,
                         "combined_stock": combined_stock,
                         "variants_count": total_variants_count,
                         "reason": f"Combined inventory ({combined_stock}) < threshold ({min_combined_inventory})",
-                    })
+                        "variants": [
+                            {
+                                "id": v["id"],
+                                "title": v.get("title"),
+                                "sku": v.get("sku"),
+                                "price": v.get("price"),
+                                "barcode": v.get("barcode"),
+                                "inventoryQuantity": v.get("inventoryQuantity"),
+                            }
+                            for v in variants
+                        ],
+                    }
+                    stats["products_deleted_count"] += 1
+                    stats["deleted_products"].append(prod_record)
 
                     if not dry_run:
+                        # Add to persistent history
+                        history["deleted_products"][product_id] = prod_record
+                        new_history_entries += 1
                         try:
                             del_res = client.execute(MUTATION_DELETE_PRODUCT, {"input": {"id": product_id}})
                             user_errors = del_res.get("data", {}).get("productDelete", {}).get("userErrors", [])
@@ -295,9 +350,38 @@ def run_inventory_cleanup(
 
                 # Case 2: Combined inventory >= threshold, but some variants are out of stock
                 elif out_of_stock_ids:
+                    action_tag = "[SIMULATED VARIANT DELETE]" if dry_run else "[VARIANT DELETED]"
                     logger.info(
-                        f"[VARIANTS DELETE] '{title}' ({handle}) | Stock: {combined_stock} >= {min_combined_inventory} | Deleting {len(out_of_stock_ids)}/{total_variants_count} out-of-stock variants"
+                        f"✂️  {action_tag} '{title}' ({handle}) | Total Stock: {combined_stock} >= {min_combined_inventory} | "
+                        f"Deleting {len(out_of_stock_ids)}/{total_variants_count} out-of-stock variants"
                     )
+
+                    deleted_var_details = []
+                    for v in out_of_stock_variants:
+                        var_detail = {
+                            "deleted_at": iso_timestamp,
+                            "dry_run": dry_run,
+                            "product_id": product_id,
+                            "product_title": title,
+                            "product_handle": handle,
+                            "variant_id": v["id"],
+                            "variant_title": v.get("title"),
+                            "sku": v.get("sku"),
+                            "price": v.get("price"),
+                            "barcode": v.get("barcode"),
+                            "inventoryQuantity": v.get("inventoryQuantity"),
+                            "reason": "Variant out of stock (inventory <= 0) on in-stock product",
+                        }
+                        deleted_var_details.append(var_detail)
+                        logger.info(
+                            f"   ↳ {action_tag} Variant: '{v.get('title')}' | SKU: {v.get('sku') or 'N/A'} | "
+                            f"Qty: {v.get('inventoryQuantity')} | Price: ${v.get('price')} | ID: {v['id']}"
+                        )
+
+                        if not dry_run:
+                            history["deleted_variants"][v["id"]] = var_detail
+                            new_history_entries += 1
+
                     stats["variants_deleted_count"] += len(out_of_stock_ids)
                     stats["products_variants_cleaned_count"] += 1
                     stats["cleaned_products"].append({
@@ -305,15 +389,7 @@ def run_inventory_cleanup(
                         "title": title,
                         "handle": handle,
                         "combined_stock": combined_stock,
-                        "deleted_variants": [
-                            {
-                                "id": v["id"],
-                                "title": v.get("title"),
-                                "sku": v.get("sku"),
-                                "inventoryQuantity": v.get("inventoryQuantity"),
-                            }
-                            for v in out_of_stock_variants
-                        ],
+                        "deleted_variants": deleted_var_details,
                     })
 
                     if not dry_run:
@@ -370,7 +446,12 @@ def run_inventory_cleanup(
     stats["end_time"] = end_time.isoformat()
     stats["duration_seconds"] = round((end_time - start_time).total_seconds(), 2)
 
-    # Save detailed JSON logs
+    # If live changes were made, write updated history to disk
+    if not dry_run and new_history_entries > 0:
+        save_history(history)
+        logger.info(f"✅ Updated persistent deletion history: {HISTORY_FILE} ({new_history_entries} new records)")
+
+    # Save detailed JSON run logs
     timestamped_log = log_dir / f"delete_out_of_stock_{timestamp_str}.json"
     latest_log = log_dir / "delete_out_of_stock_latest.json"
 
@@ -391,7 +472,8 @@ def run_inventory_cleanup(
     logger.info(f"Products In-Stock (Untouched):      {stats['products_kept_untouched_count']}")
     logger.info(f"Errors Encountered:                 {stats['errors_count']}")
     logger.info(f"Duration:                           {stats['duration_seconds']}s")
-    logger.info(f"Log written to:                     {timestamped_log}")
+    logger.info(f"Detailed Run Log:                   {timestamped_log}")
+    logger.info(f"Persistent History Log:             {HISTORY_FILE}")
     logger.info("=" * 70)
 
     return stats
