@@ -55,4 +55,5 @@ test.env
 !category_metafields_preview.json
 !indexing_history.json
 !indexnow_history.json
+!deleted_inventory_history.json
 scratch/
