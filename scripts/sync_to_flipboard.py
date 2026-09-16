@@ -161,7 +161,10 @@ if not all([SHOP_TOKEN, FLIPBOARD_EMAIL, FLIPBOARD_PASSWORD, SHOP]):
     logging.error("Missing required secrets: SHOPIFY_STORE, SHOPIFY_ACCESS_TOKEN, FLIPBOARD_EMAIL, FLIPBOARD_PASSWORD")
     sys.exit(1)
 
-UTM_TRACKING = "utm_source=flipboard&utm_medium=syndication&utm_campaign=flipboard_daily"
+# Flipboard scraper often fails to fetch OpenGraph images if URLs have complex query params.
+# We remove UTM tracking so Flipboard uses the clean canonical URL and generates a rich preview card.
+# (Rich cards are critical; text-only cards get 0 clicks).
+UTM_TRACKING = ""
 
 # ── Shopify & Caption Helpers ──────────────────────────────────────────────────
 def clean_html_text(raw_html: str) -> str:
@@ -186,39 +189,52 @@ def generate_flip_caption(art: dict) -> str:
     tags = [t.strip().lower() for t in (art.get("tags") or "").split(",") if t.strip()]
     text_corpus = f"{title} {excerpt} {' '.join(tags)}".lower()
 
-    # Product-type specific hashtag prioritization
+    # Product-type specific hashtag prioritization and conversational hooks
     if any(k in text_corpus for k in ["cardigan", "sweater", "knitwear", "knit", "pullover"]):
-        hashtags = ["#Cardigans", "#SweaterStyle", "#Knitwear", "#OutfitIdeas"]
+        hook = "Stay cozy and chic. "
+        hashtags = ["#SweaterWeather", "#Style"]
     elif any(k in text_corpus for k in ["blazer", "jacket", "coat", "outerwear", "shacket"]):
-        hashtags = ["#BlazerStyle", "#Jackets", "#Outerwear", "#ChicStyle"]
+        hook = "Layer up with these stunning pieces. "
+        hashtags = ["#Outerwear", "#Fashion"]
     elif any(k in text_corpus for k in ["dress", "maxi", "midi", "sundress"]):
-        hashtags = ["#Dresses", "#DressStyle", "#OOTD", "#SummerOutfits"]
+        hook = "Looking for the perfect dress? "
+        hashtags = ["#DressStyle", "#OOTD"]
     elif any(k in text_corpus for k in ["skirt"]):
-        hashtags = ["#Skirts", "#SkirtStyle", "#OOTD", "#OutfitInspo"]
+        hook = "A beautiful skirt changes everything. "
+        hashtags = ["#SkirtStyle", "#OOTD"]
     elif any(k in text_corpus for k in ["jean", "denim"]):
-        hashtags = ["#Jeans", "#DenimOutfits", "#CasualStyle", "#DenimStyle"]
+        hook = "Elevate your denim game. "
+        hashtags = ["#DenimStyle", "#Jeans"]
     elif any(k in text_corpus for k in ["pant", "trouser", "slack"]):
-        hashtags = ["#TailoredPants", "#Trousers", "#WorkwearStyle", "#Chic"]
+        hook = "Chic bottoms for every occasion. "
+        hashtags = ["#WomensFashion", "#Style"]
     elif any(k in text_corpus for k in ["plus", "curvy"]):
-        hashtags = ["#PlusSizeFashion", "#CurvyStyle", "#BodyPositive", "#StyleInspo"]
+        hook = "Flattering, confident, and beautiful styles. "
+        hashtags = ["#CurvyStyle", "#BodyPositive"]
     elif any(k in text_corpus for k in ["vegan", "eco", "sustainable", "plant-based"]):
-        hashtags = ["#SustainableFashion", "#EcoFriendly", "#ConsciousStyle", "#SlowFashion"]
+        hook = "Fashion that looks good and does good. "
+        hashtags = ["#SustainableFashion", "#EcoFriendly"]
     elif any(k in text_corpus for k in ["top", "blouse", "shirt", "tee"]):
-        hashtags = ["#WomensTops", "#BlouseStyle", "#EverydayStyle", "#OOTD"]
+        hook = "Refresh your wardrobe with these tops. "
+        hashtags = ["#WomensTops", "#OOTD"]
     elif any(k in text_corpus for k in ["bag", "handbag", "purse"]):
-        hashtags = ["#Handbags", "#Accessories", "#BoutiqueBags"]
+        hook = "The perfect accessory to complete your look. "
+        hashtags = ["#Handbags", "#Accessories"]
     elif any(k in text_corpus for k in ["shoe", "boot", "sandal", "sneaker", "footwear"]):
-        hashtags = ["#Footwear", "#ShoeStyle", "#ChicShoes"]
+        hook = "Step out in style. "
+        hashtags = ["#ShoeStyle", "#Footwear"]
     else:
-        hashtags = ["#Style", "#FashionTrends", "#WomenStyle", "#OutfitIdeas"]
+        hook = "Discover the latest in women's fashion. "
+        hashtags = ["#FashionTrends", "#Style"]
 
     unique_tags = list(dict.fromkeys(hashtags))
     hashtag_str = " ".join(unique_tags)
 
+    # Keep it short, conversational, and avoid spammy blocks of hashtags
     if excerpt:
-        return f"{excerpt} {hashtag_str}"
+        return f"{hook}{excerpt} {hashtag_str}"
     else:
-        return f"{title} {hashtag_str}"
+        return f"{hook}{title} {hashtag_str}"
 
 def determine_staggered_target(art: dict):
     """
@@ -284,7 +300,9 @@ def fetch_articles(days: int, limit: int) -> list:
             r = requests.get(f"{SHOP_BASE}/blogs/{blog_id}/articles.json", headers=SHOP_HEADERS, params=params)
             r.raise_for_status()
             for art in r.json().get("articles", []):
-                art["_full_url"] = f"{STORE_URL}/blogs/{blog_handle}/{art['handle']}?{UTM_TRACKING}"
+                # We use the clean URL without UTM params to ensure Flipboard scrapes the OG Image properly.
+                url_params = f"?{UTM_TRACKING}" if UTM_TRACKING else ""
+                art["_full_url"] = f"{STORE_URL}/blogs/{blog_handle}/{art['handle']}{url_params}"
                 art["_blog_id"] = blog_id
                 all_articles.append(art)
         except Exception as e:
@@ -370,7 +388,8 @@ def fetch_old_articles(limit: int = 2) -> list:
                         target_mag = mag
                         break
 
-                art["_full_url"] = f"{STORE_URL}/blogs/{b_handle}/{art['handle']}?{UTM_TRACKING}"
+                url_params = f"?{UTM_TRACKING}" if UTM_TRACKING else ""
+                art["_full_url"] = f"{STORE_URL}/blogs/{b_handle}/{art['handle']}{url_params}"
                 art["_blog_id"] = b_id
                 art["_stagger_stage"] = 3
                 art["_target_mag"] = target_mag
@@ -1005,11 +1024,11 @@ def flip_articles(articles: list, headless: bool, do_reflip: bool = True, reflip
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Automate flipping Shopify blogs to Flipboard.")
     ap.add_argument("--days", type=int, default=14, help="Sync articles published in the last X days.")
-    ap.add_argument("--limit", type=int, default=5, help="Max MeeeShop articles to flip per run.")
+    ap.add_argument("--limit", type=int, default=2, help="Max MeeeShop articles to flip per run.")
     ap.add_argument("--dry-run", action="store_true", help="Print plan, do not flip.")
     ap.add_argument("--headed", action="store_true", help="Show browser window.")
     ap.add_argument("--no-reflip", dest="reflip", action="store_false", help="Disable curating trending fashion articles.")
-    ap.add_argument("--reflip-limit", type=int, default=3, help="Max trending fashion articles to curate first.")
+    ap.add_argument("--reflip-limit", type=int, default=2, help="Max trending fashion articles to curate first.")
     ap.set_defaults(reflip=True)
     args = ap.parse_args()
 
