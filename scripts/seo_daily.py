@@ -2711,7 +2711,15 @@ def main():
     print("=== MeeeShop SEO Automation v2.0 ===\n")
 
     # ── Determine mode ────────────────────────────────────────────────────────
-    if args.force:
+    hours = 0
+    if args.handle:
+        mode = 'force'
+        args.force = True
+        since = None
+        hours = 0
+        print(f"[Handle Override] Specific handle '{args.handle}' requested — bypassing creation cutoff and recent skip locks.\n")
+        print(f"Mode: HANDLE FORCE (single item: '{args.handle}')\n")
+    elif args.force:
         mode = 'force'
         since = None
         print("Mode: FORCE (entire catalog, normalize all SEO fields)")
@@ -2721,16 +2729,19 @@ def main():
     elif args.weekly:
         mode = 'weekly'
         since = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        hours = 168
         print("Mode: WEEKLY (overwrite all SEO for items added/published in last 7 days)")
         print("Processing: Products, Pages, Collections, Blog Posts\n")
     elif args.hours:
         mode = 'custom'
         since = (datetime.now(timezone.utc) - timedelta(hours=args.hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        hours = args.hours
         print(f"Mode: CUSTOM ({args.hours}h lookback)")
         print("Processing: Products, Pages, Collections, Blog Posts\n")
     else:
         mode = 'daily'
         since = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        hours = 24
         print("Mode: DAILY (products, pages, collections created + articles published in last 24h)")
         print("Processing: Products, Pages, Collections, Blog Posts\n")
 
@@ -2738,7 +2749,7 @@ def main():
 
     # ── Load recently processed/updated GIDs to skip ──────────────────────────
     skip_ids = set()
-    if not args.force:
+    if not args.force and not args.handle:
         try:
             skip_ids = load_recently_updated_ids()
             if skip_ids:
@@ -2758,19 +2769,6 @@ def main():
         else:
             print("  ! Could not find live theme")
         print()
-
-    # Calculate lookback hours for GraphQL
-    hours = 0
-    if args.handle:
-        hours = 0
-        args.force = True
-        print(f"[Handle Override] Specific handle '{args.handle}' requested — bypassing creation cutoff and recent skip locks.\n")
-    elif args.hours:
-        hours = args.hours
-    elif mode == 'daily':
-        hours = 24
-    elif mode == 'weekly':
-        hours = 168
 
     products = []
     if args.resource in ('all', 'products'):
@@ -2835,7 +2833,7 @@ def main():
     # ── Process products ──────────────────────────────────────────────────────
     print("Processing products...")
     for i, p in enumerate(products, 1):
-        if p['id'] in skip_ids:
+        if not args.handle and p['id'] in skip_ids:
             print(f"  [{i}/{len(products)}] SKIP (recent) {p['title'][:55]}")
             continue
 
@@ -2846,19 +2844,19 @@ def main():
             needs_seo = any(m['field'].startswith('img_alt') for m in mismatches)
         else:
             needs_seo = bool(mismatches) or title_wrong
-        if not needs_seo and mode not in ('force', 'weekly'):
+        if not needs_seo and mode not in ('force', 'weekly') and not args.handle:
             print(f"  [{i}/{len(products)}] OK  {p['title'][:55]}")
             processed_ids.add(p['id'])
             continue
         print(f"  [{i}/{len(products)}] FIX {p['title'][:55]}")
-        process(p, stats, log, existing_mfs=mfs, force=(mode in ('force', 'weekly')), only_images=args.only_images, dry_run=args.dry_run)
+        process(p, stats, log, existing_mfs=mfs, force=(mode in ('force', 'weekly') or bool(args.handle)), only_images=args.only_images, dry_run=args.dry_run)
         processed_ids.add(p['id'])
 
     # ── Process pages ─────────────────────────────────────────────────────────
     if pages and not args.only_images:
         print("\nProcessing pages...")
         for i, page in enumerate(pages, 1):
-            if page['id'] in skip_ids:
+            if not args.handle and page['id'] in skip_ids:
                 print(f"  [{i}/{len(pages)}] SKIP (recent) {page['title'][:55]}")
                 continue
 
@@ -2937,7 +2935,7 @@ def main():
     if collections:
         print("\nProcessing collections...")
         for i, coll in enumerate(collections, 1):
-            if coll['id'] in skip_ids:
+            if not args.handle and coll['id'] in skip_ids:
                 print(f"  [{i}/{len(collections)}] SKIP (recent) {coll['title'][:55]}")
                 continue
 
@@ -3110,7 +3108,7 @@ def main():
     if articles:
         print("\nProcessing articles...")
         for i, article in enumerate(articles, 1):
-            if article['id'] in skip_ids:
+            if not args.handle and article['id'] in skip_ids:
                 print(f"  [{i}/{len(articles)}] SKIP (recent) {article['title'][:55]}")
                 continue
 
