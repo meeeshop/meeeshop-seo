@@ -125,7 +125,7 @@ def select_complementary_products(main_prod: dict, pool: list, needed_count: int
         return []
 
     is_top = any(x in main_type for x in ["top", "blouse", "shirt", "tee", "sweater", "knit"])
-    is_bottom = any(x in main_type for x in ["jean", "pant", "skirt", "short", "legging"])
+    is_bottom = any(x in main_type for x in ["jean", "pant", "skirt", "short", "legging", "skort"])
     is_dress = any(x in main_type for x in ["dress", "jumpsuit", "romper"])
 
     matching = []
