@@ -53,11 +53,21 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["dress", "maxi", "midi", "mini", "gown", "slip dress", "wrap dress", "sundress"],
         "collection_handles": ["womens-dresses", "womens-casual-dresses", "midi-dresses", "mini-dresses", "womens-maxi-dresses"],
         "topic_themes": [
-            "How to Style Casual Dresses for Everyday Chic",
-            "Best Dress Silhouettes for Petite and Tall Frames",
-            "Transitioning Summer Dresses into Fall Outfits",
-            "Flattering Midi and Maxi Dress Styling Formulas",
-            "Choosing the Right Dress Length and Neckline for Your Body Shape"
+            "What to Wear to a Fall Winery Wedding: Midi and Maxi Dress Guide",
+            "How to Style a Slip Dress with Sneakers for Daytime Casual Outfits",
+            "Best Dress Silhouettes for Petite Women: Hemline and Proportion Rules",
+            "Flattering Wrap Dress Styling Tips for Curvy and Hourglass Figures",
+            "Transitioning Summer Sundresses into Autumn with Boots and Cardigans",
+            "What Shoes to Wear with a Tiered Midi Dress in Late Summer",
+            "Effortless Shirt Dress Outfit Ideas for Work and Casual Weekends",
+            "How to Style a Bodycon Knit Dress Without Feeling Overdressed",
+            "Outdoor Garden Party Dress Ideas Under $75",
+            "How to Wear Ankle Boots with Maxi Dresses for Fall",
+            "Flattering Necklines for Broad Shoulders: Square Neck vs V-Neck Dresses",
+            "The 5 Most Versatile Dress Styles for Capsule Wardrobe Travel",
+            "Casual Sunday Brunch Dress Outfits with Denim Jackets and Flats",
+            "How to Style a Floral Midi Dress for an Evening Date Night",
+            "Long Sleeve vs Sleeveless Midi Dresses: How to Layer Year-Round"
         ]
     },
     "jeans-style-guide": {
@@ -67,11 +77,21 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["jean", "denim", "jort", "wide leg", "flare", "straight leg", "high waist"],
         "collection_handles": ["womens-jeans", "womens-new-denim", "wide-leg-jeans", "straight-leg-jeans", "judy-blue-womens-jeans", "risen-womens-jeans-collection"],
         "topic_themes": [
-            "How to Style Wide-Leg and Straight-Leg Jeans",
-            "Finding the Best Fitting Jeans for Your Body Proportions",
-            "Denim Hemline and Shoe Pairing Guide for Boots and Sneakers",
-            "High-Waisted vs Mid-Rise Jeans Styling Comparison",
-            "How to Elevate Dark Wash Denim for Evening and Casual Looks"
+            "Best High-Waisted Wide Leg Jeans for Petite Women: Hem and Shoe Guide",
+            "How to Style Straight Leg Jeans with Ankle Boots for Fall",
+            "Curvy Denim Fit Guide: Finding Stretch and Gap-Free Waistbands",
+            "What Shoes to Wear with Cropped Flare Jeans: Flats, Loafers, and Heels",
+            "Wide Leg vs Barrel Leg Jeans: Which Silhouette Flatters Your Body Shape?",
+            "How to Elevate Dark Wash Straight Jeans for Casual Office Friday",
+            "Denim-on-Denim Styling Guide: How to Pair Different Washes Effortlessly",
+            "Best Tummy Control High-Rise Jeans: What to Look for in Fabric Blend",
+            "How to Style Distressed Boyfriend Jeans with Feminine Tops",
+            "Finding the Perfect Inseam: Ankle Length vs Full Length Denim Guide",
+            "How to Style White Jeans in Fall and Winter Without Looking Washed Out",
+            "Casual Sunday Outfit Formulas Around Classic Medium Wash Jeans",
+            "What Tops to Pair with High-Waisted Wide Leg Denim for Balanced Proportions",
+            "How to Style Black Skinny Jeans for Modern Outfits That Feel Fresh",
+            "Denim Hemline Rules: Which Jeans to Wear with Loafers, Mules, and Sneakers"
         ]
     },
     "womens-shirts-tops-style-guide": {
@@ -81,11 +101,21 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["top", "blouse", "shirt", "tee", "t-shirt", "tank", "tunic", "cami", "button-down"],
         "collection_handles": ["womens-tops", "womens-t-shirts", "womens-camis-tanks-tops", "womens-knit-tops", "long-sleeve-tops", "v-neck-tops"],
         "topic_themes": [
-            "How to Style Classic Button-Down Shirts for Everyday Wear",
-            "Essential Tops Every Woman Needs in Her Capsule Wardrobe",
-            "Elevating a Basic T-Shirt into a Polished Outfit",
-            "How to Layer Tops Under Blazers and Lightweight Outerwear",
-            "Flattering Necklines and Sleeve Cuts for Different Body Silhouettes"
+            "How to Style an Oversized Button-Down Shirt for Relaxed Casual Outfits",
+            "The French Tuck vs Full Tuck Guide for High-Waisted Pants and Jeans",
+            "How to Layer Lightweight Knit Tops Under Blazers Without Adding Bulk",
+            "Flattering Blouse Necklines: Choosing Between V-Neck, Cowl, and Boatneck",
+            "Elevating a Basic White T-Shirt: 5 Outfit Formulas That Look Expensive",
+            "Best Work-to-Weekend Blouses for Effortless Day-to-Night Dressing",
+            "How to Style Linen and Gauze Shirts for Breathable Warm Weather Looks",
+            "Statement Sleeve Tops: How to Balance Proportions with Slim Bottoms",
+            "Silk and Satin Blouse Outfit Ideas for Date Nights and Evenings Out",
+            "How to Style Peplum and Babydoll Tops for Flattering Waist Definition",
+            "Capsule Wardrobe Tops: The 5 Essential Shirts Every Woman Needs",
+            "How to Wear Crop Tops with High-Rise Bottoms for Subtle, Polished Coverage",
+            "Plaid and Flannel Shirt Outfits That Look Tailored, Not Grungy",
+            "Camisole Layering Guide: Wearing Cami Tops Under Cardigans and Shackets",
+            "How to Style Tie-Front and Wrap Tops to Accentuate Natural Curves"
         ]
     },
     "womens-pants-style-guide": {
@@ -95,11 +125,21 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["pant", "trouser", "legging", "jogger", "slack", "linen pant", "wide leg pant"],
         "collection_handles": ["womens-pants-leggings", "womens-bottoms", "womens-loungewear"],
         "topic_themes": [
-            "How to Style Tailored Trousers for Everyday Casual Looks",
-            "Flattering Wide-Leg Pants Outfits for Balanced Proportions",
-            "Chic Linen and Lightweight Pants for Warm Weather",
-            "Finding Comfortable Pants That Look Structured and Tailored",
-            "How to Style High-Waisted Pants for an Elongated Silhouette"
+            "How to Style Tailored Trousers with Sneakers for Chic Casual Days",
+            "Best Wide-Leg Trousers for Petite Women: Proportions and Hemlines",
+            "Pleated vs Flat-Front Pants: Which Cut is Most Flattering for Your Shape?",
+            "How to Style Linen Wide Leg Pants for Beach Vacations and Warm Days",
+            "Comfortable Elastic Waistband Pants That Still Look Structured and Chic",
+            "Cropped Ankle Pants Footwear Guide: What to Wear with Flats and Heels",
+            "High-Waisted Paperbag Pants Outfit Formulas for Casual and Work Looks",
+            "How to Style Faux Leather Pants for Daytime Wear Without Overdoing It",
+            "Casual Friday Trouser Outfits: Pairing Slacks with Knitwear and Loafers",
+            "How to Style Cargo Pants for a Modern, Polished Street-Style Look",
+            "Best Pants for Long Commutes: Wrinkle-Resistant Fabrics and Fits",
+            "Monochromatic Trouser Outfits: Styling Tonal Bottoms and Tops",
+            "How to Wear Flare Pants with Boots and Platform Sneakers",
+            "Straight Leg Chino Styling Formulas for Weekend Errands and Brunch",
+            "Finding Trousers That Don't Gap at the Waist: Rise and Fabric Tips"
         ]
     },
     "womens-skirts-style-guide": {
@@ -109,11 +149,21 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["skirt", "skort", "midi skirt", "mini skirt", "maxi skirt", "denim skirt"],
         "collection_handles": ["womens-skirts", "womens-bottoms"],
         "topic_themes": [
-            "How to Style Midi Skirts for Versatile Year-Round Outfits",
-            "Building a Capsule Wardrobe Around Essential Skirt Silhouettes",
-            "Styling Denim and Knit Skirts for Daytime Looks",
-            "Flattering Skirt Lengths and Footwear Pairing Formulas",
-            "How to Wear Pleated and A-Line Skirts with Ease"
+            "How to Style a Midi Slip Skirt with an Oversized Sweater and Boots",
+            "Denim Midi Skirts with Front Slits: What Tops and Shoes Pair Best",
+            "A-Line vs Pencil Skirts: Silhouette Guide for Every Body Proportion",
+            "How to Wear Pleated Midi Skirts for Everyday Casual Outfits",
+            "Tiered Maxi Skirt Outfit Ideas for Breezy Bohemian and Casual Looks",
+            "How to Style Mini Skirts in Fall with Tights, Boots, and Knitwear",
+            "Wrap Skirt Styling: How to Keep the Hem Flattering and Secure All Day",
+            "What Shoes to Pair with Midi Skirts: Flats, Pointed Mules, and Sneakers",
+            "How to Style a Knit Ribbed Skirt for Cozy, Polished Monochrome Looks",
+            "Cargo and Utility Skirt Outfits: Feminine Pairings with Simple Tops",
+            "Best Skirt Lengths for Petite Women to Elongate Leg Lines",
+            "How to Transition Linen and Floral Skirts from Summer into Autumn",
+            "Office-Appropriate Skirt Outfits That Don't Feel Stiff or Outdated",
+            "High-Waisted Skirt Outfit Formulas That Create an Hourglass Waistline",
+            "Styling Leather and Suede Skirts for Fall Date Nights and Dinners"
         ]
     },
     "cardigans-sweaters-style-guide": {
@@ -123,11 +173,21 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["sweater", "cardigan", "knit", "pullover", "knitwear", "turtleneck", "crewneck"],
         "collection_handles": ["womens-sweaters", "womens-sweatshirts-hoodies", "womens-knit-tops", "womens-tops"],
         "topic_themes": [
-            "How to Style Cardigans for Modern Tailored Outfits",
-            "Flattering Sweater Cuts, Textures, and Necklines",
-            "Layering Chunky and Lightweight Knitwear Seamlessly",
-            "Cozy and Polished Sweater Outfit Ideas",
-            "How to Prevent Sweater Pilling and Maintain Knitwear"
+            "How to Style a Buttoned-Up Cardigan as a Standalone Top",
+            "Oversized Chunky Knit Sweaters: How to Half-Tuck into High-Waisted Jeans",
+            "Best Lightweight Cardigans for Layering Over Sleeveless Dresses",
+            "Cropped Cardigan Outfit Formulas with Wide-Leg Trousers and Skirts",
+            "How to Prevent Sweater Pilling: Fabric Care, Washing, and Shaving Tips",
+            "Crewneck vs V-Neck Knitwear: Which Neckline Complements Your Frame?",
+            "How to Layer a Turtleneck Under Blazers, Dresses, and Button-Downs",
+            "Open-Front Duster Cardigan Outfits for Relaxed Everyday Layering",
+            "Knit Vest Styling Guide: How to Wear Sweater Vests Over Crisp Shirts",
+            "Cashmere and Merino Wool Care: Hand Washing vs Dry Cleaning Guide",
+            "Monochrome Sweater and Pant Outfits That Look Effortlessly Expensive",
+            "How to Style Cable-Knit Sweaters Without Adding Unwanted Bulk",
+            "Striped Breton Knit Sweaters: French-Inspired Everyday Outfit Ideas",
+            "Transitioning Knitwear from Chilly Mornings to Warm Afternoons",
+            "How to Wear Long Knit Cardigans with Ankle Boots for Coffee Runs"
         ]
     },
     "coats-jackets-style-guide": {
@@ -137,11 +197,21 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["jacket", "coat", "blazer", "outerwear", "shacket", "vest", "denim jacket", "trench"],
         "collection_handles": ["womens-outerwear", "womens-blazers-vests-jackets", "womens-coats-jackets"],
         "topic_themes": [
-            "How to Style an Oversized Blazer for Modern Outfits",
-            "Essential Transitional Jackets for Everyday Layering",
-            "Denim Jacket Styling Formulas Across Seasons",
-            "Choosing Outerwear Lengths That Complement Your Proportions",
-            "Styling Tailored Coats for Polished Day-to-Night Looks"
+            "How to Style an Oversized Blazer with Jeans and Sneakers for Casual Chic",
+            "The Classic Trench Coat Styling Guide: Belted vs Open and Layered",
+            "Denim Jacket Outfits Across Seasons: Pairing with Dresses and Bottoms",
+            "Best Transitional Jackets for 50-60 Degree Weather: Shackets and Bombers",
+            "How to Style a Cropped Moto Jacket with High-Waisted Pants and Skirts",
+            "Choosing the Right Coat Length for Your Height: Knee-Length vs Maxi",
+            "How to Layer Sweaters Under Tailored Wool Coats Without Feeling Stiff",
+            "Utility and Quilted Jacket Outfit Ideas for Weekend Walks and Travel",
+            "Double-Breasted vs Single-Breasted Blazers: Which Cut Suits Your Frame?",
+            "How to Style Leather Blazers for Evening Dinners and Night Outs",
+            "Puffer Jacket Styling Formulas That Look Sleek, Not Overstuffed",
+            "Shacket Styling 101: Wearing Plaid and Wool Shirt Jackets Over Basics",
+            "Water-Resistant Outerwear That Still Looks Fashionable for Rainy Days",
+            "Outerwear Color Guide: Camel vs Charcoal vs Black Versatility Comparison",
+            "How to Elevate Casual Athleisure with a Structured Long Coat"
         ]
     },
     "plus-size-curvy-clothing": {
@@ -151,11 +221,21 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["curvy", "plus size", "plus", "1x", "2x", "3x", "stretch"],
         "collection_handles": ["womens-curvy-plus-size-clothing", "womens-dresses", "womens-jeans", "womens-tops"],
         "topic_themes": [
-            "Flattering Dress and Denim Silhouettes for Curvy Frames",
-            "Finding the Perfect Stretch and Fit in Curvy Denim",
-            "Styling Strategies That Celebrate Natural Proportions",
-            "Building an Empowering Plus-Size Capsule Wardrobe",
-            "Layering and Proportion Tips for Curvy Outfits"
+            "Best Flattering Plus-Size Dress Silhouettes: Empire Waist vs Wrap Dresses",
+            "Curvy Denim Fit Solutions: High-Rise Stretch Jeans That Never Gap",
+            "How to Style Wide-Leg Trousers for Curvy and Plus-Size Proportions",
+            "Plus-Size Date Night Outfits: Flattering Midi Dresses and Elevated Tops",
+            "Layering Tips for Curvy Figures: Creating Defined Waistlines with Jackets",
+            "Best Plus-Size Jeans for Apple and Hourglass Shapes: Rise and Pockets",
+            "How to Style Oversized Sweaters and Tops Without Losing Body Shape",
+            "Plus-Size Fall Wedding Guest Dresses: Flattering Sleeves and Fabrics",
+            "Comfortable Plus-Size Loungewear That Looks Polished for Running Errands",
+            "Plus-Size Capsule Wardrobe Essentials: 8 Mix-and-Match Boutique Pieces",
+            "How to Choose Tops That Flatter a Fuller Bust Without Pulling or Gapping",
+            "Skirt Outfits for Curvy Women: Styling Midi and A-Line Silhouettes",
+            "Confidence-Boosting Monochrome Outfits for Curvy and Plus-Size Women",
+            "How to Style High-Waisted Shorts and Skorts for Curvy Thighs and Hips",
+            "Best Breathable Stretch Fabrics for Plus-Size All-Day Comfort"
         ]
     },
     "womens-clothing": {
@@ -165,11 +245,21 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["dress", "top", "jean", "pant", "jacket", "skirt", "jumpsuit", "romper"],
         "collection_handles": ["womens-best-selling-collection", "womens-new-collection", "womens-dresses", "womens-tops"],
         "topic_themes": [
-            "Building a Versatile Boutique Capsule Wardrobe",
-            "3-Piece Outfit Formulas That Always Look Polished",
-            "Everyday Fashion Essentials for Modern Wardrobes",
-            "Curating Color Palettes and Texture Mixing for Outfits",
-            "Effortless Day-to-Evening Outfit Transitions"
+            "The 10-Piece Boutique Capsule Wardrobe That Creates 30+ Outfits",
+            "The 3-Piece Outfit Rule: How Adding a Third Layer Elevates Any Look",
+            "How to Build a Cohesive Color Palette for Your Everyday Wardrobe",
+            "Day-to-Night Outfit Formulas: Transforming Workwear for Evening Dinner",
+            "Boutique Shopping Guide: How to Spot Quality Fabric and Finishing",
+            "Texture Mixing 101: Pairing Knit, Denim, Silk, and Leather Seamlessly",
+            "Effortless 5-Minute Outfits for Busy Mornings: Ready-to-Wear Formulas",
+            "Smart Casual Dress Code Explained: What to Wear for Modern Occasions",
+            "How to Refresh Your Style Rut: 5 Easy Tweaks to Elevate Daily Outfits",
+            "Seasonal Wardrobe Transition Checklist: What to Pack Away and What to Keep",
+            "Packing Light for a Week-Long Vacation: Mix-and-Match Outfit Guide",
+            "How to Dress for Your Proportions: Balancing Torso and Leg Lengths",
+            "High-Low Fashion Styling: Pairing Affordable Basics with Statement Pieces",
+            "Quiet Luxury Aesthetic on an Everyday Budget: Fabrics, Colors, and Cuts",
+            "How to Style Jumpsuits and Rompers for Daytime and Evening Events"
         ]
     },
     "everything-anything-about-vegan": {
@@ -179,11 +269,16 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["linen", "cotton", "bamboo", "cruelty-free", "sustainable", "plant-based"],
         "collection_handles": ["womens-tops", "womens-dresses", "womens-new-collection"],
         "topic_themes": [
-            "How to Build an Ethical and Sustainable Wardrobe",
-            "Styling Breathable Natural Fabrics (Linen and Organic Cotton)",
-            "Cruelty-Free Boutique Fashion Staples for Conscious Dressing",
-            "Caring for Plant-Based Textiles for Long-Lasting Wear",
-            "Minimalist Sustainable Outfit Ideas for Everyday Living"
+            "How to Build an Ethical and Cruelty-Free Boutique Capsule Wardrobe",
+            "Linen vs Organic Cotton: Breathability, Texture, and Durability Guide",
+            "Bamboo and Modal Fabrics: Why They Are So Soft and How to Care for Them",
+            "Faux Leather Care: How to Clean, Store, and Prevent Peeling and Cracking",
+            "Plant-Based Wardrobe Essentials for Mindful, Sustainable Everyday Dressing",
+            "How to Care for Natural Fiber Clothing to Double Its Garment Lifespan",
+            "Tencel and Lyocell Styling: Breathable Eco-Friendly Fabrics for Travel",
+            "Plastic-Free and Low-Impact Fashion: Choosing Sustainable Boutique Pieces",
+            "How to Build a Minimalist 15-Piece Eco-Conscious Wardrobe",
+            "Cruelty-Free Fashion Alternatives to Silk, Wool, and Down: What to Wear"
         ]
     },
     "our-tips": {
@@ -193,11 +288,16 @@ CATEGORY_REGISTRY = {
         "product_keywords": ["top", "dress", "jean", "pant", "sweater"],
         "collection_handles": ["womens-tops", "womens-dresses", "womens-sweaters", "womens-new-collection"],
         "topic_themes": [
-            "How to Identify High-Quality Fabric and Stitching",
-            "Predicting Garment Shrinkage and Fabric Behavior Before Washing",
-            "Closet Organization Strategies to Streamline Your Morning Routine",
-            "Fabric Care Guide: Preventing Fading, Stretching, and Pilling",
-            "Practical Garment Care Habits for Boutique Clothing"
+            "How to Read Clothing Care Labels: Preventing Shrinkage, Fading, and Bleeding",
+            "The Ultimate Fabric Care Guide: How to Wash Linen, Rayon, and Knits",
+            "How to Prevent Sweater and Knitwear Pilling: Shaving and Washing Rules",
+            "Clothing Sizing Guide: How to Take Accurate Body Measurements at Home",
+            "How to Organize Your Closet by Category and Color for Fast Mornings",
+            "Preventing Denim Color Bleed: How to Wash Dark and Indigo Jeans Safely",
+            "How to Steam vs Iron Different Fabrics: Delicate Rayon, Cotton, and Silk",
+            "How to Fix a Stiff Zipper, Loose Button, or Snagged Thread in Seconds",
+            "Spot Cleaning Guide: Removing Coffee, Makeup, and Oil Stains Safely",
+            "How to Store Seasonal Clothes: Protecting Fabrics from Moisture and Dust"
         ]
     }
 }
@@ -522,6 +622,91 @@ def get_all_existing_titles(session, store_url, blogs):
             pass
     return list(set(titles))
 
+# ── Programmatic Long-Tail Query Generation Engine ────────────────────────────
+OCCASIONS_LONG_TAIL = [
+    "Fall Winery Wedding", "Outdoor Garden Party", "Sunday Brunch with Friends",
+    "Casual Office Friday", "Dinner Date Night", "Summer Vacation Travel",
+    "Holiday Family Gathering", "Weekend Farmers Market", "Boutique Wine Tasting",
+    "Girls Weekend Getaway", "Breezy Coastal Trip", "Coffee Run and Errands",
+    "Evening Cocktail Gathering", "Outdoor Concert and Festival", "Thanksgiving Dinner",
+    "Spring Baby Shower", "Casual Business Lunch", "Effortless Airport Travel"
+]
+
+BODY_TYPES_LONG_TAIL = [
+    "Petite Women", "Curvy Figures", "Hourglass and Pear Shapes",
+    "Tall Frames", "Apple Shapes with Tummy Area", "Athletic Builds",
+    "Short Torso and Long Legs", "Fuller Bust Silhouettes"
+]
+
+SILHOUETTES_BY_CATEGORY = {
+    "dresses": ["Tiered Midi Dresses", "Floral Maxi Dresses", "Satin Slip Dresses", "Belted Shirt Dresses", "Wrap Dresses", "A-Line Sundresses", "Knit Ribbed Midi Dresses"],
+    "jeans": ["High-Waisted Wide-Leg Jeans", "Cropped Straight-Leg Denim", "Flare Leg Jeans", "Boyfriend Jeans", "Dark Wash Straight Denim", "Tummy Control High-Rise Jeans"],
+    "women-s-shirts-tops": ["Oversized Button-Down Shirts", "Classic White Cotton Tees", "Lightweight Layering Tops", "Silk Wrap Blouses", "Breezy Gauze Shirts", "Peplum Waist Tops"],
+    "women-s-pants": ["Tailored Wide-Leg Trousers", "Linen Drawstring Pants", "High-Rise Paperbag Pants", "Cropped Ankle Pants", "Straight-Leg Chinos", "Pleated Front Slacks"],
+    "women-s-skirts": ["Midi Slip Skirts", "Denim Midi Skirts with Slits", "Pleated A-Line Skirts", "Tiered Boho Maxi Skirts", "Button-Front Mini Skirts", "Knit Ribbed Skirts"],
+    "cardigans-sweaters": ["Buttoned Standalone Cardigans", "Oversized Chunky Knit Sweaters", "Cropped Knit Cardigans", "Open-Front Duster Cardigans", "Ribbed Turtleneck Sweaters"],
+    "coats-jackets": ["Oversized Tailored Blazers", "Classic Belted Trench Coats", "Cropped Denim Jackets", "Wool Shackets", "Lightweight Quilted Jackets", "Faux Leather Moto Jackets"],
+    "plus-size": ["High-Rise Stretch Denim", "Flattering Wrap Midi Dresses", "Wide-Leg Tailored Trousers", "Belted Empire Waist Tops", "A-Line Midi Skirts"],
+    "women-s-clothing": ["Boutique Capsule Wardrobes", "3-Piece Layered Outfits", "Versatile Day-to-Night Outfits", "Monochrome Neutral Ensembles", "Casual Weekend Outfits"],
+    "veganism": ["Breathable Linen Outfits", "Organic Cotton Basics", "Bamboo Soft Knitwear", "Cruelty-Free Faux Leather", "Sustainable Plant-Based Pieces"],
+    "our-tips": ["Delicate Fabric Care", "Accurate Body Measurements", "Closet Organization Routines", "Fabric Shrinkage Prevention", "Knitwear De-Pilling Routines"]
+}
+
+def generate_programmatic_long_tail_topic(cat_key, category_name, existing_lower):
+    """
+    Deterministically generates high-intent, long-tail search queries
+    answering real human shopping problems (occasions, body fit, footwear, layering).
+    Guaranteed zero repetition and strong commercial intent.
+    """
+    if cat_key == "our-tips":
+        care_topics = [
+            "How to Wash and Care for Delicate Boutique Fabrics to Prevent Damage",
+            "The Complete Guide to Measuring Your Body Correctly for Boutique Sizing",
+            "How to Organize Your Closet to Make Getting Dressed Effortless Every Morning",
+            "Preventing Knitwear and Sweater Pilling: Step-by-Step Garment Care",
+            "How to Remove Stains from Delicate Fabrics Without Damaging the Weave",
+            "Steam vs Iron: The Safe Way to Refresh Silk, Rayon, and Linen",
+            "How to Store Seasonal Clothes to Protect Fibers from Humidity and Dust",
+            "Preventing Dark Denim Color Bleed: Laundry Rules That Actually Work",
+            "How to Repair Stiff Zippers and Loose Hemlines in Minutes at Home",
+            "The Best Fabric Care Practices for Sustainable, Long-Lasting Clothing"
+        ]
+        available_care = [t for t in care_topics if t.lower().strip() not in existing_lower]
+        if available_care:
+            return random.choice(available_care)
+        return "Expert Boutique Garment Care & Fabric Maintenance Guide"
+
+    silhouettes = SILHOUETTES_BY_CATEGORY.get(cat_key, [f"{category_name} Staples", f"Tailored {category_name}"])
+    current_season = "Fall" if datetime.now().month in [9, 10, 11] else "Winter" if datetime.now().month in [12, 1, 2] else "Spring" if datetime.now().month in [3, 4, 5] else "Summer"
+
+    def article_for(word):
+        return "an" if word[0].lower() in "aeiou" else "a"
+
+    templates = [
+        lambda s, o, b: f"What to Wear to {article_for(o)} {o}: {s} Styling Guide",
+        lambda s, o, b: f"Best {s} for {b}: Flattering Fit & Proportion Rules",
+        lambda s, o, b: f"How to Style {s} for {article_for(o)} {o} with Effortless Polish",
+        lambda s, o, b: f"What Shoes and Boots to Pair with {s} This {current_season}",
+        lambda s, o, b: f"How to Style {s} for {b}: Easy Everyday Formulas",
+        lambda s, o, b: f"{o} Outfits: How to Style {s} with Modern Polish",
+        lambda s, o, b: f"How to Layer {s} Across {current_season} Without Adding Bulk",
+        lambda s, o, b: f"Finding the Perfect {s} for {b}: Comfort and Silhouette Tips",
+        lambda s, o, b: f"The {b} Guide to Styling {s} for Everyday Confidence",
+        lambda s, o, b: f"How to Transition {s} from Day to Evening for {article_for(o)} {o}"
+    ]
+
+    random.shuffle(templates)
+    for tmpl in templates:
+        for _ in range(25):
+            s = random.choice(silhouettes)
+            o = random.choice(OCCASIONS_LONG_TAIL)
+            b = random.choice(BODY_TYPES_LONG_TAIL)
+            candidate = tmpl(s, o, b)
+            if candidate.lower().strip() not in existing_lower:
+                return candidate
+
+    return f"How to Style {category_name} for Modern Proportions & Everyday Outfits"
+
 # ── Unified Single-Call AI Content Generation Engine ──────────────────────────
 def generate_blog_content(api_key, category_meta, collections, existing_titles):
     """
@@ -532,6 +717,7 @@ def generate_blog_content(api_key, category_meta, collections, existing_titles):
     from ai_client import generate as ai_generate
 
     category_name = category_meta["name"]
+    template_suffix = category_meta.get("template_suffix", "")
     topic_themes = category_meta.get("topic_themes", [f"How to Style {category_name} for Everyday Elegance"])
 
     # Step 1: Select a fresh trending topic theme avoiding existing titles
@@ -541,13 +727,11 @@ def generate_blog_content(api_key, category_meta, collections, existing_titles):
     if available_themes:
         topic = random.choice(available_themes)
     else:
-        # Generate clean topic variant deterministically
-        qualifiers = ["Everyday Chic", "Effortless Outfits", "Modern Proportions", "Versatile Styling", "Capsule Wardrobes"]
-        chosen_qualifier = random.choice(qualifiers)
-        topic = f"How to Style {category_name} for {chosen_qualifier}"
+        # Generate fresh high-intent long-tail search query deterministically
+        topic = generate_programmatic_long_tail_topic(template_suffix, category_name, existing_lower)
     
     topic = sanitize_editorial_title(topic)
-    print(f"[*] Trending Topic Selected for {category_name}: '{topic}'")
+    print(f"[*] High-Intent Long-Tail Topic Selected for {category_name}: '{topic}'")
 
     # Step 2: Store collections context for natural internal linking (max 2-3)
     context = ""
@@ -609,9 +793,17 @@ GOOGLE DISCOVER & EDITORIAL REQUIREMENTS:
         html_content = html_content[:html_content.find("<h1>")] + html_content[h1_end + 5:]
         html_content = html_content.strip()
 
-    # Generate 50-60 char SEO Title and 140-155 char Meta Description
-    seo_title = f"{article_title} | MeeeShop {datetime.now().year}"[:60]
-    meta_desc = f"Discover expert styling tips and fit advice for {category_name} at MeeeShop. Explore our curated boutique guide with fast US shipping & easy returns!"[:155]
+    # Generate high-CTR 50-60 char SEO Title and 140-155 char Meta Description matching search intent
+    if len(article_title) <= 45:
+        seo_title = f"{article_title} | MeeeShop Guide"
+    else:
+        seo_title = article_title[:60]
+
+    clean_kw = re.sub(r'^(what to wear to a|how to style a|how to style|best|the)\s+', '', article_title.lower(), flags=re.IGNORECASE).strip()
+    meta_desc = (
+        f"Looking for {clean_kw}? Explore expert fit formulas, silhouette advice, "
+        f"and boutique styles with fast US shipping and easy returns at MeeeShop!"
+    )[:155]
 
     return article_title, seo_title, meta_desc, html_content
 

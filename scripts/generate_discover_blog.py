@@ -41,196 +41,15 @@ except Exception:
 
 MIN_COLLECTION_PRODUCTS = 20
 
-# ── Category & Template Registry (11 Active Channels, Announcements strictly excluded) ──
-CATEGORY_REGISTRY = {
-    "dresses-style-guide": {
-        "name": "Dresses",
-        "aliases": ["dresses", "dress", "womens-dresses"],
-        "template_suffix": "dresses",
-        "product_keywords": ["dress", "maxi", "midi", "mini", "gown", "slip dress", "wrap dress", "sundress", "linen dress"],
-        "collection_handles": ["womens-dresses", "womens-casual-dresses", "midi-dresses", "mini-dresses", "womens-maxi-dresses"],
-        "seasonal_hooks": [
-            "Transitional Layering Formulas for Late Summer to Fall",
-            "Midi Dress and Boot Pairings We're Seeing Everywhere",
-            "Flattering Proportions: Styling Slip Dresses for Day and Night",
-            "How to Style Casual Maxi Dresses Without Looking Overdressed",
-            "The 3 Dress Silhouettes That Flatter Every Body Proportion",
-            "Effortless Shirt Dress Outfits for Work and Weekend",
-            "Tiered Midi Dresses: How to Style Volume Without Overwhelming Your Frame",
-            "Wrap Dresses: Proportions, Necklines, and Footwear Pairings"
-        ]
-    },
-    "jeans-style-guide": {
-        "name": "Jeans",
-        "aliases": ["jeans", "denim", "womens-jeans"],
-        "template_suffix": "jeans",
-        "product_keywords": ["jean", "denim", "jort", "wide leg", "flare", "straight leg", "high waist", "ankle crop"],
-        "collection_handles": ["womens-jeans", "womens-new-denim", "wide-leg-jeans", "straight-leg-jeans", "judy-blue-womens-jeans", "risen-womens-jeans-collection"],
-        "seasonal_hooks": [
-            "Wide-Leg vs Straight-Leg Denim: Which Cut flatters Your Frame?",
-            "How to Style Barrel and Wide-Leg Jeans with Everyday Footwear",
-            "The Shoe and Denim Hemline Pairing Guide for Fall",
-            "How to Elevate Dark Wash Denim for an Effortless Polished Look",
-            "Finding the Perfect High-Rise Stretch Denim for All-Day Comfort",
-            "Cropped Denim and Ankle Boots: Hemline Rules That Work",
-            "Denim-on-Denim Outfits: Balancing Washes and Proportions",
-            "Straight-Leg Jeans Outfit Formulas for Every Body Shape"
-        ]
-    },
-    "womens-shirts-tops-style-guide": {
-        "name": "Women's Shirts & Tops",
-        "aliases": ["shirts", "tops", "shirts-tops", "womens-shirts-tops", "blouses"],
-        "template_suffix": "women-s-shirts-tops",
-        "product_keywords": ["top", "blouse", "shirt", "tee", "t-shirt", "tank", "tunic", "cami", "button-down", "linen shirt"],
-        "collection_handles": ["womens-tops", "womens-t-shirts", "womens-camis-tanks-tops", "womens-knit-tops", "long-sleeve-tops", "v-neck-tops"],
-        "seasonal_hooks": [
-            "How to Style an Oversized Button-Down for Relaxed Elegance",
-            "Essential Layering Tops for Your Capsule Wardrobe",
-            "Elevating a Basic White Tee into a Statement Outfit",
-            "How to Layer Lightweight Knit Tops Under Blazers and Jackets",
-            "Flattering Sleeve Cuts and Necklines for Balanced Silhouettes",
-            "Silk Blouse Outfit Ideas for Seamless Day-to-Night Transitions",
-            "Linen and Cotton Shirts: Breathable Styling for Warm Transitions",
-            "French Tuck vs Full Tuck: How to Style Tops with High-Waisted Bottoms"
-        ]
-    },
-    "womens-pants-style-guide": {
-        "name": "Women's Pants",
-        "aliases": ["pants", "trousers", "womens-pants", "bottoms"],
-        "template_suffix": "women-s-pants",
-        "product_keywords": ["pant", "trouser", "legging", "jogger", "slack", "linen pant", "wide leg pant", "cargo"],
-        "collection_handles": ["womens-pants-leggings", "womens-bottoms", "womens-loungewear"],
-        "seasonal_hooks": [
-            "How to Style Tailored Trousers with Sneakers for a Weekend Look",
-            "Wide-Leg Pants Styling Formulas for Balanced Body Proportions",
-            "Transitioning Lightweight Linen and Cotton Pants into Autumn",
-            "How to Choose Comfortable Structured Pants for All-Day Wear",
-            "High-Waisted Trousers: How to Elongate Your Legs Effortlessly",
-            "Pleated Trousers vs Flat-Front Pants: Fit and Silhouette Rules",
-            "Cropped Ankle Pants: Footwear Pairings from Flats to Loafers",
-            "Elevated Loungewear and Joggers: How to Style Casual Bottoms"
-        ]
-    },
-    "womens-skirts-style-guide": {
-        "name": "Women's Skirts",
-        "aliases": ["skirts", "skirt", "womens-skirts"],
-        "template_suffix": "women-s-skirts",
-        "product_keywords": ["skirt", "skort", "midi skirt", "mini skirt", "maxi skirt", "denim skirt", "pleated skirt"],
-        "collection_handles": ["womens-skirts", "womens-bottoms"],
-        "seasonal_hooks": [
-            "How to Style Midi Skirts Across Changing Seasons",
-            "Denim and Knit Skirt Formulas for Modern Everyday Looks",
-            "Footwear Pairings for Pleated, A-Line, and Column Skirts",
-            "Building a Versatile Wardrobe Around Essential Skirt Cuts",
-            "How to Style a Silk or Satin Skirt for Casual Daytime Outfits",
-            "Maxi Skirts and Sweaters: Balancing Lengths and Texture",
-            "A-Line Skirts: Flattering Proportions for Every Silhouette",
-            "Pencil and Column Skirts: Casual Styling Beyond the Office"
-        ]
-    },
-    "cardigans-sweaters-style-guide": {
-        "name": "Cardigans & Sweaters",
-        "aliases": ["cardigans", "sweaters", "cardigans-sweaters", "knitwear", "knits"],
-        "template_suffix": "cardigans-sweaters",
-        "product_keywords": ["sweater", "cardigan", "knit", "pullover", "knitwear", "turtleneck", "crewneck", "chunky knit"],
-        "collection_handles": ["womens-sweaters", "womens-sweatshirts-hoodies", "womens-knit-tops", "womens-tops"],
-        "seasonal_hooks": [
-            "How to Style Cropped and Relaxed Cardigans with High-Rise Bottoms",
-            "Chunky Knit vs Fine-Gauge Sweaters: Layering Proportions",
-            "How to Prevent Sweater Pilling and Maintain Knitwear Softness",
-            "Effortless French-Tuck Styling Formulas for Oversized Sweaters",
-            "Cozy Color Palettes and Textures for Autumn Knitwear",
-            "Turtlenecks and Mock Necks: Layering Under Blazers and Dresses",
-            "Open-Front Long Cardigans: How to Create Clean Vertical Lines",
-            "Cotton-Blend Knits: Lightweight Sweater Styling for Changing Weather"
-        ]
-    },
-    "coats-jackets-style-guide": {
-        "name": "Coats & Jackets",
-        "aliases": ["coats", "jackets", "coats-jackets", "outerwear", "blazers"],
-        "template_suffix": "coats-jackets",
-        "product_keywords": ["jacket", "coat", "blazer", "outerwear", "shacket", "vest", "denim jacket", "trench", "utility jacket"],
-        "collection_handles": ["womens-outerwear", "womens-blazers-vests-jackets", "womens-coats-jackets"],
-        "seasonal_hooks": [
-            "How to Style an Oversized Blazer Without Overwhelming Your Frame",
-            "Transitional Jacket Formulas for Cool Mornings and Warm Afternoons",
-            "The Classic Denim Jacket: Modern Styling Rules for This Year",
-            "Choosing the Right Outerwear Length for Dresses vs Pants",
-            "Shackets and Utility Jackets: Casual Layering Masterclass",
-            "Trench Coats: Styling Classic Outerwear with Modern Casual Staples",
-            "Cropped Jackets vs Long Duster Coats: Silhouette Comparison",
-            "Quilted and Puffer Vests: Lightweight Outerwear Layering Formulas"
-        ]
-    },
-    "plus-size-curvy-clothing": {
-        "name": "Plus Size | Curvy Clothing",
-        "aliases": ["plus-size", "curvy", "plus-size-curvy", "curvy-clothing"],
-        "template_suffix": "plus-size",
-        "product_keywords": ["curvy", "plus size", "plus", "1x", "2x", "3x", "stretch", "flattering"],
-        "collection_handles": ["womens-curvy-plus-size-clothing", "womens-dresses", "womens-jeans", "womens-tops"],
-        "seasonal_hooks": [
-            "Flattering Denim and Dress Silhouettes That Celebrate Curvy Frames",
-            "How to Find the Perfect Balance in Stretch Denim and High Rises",
-            "Layering and Proportion Secrets for Curvy Silhouette Styling",
-            "Building an Empowering and Versatile Plus-Size Capsule Wardrobe",
-            "3-Piece Outfit Formulas for Curvy Proportions That Never Fail",
-            "Wrap Tops and A-Line Dresses: Defining Proportions Effortlessly",
-            "Wide-Leg Trousers for Curvy Shapes: Balanced Silhouette Guide",
-            "Confidence-Boosting Wardrobe Essentials for Everyday Elegance"
-        ]
-    },
-    "womens-clothing": {
-        "name": "Women's Clothing",
-        "aliases": ["womens-clothing", "clothing", "apparel", "general"],
-        "template_suffix": "women-s-clothing",
-        "product_keywords": ["dress", "top", "jean", "pant", "jacket", "skirt", "jumpsuit", "romper"],
-        "collection_handles": ["womens-best-selling-collection", "womens-new-collection", "womens-dresses", "womens-tops"],
-        "seasonal_hooks": [
-            "The 3-Piece Outfit Rule: How to Always Look Put Together",
-            "Curating an Intentional Boutique Capsule Wardrobe This Season",
-            "Mixing Textures and Neutral Palettes for High-End Casual Looks",
-            "Effortless Day-to-Evening Transitions with Minimal Changes",
-            "Modern Proportions: How to Balance Fitted and Relaxed Garments",
-            "Color Harmony in Fashion: Building Cohesive Everyday Outfits",
-            "Investment Pieces vs Trend Accents: Where to Spend Your Wardrobe Budget",
-            "Monochrome Dressing: Creating Polished Tonal Outfits"
-        ]
-    },
-    "everything-anything-about-vegan": {
-        "name": "Veganism",
-        "aliases": ["vegan", "veganism", "sustainable", "cruelty-free"],
-        "template_suffix": "veganism",
-        "product_keywords": ["linen", "cotton", "bamboo", "cruelty-free", "sustainable", "plant-based"],
-        "collection_handles": ["womens-tops", "womens-dresses", "womens-new-collection"],
-        "seasonal_hooks": [
-            "Styling Breathable Natural Plant Fibers (Organic Cotton and Linen)",
-            "How to Build a Sustainable and Cruelty-Free Wardrobe",
-            "Caring for Natural Fabrics to Extend the Lifespan of Your Clothes",
-            "Minimalist Plant-Based Textile Styling for Everyday Living",
-            "Conscious Boutique Fashion: Choosing Quality Over Fast Fashion",
-            "Linen Care 101: Keeping Plant Fibers Soft and Wrinkle-Free",
-            "Cruelty-Free Capsule Wardrobes: Breathable Textiles That Last",
-            "Natural Dye and Organic Cotton Styling for Mindful Fashion"
-        ]
-    },
-    "our-tips": {
-        "name": "Our Tips",
-        "aliases": ["tips", "our-tips", "care", "advice"],
-        "template_suffix": "our-tips",
-        "product_keywords": ["top", "dress", "jean", "pant", "sweater", "fabric care"],
-        "collection_handles": ["womens-tops", "womens-dresses", "womens-sweaters", "womens-new-collection"],
-        "seasonal_hooks": [
-            "How to Spot High-Quality Stitching and Fabric Construction",
-            "Fabric Shrinkage and Garment Care Habits That Save Your Clothes",
-            "Closet Editing and Organization Habits for a Stress-Free Morning",
-            "How to Care for Delicates and Boutique Knits at Home",
-            "Fitting Room Secrets: How to Know If a Garment Really Fits",
-            "Steam vs Iron: The Best Ways to Refresh Boutique Fabrics",
-            "How to Measure Your Body Correctly for Online Boutique Shopping",
-            "Seasonal Wardrobe Rotation: Storing Clothes to Prevent Damage"
-        ]
-    }
-}
+# ── Shared Category Registry & High-Intent Long-Tail Engine ───────────────────
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from generate_blog import (
+    CATEGORY_REGISTRY,
+    OCCASIONS_LONG_TAIL,
+    BODY_TYPES_LONG_TAIL,
+    SILHOUETTES_BY_CATEGORY,
+    generate_programmatic_long_tail_topic
+)
 
 # ── Stylist Personas for E-E-A-T Compliance ──
 AUTHORS = {
@@ -505,7 +324,8 @@ def generate_discover_article(category_meta, collections, existing_titles, topic
     from ai_client import generate as ai_generate
 
     category_name = category_meta["name"]
-    seasonal_hooks = category_meta.get("seasonal_hooks", [f"How to Style {category_name} for Everyday Elegance"])
+    template_suffix = category_meta.get("template_suffix", "")
+    seasonal_hooks = category_meta.get("topic_themes", category_meta.get("seasonal_hooks", [f"How to Style {category_name} for Everyday Elegance"]))
 
     # 1. Determine Topic with Season/Trend Context & Deduplication
     existing_lower = {t.lower().strip() for t in existing_titles}
@@ -516,23 +336,10 @@ def generate_discover_article(category_meta, collections, existing_titles, topic
         if available_hooks:
             topic = random.choice(available_hooks)
         else:
-            # Dynamic AI Topic Brainstorming when static hooks are exhausted
-            brainstorm_prompt = f"""
-Act as a trend forecaster and fashion director for MeeeShop boutique.
-Generate ONE fresh, high-CTR, Google Discover-eligible editorial article title for the category: "{category_name}".
-Requirements:
-- Topic should focus on modern silhouette balance, fabric styling, or seasonal transitions.
-- Do NOT use any of these existing titles: {json.dumps(list(existing_lower)[:15])}
-- Output ONLY the single raw title string (e.g. 'How to Style Linen Pants with Tailored Blazers for Late Summer'). No quotes, no markdown.
-"""
             try:
-                ai_topic = ai_generate(brainstorm_prompt, max_tokens=60, temperature=0.8)
-                if ai_topic and len(ai_topic.strip()) > 15 and ai_topic.strip().lower() not in existing_lower:
-                    topic = ai_topic.strip().replace('"', '').replace("'", "").strip()
-                else:
-                    topic = f"How to Style {category_name}: Flattering Formulas & Proportions"
+                topic = generate_programmatic_long_tail_topic(template_suffix, category_name, existing_lower)
             except Exception:
-                topic = f"How to Style {category_name}: Flattering Formulas & Proportions"
+                topic = f"How to Style {category_name} for Flattering Proportions and Everyday Confidence"
 
     print(f"[*] Discover Topic Angle Selected: '{topic}'")
 
@@ -685,7 +492,11 @@ blockquote { border-left: 3px solid #b8977e; margin: 28px 0; padding: 12px 20px;
         last_space = truncated.rfind(' ')
         seo_title = (truncated[:last_space] if last_space > 35 else truncated) + '...'
 
-    meta_desc = f"Expert styling advice for {category_name.lower()}: learn how to balance proportions, choose quality fabrics, and style effortless outfits with free US shipping!"[:155]
+    clean_kw = re.sub(r'^(what to wear to a|how to style a|how to style|best|the)\s+', '', article_title.lower(), flags=re.IGNORECASE).strip()
+    meta_desc = (
+        f"Looking for {clean_kw}? Explore expert fit formulas, silhouette advice, "
+        f"and boutique styles with fast US shipping and easy returns at MeeeShop!"
+    )[:155]
 
     # 1. Cleanly strip any raw or incomplete FAQ output from AI to prevent dangling tags or unanswered questions
     html_content = re.sub(r'<h2>\s*Frequently Asked Questions.*?$', '', html_content, flags=re.DOTALL | re.IGNORECASE).strip()
