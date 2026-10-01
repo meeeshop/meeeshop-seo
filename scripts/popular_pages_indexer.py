@@ -25,6 +25,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from secrets_manager import inject_to_env, get_secret
 from article_deduplicator import ArticleDeduplicator
 from utils import get_category_style_phrase
+try:
+    from google_question_fetcher import GoogleQuestionFetcher
+except ImportError:
+    GoogleQuestionFetcher = None
 
 inject_to_env()
 
@@ -56,6 +60,25 @@ def is_size_chart(text: str) -> bool:
     """Returns True if URL or query string relates to size charts or sizing pages."""
     t = text.lower()
     return ("size" in t and "chart" in t) or "sizing" in t or "size-chart" in t or "sizing-chart" in t or "size_chart" in t
+
+
+def clean_legacy_query_injections(html: str) -> str:
+    """Strip legacy raw '<p>Perfect if you are looking for...</p>' blocks and inline duplicate patterns."""
+    if not html:
+        return ""
+    cleaned = re.sub(
+        r'<p\b[^>]*>\s*Perfect\s+if\s+you\s+are\s+looking\s+for(?:(?!</p>)[\s\S])*?</p>\s*',
+        '',
+        html,
+        flags=re.IGNORECASE
+    )
+    cleaned = re.sub(
+        r'\s*Perfect\s+if\s+you\s+are\s+looking\s+for(?:(?!</p>)[^.?!])*[.?!]',
+        '',
+        cleaned,
+        flags=re.IGNORECASE
+    )
+    return re.sub(r'\n{3,}', '\n\n', cleaned).strip()
 
 # ── Shopify GraphQL API Helper with Cost-Throttling Protection ─────────────
 def shopify_graphql(query: str, variables: dict = None, max_retries: int = 5) -> dict:
@@ -529,6 +552,7 @@ def build_unified_seo_note(existing_html: str, new_query: str, is_collection: bo
     Consolidates new search queries naturally into a SINGLE unified SEO note paragraph,
     avoiding repetitive boilerplate sentences or keyword stuffing.
     """
+    existing_html = clean_legacy_query_injections(existing_html)
     clean_q = format_natural_query(new_query)
     if not clean_q:
         return existing_html
@@ -694,6 +718,9 @@ def enrich_descriptions_with_queries(opportunities: dict, global_queries: list[d
                 q_text = q_obj["query"].strip()
                 if is_size_chart(q_text):
                     continue
+                if GoogleQuestionFetcher and hasattr(GoogleQuestionFetcher, "is_fashion_relevant"):
+                    if not GoogleQuestionFetcher.is_fashion_relevant(q_text, allowed_brand=prod_title):
+                        continue
                 q_clean = q_text.lower()
                 hist_key = f"product:{prod_id}:{q_clean}"
 

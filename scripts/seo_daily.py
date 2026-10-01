@@ -253,6 +253,8 @@ def fetch_google_search_keywords(handle: str, limit: int = 3) -> list[str]:
                     # Exclude competitor brands, non-US location terms, competitor retailers, and local brick-and-mortar terms
                     if any(ob in s_clean for ob in other_brands):
                         continue
+                    if hasattr(GoogleQuestionFetcher, "is_fashion_relevant") and not GoogleQuestionFetcher.is_fashion_relevant(s_clean, allowed_brand=brand_found or handle):
+                        continue
                     if GoogleQuestionFetcher.has_non_us_location(s_clean):
                         continue
                     if GoogleQuestionFetcher.has_competitor_retailer(s_clean, allowed_brand=brand_found or handle):
@@ -269,7 +271,8 @@ def fetch_google_search_keywords(handle: str, limit: int = 3) -> list[str]:
         
     return [
         kw for kw in generate_long_tail_keywords(handle) 
-        if not GoogleQuestionFetcher.has_non_us_location(kw) 
+        if (not hasattr(GoogleQuestionFetcher, "is_fashion_relevant") or GoogleQuestionFetcher.is_fashion_relevant(kw, allowed_brand=handle))
+        and not GoogleQuestionFetcher.has_non_us_location(kw) 
         and not GoogleQuestionFetcher.has_competitor_retailer(kw, allowed_brand=handle)
         and not GoogleQuestionFetcher.has_local_intent(kw)
     ][:limit]
@@ -338,7 +341,7 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
                 position = row.get("position", 0)
                 ctr = row.get("ctr", 0)
                 impressions = row.get("impressions", 0)
-                if 8.0 <= position <= 20.0 and ctr < 0.05 and not GoogleQuestionFetcher.has_non_us_location(query) and not GoogleQuestionFetcher.has_competitor_retailer(query, allowed_brand=handle) and not GoogleQuestionFetcher.has_local_intent(query):
+                if 8.0 <= position <= 20.0 and ctr < 0.05 and (not hasattr(GoogleQuestionFetcher, "is_fashion_relevant") or GoogleQuestionFetcher.is_fashion_relevant(query, allowed_brand=handle)) and not GoogleQuestionFetcher.has_non_us_location(query) and not GoogleQuestionFetcher.has_competitor_retailer(query, allowed_brand=handle) and not GoogleQuestionFetcher.has_local_intent(query):
                     candidates.append((query, impressions))
                     
         candidates.sort(key=lambda x: x[1], reverse=True)
@@ -351,7 +354,8 @@ def fetch_gsc_keywords(page_url: str, limit: int = 3) -> list[str]:
                 queries = fetch_google_search_keywords(handle, limit)
                 queries = [
                     q for q in queries 
-                    if not GoogleQuestionFetcher.has_non_us_location(q) 
+                    if (not hasattr(GoogleQuestionFetcher, "is_fashion_relevant") or GoogleQuestionFetcher.is_fashion_relevant(q, allowed_brand=handle))
+                    and not GoogleQuestionFetcher.has_non_us_location(q) 
                     and not GoogleQuestionFetcher.has_competitor_retailer(q, allowed_brand=handle)
                     and not GoogleQuestionFetcher.has_local_intent(q)
                 ]
@@ -904,6 +908,127 @@ def remove_clothing_size_table(html):
     return cleaned.strip()
 
 
+def extract_existing_bullets(html: str) -> list[str]:
+    """
+    Extract original product bullet points, excluding templated boilerplate features,
+    styling tips, and FAQ items.
+    """
+    if not html:
+        return []
+
+    # Remove Styling Tips and FAQ sections first so their <li> items are not captured
+    cleaned = re.sub(r'<h3>(?:Styling\s+Tips|Outfit\s+Ideas)[^<]*</h3>\s*<ul[\s\S]*?</ul>', '', html, flags=re.IGNORECASE)
+    cleaned = re.sub(r'<h3>Frequently\s+Asked\s+Questions</h3>[\s\S]*?(?=<h[1-6]|$)', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"<div class=['\"]meeeshop-qa-section['\"][\s\S]*?</div>", '', cleaned, flags=re.IGNORECASE)
+
+    raw_lis = re.findall(r'<li\b[^>]*>([\s\S]*?)</li>', cleaned, re.IGNORECASE)
+
+    # If no <li> found, check for <p>, <div>, or <br> delimited bullet points or specs
+    if not raw_lis:
+        p_blocks = re.findall(r'<(?:p|div)\b[^>]*>([\s\S]*?)</(?:p|div)>', cleaned, re.IGNORECASE)
+        lines = []
+        if p_blocks:
+            for block in p_blocks:
+                for line in re.split(r'<br\s*/?>|\n', block):
+                    lines.append(line)
+        else:
+            for line in re.split(r'<br\s*/?>|\n', cleaned):
+                lines.append(line)
+
+        bullet_prefix_pat = re.compile(r'^\s*(?:[\u2022\u2023\u25E6\u2043\u2219\u00B7\*\-\–\—]|\&bull\;|\&\#8226\;)\s*', re.IGNORECASE)
+        dimension_pat = re.compile(r'\b\d+(?:\.\d+)?\s*(?:inch|inches|cm|mm|ft)\b', re.IGNORECASE)
+        for l in lines:
+            l_strip = strip_html(l).strip()
+            if not l_strip:
+                continue
+            if bullet_prefix_pat.match(l_strip):
+                cleaned_line = bullet_prefix_pat.sub('', l_strip).strip()
+                if cleaned_line:
+                    raw_lis.append(cleaned_line)
+            elif dimension_pat.search(l_strip) and len(l_strip) < 120:
+                raw_lis.append(l_strip)
+
+    boilerplate_phrases = [
+        'premium quality materials for lasting durability',
+        'stylish design that works for everyday wear',
+        'perfect for women who value quality and fashion',
+        'free shipping on all us orders',
+        '7-day return policy',
+        'shop pieces for women at',
+        'shop dresses for women at',
+        'shop tops for women at',
+        'shop bottoms for women at',
+        'shop bags for women at',
+        'shop shoes for women at',
+        'shop layers for women at',
+        'shop skirts for women at',
+        'shop one-pieces for women at',
+        'shop accessories for women at',
+        'style inspiration: ideal if you are styling',
+    ]
+
+    valid_bullets = []
+    seen = set()
+    for li in raw_lis:
+        clean_li = li.strip()
+        text_lower = strip_html(clean_li).lower()
+        if not text_lower:
+            continue
+        # Skip generic boilerplate bullets
+        if any(bp in text_lower for bp in boilerplate_phrases):
+            continue
+        # Skip duplicates
+        if text_lower in seen:
+            continue
+        seen.add(text_lower)
+        valid_bullets.append(clean_li)
+
+    return valid_bullets
+
+
+def extract_measurements_or_dimensions(html: str) -> list[str]:
+    """Detect measurement or dimension lines from product HTML or bullets."""
+    if not html:
+        return []
+    bullets = extract_existing_bullets(html)
+    meas_pat = re.compile(
+        r'\b(?:\d+(?:\.\d+)?\s*(?:inch|inches|in|cm|mm|ft|oz|lbs|gauge)\b|drop|strap|heel|inseam|waist|bust|hip|dimensions|length|width|height|depth)',
+        re.IGNORECASE
+    )
+    return [b for b in bullets if meas_pat.search(strip_html(b))]
+
+
+def extract_custom_paragraphs(html: str) -> str:
+    """Extract any custom descriptive paragraphs that are not part of SEO templates or styling/FAQ."""
+    if not html:
+        return ""
+    # Remove tables, lists, and templated sections
+    cleaned = re.sub(r'<table[\s\S]*?</table>', '', html, flags=re.IGNORECASE)
+    cleaned = re.sub(r'<ul[\s\S]*?</ul>', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'<ol[\s\S]*?</ol>', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'<h3>(?:Styling\s+Tips|Outfit\s+Ideas)[^<]*</h3>[\s\S]*?(?=<h[1-6]|$)', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'<h3>Frequently\s+Asked\s+Questions</h3>[\s\S]*?(?=<h[1-6]|$)', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"<div class=['\"]meeeshop-qa-section['\"][\s\S]*?</div>", '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'<h3>(?:Why\s+Choose|Product\s+Features|Product\s+Details)[^<]*</h3>[\s\S]*?(?=<h[1-6]|$)', '', cleaned, flags=re.IGNORECASE)
+
+    paras = re.findall(r'<p\b[^>]*>([\s\S]*?)</p>', cleaned, re.IGNORECASE)
+    custom_paras = []
+    bullet_prefix_pat = re.compile(r'^\s*(?:[\u2022\u2023\u25E6\u2043\u2219\u00B7\*\-\–\—]|\&bull\;|\&\#8226\;)', re.IGNORECASE)
+    for p in paras:
+        p_text = strip_html(p).strip()
+        p_lower = p_text.lower()
+        if not p_text or len(p_text) < 15:
+            continue
+        if bullet_prefix_pat.match(p_text):
+            continue
+        if "discover the" in p_lower or "why choose" in p_lower:
+            continue
+        if "free us shipping" in p_lower and "today" in p_lower and "shop" in p_lower:
+            continue
+        custom_paras.append(f"<p>{p.strip()}</p>")
+    return "\n\n".join(custom_paras)
+
+
 # ── Build size chart based on product type ────────────────────────────────────
 def build_size_chart(word):
     """Create appropriate size chart based on product category."""
@@ -941,9 +1066,31 @@ def build_size_chart(word):
 
 
 
+# ── Clean legacy raw query injections ─────────────────────────────────────────
+def clean_legacy_query_injections(html: str) -> str:
+    """Strip legacy raw '<p>Perfect if you are looking for...</p>' blocks and inline duplicate patterns."""
+    if not html:
+        return ""
+    # 1. Strip standalone paragraphs where the paragraph starts with or consists mainly of 'Perfect if you are looking for'
+    cleaned = re.sub(
+        r'<p\b[^>]*>\s*Perfect\s+if\s+you\s+are\s+looking\s+for(?:(?!</p>)[\s\S])*?</p>\s*',
+        '',
+        html,
+        flags=re.IGNORECASE
+    )
+    # 2. Strip inline sentence inside any remaining paragraph
+    cleaned = re.sub(
+        r'\s*Perfect\s+if\s+you\s+are\s+looking\s+for(?:(?!</p>)[^.?!])*[.?!]',
+        '',
+        cleaned,
+        flags=re.IGNORECASE
+    )
+    return re.sub(r'\n{3,}', '\n\n', cleaned).strip()
+
+
 # ── Build category-specific styling tips ──────────────────────────────────────
-def build_styling_tips(title, category, word):
-    """Generate dynamic, actionable styling tips for the product."""
+def build_styling_tips(title, category, word, relevant_keywords=None):
+    """Generate dynamic, actionable styling tips for the product incorporating vetted fashion terms."""
     tips_by_cat = {
         'Dresses': [
             f"<strong>Day to Night:</strong> Pair this {word} with clean white sneakers and a denim jacket for casual daytime outings, or elevate with block heels and delicate jewelry for an evening look.",
@@ -984,16 +1131,72 @@ def build_styling_tips(title, category, word):
         ]
     }
     
-    tips = tips_by_cat.get(category, [
+    tips = list(tips_by_cat.get(category, [
         f"<strong>Everyday Style:</strong> Easily style this {word} with your go-to wardrobe essentials for a chic, balanced aesthetic.",
         f"<strong>Versatile Pairings:</strong> Dress up with tailored accents or keep it relaxed with casual staples and comfortable footwear."
-    ])
+    ]))
     
+    if relevant_keywords:
+        for kw in relevant_keywords:
+            kw_clean = kw.strip()
+            if not kw_clean:
+                continue
+            tip_str = f"<strong>Style Inspiration:</strong> Ideal if you are styling for an effortless {kw_clean} look. Pair with versatile accessories for a polished finish."
+            if not any(kw_clean.lower() in t.lower() for t in tips):
+                tips.append(tip_str)
+                if len(tips) >= 4:
+                    break
+
     html = ["<h3>Styling Tips & Outfit Ideas</h3>", "<ul>"]
     for tip in tips:
         html.append(f"  <li>{tip}</li>")
     html.append("</ul>")
     return "\n".join(html)
+
+
+def integrate_styling_tips(body_html: str, title: str, category: str, word: str, relevant_keywords=None) -> str:
+    """
+    Ensure styling tips exist in body_html.
+    If Styling Tips section already exists, append new relevant keywords as list items (without duplicates).
+    If it does not exist, build and append a new Styling Tips section.
+    """
+    body = body_html or ""
+    st_pattern = re.compile(
+        r'(<h3>(?:Styling\s+Tips[^<]*|Outfit\s+Ideas[^<]*)</h3>\s*<ul\b[^>]*>)([\s\S]*?)(</ul>)',
+        re.IGNORECASE
+    )
+    match = st_pattern.search(body)
+    if match:
+        prefix = match.group(1)
+        ul_content = match.group(2)
+        suffix = match.group(3)
+        if relevant_keywords:
+            new_items = []
+            existing_items = re.findall(r'<li\b[^>]*>([\s\S]*?)</li>', ul_content, re.IGNORECASE)
+            existing_text = " ".join(existing_items).lower()
+            for kw in relevant_keywords:
+                kw_clean = kw.strip()
+                if not kw_clean:
+                    continue
+                if kw_clean.lower() in existing_text:
+                    continue
+                new_item = f"  <li><strong>Style Inspiration:</strong> Ideal if you are styling for an effortless {kw_clean} look. Pair with versatile accessories for a polished finish.</li>"
+                new_items.append(new_item)
+                existing_text += " " + kw_clean.lower()
+            if new_items:
+                if len(existing_items) + len(new_items) <= 5:
+                    combined_ul = ul_content.rstrip() + "\n" + "\n".join(new_items) + "\n"
+                    updated_section = prefix + combined_ul + suffix
+                    body = body[:match.start()] + updated_section + body[match.end():]
+        return body
+    else:
+        st_html = build_styling_tips(title, category, word, relevant_keywords=relevant_keywords)
+        if "<h3>Frequently Asked Questions</h3>" in body:
+            parts = body.split("<h3>Frequently Asked Questions</h3>", 1)
+            return parts[0].strip() + "\n\n" + st_html + "\n\n<h3>Frequently Asked Questions</h3>" + parts[1]
+        else:
+            sep = "\n\n" if body.strip() else ""
+            return body.strip() + sep + st_html
 
 
 # ── Build category-specific Q&As ──────────────────────────────────────────────
@@ -1094,93 +1297,121 @@ def build_qa_html(qa_list):
 
 # ── SEO description with keywords + size chart ───────────────────────────────
 def build_description(product, force=False, gsc_keywords=None):
-    title    = product['title']
-    html_body = product.get('body_html', '') or ''
-    cat, word = detect_cat(title)
+    title     = product['title']
+    html_body = clean_legacy_query_injections(product.get('body_html', '') or '')
+    cat, word = detect_cat(title, product.get('product_type', ''), product.get('tags', ''))
     
     if cat not in APPAREL_CATEGORIES:
         html_body = remove_clothing_size_table(html_body)
         
-    existing = strip_html(html_body)
+    existing_plain = strip_html(html_body)
 
-    # Detect if product already has a custom/storytelling description
-    if len(existing) >= 200 and not ("Discover the" in html_body and "Why Choose" in html_body):
-        # Preserve the custom description, clean return policies
+    # Filter and vet GSC/Google suggestions to only fashion-relevant terms
+    vetted_keywords = []
+    if gsc_keywords:
+        for kw in gsc_keywords:
+            kw_str = str(kw).strip()
+            if not kw_str:
+                continue
+            if hasattr(GoogleQuestionFetcher, 'is_fashion_relevant'):
+                if GoogleQuestionFetcher.is_fashion_relevant(kw_str, allowed_brand=title):
+                    vetted_keywords.append(kw_str)
+            elif not GoogleQuestionFetcher.has_non_us_location(kw_str):
+                vetted_keywords.append(kw_str)
+
+    # Check if the product already has the standard SEO template
+    has_template = ("Discover the" in html_body and "Why Choose" in html_body)
+    
+    # Check if the product has a custom written narrative prose paragraph (not just bullet points)
+    existing_custom_para = extract_custom_paragraphs(html_body)
+    has_custom_prose = len(strip_html(existing_custom_para)) >= 150
+
+    # If the product already has the full template, preserve the body, ensure return policy & styling/FAQs
+    if has_template and not force:
         cleaned_body = clean_return_policy(html_body)
-        if cat not in APPAREL_CATEGORIES:
-            final_body = cleaned_body.strip()
-        else:
-            if not has_size_table(cleaned_body):
-                size_chart = build_size_chart(word)
-                final_body = cleaned_body.strip() + "\n\n" + size_chart
-            else:
-                final_body = cleaned_body
-
-        if "Styling Tips" not in final_body:
-            styling_html = build_styling_tips(title, cat, word)
-            final_body = final_body.strip() + "\n\n" + styling_html
-
-        if "Frequently Asked Questions" not in final_body:
+        if cat in APPAREL_CATEGORIES and not has_size_table(cleaned_body):
+            size_chart = build_size_chart(word)
+            cleaned_body = cleaned_body.strip() + "\n\n" + size_chart
+        cleaned_body = integrate_styling_tips(cleaned_body, title, cat, word, relevant_keywords=vetted_keywords)
+        if "Frequently Asked Questions" not in cleaned_body:
             qa_list = build_templated_qa(title, cat, word)
             qa_html = build_qa_html(qa_list)
-            final_body = final_body.strip() + "\n\n" + qa_html
+            cleaned_body = cleaned_body.strip() + "\n\n" + qa_html
+        return clean_legacy_query_injections(cleaned_body)
 
-        # Append GSC/Google suggestions to the custom description
-        if gsc_keywords:
-            kw_list = [f"<strong>{kw}</strong>" for kw in gsc_keywords]
-            kw_html = ""
-            if len(kw_list) == 1:
-                kw_html = f"<p>Perfect if you are looking for {kw_list[0]}.</p>"
-            elif len(kw_list) > 1:
-                kw_html = f"<p>Perfect if you are looking for {', '.join(kw_list[:-1])} or {kw_list[-1]}.</p>"
-            
-            if kw_html:
-                if "<h3>Frequently Asked Questions</h3>" in final_body:
-                    parts = final_body.split("<h3>Frequently Asked Questions</h3>", 1)
-                    final_body = parts[0].strip() + "\n\n" + kw_html + "\n\n<h3>Frequently Asked Questions</h3>" + parts[1]
-                else:
-                    final_body = final_body.strip() + "\n\n" + kw_html
+    # If the product has a rich human-written custom prose paragraph (and not forced to overwrite)
+    if has_custom_prose and not force:
+        cleaned_body = clean_return_policy(html_body)
+        if cat in APPAREL_CATEGORIES:
+            if not has_size_table(cleaned_body):
+                size_chart = build_size_chart(word)
+                cleaned_body = cleaned_body.strip() + "\n\n" + size_chart
+        cleaned_body = integrate_styling_tips(cleaned_body, title, cat, word, relevant_keywords=vetted_keywords)
+        if "Frequently Asked Questions" not in cleaned_body:
+            qa_list = build_templated_qa(title, cat, word)
+            qa_html = build_qa_html(qa_list)
+            cleaned_body = cleaned_body.strip() + "\n\n" + qa_html
+        return clean_legacy_query_injections(cleaned_body)
 
-        return final_body
+    # Build rich keyword-infused SEO description while preserving all genuine specs, bullets, and measurements
+    tags = product.get('tags', '') or ''
+    tag_list = [t.strip() for t in tags.split(',') if t.strip()]
 
-    keywords = extract_keywords(title)
-    keywords_str = ' '.join(keywords) if keywords else ''
+    keyword_candidate = None
+    if vetted_keywords:
+        keyword_candidate = vetted_keywords[0]
+    elif tag_list:
+        candidate = next((t for t in tag_list if t.lower() != title.lower() and len(t) > 3), None)
+        if candidate:
+            keyword_candidate = candidate
+
+    if keyword_candidate and keyword_candidate.lower() not in title.lower():
+        kw_clean = keyword_candidate.lower()
+        if kw_clean.endswith('s') and not kw_clean.endswith(('ss', 'us', 'jeans', 'pants', 'shorts', 'leggings')):
+            kw_clean = kw_clean[:-1]
+        kw_phrase = f" Whether you are looking for an everyday {kw_clean} or a versatile staple to elevate your look, this piece delivers effortless charm."
+    else:
+        kw_phrase = f" Perfect for women looking for high-quality {word}s that transition effortlessly from day to night."
 
     intro = (
         f"<p><strong>Discover the {title} at {DISPLAY_BRAND}.</strong> This {word} combines "
-        f"exceptional quality with style, perfect for women looking for women's {word}s. "
-        f"Enjoy free US shipping and easy returns on every order."
+        f"exceptional quality with style.{kw_phrase} "
+        f"Enjoy free US shipping and easy returns with our {RETURN_POLICY} on every order.</p>"
     )
-    if gsc_keywords:
-        kw_list = [f"<strong>{kw}</strong>" for kw in gsc_keywords]
-        if len(kw_list) == 1:
-            intro += f" Perfect if you are looking for {kw_list[0]}."
-        elif len(kw_list) > 1:
-            intro += f" Perfect if you are looking for {', '.join(kw_list[:-1])} or {kw_list[-1]}."
-    intro += "</p>"
 
-    features = (
-        f"<h3>Product Features</h3>"
-        f"<ul>"
-        f"<li>Premium quality materials for lasting durability and comfort</li>"
-        f"<li>Stylish design that works for everyday wear and special occasions</li>"
-        f"<li>Perfect for women who value quality and fashion</li>"
-        f"<li>Free shipping on all US orders</li>"
-        f"<li>{RETURN_POLICY}</li>"
-        f"<li>Shop {word}s for women at {DISPLAY_BRAND}</li>"
-        f"</ul>"
-    )
+    # Extract and preserve existing genuine product bullet points & measurements
+    existing_bullets = extract_existing_bullets(html_body)
+    if existing_bullets:
+        bullet_items = "\n".join(f"  <li>{b}</li>" for b in existing_bullets)
+        features = (
+            f"<h3>Product Details & Features</h3>\n"
+            f"<ul>\n"
+            f"{bullet_items}\n"
+            f"</ul>"
+        )
+    else:
+        features = (
+            f"<h3>Product Features</h3>\n"
+            f"<ul>\n"
+            f"  <li>Premium quality materials for lasting durability and comfort</li>\n"
+            f"  <li>Stylish design that works for everyday wear and special occasions</li>\n"
+            f"  <li>Perfect for women who value quality and fashion</li>\n"
+            f"  <li>Free shipping on all US orders</li>\n"
+            f"  <li>{RETURN_POLICY}</li>\n"
+            f"  <li>Shop {word}s for women at {DISPLAY_BRAND}</li>\n"
+            f"</ul>"
+        )
 
     why_choose = (
-        f"<h3>Why Choose the {title} at {DISPLAY_BRAND}?</h3>"
-        f"<p>Looking for women's fashion? Our curated selection of {word}s for women features "
+        f"<h3>Why Choose the {title} at {DISPLAY_BRAND}?</h3>\n"
+        f"<p>Looking for quality women's fashion and accessories? Our curated selection of {word}s features "
         f"quality that lasts. Whether you're shopping for everyday essentials or something special, "
-        f"we have options for every style and budget.</p>"
+        f"we have options for every style and budget.</p>\n"
         f"<p><strong>Shop {word}s for women. Free US shipping. {RETURN_POLICY}. "
         f"Shop {DISPLAY_BRAND} today.</strong></p>"
     )
 
-    # Preserve existing size table verbatim; otherwise build standard one for apparel
+    # Preserve existing size table verbatim for apparel; otherwise build standard one for apparel
     existing_table = extract_size_table(html_body)
     if cat not in APPAREL_CATEGORIES:
         size_chart = ''
@@ -1190,19 +1421,23 @@ def build_description(product, force=False, gsc_keywords=None):
         else:
             size_chart = build_size_chart(word)
 
-    styling_tips = build_styling_tips(title, cat, word)
+    body_parts = [intro]
+    if existing_custom_para:
+        body_parts.append(existing_custom_para)
+    body_parts.append(features)
+    if size_chart:
+        body_parts.append(size_chart)
+    body_parts.append(why_choose)
 
-    if not force and len(existing) >= 500:
-        final_body = html_body
-    else:
-        final_body = intro + features + why_choose + "\n\n" + styling_tips + ("\n\n" + size_chart if size_chart else "")
+    final_body = "\n\n".join(body_parts)
+    final_body = integrate_styling_tips(final_body, title, cat, word, relevant_keywords=vetted_keywords)
 
     if "Frequently Asked Questions" not in final_body:
         qa_list = build_templated_qa(title, cat, word)
         qa_html = build_qa_html(qa_list)
         final_body = final_body.strip() + "\n\n" + qa_html
 
-    return final_body
+    return clean_legacy_query_injections(clean_return_policy(final_body))
 
 
 
@@ -2095,30 +2330,32 @@ def validate_seo(item, item_type, existing_mfs, gsc_keywords=None):
         body_html = item.get('body_html', '') or ''
         plain_len = len(strip_html(body_html))
         has_table = has_size_table(body_html)
-        # Required template markers + no stale (non-7-day) return policy anywhere
-        required_markers = [
-            'Discover the',
-            'Product Features',
-            'Premium quality materials',
-            'Why Choose',
-            RETURN_POLICY,
-        ]
-        has_all_markers = all(m in body_html for m in required_markers)
         has_stale_body  = has_stale_return_policy(body_html)
+        cat, word = detect_cat(title, ptype, tags)
+        is_apparel = cat in APPAREL_CATEGORIES
+        table_ok = has_table if is_apparel else True
 
-        # Allow custom descriptions (length >= 200, without SEO template markers) if they have a table and no stale return policy
-        is_custom = len(strip_html(body_html)) >= 200 and not ("Discover the" in body_html and "Why Choose" in body_html)
-        if is_custom:
-            body_ok = has_table and not has_stale_body
-        else:
-            body_ok = has_all_markers and not has_stale_body and plain_len >= 500 and has_table
+        has_intro = ("Discover the" in body_html) or (len(strip_html(extract_custom_paragraphs(body_html))) >= 150)
+        has_features = ("Product Features" in body_html) or ("Product Details" in body_html) or bool(extract_existing_bullets(body_html))
+        has_faq = "Frequently Asked Questions" in body_html
+        has_styling = "Styling Tips" in body_html or "Outfit Ideas" in body_html
+
+        body_ok = (
+            has_intro
+            and has_features
+            and table_ok
+            and not has_stale_body
+            and plain_len >= 250
+            and has_faq
+            and has_styling
+        )
 
         if not body_ok:
             new_desc = build_description(item, force=True, gsc_keywords=gsc_keywords)
             mismatches.append({
                 "field": "body_html",
-                "before": f"{plain_len} chars, table={has_table}, markers={has_all_markers}, stale={has_stale_body}",
-                "after": f"{len(strip_html(new_desc))} chars + table"
+                "before": f"{plain_len} chars, table={has_table}, intro={has_intro}, stale={has_stale_body}",
+                "after": f"{len(strip_html(new_desc))} chars"
             })
 
         # Image ALTs: check each image
@@ -2194,30 +2431,40 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
         body_html = product.get('body_html', '') or ''
         plain_len = len(strip_html(body_html))
         has_table = has_size_table(body_html)
-        required_markers = ['Discover the', 'Product Features', 'Premium quality materials',
-                            'Why Choose', RETURN_POLICY]
-        has_all_markers = all(m in body_html for m in required_markers)
         has_stale_body  = has_stale_return_policy(body_html)
+        cat, word = detect_cat(old_title, product.get('product_type', ''), product.get('tags', ''))
+        is_apparel = cat in APPAREL_CATEGORIES
+        table_ok = has_table if is_apparel else True
 
-        # Allow custom descriptions to bypass complete overwrite, only rewriting if force or missing table/stale return
-        is_custom = len(strip_html(body_html)) >= 200 and not ("Discover the" in body_html and "Why Choose" in body_html)
-        
-        # Stop unnecessary body rewrites on existing products to avoid spam signals.
-        # Only rewrite if explicitly forced, or if the product has basically no description.
-        needs_body_rewrite = force or plain_len < 50
+        has_intro = ("Discover the" in body_html) or (len(strip_html(extract_custom_paragraphs(body_html))) >= 150)
+        has_features = ("Product Features" in body_html) or ("Product Details" in body_html) or bool(extract_existing_bullets(body_html))
+        has_faq = "Frequently Asked Questions" in body_html
+        has_styling = "Styling Tips" in body_html or "Outfit Ideas" in body_html
+
+        needs_body_rewrite = (
+            force
+            or plain_len < 250
+            or has_stale_body
+            or not has_intro
+            or not has_features
+            or not has_faq
+            or not has_styling
+            or not table_ok
+        )
 
         if needs_body_rewrite:
-            missing.append(f"body_html ({plain_len} chars, table={has_table}, stale={has_stale_body}, markers={has_all_markers}, custom={is_custom})")
-            new_body = build_description(product, force=True, gsc_keywords=gsc_kw)
-            prod_updates['body_html'] = new_body
-            stats['descriptions'] += 1
-            changes.append({
-                "field": "body_html",
-                "before": f"{plain_len} chars",
-                "after": f"{len(strip_html(new_body))} chars + table"
-            })
-            if gsc_kw:
-                print(f"  + Injected GSC keywords (bolded in description): {gsc_kw}")
+            new_body = build_description(product, force=force, gsc_keywords=gsc_kw)
+            if new_body.strip() != body_html.strip():
+                missing.append(f"body_html ({plain_len} chars, table={has_table}, stale={has_stale_body}, intro={has_intro})")
+                prod_updates['body_html'] = new_body
+                stats['descriptions'] += 1
+                changes.append({
+                    "field": "body_html",
+                    "before": f"{plain_len} chars",
+                    "after": f"{len(strip_html(new_body))} chars"
+                })
+                if gsc_kw:
+                    print(f"  + Injected GSC keywords (bolded in description): {gsc_kw}")
 
         # ── 3. URL handle + redirect ──────────────────────────────────────────────
         final_title  = prod_updates.get('title', old_title)
@@ -2254,8 +2501,8 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
 
     # ── 5. Strict validation + fix ────────────────────────────────────────────
     display_title = prod_updates.get('title', old_title)
-    product_with_new_title = {**product, 'title': display_title}
-    mismatches = validate_seo(product_with_new_title, "product", existing_mfs, gsc_keywords=gsc_kw)
+    product_updated = {**product, **prod_updates}
+    mismatches = validate_seo(product_updated, "product", existing_mfs, gsc_keywords=gsc_kw)
 
     meta_fix_needed = False
     new_meta_title = build_meta_title(display_title, product.get('product_type', ''), product.get('tags', ''))
@@ -2279,8 +2526,19 @@ def process(product, stats, log, existing_mfs=None, force=False, only_images=Fal
                     "after": m['after'][:80] + "..."
                 })
         elif m['field'] == 'body_html':
-            # Already handled above
-            pass
+            if not only_images:
+                missing.append("body_html mismatch")
+                new_body = build_description(product_updated, force=True, gsc_keywords=gsc_kw)
+                if not dry_run:
+                    try:
+                        api_put(f"/products/{pid}.json", {"product": {"body_html": new_body}})
+                        stats['descriptions'] += 1
+                        changes.append({"field": "body_html", "before": f"{plain_len} chars", "after": f"{len(strip_html(new_body))} chars"})
+                    except Exception as e:
+                        print(f"    ! Body update failed in validation fix: {e}")
+                else:
+                    stats['descriptions'] += 1
+                    changes.append({"field": "body_html", "before": f"{plain_len} chars", "after": f"{len(strip_html(new_body))} chars"})
         elif m['field'].startswith('img_alt'):
             i   = m['_img_idx']
             iid = m['_img_id']
@@ -2453,7 +2711,15 @@ def main():
     print("=== MeeeShop SEO Automation v2.0 ===\n")
 
     # ── Determine mode ────────────────────────────────────────────────────────
-    if args.force:
+    hours = 0
+    if args.handle:
+        mode = 'force'
+        args.force = True
+        since = None
+        hours = 0
+        print(f"[Handle Override] Specific handle '{args.handle}' requested — bypassing creation cutoff and recent skip locks.\n")
+        print(f"Mode: HANDLE FORCE (single item: '{args.handle}')\n")
+    elif args.force:
         mode = 'force'
         since = None
         print("Mode: FORCE (entire catalog, normalize all SEO fields)")
@@ -2463,16 +2729,19 @@ def main():
     elif args.weekly:
         mode = 'weekly'
         since = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        hours = 168
         print("Mode: WEEKLY (overwrite all SEO for items added/published in last 7 days)")
         print("Processing: Products, Pages, Collections, Blog Posts\n")
     elif args.hours:
         mode = 'custom'
         since = (datetime.now(timezone.utc) - timedelta(hours=args.hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        hours = args.hours
         print(f"Mode: CUSTOM ({args.hours}h lookback)")
         print("Processing: Products, Pages, Collections, Blog Posts\n")
     else:
         mode = 'daily'
         since = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        hours = 24
         print("Mode: DAILY (products, pages, collections created + articles published in last 24h)")
         print("Processing: Products, Pages, Collections, Blog Posts\n")
 
@@ -2480,7 +2749,7 @@ def main():
 
     # ── Load recently processed/updated GIDs to skip ──────────────────────────
     skip_ids = set()
-    if not args.force:
+    if not args.force and not args.handle:
         try:
             skip_ids = load_recently_updated_ids()
             if skip_ids:
@@ -2500,19 +2769,6 @@ def main():
         else:
             print("  ! Could not find live theme")
         print()
-
-    # Calculate lookback hours for GraphQL
-    hours = 0
-    if args.handle:
-        hours = 0
-        args.force = True
-        print(f"[Handle Override] Specific handle '{args.handle}' requested — bypassing creation cutoff and recent skip locks.\n")
-    elif args.hours:
-        hours = args.hours
-    elif mode == 'daily':
-        hours = 24
-    elif mode == 'weekly':
-        hours = 168
 
     products = []
     if args.resource in ('all', 'products'):
@@ -2577,7 +2833,7 @@ def main():
     # ── Process products ──────────────────────────────────────────────────────
     print("Processing products...")
     for i, p in enumerate(products, 1):
-        if p['id'] in skip_ids:
+        if not args.handle and p['id'] in skip_ids:
             print(f"  [{i}/{len(products)}] SKIP (recent) {p['title'][:55]}")
             continue
 
@@ -2588,19 +2844,19 @@ def main():
             needs_seo = any(m['field'].startswith('img_alt') for m in mismatches)
         else:
             needs_seo = bool(mismatches) or title_wrong
-        if not needs_seo and mode not in ('force', 'weekly'):
+        if not needs_seo and mode not in ('force', 'weekly') and not args.handle:
             print(f"  [{i}/{len(products)}] OK  {p['title'][:55]}")
             processed_ids.add(p['id'])
             continue
         print(f"  [{i}/{len(products)}] FIX {p['title'][:55]}")
-        process(p, stats, log, existing_mfs=mfs, force=(mode in ('force', 'weekly')), only_images=args.only_images, dry_run=args.dry_run)
+        process(p, stats, log, existing_mfs=mfs, force=(mode in ('force', 'weekly') or bool(args.handle)), only_images=args.only_images, dry_run=args.dry_run)
         processed_ids.add(p['id'])
 
     # ── Process pages ─────────────────────────────────────────────────────────
     if pages and not args.only_images:
         print("\nProcessing pages...")
         for i, page in enumerate(pages, 1):
-            if page['id'] in skip_ids:
+            if not args.handle and page['id'] in skip_ids:
                 print(f"  [{i}/{len(pages)}] SKIP (recent) {page['title'][:55]}")
                 continue
 
@@ -2679,7 +2935,7 @@ def main():
     if collections:
         print("\nProcessing collections...")
         for i, coll in enumerate(collections, 1):
-            if coll['id'] in skip_ids:
+            if not args.handle and coll['id'] in skip_ids:
                 print(f"  [{i}/{len(collections)}] SKIP (recent) {coll['title'][:55]}")
                 continue
 
@@ -2852,7 +3108,7 @@ def main():
     if articles:
         print("\nProcessing articles...")
         for i, article in enumerate(articles, 1):
-            if article['id'] in skip_ids:
+            if not args.handle and article['id'] in skip_ids:
                 print(f"  [{i}/{len(articles)}] SKIP (recent) {article['title'][:55]}")
                 continue
 

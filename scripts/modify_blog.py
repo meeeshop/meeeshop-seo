@@ -165,35 +165,76 @@ def split_products(products: list) -> tuple[list, list]:
     return ins, outs
 
 
-def find_best_replacement(out_product: dict, in_stock: list) -> dict | None:
-    """Find best in-stock replacement: same product_type (must have image, different product)."""
-    ptype = (out_product.get("product_type") or "").strip().lower()
-    out_handle = out_product.get("handle")
-    # Same type with image, different product
-    if ptype:
-        same = [
-            p for p in in_stock 
-            if (p.get("product_type") or "").strip().lower() == ptype 
-            and p.get("images") 
-            and p.get("handle") != out_handle
-        ]
-        if same:
-            return random.choice(same)
+def find_best_replacement(out_product: dict, in_stock: list, topic_context: str = "", exclude_handles: set = None) -> dict | None:
+    """
+    Find best in-stock replacement: same product_type or matching category (must have image, different product).
+    Strictly prevents cross-category contamination (e.g. never picks a bag/wallet for clothing).
+    """
+    exclude = exclude_handles or set()
+    out_handle = out_product.get("handle", "")
+    valid_pool = [p for p in in_stock if p.get("handle") not in exclude and p.get("handle") != out_handle and product_img_url(p)]
+    if not valid_pool:
+        valid_pool = [p for p in in_stock if p.get("handle") != out_handle and product_img_url(p)]
+        if not valid_pool:
+            return None
 
-    # Fallback to category derived from out_product (product_type, title, or handle)
+    ptype = (out_product.get("product_type") or "").strip().lower()
     text_for_cat = ptype or out_product.get("title", "") or out_product.get("handle", "")
-    cat = extract_handle_category(text_for_cat)
-    if cat:
-        same_cat = [
-            p for p in in_stock
-            if (cat in (p.get("product_type") or "").lower() or cat in (p.get("title") or "").lower() or cat in (p.get("tags") or "").lower())
-            and p.get("images") and p.get("handle") != out_handle
+    cat = extract_handle_category(text_for_cat) or extract_handle_category(topic_context)
+
+    clothing_cats = {"skirt", "dress", "jean", "top", "pant", "short", "romper", "jacket", "sweater"}
+    if cat in clothing_cats:
+        clothing_pool = [
+            p for p in valid_pool
+            if extract_handle_category(f"{p.get('product_type', '')} {p.get('title', '')}") != "bag"
+            and not any(b in (p.get("product_type") or "").lower() for b in ["bag", "wallet", "wristlet", "purse", "tote", "crossbody"])
+            and not any(b in (p.get("title") or "").lower() for b in ["bag", "wallet", "wristlet", "purse", "tote", "crossbody"])
         ]
+        if clothing_pool:
+            valid_pool = clothing_pool
+
+    # 1. Exact same product_type if available and matches category
+    if ptype:
+        same_type = [p for p in valid_pool if (p.get("product_type") or "").strip().lower() == ptype]
+        if same_type:
+            return random.choice(same_type)
+
+    # 2. Score by keywords and category alignment
+    search_text = f"{out_product.get('title', '')} {out_product.get('handle', '')} {topic_context}".lower()
+    keywords = [w for w in re.findall(r'\b[a-z0-9]+\b', search_text) if len(w) > 2 and w not in ("how", "the", "for", "with", "and", "women", "womens", "shop", "essential")]
+
+    scored = []
+    for p in valid_pool:
+        p_ptype = (p.get("product_type") or "").lower()
+        p_title = (p.get("title") or "").lower()
+        p_tags  = (p.get("tags") or "").lower()
+        p_full  = f"{p_ptype} {p_title} {p_tags}"
+        p_cat   = extract_handle_category(f"{p_ptype} {p_title}")
+
+        # Strict cross-category filter: Never pick a bag/wallet for clothing
+        if cat:
+            if cat in clothing_cats:
+                if p_cat == "bag" or "bag" in p_ptype or "wallet" in p_ptype or "wristlet" in p_ptype:
+                    continue
+            if p_cat and p_cat != cat and cat not in p_ptype and cat not in p_title:
+                continue
+
+        score = sum(3 if kw in p_title or kw in p_ptype else 1 for kw in keywords if kw in p_full)
+        scored.append((score, p))
+
+    if scored:
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top_score = scored[0][0]
+        top_candidates = [p for s, p in scored if s == top_score]
+        return random.choice(top_candidates)
+
+    # Fallback to any valid in-stock product in the target category
+    if cat:
+        same_cat = [p for p in valid_pool if cat in (p.get("product_type") or "").lower() or cat in (p.get("title") or "").lower()]
         if same_cat:
             return random.choice(same_cat)
 
-    valid = [p for p in in_stock if p.get("images") and p.get("handle") != out_handle]
-    return random.choice(valid) if valid else None
+    return random.choice(valid_pool)
 
 
 # ── Blog / article fetching ───────────────────────────────────────────────────
@@ -576,21 +617,43 @@ def extract_handle_keywords(handle: str) -> list[str]:
 def extract_handle_category(handle: str) -> str:
     h = (handle or "").lower().replace("_", "-")
     words = set(re.findall(r'\b[a-z0-9]+\b', h))
-    if any(w in words or w in h for w in ["skirt", "skirts"]):
+    if any(w in words or w in h for w in ["skirt", "skirts", "skort", "skorts"]):
         return "skirt"
-    if any(w in words or w in h for w in ["dress", "dresses", "gown", "gowns", "frock"]):
+    if any(w in words or w in h for w in ["dress", "dresses", "gown", "gowns", "frock", "sundress", "bodycon"]):
         return "dress"
     if any(w in words or w in h for w in ["jean", "jeans", "denim"]):
         return "jean"
-    if any(w in words or w in h for w in ["top", "tops", "blouse", "blouses", "shirt", "shirts", "tee", "tees", "tank", "tanks"]):
+    if any(w in words or w in h for w in ["top", "tops", "blouse", "blouses", "shirt", "shirts", "tee", "tees", "tank", "tanks", "tunic", "tunics", "camisole", "camis", "crop"]):
         return "top"
-    if any(w in words or w in h for w in ["pant", "pants", "trouser", "trousers", "slacks", "leggings"]):
+    if any(w in words or w in h for w in ["pant", "pants", "trouser", "trousers", "slacks", "leggings", "jogger", "joggers"]):
         return "pant"
-    if any(w in words or w in h for w in ["jacket", "jackets", "blazer", "blazers", "coat", "coats", "outerwear"]):
+    if any(w in words or w in h for w in ["short", "shorts", "bermuda"]):
+        return "short"
+    if any(w in words or w in h for w in ["romper", "rompers", "jumpsuit", "jumpsuits", "overall", "overalls"]):
+        return "romper"
+    if any(w in words or w in h for w in ["jacket", "jackets", "blazer", "blazers", "coat", "coats", "outerwear", "vest", "vests"]):
         return "jacket"
-    if any(w in words or w in h for w in ["sweater", "sweaters", "cardigan", "cardigans", "knitwear"]):
+    if any(w in words or w in h for w in ["sweater", "sweaters", "cardigan", "cardigans", "knitwear", "pullover", "hoodie", "hoodies"]):
         return "sweater"
+    if any(w in words or w in h for w in ["bag", "bags", "handbag", "handbags", "tote", "totes", "wallet", "wallets", "wristlet", "wristlets", "crossbody"]):
+        return "bag"
     return ""
+
+
+def are_titles_aligned(title1: str, title2: str) -> bool:
+    """Check if two titles have overlapping significant product words and compatible categories."""
+    if not title1 or not title2:
+        return False
+    cat1 = extract_handle_category(title1)
+    cat2 = extract_handle_category(title2)
+    if cat1 and cat2 and cat1 != cat2:
+        return False
+    stopwords = {"the", "and", "for", "with", "women", "womens", "collection", "shop", "essential", "styled", "mini", "midi", "maxi"}
+    w1 = set(w for w in re.findall(r'\b[a-z0-9]+\b', title1.lower()) if len(w) > 2 and w not in stopwords)
+    w2 = set(w for w in re.findall(r'\b[a-z0-9]+\b', title2.lower()) if len(w) > 2 and w not in stopwords)
+    if not w1 or not w2:
+        return False
+    return len(w1 & w2) > 0
 
 
 def find_matching_product_for_handle(handle: str, in_stock: list, exclude_handles: set = None) -> dict | None:
@@ -604,6 +667,17 @@ def find_matching_product_for_handle(handle: str, in_stock: list, exclude_handle
             return None
 
     cat = extract_handle_category(handle)
+    clothing_cats = {"skirt", "dress", "jean", "top", "pant", "short", "romper", "jacket", "sweater"}
+    if cat in clothing_cats:
+        clothing_pool = [
+            p for p in valid_pool
+            if extract_handle_category(f"{p.get('product_type', '')} {p.get('title', '')}") != "bag"
+            and not any(b in (p.get("product_type") or "").lower() for b in ["bag", "wallet", "wristlet", "purse", "tote", "crossbody"])
+            and not any(b in (p.get("title") or "").lower() for b in ["bag", "wallet", "wristlet", "purse", "tote", "crossbody"])
+        ]
+        if clothing_pool:
+            valid_pool = clothing_pool
+
     keywords = extract_handle_keywords(handle)
 
     scored = []
@@ -623,6 +697,9 @@ def find_matching_product_for_handle(handle: str, in_stock: list, exclude_handle
             score += 10
 
         # Mismatch penalties
+        if cat in clothing_cats:
+            if "bag" in ptype or "wallet" in ptype or "wristlet" in ptype or extract_handle_category(f"{ptype} {title}") == "bag":
+                continue
         if cat == "skirt" and ("set" in title or "top" in ptype or "dress" in ptype or "top" in title or "dress" in title):
             score -= 15
         if cat == "dress" and ("skirt" in ptype or "top" in ptype or "pant" in ptype):
@@ -678,6 +755,11 @@ def fix_article_images(html_str: str, product_by_handle: dict[str, dict], in_sto
                         if curr_base != new_base or not current_src.startswith("http"):
                             img["src"] = new_src
                             swaps += 1
+                        raw_title = product.get("title", "")
+                        ptype = (product.get("product_type") or "women's fashion").lower()
+                        curr_alt = img.get("alt", "")
+                        if not curr_alt or not are_titles_aligned(curr_alt, raw_title):
+                            img["alt"] = f"{raw_title} — {ptype} for women at MeeeShop".replace('"', "'")
                     else:
                         # Skip if parent div or ancestor div ALREADY contains an img
                         parent_div = a.parent
@@ -1000,146 +1082,325 @@ def clean_article_body_html(html_str: str) -> str:
     return res.strip()
 
 
-def swap_products_in_html(body_html: str, replacement_map: dict[str, dict], product_by_handle: dict[str, dict]) -> tuple[str, int]:
+def swap_products_in_html(body_html: str, replacement_map: dict[str, dict], product_by_handle: dict[str, dict],
+                          in_stock: list = None, topic_context: str = "") -> tuple[str, int, dict | None, list[dict]]:
     """
-    Parse the HTML, find all product links that point to out-of-stock products,
-    and replace their product card container (if found) or the link/text inline.
-    Returns (new_html, swap_count).
+    Parse the HTML, find all product cards (Featured, Related, and Shop the Look),
+    ensure every card's title, price, image, and link are 100% aligned to the same in-stock product,
+    and replace any out-of-stock or misaligned products.
+    Returns (new_html, swap_count, featured_product, related_products).
     """
-    if not body_html or not replacement_map:
-        return body_html, 0
+    if not body_html:
+        return body_html, 0, None, []
 
     soup = BeautifulSoup(body_html, "html.parser")
     swaps = 0
+    topic_cat = extract_handle_category(topic_context)
+    in_stock_pool = in_stock or []
 
-    # 1. First find and replace product card containers
-    replaced_containers = set()
-    for a in soup.find_all("a"):
-        href = a.get("href", "")
-        m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
-        if m:
-            handle = m.group(1)
-            if handle in replacement_map:
-                rep = replacement_map[handle]
-                
-                # Check for styled product card container
-                card_container = None
-                card_type = None
-                parent = a.parent
-                while parent and parent.name not in ("body", "html", "[document]"):
-                    style = parent.get("style", "") or ""
-                    style_clean = style.replace(" ", "").lower()
-                    if "background:#f8f6f3" in style_clean: # main product card
-                        card_container = parent
-                        card_type = "main"
-                        break
-                    elif "flex:1" in style_clean and ("min-width:180px" in style_clean or "max-width:240px" in style_clean or "max-width:220px" in style_clean):
-                        card_container = parent
-                        card_type = "related"
-                        break
-                    parent = parent.parent
-                
-                if card_container:
-                    if id(card_container) in replaced_containers:
-                        continue
-                    replaced_containers.add(id(card_container))
-                    
-                    if card_type == "main":
-                        new_card_html = make_product_card(rep)
-                    else:
-                        new_card_html = make_related_product_card(rep)
-                    new_card_soup = BeautifulSoup(new_card_html, "html.parser")
-                    card_container.replace_with(new_card_soup)
+    featured_product = None
+    related_products = []
+    title_replacements = {}
+    processed_containers = set()
+
+    # ── 1. Main / Featured Product Cards ─────────────────────────────────────
+    # Look for characteristic card containers (FEATURED FAVORITE, FEATURED PICK, IN STOCK NOW, etc.)
+    for tag in soup.find_all(lambda el: el.string and any(k in el.string for k in [
+        "FEATURED FAVORITE", "FEATURED PICK", "IN STOCK NOW", "EDITOR'S FEATURED PICK", "EDITOR'S PICK"
+    ])):
+        container = tag.parent
+        while container and container.name not in ("body", "[document]", "html"):
+            style = (container.get("style") or "").replace(" ", "").lower()
+            if "display:flex" in style or "border-radius" in style or "background:#" in style:
+                break
+            container = container.parent
+
+        if container and id(container) not in processed_containers:
+            processed_containers.add(id(container))
+
+            h3 = container.find(["h3", "h4", "div", "p"], style=lambda s: s and ("font-size:16px" in s or "font-size:18px" in s or "font-weight:700" in s))
+            if not h3:
+                h3 = container.find(["h3", "h4"])
+            card_title = h3.get_text(strip=True) if h3 else ""
+
+            a_tags = container.find_all("a", href=re.compile(r"/products/"))
+            cur_handle = ""
+            if a_tags:
+                m = re.search(r'/products/([a-zA-Z0-9_-]+)', a_tags[0].get("href", ""))
+                if m:
+                    cur_handle = m.group(1)
+
+            cur_prod = product_by_handle.get(cur_handle)
+
+            # Determine whether card is properly aligned
+            is_aligned = True
+            if cur_handle in replacement_map:
+                target_prod = replacement_map[cur_handle]
+                is_aligned = False
+            elif not cur_prod:
+                is_aligned = False
+                target_prod = find_best_replacement({"title": card_title}, in_stock_pool, topic_context=topic_context)
+            else:
+                if not are_titles_aligned(card_title, cur_prod.get("title", "")):
+                    is_aligned = False
+                card_cat = extract_handle_category(card_title)
+                prod_cat = extract_handle_category(f"{cur_prod.get('product_type', '')} {cur_prod.get('title', '')}")
+                if card_cat and prod_cat and card_cat != prod_cat:
+                    is_aligned = False
+                if topic_cat and prod_cat and prod_cat != topic_cat and topic_cat not in cur_prod.get("title", "").lower():
+                    is_aligned = False
+
+                if not is_aligned:
+                    # Mismatched product: replace with product matching card title & topic context
+                    target_prod = find_best_replacement({"title": card_title}, in_stock_pool, topic_context=topic_context)
+                else:
+                    target_prod = cur_prod
+
+            if target_prod:
+                featured_product = target_prod
+                if not is_aligned:
                     swaps += 1
+                    if card_title and card_title != target_prod["title"]:
+                        title_replacements[card_title] = target_prod["title"]
 
-    # 2. Swap inline product links (href, titles, and inner images)
-    for a in soup.find_all("a"):
-        href = a.get("href", "")
-        m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
-        if m:
-            handle = m.group(1)
-            if handle in replacement_map:
-                rep = replacement_map[handle]
-                
-                # Update href
-                new_url = f"https://us.meeeshop.com/products/{rep['handle']}?utm_source=blog&utm_medium=refreshed_link&utm_campaign=meeeshop_refresh"
-                a["href"] = new_url
-                
-                # Update visible text if it contains the old title
-                old_prod = product_by_handle.get(handle)
-                if old_prod:
-                    old_title = old_prod.get("title", "")
-                    if a.string and old_title.lower() in a.string.lower():
-                        a.string = rep["title"]
+                    # Synchronize ALL elements in the card to target_prod
+                    if h3:
+                        h3.string = target_prod["title"]
+                    price_tag = container.find(lambda el: el.name in ("p", "div") and "$" in el.get_text() and len(el.get_text().strip()) < 15 and el != h3)
+                    if price_tag:
+                        price_tag.string = f"${target_prod['variants'][0]['price']}"
+                    card_c = extract_handle_category(target_prod.get("title", ""))
+                    for img in container.find_all("img"):
+                        img["src"] = product_img_url(target_prod)
+                        img["alt"] = f"{target_prod['title']} — {card_c or topic_cat or 'fashion'} for women at MeeeShop"
+                    for a in a_tags:
+                        a["href"] = f"{STORE_URL}/products/{target_prod['handle']}?utm_source=blog&utm_medium=featured_card&utm_campaign=meeeshop_refresh"
+
+    # Also handle standalone styled main cards without specific label text
+    for div in soup.find_all("div"):
+        if id(div) in processed_containers:
+            continue
+        style = (div.get("style") or "").replace(" ", "").lower()
+        if ("background:#f8f6f3" in style or "background:#f9f9f9" in style) and ("display:flex" in style or "border-radius" in style):
+            btn = div.find("a", string=re.compile(r"Shop Now", re.IGNORECASE))
+            if btn:
+                processed_containers.add(id(div))
+                a_tags = div.find_all("a", href=re.compile(r"/products/"))
+                if not a_tags:
+                    continue
+                m = re.search(r'/products/([a-zA-Z0-9_-]+)', a_tags[0].get("href", ""))
+                if not m:
+                    continue
+                cur_handle = m.group(1)
+                h3 = div.find(["h3", "h4"])
+                c_title = h3.get_text(strip=True) if h3 else ""
+
+                cur_prod = product_by_handle.get(cur_handle)
+                is_aligned = True
+                if cur_handle in replacement_map:
+                    target_prod = replacement_map[cur_handle]
+                    is_aligned = False
+                elif not cur_prod:
+                    is_aligned = False
+                    target_prod = find_best_replacement({"title": c_title}, in_stock_pool, topic_context=topic_context)
+                else:
+                    if not are_titles_aligned(c_title, cur_prod.get("title", "")):
+                        is_aligned = False
+                    card_cat = extract_handle_category(c_title)
+                    prod_cat = extract_handle_category(f"{cur_prod.get('product_type', '')} {cur_prod.get('title', '')}")
+                    if card_cat and prod_cat and card_cat != prod_cat:
+                        is_aligned = False
+                    if topic_cat and prod_cat and prod_cat != topic_cat and topic_cat not in cur_prod.get("title", "").lower():
+                        is_aligned = False
+                    if not is_aligned:
+                        target_prod = find_best_replacement({"title": c_title}, in_stock_pool, topic_context=topic_context)
                     else:
-                        for child in list(a.descendants):
-                            if isinstance(child, str) and old_title.lower() in child.lower():
-                                child.replace_with(child.replace(old_title, rep["title"]))
+                        target_prod = cur_prod
+
+                if target_prod:
+                    if not featured_product:
+                        featured_product = target_prod
+                    if not is_aligned:
+                        swaps += 1
+                        if c_title and c_title != target_prod["title"]:
+                            title_replacements[c_title] = target_prod["title"]
+                        if h3:
+                            h3.string = target_prod["title"]
+                        price_tag = div.find(lambda el: el.name in ("p", "div") and "$" in el.get_text() and len(el.get_text().strip()) < 15 and el != h3)
+                        if price_tag:
+                            price_tag.string = f"${target_prod['variants'][0]['price']}"
+                        card_c = extract_handle_category(target_prod.get("title", ""))
+                        for img in div.find_all("img"):
+                            img["src"] = product_img_url(target_prod)
+                            img["alt"] = f"{target_prod['title']} — {card_c or topic_cat or 'fashion'} for women at MeeeShop"
+                        for a in a_tags:
+                            a["href"] = f"{STORE_URL}/products/{target_prod['handle']}?utm_source=blog&utm_medium=featured_card&utm_campaign=meeeshop_refresh"
+
+    # ── 2. Related Product Cards / Lookbook Cards ────────────────────────────
+    lookbook_cards = []
+    for a in soup.find_all("a"):
+        txt = a.get_text(strip=True).lower()
+        if any(k in txt for k in ["shop similar", "view product"]):
+            card = a.parent
+            if card and id(card) not in processed_containers:
+                processed_containers.add(id(card))
+                lookbook_cards.append(card)
+
+    for card in lookbook_cards:
+        all_a = card.find_all("a")
+        title_p = card.find(["p", "h4", "div"], style=lambda s: s and ("font-weight:700" in s.replace(" ", "").lower() or "font-weight:bold" in s.replace(" ", "").lower()))
+        if not title_p:
+            title_p = card.find(["p", "h4", "div"])
+        c_title = title_p.get_text(strip=True) if title_p else ""
+
+        # Extract handle from any <a> in card
+        h = ""
+        for ca in all_a:
+            m = re.search(r'/products/([a-zA-Z0-9_-]+)', ca.get("href", ""))
+            if m:
+                h = m.group(1)
+                break
+
+        price_p = card.find(lambda el: el.name in ("p", "div") and "$" in el.get_text() and len(el.get_text().strip()) < 15 and el != title_p)
+        img = card.find("img")
+
+        cur_prod = replacement_map.get(h) or product_by_handle.get(h) if h else None
+        is_in_stock = cur_prod and any(v.get("inventory_quantity", 0) > 0 for v in cur_prod.get("variants", []))
+        has_img = bool(cur_prod and product_img_url(cur_prod))
+        card_cat = extract_handle_category(c_title) if c_title else ""
+        prod_cat = extract_handle_category(f"{cur_prod.get('product_type', '')} {cur_prod.get('title', '')}") if cur_prod else ""
+        cats_aligned = not (card_cat and prod_cat and card_cat != prod_cat)
+        titles_aligned = cur_prod and are_titles_aligned(c_title, cur_prod.get("title", "")) if c_title else True
+
+        target_prod = None
+        if is_in_stock and has_img and cats_aligned and titles_aligned:
+            target_prod = cur_prod
+        else:
+            target_prod = replacement_map.get(h) or find_best_replacement({"title": c_title, "handle": h}, in_stock_pool, topic_context=topic_context)
+
+        if target_prod:
+            related_products.append(target_prod)
+            needs_update = (
+                (title_p and title_p.get_text(strip=True) != target_prod["title"]) or
+                (price_p and f"${target_prod['variants'][0]['price']}" not in price_p.get_text()) or
+                (img and not img.get("src", "").startswith(product_img_url(target_prod).split("?")[0])) or
+                any(f"/products/{target_prod['handle']}" not in ca.get("href", "") for ca in all_a)
+            )
+            if needs_update:
+                if title_p:
+                    title_p.string = target_prod["title"]
+                if price_p:
+                    price_p.string = f"${target_prod['variants'][0]['price']}"
+                if img:
+                    img["src"] = product_img_url(target_prod)
+                    img["alt"] = f"{target_prod['title']} — {extract_handle_category(target_prod.get('title', '')) or topic_cat or 'fashion'} for women at MeeeShop"
+                for ca in all_a:
+                    ca["href"] = f"{STORE_URL}/products/{target_prod['handle']}?utm_source=blog&utm_medium=related_card&utm_campaign=meeeshop_refresh"
                 swaps += 1
 
-    # 3. Update image references inside product links
-    for a in soup.find_all("a"):
-        href = a.get("href", "")
-        m = re.search(r'/products/([a-z0-9_-]+)', href, re.IGNORECASE)
-        if m:
-            handle = m.group(1)
-            prod = replacement_map.get(handle)
-            if prod:
-                img = a.find("img")
+    # ── 3. Shop The Look Grid Cards ──────────────────────────────────────────
+    grid_cards = []
+    for div in soup.find_all("div"):
+        style = (div.get("style") or "").replace(" ", "").lower()
+        if "border:1pxsolid#f0f0f0" in style:
+            grid_cards.append(div)
+
+    for div in grid_cards:
+        a = div.find("a")
+        if not a:
+            continue
+        all_divs = a.find_all("div")
+        title_div = None
+        price_div = None
+        for d in all_divs:
+            d_style = (d.get("style") or "").replace(" ", "").lower()
+            d_text = d.get_text(strip=True)
+            if "font-weight:bold" in d_style or "font-weight:700" in d_style:
+                title_div = d
+            elif "color:#888" in d_style or ("$" in d_text and len(d_text) < 15 and d != title_div):
+                price_div = d
+        if not title_div and len(all_divs) >= 1:
+            title_div = all_divs[0]
+        if not price_div and len(all_divs) >= 2:
+            price_div = all_divs[1]
+
+        img = a.find("img")
+        raw_title = title_div.get_text(strip=True) if title_div else ""
+        c_title = raw_title
+        if raw_title.startswith("$") or len(raw_title) < 5:
+            # Overwritten with price! Recover from alt
+            if img and img.get("alt") and not img.get("alt").startswith("$"):
+                c_title = img.get("alt").split("—")[0].split(" - ")[0].strip()
+            else:
+                c_title = ""
+
+        m = re.search(r'/products/([a-zA-Z0-9_-]+)', a.get("href", ""))
+        h = m.group(1) if m else ""
+        cur_prod = replacement_map.get(h) or product_by_handle.get(h) if h else None
+
+        is_in_stock = cur_prod and any(v.get("inventory_quantity", 0) > 0 for v in cur_prod.get("variants", []))
+        has_img = bool(cur_prod and product_img_url(cur_prod))
+        card_cat = extract_handle_category(c_title) if c_title else ""
+        prod_cat = extract_handle_category(f"{cur_prod.get('product_type', '')} {cur_prod.get('title', '')}") if cur_prod else ""
+        cats_aligned = not (card_cat and prod_cat and card_cat != prod_cat)
+        titles_aligned = cur_prod and are_titles_aligned(c_title, cur_prod.get("title", "")) if c_title else True
+
+        target_prod = None
+        if is_in_stock and has_img and cats_aligned and titles_aligned and (not c_title or c_title == cur_prod["title"] or titles_aligned):
+            if c_title and card_cat and prod_cat and card_cat != prod_cat:
+                target_prod = find_best_replacement({"title": c_title}, in_stock_pool, topic_context=topic_context)
+            else:
+                target_prod = cur_prod
+        else:
+            target_prod = replacement_map.get(h) or find_best_replacement({"title": c_title or h, "handle": h}, in_stock_pool, topic_context=topic_context)
+
+        if target_prod:
+            related_products.append(target_prod)
+            needs_update = (
+                (title_div and title_div.get_text(strip=True) != target_prod["title"]) or
+                (price_div and f"${target_prod['variants'][0]['price']}" not in price_div.get_text()) or
+                (img and not img.get("src", "").startswith(product_img_url(target_prod).split("?")[0])) or
+                (f"/products/{target_prod['handle']}" not in a.get("href", ""))
+            )
+            if needs_update:
+                if title_div:
+                    title_div.string = target_prod["title"]
+                if price_div:
+                    price_div.string = f"${target_prod['variants'][0]['price']}"
                 if img:
-                    new_src = product_img_url(prod)
-                    if new_src:
-                        img["src"] = new_src
-                    img["alt"] = f"{prod['title']} — shop at MeeeShop"
+                    img["src"] = product_img_url(target_prod)
+                    img["alt"] = target_prod["title"]
+                a["href"] = f"{STORE_URL}/products/{target_prod['handle']}?utm_source=blog&utm_medium=refreshed_link&utm_campaign=meeeshop_refresh"
+                swaps += 1
 
-    return str(soup), swaps
+    # ── 4. Standalone inline product links in prose ───────────────────────────
+    for a in soup.find_all("a", href=re.compile(r"/products/")):
+        m = re.search(r'/products/([a-zA-Z0-9_-]+)', a.get("href", ""))
+        if m:
+            h = m.group(1)
+            if h in replacement_map:
+                rep = replacement_map[h]
+                a["href"] = f"{STORE_URL}/products/{rep['handle']}?utm_source=blog&utm_medium=refreshed_link&utm_campaign=meeeshop_refresh"
+                old_p = product_by_handle.get(h)
+                if old_p and old_p.get("title") and old_p["title"].lower() in a.get_text().lower():
+                    a.string = rep["title"]
+                swaps += 1
 
+    # ── 5. Update prose text mentions ────────────────────────────────────────
+    if featured_product:
+        for h2 in soup.find_all("h2"):
+            if "hero piece" in h2.get_text().lower():
+                h2.string = f"The Hero Piece: Styling the {featured_product['title']}"
 
-def check_alignment(handle: str, title: str, html_content: str, product_by_handle: dict[str, dict] = None) -> bool:
-    if not handle or not html_content:
-        return True
-    raw_words = handle.replace('-', ' ').replace('_', ' ').split()
-    stop_words = {"how", "to", "the", "a", "an", "is", "for", "with", "what", "where", "why", "on", "in", "of", "and", "or", "you", "need", "your", "best", "most"}
-    significant_words = [w.lower() for w in raw_words if w.lower() not in stop_words and len(w) > 2]
-    if not significant_words:
-        return True
-    
-    # 1. Check if the Title aligns with the handle
-    title_text = title.lower()
-    found_in_title = sum(1 for word in significant_words if word in title_text)
-    if (found_in_title / len(significant_words)) < 0.4:
-        return False
-    
-    # 2. Check if the Body aligns with the handle
-    from bs4 import BeautifulSoup
-    soup = BeautifulSoup(html_content, "html.parser")
-    body_text = soup.get_text().lower()
-    body_words = set(re.findall(r'\b\w+\b', body_text))
-    
-    found_in_body = sum(1 for word in significant_words if word in body_words)
-    if (found_in_body / len(significant_words)) < 0.5:
-        return False
+    html_res = str(soup)
+    for old_t, new_t in title_replacements.items():
+        if old_t and new_t and old_t != new_t:
+            prefix = new_t.replace(old_t, "").strip()
+            pat = rf'(?<!{re.escape(prefix)} ){re.escape(old_t)}' if prefix else re.escape(old_t)
+            html_res = re.sub(pat, new_t, html_res)
 
-    # 3. Check Product Category alignment
-    cat = extract_handle_category(handle)
-    if cat and product_by_handle:
-        handles_in_body = extract_product_handles(html_content)
-        if handles_in_body:
-            matched_cat = False
-            for h in handles_in_body:
-                prod = product_by_handle.get(h)
-                if prod:
-                    ptype = (prod.get("product_type") or "").lower()
-                    pname = (prod.get("title") or "").lower()
-                    ptags = (prod.get("tags") or "").lower()
-                    if cat in ptype or cat in pname or cat in ptags:
-                        matched_cat = True
-                        break
-            if not matched_cat:
-                print(f"  [Alignment Check] Handle category '{cat}' does NOT match referenced products in body.")
-                return False
-                
-    return True
+    return html_res, swaps, featured_product, related_products
+
 
 # ── Main article refresh logic ────────────────────────────────────────────────
 def refresh_article(blog: dict, article: dict, all_products: list,
@@ -1157,9 +1418,11 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     print(f"\n  Article : '{art_title[:70]}'")
     print(f"  Handle  : {art_handle}")
 
+    topic_context = f"{blog.get('title', '')} {blog.get('handle', '')} {art_title} {art_handle}"
+
     # ── 1. Find out-of-stock product handles referenced in this article ───────
     referenced = extract_product_handles(body)
-    
+
     def needs_replacement(handle):
         if handle in out_of_stock_handles:
             return True
@@ -1171,22 +1434,19 @@ def refresh_article(blog: dict, article: dict, all_products: list,
         if not product_img_url(prod):
             return True
         return False
-        
+
     oos_in_article = {h for h in referenced if needs_replacement(h)}
     print(f"  Products referenced: {len(referenced)} | out-of-stock/missing-image: {len(oos_in_article)}")
 
-    # ── 3. Find out-of-stock replacements matching same product type ──────────
+    # ── 2. Find replacements matching category & topic ───────────────────────
     replacement_map: dict[str, dict] = {}
     replacements_log: list[dict] = []
-    first_replacement: dict | None = None
 
     for handle in oos_in_article:
         old_product = product_by_handle.get(handle)
-        replacement = find_best_replacement(old_product or {"handle": handle}, in_stock)
+        replacement = find_best_replacement(old_product or {"handle": handle}, in_stock, topic_context=topic_context)
         if replacement:
             replacement_map[handle] = replacement
-            if first_replacement is None:
-                first_replacement = replacement
             replacements_log.append({
                 "old_handle": handle,
                 "old_title":  old_product["title"] if old_product else handle,
@@ -1195,22 +1455,40 @@ def refresh_article(blog: dict, article: dict, all_products: list,
             })
             print(f"    Replacing '{old_product['title'][:40] if old_product else handle}' → '{replacement['title'][:40]}'")
 
-    # Swap product links, images, and redirected internal links in HTML
-    new_body, swaps = swap_products_in_html(body, replacement_map, product_by_handle)
+    # ── 3. Synchronize all product cards, images, and redirected links ────────
+    new_body, swaps, feat_prod, rel_prods = swap_products_in_html(
+        body, replacement_map, product_by_handle, in_stock=in_stock, topic_context=topic_context
+    )
     new_body, img_swaps = fix_article_images(new_body, product_by_handle, in_stock)
     new_body, redirect_swaps = fix_redirected_internal_links(new_body, redirect_map or {})
 
+    # ── 4. Generate 1200x630 Discover Landscape Collage Header Image ──────────
+    b64_collage = None
+    if feat_prod:
+        try:
+            collage_bytes = build_discover_landscape_collage(feat_prod, rel_prods)
+            if collage_bytes:
+                b64_collage = base64.b64encode(collage_bytes).decode("utf-8")
+                img_swaps += 1
+                print(f"  ✓ Built 1200x630 Discover landscape collage featuring: '{feat_prod.get('title')[:45]}'")
+        except Exception as exc:
+            print(f"  [!] Failed to build collage for article {article_id}: {exc}")
+
     total_swaps = swaps + img_swaps + redirect_swaps
 
-    if total_swaps == 0:
+    if total_swaps == 0 and not b64_collage:
         print("  Article content is aligned, images are up to date, and internal links are canonical. No changes needed.")
         return {"status": "no_changes_needed", "swaps": 0}
 
     print(f"  HTML Swaps: {swaps} | Image updates: {img_swaps} | Redirect updates: {redirect_swaps}")
 
     if dry_run:
-        print(f"  [DRY-RUN] Would PATCH article {article_id} with updated body HTML.")
-        return {"status": "updated", "replacements": replacements_log, "featured_product": None}
+        print(f"  [DRY-RUN] Would PATCH article {article_id} with updated body HTML & Discover collage.")
+        return {
+            "status": "updated",
+            "replacements": replacements_log,
+            "featured_product": feat_prod.get("title") if feat_prod else None
+        }
 
     # Backup original article content
     backup_data = {
@@ -1225,37 +1503,56 @@ def refresh_article(blog: dict, article: dict, all_products: list,
     backup_file = backup_dir / f"article_{article_id}_{int(time.time())}.json"
     backup_file.write_text(json.dumps(backup_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    # Perform update via GraphQL
-    mut_query = """
-    mutation blogArticleUpdate($id: ID!, $article: ArticleUpdateInput!) {
-      blogArticleUpdate(id: $id, article: $article) {
-        article { id handle title }
-        userErrors { field message }
-      }
+    # Update article body and header image via Shopify REST API
+    article_payload = {
+        "id": int(article_id),
+        "body_html": new_body
     }
-    """
-    vars = {
-        "id": article.get("gid", f"gid://shopify/Article/{article_id}"),
-        "article": {
-            "bodyHtml": new_body
+    if b64_collage:
+        article_payload["image"] = {
+            "attachment": b64_collage,
+            "filename": f"discover_collage_{article_id}.jpg",
+            "alt": f"{art_title} — {feat_prod.get('title', '')}"
         }
-    }
 
-    res = _graphql(mut_query, vars)
-    errors = res.get("data", {}).get("blogArticleUpdate", {}).get("userErrors", [])
-    if errors:
-        print(f"  ERROR updating article {article_id}: {errors}")
-        return {"status": "error", "error": str(errors)}
+    url = f"{BASE}/blogs/{blog_id}/articles/{article_id}.json"
+    r = _req("put", url, json={"article": article_payload})
+    if r.status_code not in (200, 201):
+        # Fallback to GraphQL articleUpdate
+        mut_query = """
+        mutation articleUpdate($id: ID!, $article: ArticleUpdateInput!) {
+          articleUpdate(id: $id, article: $article) {
+            article { id handle title }
+            userErrors { field message }
+          }
+        }
+        """
+        vars = {
+            "id": article.get("gid", f"gid://shopify/Article/{article_id}"),
+            "article": {
+                "body": new_body
+            }
+        }
+        res = _graphql(mut_query, vars)
+        errors = res.get("data", {}).get("articleUpdate", {}).get("userErrors", [])
+        if errors:
+            print(f"  ERROR updating article {article_id}: {errors}")
+            return {"status": "error", "error": str(errors)}
+    else:
+        if b64_collage:
+            print(f"  ✓ Uploaded 1200px Discover landscape 3-panel collage header image to Shopify article {article_id}")
 
     print(f"  Successfully updated article {article_id}.")
-    
+
     return {
         "status": "updated",
         "gid": article.get("gid", f"gid://shopify/Article/{article_id}"),
+        "blog_id": blog_id,
         "title": art_title,
         "body_html": new_body,
+        "b64_collage": b64_collage,
         "replacements": replacements_log,
-        "featured_product": None
+        "featured_product": feat_prod.get("title") if feat_prod else None
     }
 
 
@@ -1437,8 +1734,6 @@ def run(limit: int = 0, dry_run: bool = False, article_id: int | None = None):
     # ── Process each article ──────────────────────────────────────────────────
     updated = skipped = 0
     log = []
-    article_batch = []
-
     for blog, article in work_items:
         try:
             result = refresh_article(
@@ -1448,12 +1743,6 @@ def run(limit: int = 0, dry_run: bool = False, article_id: int | None = None):
                 dry_run=dry_run
             )
             if result and result.get("status") in ("updated", "images_fixed"):
-                if not dry_run:
-                    article_batch.append(result)
-                    if len(article_batch) >= 5:
-                        _execute_article_batch(article_batch)
-                        article_batch = []
-                        
                 updated += 1
                 log.append({"id": article["id"], "title": article["title"],
                              "status": "updated", "dry_run": dry_run,
@@ -1474,9 +1763,6 @@ def run(limit: int = 0, dry_run: bool = False, article_id: int | None = None):
                          "status": "error", "error": str(exc)})
             import traceback
             traceback.print_exc()
-
-    if article_batch and not dry_run:
-        _execute_article_batch(article_batch)
 
     # ── Summary ───────────────────────────────────────────────────────────────
     print(f"\n{'='*64}")

@@ -14,10 +14,11 @@ import random
 from io import BytesIO
 from typing import List, Dict
 
+import math
 import requests
 import trafilatura
 from bs4 import BeautifulSoup
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageFilter
 
 # ---------------------------------------------------------------------------
 # Configuration – these will be populated from the environment via the main script
@@ -400,21 +401,16 @@ def sanitize_title_to_category_phrase(title: str, product: dict) -> str:
 # 3. Collage generation — 1200x630 Discover landscape layout
 # ---------------------------------------------------------------------------
 def generate_collage(product_images: List[bytes], strip_height: int = 630) -> bytes:
-    """Create a 1200x630 Google Discover eligible landscape 3-panel collage image.
-
-    - Center image (product_images[0] - Featured product): TALLER (380x600 tile) with a solid white border.
-    - Side images (Left & Right related products): SHORTER (360x500 tile), vertically centered.
-    - Cream background (#f8f6f3).
+    """Create a 1200x630 Google Discover / Bing eligible single-frame 3-product image.
+    Zero split visuals, zero split panels, zero borders, cards, or divider lines.
+    Seamless panoramic blend with smooth S-curve feathering so all products appear
+    naturally together in the exact same visual frame.
     """
     if not product_images:
         raise ValueError("No product images provided for collage generation")
 
     CANVAS_W = 1200
-    CANVAS_H = 630
-    BG_COLOR = (248, 246, 243)     # cream background
-    BORDER_COLOR = (255, 255, 255) # solid white border for featured image
-
-    canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), BG_COLOR)
+    CANVAS_H = strip_height
 
     imgs = []
     for data in product_images:
@@ -426,25 +422,73 @@ def generate_collage(product_images: List[bytes], strip_height: int = 630) -> by
     if not imgs:
         raise ValueError("Could not decode any product images for the collage")
 
+    if len(imgs) == 1:
+        canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), (250, 249, 247))
+        bg = ImageOps.fit(imgs[0], (CANVAS_W, CANVAS_H), method=Image.Resampling.BICUBIC)
+        bg = bg.filter(ImageFilter.GaussianBlur(radius=50))
+        canvas = Image.blend(bg, canvas, alpha=0.5)
+        h = int(CANVAS_H * 0.96)
+        w = int(imgs[0].width * (h / imgs[0].height))
+        fg = ImageOps.fit(imgs[0], (w, h), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
+        canvas.paste(fg, ((CANVAS_W - w) // 2, (CANVAS_H - h) // 2))
+        canvas = canvas.filter(ImageFilter.UnsharpMask(radius=1.1, percent=105, threshold=3))
+        out_buf = BytesIO()
+        canvas.save(out_buf, format="JPEG", quality=95, optimize=True)
+        return out_buf.getvalue()
+
+    if len(imgs) == 2:
+        fade_width = 80
+        col_w = (CANVAS_W + fade_width) // 2
+        f_left = ImageOps.fit(imgs[0], (col_w, CANVAS_H), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
+        f_right = ImageOps.fit(imgs[1], (col_w, CANVAS_H), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
+        canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), (255, 255, 255))
+        canvas.paste(f_left, (0, 0))
+        mask = Image.new("L", (col_w, CANVAS_H), 255)
+        for x in range(fade_width):
+            factor = (1.0 - math.cos(math.pi * x / fade_width)) / 2.0
+            alpha = int(255 * factor)
+            for y in range(CANVAS_H):
+                mask.putpixel((x, y), alpha)
+        canvas.paste(f_right, (col_w - fade_width, 0), mask)
+        canvas = canvas.filter(ImageFilter.UnsharpMask(radius=1.1, percent=105, threshold=3))
+        out_buf = BytesIO()
+        canvas.save(out_buf, format="JPEG", quality=95, optimize=True)
+        return out_buf.getvalue()
+
+    # 3 products: seamless single frame without split panels or border cards
+    fade_width = 70
+    col_w = (CANVAS_W + 2 * fade_width) // 3
+
     feat_img = imgs[0]
-    left_img = imgs[1] if len(imgs) > 1 else imgs[0]
-    right_img = imgs[2] if len(imgs) > 2 else (imgs[1] if len(imgs) > 1 else imgs[0])
+    left_img = imgs[1]
+    right_img = imgs[2]
 
-    # 1. Left image (Shorter - 360x500)
-    fitted_left = ImageOps.fit(left_img, (360, 500), method=Image.Resampling.LANCZOS)
-    canvas.paste(fitted_left, (20, (CANVAS_H - 500) // 2))
+    f_left = ImageOps.fit(left_img, (col_w, CANVAS_H), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
+    f_center = ImageOps.fit(feat_img, (col_w, CANVAS_H), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
+    f_right = ImageOps.fit(right_img, (col_w, CANVAS_H), method=Image.Resampling.LANCZOS, centering=(0.5, 0.35))
 
-    # 2. Right image (Shorter - 360x500)
-    fitted_right = ImageOps.fit(right_img, (360, 500), method=Image.Resampling.LANCZOS)
-    canvas.paste(fitted_right, (820, (CANVAS_H - 500) // 2))
+    canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), (255, 255, 255))
+    canvas.paste(f_left, (0, 0))
 
-    # 3. Center featured image (TALLER - 380x600 with solid white border)
-    inner_feat = ImageOps.fit(feat_img, (368, 588), method=Image.Resampling.LANCZOS)
-    bordered_feat = ImageOps.expand(inner_feat, border=6, fill=BORDER_COLOR)
-    canvas.paste(bordered_feat, (410, (CANVAS_H - 600) // 2))
+    # Smooth S-curve (cosine interpolation) transition mask
+    mask = Image.new("L", (col_w, CANVAS_H), 255)
+    for x in range(fade_width):
+        factor = (1.0 - math.cos(math.pi * x / fade_width)) / 2.0
+        alpha = int(255 * factor)
+        for y in range(CANVAS_H):
+            mask.putpixel((x, y), alpha)
+
+    x_center = col_w - fade_width
+    canvas.paste(f_center, (x_center, 0), mask)
+
+    x_right = x_center + col_w - fade_width
+    canvas.paste(f_right, (x_right, 0), mask)
+
+    # Apply subtle unsharp mask filter for crisp editorial definition
+    canvas = canvas.filter(ImageFilter.UnsharpMask(radius=1.1, percent=105, threshold=3))
 
     out_buf = BytesIO()
-    canvas.save(out_buf, format="JPEG", quality=92, optimize=True)
+    canvas.save(out_buf, format="JPEG", quality=95, optimize=True)
     return out_buf.getvalue()
 
 # ---------------------------------------------------------------------------

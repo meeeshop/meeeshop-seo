@@ -161,7 +161,10 @@ if not all([SHOP_TOKEN, FLIPBOARD_EMAIL, FLIPBOARD_PASSWORD, SHOP]):
     logging.error("Missing required secrets: SHOPIFY_STORE, SHOPIFY_ACCESS_TOKEN, FLIPBOARD_EMAIL, FLIPBOARD_PASSWORD")
     sys.exit(1)
 
-UTM_TRACKING = "utm_source=flipboard&utm_medium=syndication&utm_campaign=flipboard_daily"
+# Flipboard scraper often fails to fetch OpenGraph images if URLs have complex query params.
+# We remove UTM tracking so Flipboard uses the clean canonical URL and generates a rich preview card.
+# (Rich cards are critical; text-only cards get 0 clicks).
+UTM_TRACKING = ""
 
 # ── Shopify & Caption Helpers ──────────────────────────────────────────────────
 import re
@@ -209,9 +212,9 @@ def generate_flip_caption(art: dict) -> str:
     hashtag_str = " ".join(unique_tags)
     
     if excerpt:
-        return f"{excerpt} {hashtag_str}"
+        return f"{hook}{excerpt} {hashtag_str}"
     else:
-        return f"{title} {hashtag_str}"
+        return f"{hook}{title} {hashtag_str}"
 
 def determine_staggered_target(art: dict):
     """
@@ -275,7 +278,9 @@ def fetch_articles(days: int, limit: int) -> list:
             r = requests.get(f"{SHOP_BASE}/blogs/{blog_id}/articles.json", headers=SHOP_HEADERS, params=params)
             r.raise_for_status()
             for art in r.json().get("articles", []):
-                art["_full_url"] = f"{STORE_URL}/blogs/{blog_handle}/{art['handle']}?{UTM_TRACKING}"
+                # We use the clean URL without UTM params to ensure Flipboard scrapes the OG Image properly.
+                url_params = f"?{UTM_TRACKING}" if UTM_TRACKING else ""
+                art["_full_url"] = f"{STORE_URL}/blogs/{blog_handle}/{art['handle']}{url_params}"
                 art["_blog_id"] = blog_id
                 all_articles.append(art)
         except Exception as e:

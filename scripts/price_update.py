@@ -56,6 +56,7 @@ except Exception as _e:
 
 API_VERSION = "2025-01"
 PRICE_MARKUP = 20.00
+MIN_PRICE_FLOOR = 69.99  # Absolute minimum retail price to protect margin against Shop App CAC ($29)
 # Shopify REST API allows ~2 req/s on standard plans; stay well under to avoid 429s
 API_DELAY_SECONDS = 0.6
 
@@ -143,7 +144,14 @@ query ($first: Int!, $after: String, $query: String!) {
         createdAt
         variants(first: 100) {
           edges {
-            node { id sku price }
+            node {
+              id
+              sku
+              price
+              inventoryItem {
+                unitCost { amount }
+              }
+            }
           }
         }
       }
@@ -202,10 +210,13 @@ def get_products(mode: str, window_hours: Optional[int] = None) -> List[Dict]:
                 }
                 for var_edge in node.get("variants", {}).get("edges", []):
                     v = var_edge.get("node", {})
+                    cost_node = v.get("inventoryItem", {}).get("unitCost")
+                    unit_cost = float(cost_node["amount"]) if cost_node and cost_node.get("amount") else None
                     product["variants"].append({
                         "id": v.get("id"),
                         "sku": v.get("sku", ""),
                         "price": float(v.get("price") or 0),
+                        "unit_cost": unit_cost,
                     })
                 batch.append(product)
 
@@ -229,40 +240,60 @@ def get_products(mode: str, window_hours: Optional[int] = None) -> List[Dict]:
 # Pricing logic
 # ---------------------------------------------------------------------------
 
-def calculate_target_price(current_price: float) -> float:
-    """
-    Add $20 to current MSRP, then snap up to the nearest x4.99 or x9.99.
-
-    The rule: valid endings are ...4.99 and ...9.99 (ones digit 4 or 9).
-    We always round UP so we never under-price.
-
-    Examples:
-      $71.99 + $20 = $91.99 -> $94.99
-      $76.99 + $20 = $96.99 -> $99.99
-      $45.00 + $20 = $65.00 -> $69.99  (65.00 is not a valid ending, go up)
-      $34.99 + $20 = $54.99 -> $54.99  (already valid, keep)
-      $14.99 + $20 = $34.99 -> $39.99
-    """
-    raw = round(current_price + PRICE_MARKUP, 2)
-    base = int(raw)
-
-    # Collect all valid x4.99 / x9.99 candidates in a tight window above base
+def snap_to_ending(price: float) -> float:
+    """Snap price up to the nearest x4.99 or x9.99 ending."""
+    base = int(price)
     candidates = []
     for b in range(base - 1, base + 11):
         if b % 10 in (4, 9):
             candidates.append(round(b + 0.99, 2))
-
-    # Pick the smallest candidate that is >= raw (round up, never down)
-    above = [c for c in candidates if c >= raw]
-    if above:
-        return above[0]
-    return candidates[-1]
+    above = [c for c in candidates if c >= price - 0.01]
+    return above[0] if above else candidates[-1]
 
 
-def is_already_correct(price: float) -> bool:
-    """Return True if price is already a valid x4.99 or x9.99 value."""
+def is_valid_ending(price: float) -> bool:
+    """Return True if price has a valid x4.99 or x9.99 ending."""
     cents = round(price % 10, 2)
     return cents in (4.99, 9.99)
+
+
+def calculate_target_price(current_price: float, unit_cost: Optional[float] = None) -> float:
+    """
+    Tiered dynamic margin pricing engine:
+    Protects store profits against Shop App CAC ($29.00) and payment processing fees (~3.2%).
+
+    Tiers (when unit_cost is known from Shopify Collective):
+      - unit_cost < $25.00:  target = max(69.99, unit_cost + $45.00) -> guarantees $15+ profit after $29 CAC
+      - unit_cost $25-$45:   target = max(79.99, unit_cost + $50.00) -> guarantees $20+ profit after $29 CAC
+      - unit_cost $45-$70:   target = max(99.99, unit_cost + $55.00) -> guarantees $25+ profit after $29 CAC
+      - unit_cost >= $70.00: target = unit_cost + $65.00             -> high-ticket, market-competitive
+
+    Fallback (when unit_cost is not provided):
+      - current_price < $35.00:  target = max(69.99, current_price + $35.00)
+      - current_price $35-$65:   target = max(74.99, current_price + $25.00)
+      - current_price >= $65.00: target = current_price + PRICE_MARKUP
+    """
+    if unit_cost is not None and unit_cost > 0:
+        if unit_cost < 25.0:
+            raw = max(MIN_PRICE_FLOOR, unit_cost + 45.0)
+        elif unit_cost < 45.0:
+            raw = max(79.99, unit_cost + 50.0)
+        elif unit_cost < 70.0:
+            raw = max(99.99, unit_cost + 55.0)
+        else:
+            raw = unit_cost + 65.0
+    else:
+        if current_price < 35.0:
+            raw = max(MIN_PRICE_FLOOR, current_price + 35.0)
+        elif current_price < 65.0:
+            raw = max(74.99, current_price + 25.0)
+        else:
+            raw = current_price + PRICE_MARKUP
+
+    target = snap_to_ending(raw)
+    if target < MIN_PRICE_FLOOR:
+        target = MIN_PRICE_FLOOR
+    return target
 
 
 # ---------------------------------------------------------------------------
@@ -301,9 +332,10 @@ def bulk_update_variants(product_id: str, variant_updates: List[Dict]) -> bool:
 
 def update_product_prices(products: List[Dict], batch_index: int = 0,
                           batch_size: int = 0,
-                          skip_ids: Optional[set] = None) -> Dict:
+                          skip_ids: Optional[set] = None,
+                          dry_run: bool = False) -> Dict:
     """
-    Process products list.
+    Process products list with tiered margin pricing.
 
     When batch_size > 0, only process the slice [batch_index*batch_size :
     (batch_index+1)*batch_size] — used by force mode to split work across jobs.
@@ -330,7 +362,8 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
         "products": [],
     }
 
-    col = f"{'#':<5} | {'Product':<36} | {'Old Price':>10} | {'New Price':>10} | Status"
+    mode_tag = " (DRY RUN)" if dry_run else ""
+    col = f"{'#':<5} | {'Product':<36} | {'Old Price':>10} | {'New Price':>10} | Status{mode_tag}"
     print(f"\n{col}")
     print("-" * len(col))
 
@@ -343,6 +376,7 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
             variant_id = variant.get("id", "")
             sku = variant.get("sku", "N/A")
             current_price = float(variant.get("price", 0))
+            unit_cost = variant.get("unit_cost")
 
             if current_price <= 0:
                 print(f"{i:<5} | {title:<36} | {'—':>10} | {'—':>10} | NO PRICE")
@@ -360,15 +394,17 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
                 })
                 continue
 
-            new_price = calculate_target_price(current_price)
+            new_price = calculate_target_price(current_price, unit_cost)
 
-            # Already correct: current price is already a valid x4.99/x9.99 AND equals new_price
-            if abs(current_price - new_price) < 0.01:
-                print(f"{i:<5} | {title:<36} | ${current_price:>9.2f} | ${new_price:>9.2f} | ALREADY OK")
+            # Already correct:
+            # 1. Price is already at or above target price, meets minimum floor, and has clean .99/.49 ending
+            # 2. Or current price is already identical to new_price
+            if (current_price >= new_price and current_price >= MIN_PRICE_FLOOR and is_valid_ending(current_price)) or abs(current_price - new_price) < 0.01:
+                print(f"{i:<5} | {title:<36} | ${current_price:>9.2f} | ${current_price:>9.2f} | ALREADY OK")
                 stats["skipped"] += 1
                 stats["products"].append({
                     "sku": sku, "title": title, "variant_gid": variant_id,
-                    "old_price": current_price, "new_price": new_price,
+                    "old_price": current_price, "new_price": current_price,
                     "status": "skipped_optimal",
                 })
                 continue
@@ -381,15 +417,19 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
             })
 
         if to_update:
-            success = bulk_update_variants(product_id, to_update)
-            label = "UPDATED" if success else "ERROR"
+            if dry_run:
+                success = True
+                label = "DRY RUN (WOULD UPDATE)"
+            else:
+                success = bulk_update_variants(product_id, to_update)
+                label = "UPDATED" if success else "ERROR"
 
             for item in to_update:
                 print(f"{i:<5} | {title:<36} | ${item['old_price']:>9.2f} | ${item['price']:>9.2f} | {label}")
                 entry = {
                     "sku": item["sku"], "title": title, "variant_gid": item["id"],
                     "old_price": item["old_price"], "new_price": item["price"],
-                    "status": "updated" if success else "error",
+                    "status": "would_update" if dry_run else ("updated" if success else "error"),
                 }
                 if success:
                     stats["updated"] += 1
@@ -541,19 +581,25 @@ def parse_args():
         help="Override the fetch window in hours (e.g. --window 12 fetches products created in last 12h). "
              "Only applies to daily/weekly modes. Next daily run will skip these via log.",
     )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Simulate calculations and print preview without updating Shopify",
+    )
     return p.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
 
-    print(f"[MeeeShop] Price Update Engine — MSRP +${PRICE_MARKUP:.2f} -> x4.99/x9.99")
-    print(f"Store  : {SHOPIFY_STORE}")
-    print(f"Mode   : {args.mode}")
+    print(f"[MeeeShop] Tiered Margin Price Update Engine (Floor: ${MIN_PRICE_FLOOR:.2f})")
+    print(f"Store   : {SHOPIFY_STORE}")
+    print(f"Mode    : {args.mode}")
+    print(f"Dry Run : {args.dry_run}")
     if args.window is not None:
-        print(f"Window : last {args.window}h (manual override)")
+        print(f"Window  : last {args.window}h (manual override)")
     if args.batch_size > 0:
-        print(f"Batch  : index={args.batch_index}, size={args.batch_size}")
+        print(f"Batch   : index={args.batch_index}, size={args.batch_size}")
     print()
 
     try:
@@ -566,7 +612,7 @@ if __name__ == "__main__":
 
         # Skip variants already updated in any previous run (unless force mode is used)
         skip_ids = set()
-        if args.mode != "force":
+        if args.mode != "force" and not args.dry_run:
             skip_ids = load_recently_updated_ids()
             if skip_ids:
                 print(f"[Skip] {len(skip_ids)} variant(s) already updated in previous runs — will skip\n")
@@ -576,8 +622,12 @@ if __name__ == "__main__":
             batch_index=args.batch_index,
             batch_size=args.batch_size,
             skip_ids=skip_ids,
+            dry_run=args.dry_run,
         )
-        save_update_log(stats)
+        if not args.dry_run:
+            save_update_log(stats)
+        else:
+            print("[DryRun] Complete. No changes were committed to Shopify.")
 
     except KeyboardInterrupt:
         print("\n[Cancelled] Interrupted by user")
