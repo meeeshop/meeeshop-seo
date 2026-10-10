@@ -1161,20 +1161,14 @@ Instructions:
 2. The "Required Structure" below is just a baseline guideline. You MUST adapt and customize the headings and flow to directly answer the Target Question, rather than relying on a rigid, generic template. Do NOT output a generic article that ignores the specific question.
 3. Include a 2-3 sentence clear, authoritative Direct Answer box right after the opening paragraph for Google Discover & Featured Snippet eligibility.
 
-────────── PRODUCT CATEGORY FOCUS (100% GENERIC ARTICLE) ──────────
+────────── PRODUCT CATEGORY FOCUS & EVERGREEN LINKING ──────────
 Target Product Category: {ptype} for Women
-Recommended Store Items (to be displayed in shop callout blocks at the bottom): {', '.join([main_product['title']] + m_names)}
 Store URL base: {STORE_URL}
 
-────────── STORE PRODUCT INTEGRATION & CONVERSION ──────────
-Recommended Store Items to Recommend: {', '.join([main_product['title']] + m_names[:3])}
-Store URL base: {STORE_URL}
-
-PRODUCT INTEGRATION GUIDELINES:
+EVERGREEN LINKING GUIDELINES:
 - Focus on genuinely answering the customer's styling question with practical, expert advice.
-- Naturally weave 1 to 2 of the specific store items above into your outfit formulas or styling advice as real boutique solutions with exact links (e.g. <a href="{STORE_URL}/products/{main_product.get('handle', '')}">{main_product['title']}</a>).
-- Explain WHY the cut, fabric, or rise of that specific piece solves the shopper's problem.
-- MeeeShop store products will also be displayed in recommended shopping callout blocks at the bottom of the article.
+- CRITICAL: DO NOT link to individual product URLs (/products/...) because boutique stock moves rapidly and items sell out without restocking. All shopping navigation links MUST point to collections (/collections/...) or stay generic.
+- Dynamic in-stock products are already rendered below the article content by the store theme. Do NOT embed static product cards or specific item links inside the text body.
 
 ────────── SEO KEYWORDS ──────────
 Weave these naturally — never stuff them:
@@ -1731,10 +1725,7 @@ def generate_single_article_content(
     img_alt = enforce_current_year(img_alt, str(YEAR))
     html_body = enforce_current_year(html_body, str(YEAR))
 
-    # 5. Inject recommended products section at the bottom
-    html_body += "\n" + make_related_products_section([main_product] + matching_products)
-
-    # 6. Inject natural internal links
+    # 5. Inject natural internal links to collections
     html_body = inject_internal_links(html_body, link_map, main_product["title"])
 
     # 7. Generate and upload featured image collage

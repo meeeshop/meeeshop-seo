@@ -740,49 +740,13 @@ def select_high_intent_topic(category_meta, existing_titles):
 
     return sanitize_editorial_title(topic)
 
-def render_stylist_product_showcase(matched_products):
-    """
-    Renders a high-converting, responsive 'Stylist-Curated Solutions from MeeeShop' product showcase
-    linking directly to active store products recommended in the article.
-    """
-    if not matched_products:
-        return ""
-
-    cards_html = []
-    for p in matched_products[:3]:
-        img_tag = f'<img src="{p["image_url"]}" alt="{p["title"]}" style="width: 100%; height: 260px; object-fit: cover; border-radius: 6px; margin-bottom: 12px;" />' if p.get("image_url") else ""
-        price_val = float(p.get("price", 49.0))
-        price_str = f"${price_val:.2f}"
-        cards_html.append(f"""
-        <div style="background: #ffffff; border: 1px solid #ede8e3; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 5px rgba(0,0,0,0.02);">
-          <div>
-            {img_tag}
-            <h4 style="margin: 0 0 6px 0; font-size: 0.95rem; font-weight: 600; line-height: 1.35;">
-              <a href="{p['url']}" style="color: #1a1a1a; text-decoration: none;">{p['title']}</a>
-            </h4>
-            <p style="margin: 0 0 12px 0; font-size: 0.9rem; color: #735c4a; font-weight: 600;">{price_str}</p>
-          </div>
-          <a href="{p['url']}" style="display: inline-block; text-align: center; background: #1a1a1a; color: #ffffff; padding: 8px 14px; border-radius: 4px; font-size: 0.85rem; font-weight: 500; text-decoration: none;">Shop This Style &rarr;</a>
-        </div>
-        """)
-
-    return f"""
-<div class="stylist-solution-showcase" style="margin-top: 40px; margin-bottom: 30px; padding: 24px; background: #faf9f6; border: 1px solid #ede8e3; border-radius: 8px;">
-  <h3 style="margin-top: 0; margin-bottom: 6px; font-size: 1.25rem; color: #1a1a1a;">Stylist-Curated Solutions from MeeeShop</h3>
-  <p style="margin-top: 0; margin-bottom: 20px; color: #666; font-size: 0.95rem; line-height: 1.5;">Shop the exact boutique cuts and fabrics featured in this styling guide:</p>
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px;">
-    {"".join(cards_html)}
-  </div>
-</div>
-"""
-
 # ── Unified Search-Intent AI Content Generation Engine ──────────────────────────
-def generate_blog_content(category_meta, collections, matched_products, topic):
+def generate_blog_content(category_meta, collections, topic):
     """
     Generates high-value, Google Discover-eligible and search-intent aligned blog content.
     - Direct Answer First (Google Helpful Content System)
     - Dynamic Editorial Archetypes tailored to question intent (No cookie-cutter templates)
-    - Integrates real store products with links and builds a responsive product showcase block
+    - Evergreen internal linking to verified collections (never individual products that go out of stock)
     - Genuine People Also Ask (PAA) FAQs
     """
     from ai_client import generate as ai_generate
@@ -791,53 +755,45 @@ def generate_blog_content(category_meta, collections, matched_products, topic):
     archetype = detect_intent_archetype(topic)
     print(f"[*] Detected Search Intent Archetype: {archetype.upper()} for '{topic}'")
 
-    # 1. Prepare Store Collections Context for Internal Links (max 2)
+    # 1. Prepare Store Collections Context for Internal Links (max 2-3)
     collections_context = ""
     if collections:
-        collections_context = "Verified active store collections (insert 1-2 naturally using exact HTML links <a href='/collections/...'>...</a>):\n"
-        for c in collections[:3]:
+        collections_context = "Verified active store collections (weave 2 to 3 naturally using exact HTML links <a href='/collections/...'>...</a>):\n"
+        for c in collections[:4]:
             collections_context += f"- {c['title']} (URL: {c['url']})\n"
 
-    # 2. Prepare Real Matched Products Context for Conversion Integration
-    products_context = ""
-    if matched_products:
-        products_context = "Real topic-matched boutique products in our store (weave 1 to 2 of these into your styling advice as the recommended solution with exact links <a href='/products/...'>...</a>):\n"
-        for p in matched_products[:3]:
-            price_val = float(p.get("price", 49.0))
-            products_context += f"- {p['title']} (Price: ${price_val:.2f}, URL: {p['url']}, Type: {p.get('product_type', 'Apparel')})\n"
-
-    # 3. Dynamic Archetype Instructions
+    # 2. Dynamic Archetype Instructions
     archetype_instructions = {
         "fit_solver": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately give the root cause and the numerical/proportion rule (e.g. hem break height ¼-½ inch, rise measurement, stretch recovery percentage). No morning commute or coffee run filler!
 - Section 1 (Topic-Specific H2): The Mechanics of the Cut (waistband engineering, seam contour, rise height, hem break).
 - Section 2 (Topic-Specific H2): Top Pairings & Proportions (balancing volume with fitted layers, accessories).
-- Recommended Solution: Explain why one of our store products solves this exact fit problem (waist gap, dragging hem, or bunching).
+- Recommended Solution: Direct readers to explore the relevant boutique collection (e.g. wide-leg denim, high-waist pants) with a natural collection link.
 """,
         "pairing": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately state the golden rule for pairing hemlines with footwear profiles (toe box shape, sole thickness, shaft height) or outer layers. No morning commute or coffee run filler!
 - Section 1 (Topic-Specific H2): Footwear Breakdown (Sneakers, Ankle Boots, Loafers, Mules) with hemline clearance rules.
 - Section 2 (Topic-Specific H2): Layering & Proportions (outerwear lengths that keep the silhouette balanced).
-- Recommended Solution: Recommend one of our store products as the anchor piece for these footwear pairings.
+- Recommended Solution: Link to our curated collection as the destination to find complementary silhouettes.
 """,
         "comparison": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately summarize the fundamental difference between the two silhouettes and who each flatters most. No atmospheric filler!
 - Section 1 (Topic-Specific H2): Deep Dive on Silhouette A (proportions, ideal body shapes, best styling pairings).
 - Section 2 (Topic-Specific H2): Deep Dive on Silhouette B (proportions, ideal body shapes, best styling pairings).
 - Section 3 (Topic-Specific H2): The Fitting Room Decision Guide (how to choose based on height, torso length, and daily lifestyle).
-- Recommended Solution: Link our store products representing the flattering cut.
+- Recommended Solution: Direct readers to compare cuts in our relevant category collections.
 """,
         "occasion": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately decode the dress code and establish the balance between comfortable ease and elevated polish. No generic intro stories!
 - Section 1 (Topic-Specific H2): The Core Outfit Blueprint (garment formulas with proportion advice).
 - Section 2 (Topic-Specific H2): Weather-Smart Layering & Footwear Swaps (transitioning from day to evening).
-- Recommended Solution: Highlight one of our boutique pieces as the centerpiece outfit.
+- Recommended Solution: Recommend checking our seasonal collections for curated occasion wear.
 """,
         "care": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately explain the fabric fiber structure and the #1 golden rule of washing/caring for it. No fluff!
 - Section 1 (Topic-Specific H2): Step-by-Step Laundry Protocol (water temperature, cycle, detergent, drying method, steaming vs ironing).
 - Section 2 (Topic-Specific H2): Common Mistakes That Ruin Garments (fabric softener buildup, hanging heavy knits, color bleed).
-- Recommended Solution: Mention how boutique fabric blends maintain longevity when cared for properly.
+- Recommended Solution: Mention how investing in boutique natural fibers and proper care guarantees seasons of wear.
 """
     }
 
@@ -858,10 +814,10 @@ EDITORIAL & SEARCH INTENT REQUIREMENTS:
 3. PRO STYLIST RULE:
    - Include 1 memorable styling rule-of-thumb inside a styled <blockquote>Rule-of-Thumb: <em>...</em></blockquote>.
 
-4. REAL PRODUCT & COLLECTION INTEGRATION:
-{products_context}
+4. EVERGREEN INTERNAL LINKING:
 {collections_context}
-   - Weave 1 to 2 of the specific store products into your explanations with exact HTML links <a href='/products/...'>Product Title</a>.
+   - Naturally weave 2 to 3 links to our store collections above using exact HTML links <a href='/collections/...'>Collection Title</a>.
+   - CRITICAL: DO NOT link to individual product pages (/products/...) because inventory changes quickly and products sell out. Only link to category collections.
 
 5. PEOPLE ALSO ASK (PAA) FAQS:
    - Include an <h2>Frequently Asked Questions</h2> section with EXACTLY 2 real questions shoppers ask online about "{topic}".
@@ -904,11 +860,6 @@ EDITORIAL & SEARCH INTENT REQUIREMENTS:
         article_title = sanitize_editorial_title(extracted_h1)
         html_content = html_content[:html_content.find("<h1>")] + html_content[h1_end + 5:]
         html_content = html_content.strip()
-
-    # Append high-converting Stylist Product Showcase Block
-    product_showcase_html = render_stylist_product_showcase(matched_products)
-    if product_showcase_html:
-        html_content = html_content + "\n" + product_showcase_html
 
     # Generate high-CTR 50-60 char SEO Title and 140-155 char Meta Description matching search intent
     if len(article_title) <= 45:
@@ -1307,7 +1258,7 @@ def main():
     # 8. Generate Content (Intent-driven, direct answers, store product recommendations)
     print(f"\n[*] Generating high-intent, Google Discover & PAA optimized article content...")
     title, seo_title, meta_desc, html_content = generate_blog_content(
-        category_meta, collections, matched_products, topic
+        category_meta, collections, topic
     )
 
     # 9. Generate 1200x630 Discover Image (Single-frame seamless 3-product blend)

@@ -50,7 +50,6 @@ from generate_blog import (
     SILHOUETTES_BY_CATEGORY,
     generate_programmatic_long_tail_topic,
     detect_intent_archetype,
-    render_stylist_product_showcase,
     fetch_topic_matched_products,
     select_high_intent_topic,
     generate_1200x630_collage
@@ -325,7 +324,7 @@ Example format:
     ]
 
 # ── Google Discover Content Generation ─────────────────────────────────────────
-def generate_discover_article(category_meta, collections, existing_titles, topic_override=None, matched_products=None):
+def generate_discover_article(category_meta, collections, existing_titles, topic_override=None):
     from ai_client import generate as ai_generate
 
     category_name = category_meta["name"]
@@ -344,44 +343,36 @@ def generate_discover_article(category_meta, collections, existing_titles, topic
     # 2. Contextual internal linking (max 2-3)
     collections_context = ""
     if collections:
-        collections_context = "Verified active store collections (weave 1 to 2 naturally using exact HTML links <a href='/collections/...'>...</a>):\n"
-        for c in collections[:3]:
+        collections_context = "Verified active store collections (weave 2 to 3 naturally using exact HTML links <a href='/collections/...'>Collection Title</a>):\n"
+        for c in collections[:4]:
             collections_context += f"- {c['title']} (URL: {c['url']})\n"
 
-    # 3. Topic-Matched Boutique Products for Conversion
-    products_context = ""
-    if matched_products:
-        products_context = "Real topic-matched boutique products in our store (weave 1 to 2 of these into your styling advice as the recommended solution with exact links <a href='/products/...'>...</a>):\n"
-        for p in matched_products[:3]:
-            price_val = float(p.get("price", 49.0))
-            products_context += f"- {p['title']} (Price: ${price_val:.2f}, URL: {p['url']}, Type: {p.get('product_type', 'Apparel')})\n"
-
-    # 4. Dynamic Archetype Instructions
+    # 3. Dynamic Archetype Instructions
     archetype_instructions = {
         "fit_solver": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately give the root cause and the numerical/proportion rule (e.g. hem break height ¼-½ inch, rise measurement, stretch recovery percentage). No morning commute or coffee run filler!
 - Section 1 (Topic-Specific H2): The Mechanics of the Cut (waistband engineering, seam contour, rise height, hem break).
 - Section 2 (Topic-Specific H2): Top Pairings & Proportions (balancing volume with fitted layers, accessories).
-- Recommended Solution: Explain why one of our store products solves this exact fit problem (waist gap, dragging hem, or bunching).
+- Recommended Solution: Direct readers to explore the relevant boutique collection (e.g. wide-leg denim, high-waist pants) with a natural collection link.
 """,
         "pairing": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately state the golden rule for pairing hemlines with footwear profiles (toe box shape, sole thickness, shaft height) or outer layers. No morning commute or coffee run filler!
 - Section 1 (Topic-Specific H2): Footwear Breakdown (Sneakers, Ankle Boots, Loafers, Mules) with hemline clearance rules.
 - Section 2 (Topic-Specific H2): Layering & Proportions (outerwear lengths that keep the silhouette balanced).
-- Recommended Solution: Recommend one of our store products as the anchor piece for these footwear pairings.
+- Recommended Solution: Link to our curated collection as the destination to find complementary silhouettes.
 """,
         "comparison": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately summarize the fundamental difference between the two silhouettes and who each flatters most. No atmospheric filler!
 - Section 1 (Topic-Specific H2): Deep Dive on Silhouette A (proportions, ideal body shapes, best styling pairings).
 - Section 2 (Topic-Specific H2): Deep Dive on Silhouette B (proportions, ideal body shapes, best styling pairings).
 - Section 3 (Topic-Specific H2): The Fitting Room Decision Guide (how to choose based on height, torso length, and daily lifestyle).
-- Recommended Solution: Link our store products representing the flattering cut.
+- Recommended Solution: Direct readers to compare cuts in our relevant category collections.
 """,
         "occasion": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately decode the dress code and establish the balance between comfortable ease and elevated polish. No generic intro stories!
 - Section 1 (Topic-Specific H2): The Core Outfit Blueprint (garment formulas with proportion advice).
 - Section 2 (Topic-Specific H2): Weather-Smart Layering & Footwear Swaps (transitioning from day to evening).
-- Recommended Solution: Highlight one of our boutique pieces as the centerpiece outfit.
+- Recommended Solution: Recommend checking our seasonal collections for curated occasion wear.
 """,
         "care": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately explain the fabric fiber structure and the #1 golden rule of washing/caring for it. No fluff!
@@ -407,10 +398,10 @@ EDITORIAL & SEARCH INTENT REQUIREMENTS:
 3. PRO STYLIST RULE:
    - Include 1 memorable styling rule-of-thumb inside a styled <blockquote style="border-left: 3px solid #b8977e; margin: 24px 0; padding: 12px 20px; font-style: italic; background: #faf8f5; color: #444;">Rule-of-Thumb: <em>...</em></blockquote>.
 
-4. REAL PRODUCT & COLLECTION INTEGRATION:
-{products_context}
+4. EVERGREEN INTERNAL LINKING:
 {collections_context}
-   - Weave 1 to 2 of the specific store products into your explanations with exact HTML links <a href='/products/...'>Product Title</a>.
+   - Naturally weave 2 to 3 links to our verified store collections above using exact HTML links <a href='/collections/...'>Collection Title</a>.
+   - CRITICAL: DO NOT link to individual product pages (/products/...) because inventory changes quickly and products sell out. Only link to category collections.
 
 5. OUTPUT FORMAT:
    - Line 1 MUST be: <h1>{topic}</h1>
@@ -454,11 +445,6 @@ EDITORIAL & SEARCH INTENT REQUIREMENTS:
         article_title = html_content[h1_start:h1_end].strip()
         html_content = html_content[:html_content.find("<h1>")] + html_content[h1_end + 5:]
         html_content = html_content.strip()
-
-    # Append high-converting Stylist Product Showcase Block
-    product_showcase_html = render_stylist_product_showcase(matched_products)
-    if product_showcase_html:
-        html_content = html_content + "\n" + product_showcase_html
 
     # Intelligent Word-Boundary SEO Title Truncation (50-60 chars)
     raw_seo_title = f"{article_title} | MeeeShop Guide"
@@ -940,7 +926,7 @@ def main():
 
     # 6. Generate Discover Article Content
     title, seo_title, meta_desc, html_content, faq_items = generate_discover_article(
-        category_meta, collections, existing_titles, topic_override=topic_query, matched_products=matched_products
+        category_meta, collections, existing_titles, topic_override=topic_query
     )
 
     # 7. Resolve 1200x630 Crystal-Clear Featured Image (Single-Frame 3-Product Blend or Editorial Shoot)
