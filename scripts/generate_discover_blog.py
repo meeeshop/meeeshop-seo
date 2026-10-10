@@ -48,7 +48,11 @@ from generate_blog import (
     OCCASIONS_LONG_TAIL,
     BODY_TYPES_LONG_TAIL,
     SILHOUETTES_BY_CATEGORY,
-    generate_programmatic_long_tail_topic
+    generate_programmatic_long_tail_topic,
+    detect_intent_archetype,
+    fetch_topic_matched_products,
+    select_high_intent_topic,
+    generate_1200x630_collage
 )
 
 # ── Stylist Personas for E-E-A-T Compliance ──
@@ -325,98 +329,123 @@ def generate_discover_article(category_meta, collections, existing_titles, topic
 
     category_name = category_meta["name"]
     template_suffix = category_meta.get("template_suffix", "")
-    seasonal_hooks = category_meta.get("topic_themes", category_meta.get("seasonal_hooks", [f"How to Style {category_name} for Everyday Elegance"]))
 
-    # 1. Determine Topic with Season/Trend Context & Deduplication
-    existing_lower = {t.lower().strip() for t in existing_titles}
+    # 1. Determine High-Intent Topic (Answering real questions shoppers ask online)
     if topic_override:
         topic = topic_override.strip()
     else:
-        available_hooks = [h for h in seasonal_hooks if h.lower().strip() not in existing_lower]
-        if available_hooks:
-            topic = random.choice(available_hooks)
-        else:
-            try:
-                topic = generate_programmatic_long_tail_topic(template_suffix, category_name, existing_lower)
-            except Exception:
-                topic = f"How to Style {category_name} for Flattering Proportions and Everyday Confidence"
+        topic = select_high_intent_topic(category_meta, existing_titles)
 
-    print(f"[*] Discover Topic Angle Selected: '{topic}'")
+    print(f"[*] Discover High-Intent Query Selected: '{topic}'")
+    archetype = detect_intent_archetype(topic)
+    print(f"[*] Search Intent Archetype: {archetype.upper()}")
 
-    # 2. Contextual internal linking
-    context = ""
+    # 2. Contextual internal linking (max 2-3)
+    collections_context = ""
     if collections:
-        context += "Here are our verified store collections. Insert a MAXIMUM of 2 to 3 internal links across the entire article using exact HTML anchor tags (<a href='/collections/...'>...</a>):\n"
-        for c in collections:
-            context += f"- {c['title']} (URL: {c['url']})\n"
+        collections_context = "Verified active store collections (weave 2 to 3 naturally using exact HTML links <a href='/collections/...'>Collection Title</a>):\n"
+        for c in collections[:4]:
+            collections_context += f"- {c['title']} (URL: {c['url']})\n"
 
-    # Rotating Diverse Real-World Opening Scenarios (Avoiding repetitive 7:30 AM commute cliché)
-    scenarios = [
-        "Fitting room proportions: navigating the balance between defined waists and flowing hemlines without compromising all-day comfort.",
-        "A busy Saturday morning in the city: stepping out for coffee, gallery visits, and lunch with friends while looking intentionally put-together.",
-        "Streamlining your daily capsule wardrobe: investing in versatile boutique cuts that eliminate morning decision fatigue.",
-        "Day-to-evening transitions: styling adaptable silhouettes that move effortlessly from client meetings to dinner reservations.",
-        "Seasonal climate shifts: mastering lightweight layering and breathable drape during unpredictable transitional weather."
-    ]
-    chosen_scenario = random.choice(scenarios)
+    # 3. Dynamic Archetype Instructions with Deep 3-Section Architecture
+    archetype_instructions = {
+        "fit_solver": """
+- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately give the root cause and the numerical/proportion rule (e.g. hem break height ¼-½ inch, jacket-to-torso ratio 1:1.5, rise measurement, stretch recovery percentage). No morning commute or coffee run filler!
+- Section 1 (Write a creative, tailored H2): Focus on the physics and engineering of the cut (waistband tension, rise height, contour seam placement, hem clearance). DO NOT copy prompt instructions or include parentheses in headings!
+- Section 2 (Write a creative, tailored H2): Focus on proportions and volume balance (rule of thirds, balancing fitted layers with relaxed cuts, footwear pairing).
+- Section 3 (Write a creative, tailored H2): Focus on fabric behavior and durability (elastane recovery percentage, twill weight, avoiding stretch-out or sagging).
+- Recommended Solution: Direct readers to explore complementary cuts in our verified store collection.
+""",
+        "pairing": """
+- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately state the golden rule for pairing hemlines with footwear profiles (toe box shape, sole thickness, shaft height) or outer layers. No morning commute or coffee run filler!
+- Section 1 (Write a creative, tailored H2): Footwear Breakdown (Sneakers, Ankle Boots, Loafers, Mules) with hemline clearance rules.
+- Section 2 (Write a creative, tailored H2): Outerwear & Layering Proportions (cropped vs longline jackets, balancing torso-to-leg proportions).
+- Section 3 (Write a creative, tailored H2): Texture & Color Harmony (tonal palettes, contrasting textures like knits with denim).
+- Recommended Solution: Link to our curated collection as the destination to find complementary silhouettes.
+""",
+        "comparison": """
+- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately summarize the fundamental difference between the two silhouettes and who each flatters most. No atmospheric filler!
+- Section 1 (Write a creative, tailored H2): Deep Dive on Silhouette A (proportions, ideal body shapes, best styling pairings).
+- Section 2 (Write a creative, tailored H2): Deep Dive on Silhouette B (proportions, ideal body shapes, best styling pairings).
+- Section 3 (Write a creative, tailored H2): The Decision Guide (how to choose based on height, torso length, and daily lifestyle).
+- Recommended Solution: Direct readers to compare cuts in our relevant category collections.
+""",
+        "occasion": """
+- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately decode the dress code and establish the balance between comfortable ease and elevated polish. No generic intro stories!
+- Section 1 (Write a creative, tailored H2): Decoding the Dress Code & Establishing the Core Outfit Blueprint.
+- Section 2 (Write a creative, tailored H2): Fabric Selection & Comfort-Driven Tailoring (breathability, movement, wrinkle-resistance).
+- Section 3 (Write a creative, tailored H2): Day-to-Evening Transition & Weather Adaptation (footwear swaps, outerwear layers).
+- Recommended Solution: Recommend checking our seasonal collections for curated occasion wear.
+""",
+        "care": """
+- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately explain the fiber/storage structure and the #1 golden rule of maintaining it. No fluff!
+- Section 1 (Write a creative, tailored H2): Understanding Fiber & Structural Anatomy (open weaves vs synthetic bonds, hanging zone spacing, threshold limits).
+- Section 2 (Write a creative, tailored H2): Step-by-Step Care / Organization Protocol (temperatures, sorting rules, color ratios, steaming vs ironing).
+- Section 3 (Write a creative, tailored H2): Common Pitfalls That Destroy Garment Drape & Longevity (softener buildup, improper hangers, overcrowding, stretching).
+- Recommended Solution: Mention how investing in boutique natural fibers and proper care guarantees seasons of wear.
+"""
+    }
+    selected_archetype_guide = archetype_instructions.get(archetype, archetype_instructions["fit_solver"])
 
-    # 3. AI Editorial Styling Prompt for Google Discover & Bing
-    prompt = f"""
-Act as a senior fashion director and editorial stylist at MeeeShop boutique (USA). Write a world-class, Google Discover and Bing News eligible fashion styling guide: "{topic}".
-
-SCENARIO INSPIRATION:
-Open with this relatable context: {chosen_scenario}. Explain why proportion balance, garment cut, and fabric quality matter more than chasing fast-fashion trends.
-
-STRICT EDITORIAL & VISUAL STRUCTURE (Make all headings UNIQUE and SPECIFIC to "{topic}"):
-1. Quick Stylist Key Takeaways Box:
-   <div class="stylist-takeaway-box">
-     <p class="takeaway-title"><strong>Stylist Key Takeaways:</strong></p>
+    # Archetype-aware practical blueprint instruction
+    if archetype == "care":
+        blueprint_instruction = """
+   - Actionable Fabric & Stain Quick-Reference Protocol:
+     Insert a styled quick-reference container:
+     <div style="background: #faf8f5; border: 1px solid #e8dfd5; border-radius: 8px; padding: 16px 20px; margin: 20px 0;">
+       <p style="margin: 0 0 8px 0; font-weight: 700; color: #222;">Quick Fabric Care & Emergency Protocol:</p>
+       <ul style="margin: 0; padding-left: 20px; color: #444; line-height: 1.6;">
+         <li><strong>Water-Based Spills (Coffee, Tea)</strong>: Blot immediately with a clean cloth; flush cool water with mild neutral detergent. Air-dry flat.</li>
+         <li><strong>Oil-Based Stains (Makeup, Dressings)</strong>: Apply cornstarch or talc for 15 minutes to lift lipids before gentle spot-cleansing.</li>
+         <li><strong>Delicate Weaves (Silk, Rayon, Knits)</strong>: Never scrub or wring; use lukewarm or cool cycles and steam to refresh.</li>
+       </ul>
+     </div>
+     CRITICAL: Do NOT generate outfit styling blueprints or clothing combinations for garment care/laundry articles. NEVER recommend nonsensical advice like 'leave a blouse untucked to hide coffee stains'.
+"""
+    else:
+        blueprint_instruction = """
+   - Actionable Outfit Blueprints: Include 2 to 3 practical outfit formulas formatted in a clean bullet list:
      <ul>
-       <li><strong>Proportion Rule:</strong> [1 clear, actionable sentence on silhouette balance for this specific topic]</li>
-       <li><strong>Fabric Focus:</strong> [1 clear sentence on recommended fabric compositions, recovery, and drape for this specific garment]</li>
-       <li><strong>Footwear Pairing:</strong> [1 clear sentence on exact footwear styles and toe shapes that elevate this look]</li>
+       <li style="margin-bottom: 8px;"><strong>Look 1: [Creative Name]</strong> — [Garment A] + [Garment B] + [Footwear]. <em>[Proportion tip on tucking, hem break, or layering]</em></li>
+       <li style="margin-bottom: 8px;"><strong>Look 2: [Creative Name]</strong> — [Garment A] + [Garment B] + [Footwear]. <em>[Proportion tip on tucking, hem break, or layering]</em></li>
      </ul>
-   </div>
+     CRITICAL: All outfit tips must give genuine fashion styling advice (French tuck, 1/3 to 2/3 ratio, hem break clearance).
+"""
 
-2. Introduction (120-150 words):
-   Hook the reader immediately with the scenario above. Establish an authoritative yet approachable boutique stylist tone.
+    prompt = f"""
+Act as a senior fashion director and editorial stylist at MeeeShop boutique (USA). Write an authoritative, Google Discover and Bing News eligible fashion styling guide answering: "{topic}".
 
-3. <h2>1. [Generate a compelling, TOPIC-SPECIFIC H2 headline about silhouette cuts and styling architecture for "{topic}"]</h2>
-   In-depth styling breakdown paragraph, followed by 3 actionable, uniquely named outfit formulas tailored to "{topic}":
-   <div class="formula-card">
-     <p><strong>Formula 1: [Creative Formula Name]</strong> — [Garment A] + [Garment B] + [Footwear Choice]. <em>Specific styling tip on tucking, waistband placement, or cuffing.</em></p>
-   </div>
-   <div class="formula-card">
-     <p><strong>Formula 2: [Creative Formula Name]</strong> — [Garment A] + [Garment B] + [Footwear Choice]. <em>Specific styling tip on proportions and layering.</em></p>
-   </div>
-   <div class="formula-card">
-     <p><strong>Formula 3: [Creative Formula Name]</strong> — [Garment A] + [Garment B] + [Footwear Choice]. <em>Specific styling tip on accessories and finish.</em></p>
-   </div>
+EDITORIAL, READABILITY & SEARCH INTENT REQUIREMENTS:
+1. STRICTLY FORBIDDEN CLICHÉS:
+   - Do NOT write opening stories about "drinking a latte", "morning commute", "sprinting to the subway", "rooftop bistro/lunch", "coffee run", or "picture this in the fitting room".
+   - Do NOT use generic headings like "Daytime Proportions vs Evening Layering", "Formula 1, 2, 3", or "Cut & Silhouette Fit Guide". Make all H2 headings UNIQUE and tailored to "{topic}".
+   - Do NOT use repetitive table formats.
 
-4. <h2>2. [Generate a compelling, TOPIC-SPECIFIC H2 headline about textiles, color palettes, and footwear for "{topic}"]</h2>
-   Detailed fabric advice (e.g. natural linen breathability, high-recovery stretch denim, fine-gauge knits, structured cotton twills) and specific color harmonies (e.g. oat milk, camel, espresso, washed black, olive, slate).
+2. MOBILE-FRIENDLY FORMATTING FOR MODERN WOMEN SHOPPERS:
+   - Paragraph Brevity: Keep every paragraph concise (2 to 3 sentences max) so it reads smoothly on mobile screens without dense walls of text.
+   - Quick Stylist Takeaway Box: Immediately following the Direct Answer introduction paragraph, insert a styled callout box:
+     <div style="background: #fbf9f6; border-left: 4px solid #b8977e; padding: 14px 18px; margin: 20px 0; border-radius: 0 6px 6px 0;">
+       <p style="margin: 0 0 6px 0; font-weight: 700; color: #222;">Stylist Key Takeaway:</p>
+       <p style="margin: 0; color: #444; line-height: 1.5;">[1-2 clear, actionable sentences summarizing the core proportion or fabric rule for this query]</p>
+     </div>
+{blueprint_instruction}
 
-5. <h2>[Generate a TOPIC-SPECIFIC H2 title for the Comparison Table, e.g. "Quick Reference: Cut & Silhouette Fit Guide"]</h2>
-   Include a clean, responsive HTML <table> comparing 3-4 specific cuts/styles relevant to "{topic}".
-   Columns:
-   - Silhouette / Cut
-   - Flattering For (Body Proportions)
-   - Key Proportion Rule
-   - Best Footwear Pairing
-   Wrap inside: <div class="table-responsive-wrapper"><table class="stylist-comparison-table"><thead><tr><th>...</th></tr></thead><tbody><tr><td>...</td></tr></tbody></table></div>
+3. SEARCH INTENT ARCHETYPE GUIDELINES:
+{selected_archetype_guide}
 
-6. Do's and Don'ts Stylist Cheat Sheet:
-   <div class="dos-donts-grid">
-     <div class="do-card"><p><strong>DO:</strong> [Actionable styling rule specific to {topic}]</p></div>
-     <div class="dont-card"><p><strong>AVOID:</strong> [Common styling mistake that distorts proportions for {topic}]</p></div>
-   </div>
+4. PRO STYLIST RULE:
+   - Include 1 memorable styling rule-of-thumb inside a styled <blockquote style="border-left: 3px solid #b8977e; margin: 24px 0; padding: 12px 20px; font-style: italic; background: #faf8f5; color: #444;">Rule-of-Thumb: <em>...</em></blockquote>.
 
-7. <blockquote>Memorable rule-of-thumb takeaway quote from the stylist director specific to "{topic}".</blockquote>
+5. EVERGREEN INTERNAL LINKING:
+{collections_context}
+   - Naturally weave 2 to 3 links to our store collections above using natural, grammatically fluent anchor text (e.g. "...pair with <a href='/collections/...'>curated midi dresses</a>..." or "...explore our <a href='/collections/...'>tailored jackets collection</a>...").
+   - CRITICAL: NEVER insert raw collection names stiffly as nouns like "on our Women's Dresses" or "a Women's Tops silk blouse". Anchor text must flow smoothly in the sentence.
+   - CRITICAL: DO NOT link to individual product pages (/products/...) because inventory changes quickly and products sell out. Only link to category collections.
 
-8. Internal Links: Naturally weave 2-3 links to these collections:
-{context}
-
-9. Output: Return ONLY raw, valid HTML for the body. Do NOT include FAQ sections (they are injected automatically). Do NOT include markdown blocks. Do NOT use static boilerplate headings.
+6. OUTPUT FORMAT:
+   - Line 1 MUST be: <h1>{topic}</h1>
+   - Return ONLY raw valid HTML. Do NOT include markdown blocks. Do NOT wrap in ```html fences. Total length: 850-1,100 words of rich, comprehensive styling advice.
+   - Do NOT include the FAQ section in this output (it will be appended separately).
 """
 
     html_content = ai_generate(prompt, max_tokens=2800, temperature=0.7)
@@ -438,9 +467,8 @@ STRICT EDITORIAL & VISUAL STRUCTURE (Make all headings UNIQUE and SPECIFIC to "{
     html_content = re.sub(r'</body>', '', html_content, flags=re.IGNORECASE).strip()
     html_content = re.sub(r'<meta[^>]*>', '', html_content, flags=re.IGNORECASE).strip()
 
-    # Clean unclosed sentences, strip dangling unclosed tags, and ensure proper tag closure
+    # Clean unclosed tags and ensure proper closure
     html_content = re.sub(r'<[^>]*$', '', html_content).strip()
-    # If trailing div is incomplete, close it or trim to last complete closed tag
     if html_content.count("<div") > html_content.count("</div>"):
         diff = html_content.count("<div") - html_content.count("</div>")
         html_content += "</div>" * diff
@@ -448,31 +476,6 @@ STRICT EDITORIAL & VISUAL STRUCTURE (Make all headings UNIQUE and SPECIFIC to "{
         diff = html_content.count("<p") - html_content.count("</p>")
         html_content += "</p>" * diff
     html_content = re.sub(r'<[^>]*$', '', html_content).strip()
-
-    # Inject Magazine-Grade Editorial CSS Styling
-    editorial_style = """<style>
-.stylist-takeaway-box { background: #fbf9f6; border-left: 4px solid #b8977e; padding: 18px 22px; margin: 24px 0 32px 0; border-radius: 0 8px 8px 0; }
-.stylist-takeaway-box .takeaway-title { margin: 0 0 10px 0; font-size: 1.05rem; color: #222; font-weight: 700; }
-.stylist-takeaway-box ul { margin: 0; padding-left: 20px; color: #444; line-height: 1.6; }
-.formula-card { background: #ffffff; border: 1px solid #ebe5dc; border-radius: 8px; padding: 14px 18px; margin: 12px 0; box-shadow: 0 2px 5px rgba(0,0,0,0.03); }
-.formula-card p { margin: 0; color: #333; line-height: 1.5; font-size: 0.95rem; }
-.dos-donts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 28px 0; }
-@media (max-width: 600px) { .dos-donts-grid { grid-template-columns: 1fr; } }
-.do-card { background: #f4f8f4; border-left: 4px solid #488259; padding: 14px 16px; border-radius: 0 6px 6px 0; }
-.do-card p { margin: 0; color: #234d2f; font-size: 0.95rem; line-height: 1.45; }
-.dont-card { background: #fdf5f5; border-left: 4px solid #bf5252; padding: 14px 16px; border-radius: 0 6px 6px 0; }
-.dont-card p { margin: 0; color: #6e2727; font-size: 0.95rem; line-height: 1.45; }
-.table-responsive-wrapper { overflow-x: auto; margin: 28px 0; -webkit-overflow-scrolling: touch; }
-.stylist-comparison-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95rem; border: 1px solid #ede7df; border-radius: 8px; overflow: hidden; }
-.stylist-comparison-table th { background: #f7f4f0; color: #24211e; font-weight: 600; padding: 12px 14px; border-bottom: 2px solid #ede7df; }
-.stylist-comparison-table td { padding: 12px 14px; border-bottom: 1px solid #f0eae1; color: #4a433d; line-height: 1.45; }
-.stylist-comparison-table tr:nth-child(even) td { background: #faf8f5; }
-.faq-item { background: #ffffff; border: 1px solid #ebe5dc; border-radius: 8px; padding: 16px 20px; margin: 14px 0; }
-.faq-item p { margin: 0 0 8px 0; line-height: 1.5; color: #333; }
-.faq-item p:last-child { margin: 0; color: #555; }
-blockquote { border-left: 3px solid #b8977e; margin: 28px 0; padding: 12px 20px; font-style: italic; background: #faf8f5; color: #444; }
-</style>"""
-    html_content = editorial_style + "\n" + html_content
 
     # Extract H1 and clean title
     article_title = topic
@@ -484,7 +487,7 @@ blockquote { border-left: 3px solid #b8977e; margin: 28px 0; padding: 12px 20px;
         html_content = html_content.strip()
 
     # Intelligent Word-Boundary SEO Title Truncation (50-60 chars)
-    raw_seo_title = f"{article_title} | MeeeShop Style Guide"
+    raw_seo_title = f"{article_title} | MeeeShop Guide"
     if len(raw_seo_title) <= 60:
         seo_title = raw_seo_title
     else:
@@ -498,19 +501,53 @@ blockquote { border-left: 3px solid #b8977e; margin: 28px 0; padding: 12px 20px;
         f"and boutique styles with fast US shipping and easy returns at MeeeShop!"
     )[:155]
 
-    # 1. Cleanly strip any raw or incomplete FAQ output from AI to prevent dangling tags or unanswered questions
-    html_content = re.sub(r'<h2>\s*Frequently Asked Questions.*?$', '', html_content, flags=re.DOTALL | re.IGNORECASE).strip()
+    # 1. Cleanly strip any raw or incomplete FAQ output from AI to prevent dangling tags
+    html_content = re.sub(r'<h2[^>]*>\s*Frequently Asked Questions.*?$', '', html_content, flags=re.DOTALL | re.IGNORECASE).strip()
     html_content = re.sub(r'<div class="faq-item">.*?$', '', html_content, flags=re.DOTALL | re.IGNORECASE).strip()
     html_content = re.sub(r'<p><strong>\s*(?:Q:?|Question:?).*?$', '', html_content, flags=re.DOTALL | re.IGNORECASE).strip()
     html_content = re.sub(r'<[^>]*$', '', html_content).strip()
 
-    # 2. Fetch 3 guaranteed, fully answered, high-depth styling FAQs
+    # Cleanly resolve or remove any dangling/incomplete recommendation sentence ending abruptly before FAQs (e.g. "from our")
+    html_content = re.sub(
+        r'<h[2-4][^>]*>\s*Recommended Solution\s*</h[2-4]>\s*(?:<p[^>]*>[^<]*?\b(?:from|with|explore|check|at|visit)\s+(?:our|the)\s*</p>\s*)?$',
+        '',
+        html_content,
+        flags=re.IGNORECASE
+    ).strip()
+    # Cleanly strip incomplete trailing outfit items (e.g. "Look 3: Evening Whisper —")
+    html_content = re.sub(r'<li[^>]*>[^<]*?[—–-]\s*(?:</li>)?\s*$', '', html_content, flags=re.IGNORECASE).strip()
+    html_content = re.sub(r'<li[^>]*>\s*<strong>Look\s*\d+:[^<]*?</strong>\s*[—–-]?\s*(?:</li>)?\s*$', '', html_content, flags=re.IGNORECASE).strip()
+
+    # Roll back to the last complete sentence if text ends mid-sentence without terminal punctuation
+    clean_end = re.sub(r'<[^>]+>', '', html_content).strip()
+    if clean_end and not clean_end.endswith(('.', '!', '?')):
+        last_punct = max(html_content.rfind('.'), html_content.rfind('!'), html_content.rfind('?'))
+        if last_punct > len(html_content) - 300:
+            html_content = html_content[:last_punct + 1].strip()
+
+    # Re-verify and close any open tags cleanly
+    html_content = re.sub(r'<[^>]*$', '', html_content).strip()
+    if html_content.count("<li") > html_content.count("</li>"):
+        html_content += "</li>"
+    if html_content.count("<ul") > html_content.count("</ul>"):
+        html_content += "</ul>"
+    if html_content.count("<div") > html_content.count("</div>"):
+        html_content += "</div>" * (html_content.count("<div") - html_content.count("</div>"))
+    if html_content.count("<p") > html_content.count("</p>"):
+        html_content += "</p>" * (html_content.count("<p") - html_content.count("</p>"))
+
+    # 2. Fetch 2-3 guaranteed, fully answered, high-depth styling FAQs
     faq_items = generate_topic_faqs(topic, category_name)
 
     # 3. Cleanly append the verified FAQ section to the HTML
-    faq_html = "<h2>Frequently Asked Questions</h2>\n"
+    faq_html = '<h2 style="margin-top: 36px; margin-bottom: 16px;">Frequently Asked Questions</h2>\n'
     for item in faq_items:
-        faq_html += f'<div class="faq-item">\n  <p><strong>Q: {item["question"]}</strong></p>\n  <p>A: {item["answer"]}</p>\n</div>\n'
+        faq_html += (
+            f'<div style="background: #ffffff; border: 1px solid #ebe5dc; border-radius: 8px; padding: 16px 20px; margin: 14px 0;">\n'
+            f'  <p style="margin: 0 0 8px 0; line-height: 1.5; color: #333;"><strong>Q: {item["question"]}</strong></p>\n'
+            f'  <p style="margin: 0; color: #555; line-height: 1.5;">A: {item["answer"]}</p>\n'
+            f'</div>\n'
+        )
     html_content = html_content + "\n\n" + faq_html
 
     return article_title, seo_title, meta_desc, html_content, faq_items
@@ -757,13 +794,23 @@ def fetch_curated_dslr_editorial_photo(garment_type):
 
     return None
 
-def resolve_discover_lifestyle_image(session, store_url, title, category_meta, blog_handle):
+def resolve_discover_lifestyle_image(session, store_url, title, category_meta, blog_handle, matched_products=None):
     """
-    Resolves a 100% Real Human Fashion Photography Featured Image (1200x675 Landscape):
+    Resolves a 100% Real Human Fashion Photography Featured Image (1200x630/1200x675 Landscape):
+    - Priority 0: Single-frame seamless 3-product blend of active store products from this article
     - Priority 1: Real Store Catalog Model Shoot from inventory matching the exact title garment
     - Priority 2: Curated 2400px+ DSLR Fashion Editorial Photoshoot matching garment category
-    - ZERO synthetic AI generation (No Pollinations/Flux distortion, no blurry faces)
+    - ZERO synthetic AI distortion, no blurry faces, no split panels or card dividers
     """
+    if matched_products:
+        try:
+            collage_bytes = generate_1200x630_collage(matched_products)
+            if collage_bytes:
+                print(f"  [OK] Single-frame 3-product blend created from active store products ({len(collage_bytes)} bytes)")
+                return collage_bytes
+        except Exception as e:
+            print(f"  [!] Notice: 3-product blend notice: {e}")
+
     garment_type, _ = classify_primary_garment(title, category_meta.get("name", ""))
     print(f"[*] Resolving 100% real human photography for garment '{garment_type}' (Title: '{title}')...")
     
@@ -934,13 +981,25 @@ def main():
     for c in collections:
         print(f"    - {c['title']} ({c['url']}, Active: {c['count']})")
 
-    # 5. Generate Discover Article Content
+    # 5. Select High-Intent Topic & Fetch Matched Products for Conversion
+    topic_query = (args.topic or "").strip()
+    if not topic_query:
+        topic_query = select_high_intent_topic(category_meta, existing_titles)
+    print(f"\n[*] Discover High-Intent Query Selected: '{topic_query}'")
+
+    print(f"[*] Fetching topic-matched store products for '{topic_query}'...")
+    matched_products = fetch_topic_matched_products(session, shopify_store, category_meta, topic_query)
+    print(f"  [OK] Selected {len(matched_products)} topic-matched products:")
+    for p in matched_products[:3]:
+        print(f"    - {p['title']} (Price: ${p.get('price', '')}, Type: {p.get('product_type', '')})")
+
+    # 6. Generate Discover Article Content
     title, seo_title, meta_desc, html_content, faq_items = generate_discover_article(
-        category_meta, collections, existing_titles, topic_override=args.topic
+        category_meta, collections, existing_titles, topic_override=topic_query
     )
 
-    # 6. Resolve 1200px+ Crystal-Clear Lifestyle Imagery from Shopify Free Image Library
-    image_bytes = resolve_discover_lifestyle_image(session, shopify_store, title, category_meta, blog_handle)
+    # 7. Resolve 1200x630 Crystal-Clear Featured Image (Single-Frame 3-Product Blend or Editorial Shoot)
+    image_bytes = resolve_discover_lifestyle_image(session, shopify_store, title, category_meta, blog_handle, matched_products=matched_products)
 
     # 7. Select E-E-A-T Stylist Persona
     author_name = random.choice(list(AUTHORS.keys()))
