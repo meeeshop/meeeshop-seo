@@ -351,37 +351,37 @@ def generate_discover_article(category_meta, collections, existing_titles, topic
     archetype_instructions = {
         "fit_solver": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately give the root cause and the numerical/proportion rule (e.g. hem break height ¼-½ inch, jacket-to-torso ratio 1:1.5, rise measurement, stretch recovery percentage). No morning commute or coffee run filler!
-- Section 1 (Topic-Specific H2): The Mechanics of the Cut (waistband engineering, seam contour, rise height, hem break).
-- Section 2 (Topic-Specific H2): Proportions & Balancing Volume (rule of thirds, fitted layers vs relaxed cuts, footwear pairing).
-- Section 3 (Topic-Specific H2): Fabric Recovery & Silhouette Longevity (elastane recovery %, twill weight, avoiding sagging or gaping).
+- Section 1 (Write a creative, tailored H2): Focus on the physics and engineering of the cut (waistband tension, rise height, contour seam placement, hem clearance). DO NOT copy prompt instructions or include parentheses in headings!
+- Section 2 (Write a creative, tailored H2): Focus on proportions and volume balance (rule of thirds, balancing fitted layers with relaxed cuts, footwear pairing).
+- Section 3 (Write a creative, tailored H2): Focus on fabric behavior and durability (elastane recovery percentage, twill weight, avoiding stretch-out or sagging).
 - Recommended Solution: Direct readers to explore complementary cuts in our verified store collection.
 """,
         "pairing": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately state the golden rule for pairing hemlines with footwear profiles (toe box shape, sole thickness, shaft height) or outer layers. No morning commute or coffee run filler!
-- Section 1 (Topic-Specific H2): Footwear Breakdown (Sneakers, Ankle Boots, Loafers, Mules) with hemline clearance rules.
-- Section 2 (Topic-Specific H2): Outerwear & Layering Proportions (cropped vs longline jackets, balancing torso-to-leg proportions).
-- Section 3 (Topic-Specific H2): Texture & Color Harmony (tonal palettes, contrasting textures like knits with denim).
+- Section 1 (Write a creative, tailored H2): Footwear Breakdown (Sneakers, Ankle Boots, Loafers, Mules) with hemline clearance rules.
+- Section 2 (Write a creative, tailored H2): Outerwear & Layering Proportions (cropped vs longline jackets, balancing torso-to-leg proportions).
+- Section 3 (Write a creative, tailored H2): Texture & Color Harmony (tonal palettes, contrasting textures like knits with denim).
 - Recommended Solution: Link to our curated collection as the destination to find complementary silhouettes.
 """,
         "comparison": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately summarize the fundamental difference between the two silhouettes and who each flatters most. No atmospheric filler!
-- Section 1 (Topic-Specific H2): Deep Dive on Silhouette A (proportions, ideal body shapes, best styling pairings).
-- Section 2 (Topic-Specific H2): Deep Dive on Silhouette B (proportions, ideal body shapes, best styling pairings).
-- Section 3 (Topic-Specific H2): The Fitting Room Decision Guide (how to choose based on height, torso length, and daily lifestyle).
+- Section 1 (Write a creative, tailored H2): Deep Dive on Silhouette A (proportions, ideal body shapes, best styling pairings).
+- Section 2 (Write a creative, tailored H2): Deep Dive on Silhouette B (proportions, ideal body shapes, best styling pairings).
+- Section 3 (Write a creative, tailored H2): The Decision Guide (how to choose based on height, torso length, and daily lifestyle).
 - Recommended Solution: Direct readers to compare cuts in our relevant category collections.
 """,
         "occasion": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately decode the dress code and establish the balance between comfortable ease and elevated polish. No generic intro stories!
-- Section 1 (Topic-Specific H2): Decoding the Dress Code & Establishing the Core Outfit Blueprint.
-- Section 2 (Topic-Specific H2): Fabric Selection & Comfort-Driven Tailoring (breathability, movement, wrinkle-resistance).
-- Section 3 (Topic-Specific H2): Day-to-Evening Transition & Weather Adaptation (footwear swaps, outerwear layers).
+- Section 1 (Write a creative, tailored H2): Decoding the Dress Code & Establishing the Core Outfit Blueprint.
+- Section 2 (Write a creative, tailored H2): Fabric Selection & Comfort-Driven Tailoring (breathability, movement, wrinkle-resistance).
+- Section 3 (Write a creative, tailored H2): Day-to-Evening Transition & Weather Adaptation (footwear swaps, outerwear layers).
 - Recommended Solution: Recommend checking our seasonal collections for curated occasion wear.
 """,
         "care": """
-- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately explain the fabric fiber structure (natural vs synthetic matrix) and the #1 golden rule of washing/caring for it. No fluff!
-- Section 1 (Topic-Specific H2): Understanding Fabric Fiber Structure (open weaves vs synthetic bonds, temperature thresholds).
-- Section 2 (Topic-Specific H2): Step-by-Step Washing & Refreshing Protocol (water temperature, cycle, neutral detergents, steaming vs ironing).
-- Section 3 (Topic-Specific H2): Common Pitfalls That Destroy Garment Drape & Longevity (fabric softener buildup, hanging heavy knits, dye bleeding).
+- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately explain the fiber/storage structure and the #1 golden rule of maintaining it. No fluff!
+- Section 1 (Write a creative, tailored H2): Understanding Fiber & Structural Anatomy (open weaves vs synthetic bonds, hanging zone spacing, threshold limits).
+- Section 2 (Write a creative, tailored H2): Step-by-Step Care / Organization Protocol (temperatures, sorting rules, color ratios, steaming vs ironing).
+- Section 3 (Write a creative, tailored H2): Common Pitfalls That Destroy Garment Drape & Longevity (softener buildup, improper hangers, overcrowding, stretching).
 - Recommended Solution: Mention how investing in boutique natural fibers and proper care guarantees seasons of wear.
 """
     }
