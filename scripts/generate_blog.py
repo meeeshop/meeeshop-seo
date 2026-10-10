@@ -1001,6 +1001,28 @@ EDITORIAL, READABILITY & SEARCH INTENT REQUIREMENTS:
         flags=re.IGNORECASE
     ).strip()
 
+    # Cleanly strip incomplete trailing outfit items (e.g. "Look 3: Evening Whisper —")
+    html_content = re.sub(r'<li[^>]*>[^<]*?[—–-]\s*(?:</li>)?\s*$', '', html_content, flags=re.IGNORECASE).strip()
+    html_content = re.sub(r'<li[^>]*>\s*<strong>Look\s*\d+:[^<]*?</strong>\s*[—–-]?\s*(?:</li>)?\s*$', '', html_content, flags=re.IGNORECASE).strip()
+
+    # Roll back to the last complete sentence if text ends mid-sentence without terminal punctuation
+    clean_end = re.sub(r'<[^>]+>', '', html_content).strip()
+    if clean_end and not clean_end.endswith(('.', '!', '?')):
+        last_punct = max(html_content.rfind('.'), html_content.rfind('!'), html_content.rfind('?'))
+        if last_punct > len(html_content) - 300:
+            html_content = html_content[:last_punct + 1].strip()
+
+    # Re-verify and close any open tags cleanly
+    html_content = re.sub(r'<[^>]*$', '', html_content).strip()
+    if html_content.count("<li") > html_content.count("</li>"):
+        html_content += "</li>"
+    if html_content.count("<ul") > html_content.count("</ul>"):
+        html_content += "</ul>"
+    if html_content.count("<div") > html_content.count("</div>"):
+        html_content += "</div>" * (html_content.count("<div") - html_content.count("</div>"))
+    if html_content.count("<p") > html_content.count("</p>"):
+        html_content += "</p>" * (html_content.count("<p") - html_content.count("</p>"))
+
     # Fetch 3 guaranteed, fully answered styling FAQs
     faq_items = generate_topic_faqs(topic, category_name)
 
