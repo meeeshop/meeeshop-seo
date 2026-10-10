@@ -652,118 +652,231 @@ SILHOUETTES_BY_CATEGORY = {
     "our-tips": ["Delicate Fabric Care", "Accurate Body Measurements", "Closet Organization Routines", "Fabric Shrinkage Prevention", "Knitwear De-Pilling Routines"]
 }
 
+def detect_intent_archetype(topic: str) -> str:
+    """
+    Classifies search queries into distinct editorial archetypes so articles
+    never share identical cookie-cutter structures.
+    """
+    tl = topic.lower()
+    if any(k in tl for k in [" vs ", " versus ", "which silhouette", "which cut", "which dress", "which is more"]):
+        return "comparison"
+    elif any(k in tl for k in ["wash", "care", "shrink", "fabric", "pilling", "stain", "steam", "iron"]):
+        return "care"
+    elif any(k in tl for k in ["without", "prevent", "stop ", "gap", "bulky", "frumpy", "dragging", "petite", "tummy", "apple"]):
+        return "fit_solver"
+    elif any(k in tl for k in ["wedding", "brunch", "office", "travel", "dinner", "date night", "vacation"]):
+        return "occasion"
+    elif any(k in tl for k in ["shoes", "boots", "footwear", "sneakers", "loafers", "heels", "what to wear with"]):
+        return "pairing"
+    else:
+        return "fit_solver"
+
 def generate_programmatic_long_tail_topic(cat_key, category_name, existing_lower):
     """
-    Deterministically generates high-intent, long-tail search queries
-    answering real human shopping problems (occasions, body fit, footwear, layering).
-    Guaranteed zero repetition and strong commercial intent.
+    Deterministically generates genuine, high-volume People Also Ask (PAA) questions
+    and real shopper search queries answering everyday fit, pairing, and sizing dilemmas.
     """
     if cat_key == "our-tips":
         care_topics = [
-            "How to Wash and Care for Delicate Boutique Fabrics to Prevent Damage",
-            "The Complete Guide to Measuring Your Body Correctly for Boutique Sizing",
-            "How to Organize Your Closet to Make Getting Dressed Effortless Every Morning",
-            "Preventing Knitwear and Sweater Pilling: Step-by-Step Garment Care",
-            "How to Remove Stains from Delicate Fabrics Without Damaging the Weave",
-            "Steam vs Iron: The Safe Way to Refresh Silk, Rayon, and Linen",
-            "How to Store Seasonal Clothes to Protect Fibers from Humidity and Dust",
+            "How to Wash Modal and Bamboo Tops So They Never Shrink or Pill",
+            "How to Prevent Sweater and Knitwear Pilling: Garment Care Guide",
+            "Clothing Sizing Guide: How to Take Accurate Body Measurements at Home",
             "Preventing Dark Denim Color Bleed: Laundry Rules That Actually Work",
-            "How to Repair Stiff Zippers and Loose Hemlines in Minutes at Home",
-            "The Best Fabric Care Practices for Sustainable, Long-Lasting Clothing"
+            "Steam vs Iron: Safe Way to Refresh Silk, Rayon, Linen, and Knits",
+            "How to Wash and Care for Delicate Boutique Fabrics to Prevent Damage",
+            "How to Remove Stains from Delicate Fabrics Without Damaging the Weave",
+            "How to Store Seasonal Clothes to Protect Fibers from Humidity and Dust",
+            "How to Fix a Stiff Zipper, Loose Button, or Snagged Hemline at Home",
+            "How to Organize Your Closet to Make Getting Dressed Fast and Effortless"
         ]
-        available_care = [t for t in care_topics if t.lower().strip() not in existing_lower]
-        if available_care:
-            return random.choice(available_care)
-        return "Expert Boutique Garment Care & Fabric Maintenance Guide"
+        avail = [t for t in care_topics if t.lower().strip() not in existing_lower]
+        return random.choice(avail) if avail else care_topics[0]
 
     silhouettes = SILHOUETTES_BY_CATEGORY.get(cat_key, [f"{category_name} Staples", f"Tailored {category_name}"])
     current_season = "Fall" if datetime.now().month in [9, 10, 11] else "Winter" if datetime.now().month in [12, 1, 2] else "Spring" if datetime.now().month in [3, 4, 5] else "Summer"
 
-    def article_for(word):
-        return "an" if word[0].lower() in "aeiou" else "a"
-
-    templates = [
-        lambda s, o, b: f"What to Wear to {article_for(o)} {o}: {s} Styling Guide",
-        lambda s, o, b: f"Best {s} for {b}: Flattering Fit & Proportion Rules",
-        lambda s, o, b: f"How to Style {s} for {article_for(o)} {o} with Effortless Polish",
-        lambda s, o, b: f"What Shoes and Boots to Pair with {s} This {current_season}",
-        lambda s, o, b: f"How to Style {s} for {b}: Easy Everyday Formulas",
-        lambda s, o, b: f"{o} Outfits: How to Style {s} with Modern Polish",
-        lambda s, o, b: f"How to Layer {s} Across {current_season} Without Adding Bulk",
-        lambda s, o, b: f"Finding the Perfect {s} for {b}: Comfort and Silhouette Tips",
-        lambda s, o, b: f"The {b} Guide to Styling {s} for Everyday Confidence",
-        lambda s, o, b: f"How to Transition {s} from Day to Evening for {article_for(o)} {o}"
+    paa_generators = [
+        # 1. Fit & Dilemma Problem Solvers (High PAA Volume)
+        lambda s: f"How to Style {s} Without Looking Bulky or Overdressed",
+        lambda s: f"How to Wear {s} So the Hemline Doesn't Drag or Catch",
+        lambda s: f"How to Style {s} for Petite Proportions to Elongate Legs",
+        lambda s: f"How to Wear {s} for Apple and Hourglass Shapes: Fit & Rise Guide",
+        lambda s: f"Finding {s} That Never Gap at the Waist: Fit & Stretch Tips",
+        lambda s: f"How to Style {s} for Relaxed Everyday Wear Without Looking Frumpy",
+        # 2. Footwear & Pairing Queries (Top Search Query Format)
+        lambda s: f"What Shoes and Boots to Pair with {s} This {current_season}",
+        lambda s: f"How to Wear Sneakers with {s} for Effortless Casual Outfits",
+        lambda s: f"What Tops and Layers Look Best with High-Rise {s}",
+        lambda s: f"What Jacket to Wear Over {s} Across Changing Weather",
+        # 3. Occasion & Lifestyle Queries
+        lambda s: f"What to Wear to a Casual Business Lunch: {s} Outfit Ideas",
+        lambda s: f"How to Style {s} from Desk to Dinner with Simple Swaps",
+        lambda s: f"Comfortable Weekend Outfits Around {s} That Still Look Polished"
     ]
 
-    random.shuffle(templates)
-    for tmpl in templates:
-        for _ in range(25):
+    random.shuffle(paa_generators)
+    for gen in paa_generators:
+        for _ in range(20):
             s = random.choice(silhouettes)
-            o = random.choice(OCCASIONS_LONG_TAIL)
-            b = random.choice(BODY_TYPES_LONG_TAIL)
-            candidate = tmpl(s, o, b)
+            candidate = gen(s)
             if candidate.lower().strip() not in existing_lower:
                 return candidate
 
-    return f"How to Style {category_name} for Modern Proportions & Everyday Outfits"
+    return f"How to Style {category_name} for Modern Proportions and Everyday Confidence"
 
-# ── Unified Single-Call AI Content Generation Engine ──────────────────────────
-def generate_blog_content(api_key, category_meta, collections, existing_titles):
+def select_high_intent_topic(category_meta, existing_titles):
+    """Selects a fresh high-intent People Also Ask topic avoiding existing articles."""
+    template_suffix = category_meta.get("template_suffix", "")
+    category_name = category_meta["name"]
+    topic_themes = category_meta.get("topic_themes", [])
+
+    existing_lower = {t.lower().strip() for t in existing_titles}
+    available_themes = [t for t in topic_themes if t.lower().strip() not in existing_lower]
+
+    if available_themes:
+        topic = random.choice(available_themes)
+    else:
+        topic = generate_programmatic_long_tail_topic(template_suffix, category_name, existing_lower)
+
+    return sanitize_editorial_title(topic)
+
+def render_stylist_product_showcase(matched_products):
     """
-    Generates high-value, Google Discover-ready blog content in the original
-    conversational first-person stylist voice using a SINGLE optimized AI call
-    with minimal tokens to eliminate rate limits and API bursts.
+    Renders a high-converting, responsive 'Stylist-Curated Solutions from MeeeShop' product showcase
+    linking directly to active store products recommended in the article.
+    """
+    if not matched_products:
+        return ""
+
+    cards_html = []
+    for p in matched_products[:3]:
+        img_tag = f'<img src="{p["image_url"]}" alt="{p["title"]}" style="width: 100%; height: 260px; object-fit: cover; border-radius: 6px; margin-bottom: 12px;" />' if p.get("image_url") else ""
+        price_val = float(p.get("price", 49.0))
+        price_str = f"${price_val:.2f}"
+        cards_html.append(f"""
+        <div style="background: #ffffff; border: 1px solid #ede8e3; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 5px rgba(0,0,0,0.02);">
+          <div>
+            {img_tag}
+            <h4 style="margin: 0 0 6px 0; font-size: 0.95rem; font-weight: 600; line-height: 1.35;">
+              <a href="{p['url']}" style="color: #1a1a1a; text-decoration: none;">{p['title']}</a>
+            </h4>
+            <p style="margin: 0 0 12px 0; font-size: 0.9rem; color: #735c4a; font-weight: 600;">{price_str}</p>
+          </div>
+          <a href="{p['url']}" style="display: inline-block; text-align: center; background: #1a1a1a; color: #ffffff; padding: 8px 14px; border-radius: 4px; font-size: 0.85rem; font-weight: 500; text-decoration: none;">Shop This Style &rarr;</a>
+        </div>
+        """)
+
+    return f"""
+<div class="stylist-solution-showcase" style="margin-top: 40px; margin-bottom: 30px; padding: 24px; background: #faf9f6; border: 1px solid #ede8e3; border-radius: 8px;">
+  <h3 style="margin-top: 0; margin-bottom: 6px; font-size: 1.25rem; color: #1a1a1a;">Stylist-Curated Solutions from MeeeShop</h3>
+  <p style="margin-top: 0; margin-bottom: 20px; color: #666; font-size: 0.95rem; line-height: 1.5;">Shop the exact boutique cuts and fabrics featured in this styling guide:</p>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px;">
+    {"".join(cards_html)}
+  </div>
+</div>
+"""
+
+# ── Unified Search-Intent AI Content Generation Engine ──────────────────────────
+def generate_blog_content(category_meta, collections, matched_products, topic):
+    """
+    Generates high-value, Google Discover-eligible and search-intent aligned blog content.
+    - Direct Answer First (Google Helpful Content System)
+    - Dynamic Editorial Archetypes tailored to question intent (No cookie-cutter templates)
+    - Integrates real store products with links and builds a responsive product showcase block
+    - Genuine People Also Ask (PAA) FAQs
     """
     from ai_client import generate as ai_generate
 
     category_name = category_meta["name"]
-    template_suffix = category_meta.get("template_suffix", "")
-    topic_themes = category_meta.get("topic_themes", [f"How to Style {category_name} for Everyday Elegance"])
+    archetype = detect_intent_archetype(topic)
+    print(f"[*] Detected Search Intent Archetype: {archetype.upper()} for '{topic}'")
 
-    # Step 1: Select a fresh trending topic theme avoiding existing titles
-    existing_lower = {t.lower() for t in existing_titles}
-    available_themes = [t for t in topic_themes if t.lower() not in existing_lower]
-    
-    if available_themes:
-        topic = random.choice(available_themes)
-    else:
-        # Generate fresh high-intent long-tail search query deterministically
-        topic = generate_programmatic_long_tail_topic(template_suffix, category_name, existing_lower)
-    
-    topic = sanitize_editorial_title(topic)
-    print(f"[*] High-Intent Long-Tail Topic Selected for {category_name}: '{topic}'")
-
-    # Step 2: Store collections context for natural internal linking (max 2-3)
-    context = ""
+    # 1. Prepare Store Collections Context for Internal Links (max 2)
+    collections_context = ""
     if collections:
-        context += "Here are our store collections (verified active collections). You MUST insert a MAXIMUM of 2 to 3 internal links to our collections across the entire article using exact HTML anchor tags (e.g. <a href='/collections/...'>...</a>). Select only the most relevant ones. ONLY link to these specific URLs. DO NOT hallucinate collection URLs:\n"
+        collections_context = "Verified active store collections (insert 1-2 naturally using exact HTML links <a href='/collections/...'>...</a>):\n"
         for c in collections[:3]:
-            context += f"- {c['title']} (URL: {c['url']})\n"
+            collections_context += f"- {c['title']} (URL: {c['url']})\n"
 
-    # Step 3: Write Complete Article Body in ONE Single Token-Efficient Call (600-800 words)
+    # 2. Prepare Real Matched Products Context for Conversion Integration
+    products_context = ""
+    if matched_products:
+        products_context = "Real topic-matched boutique products in our store (weave 1 to 2 of these into your styling advice as the recommended solution with exact links <a href='/products/...'>...</a>):\n"
+        for p in matched_products[:3]:
+            price_val = float(p.get("price", 49.0))
+            products_context += f"- {p['title']} (Price: ${price_val:.2f}, URL: {p['url']}, Type: {p.get('product_type', 'Apparel')})\n"
+
+    # 3. Dynamic Archetype Instructions
+    archetype_instructions = {
+        "fit_solver": """
+- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately give the root cause and the numerical/proportion rule (e.g. hem break height ¼-½ inch, rise measurement, stretch recovery percentage). No morning commute or coffee run filler!
+- Section 1 (Topic-Specific H2): The Mechanics of the Cut (waistband engineering, seam contour, rise height, hem break).
+- Section 2 (Topic-Specific H2): Top Pairings & Proportions (balancing volume with fitted layers, accessories).
+- Recommended Solution: Explain why one of our store products solves this exact fit problem (waist gap, dragging hem, or bunching).
+""",
+        "pairing": """
+- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately state the golden rule for pairing hemlines with footwear profiles (toe box shape, sole thickness, shaft height) or outer layers. No morning commute or coffee run filler!
+- Section 1 (Topic-Specific H2): Footwear Breakdown (Sneakers, Ankle Boots, Loafers, Mules) with hemline clearance rules.
+- Section 2 (Topic-Specific H2): Layering & Proportions (outerwear lengths that keep the silhouette balanced).
+- Recommended Solution: Recommend one of our store products as the anchor piece for these footwear pairings.
+""",
+        "comparison": """
+- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately summarize the fundamental difference between the two silhouettes and who each flatters most. No atmospheric filler!
+- Section 1 (Topic-Specific H2): Deep Dive on Silhouette A (proportions, ideal body shapes, best styling pairings).
+- Section 2 (Topic-Specific H2): Deep Dive on Silhouette B (proportions, ideal body shapes, best styling pairings).
+- Section 3 (Topic-Specific H2): The Fitting Room Decision Guide (how to choose based on height, torso length, and daily lifestyle).
+- Recommended Solution: Link our store products representing the flattering cut.
+""",
+        "occasion": """
+- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately decode the dress code and establish the balance between comfortable ease and elevated polish. No generic intro stories!
+- Section 1 (Topic-Specific H2): The Core Outfit Blueprint (garment formulas with proportion advice).
+- Section 2 (Topic-Specific H2): Weather-Smart Layering & Footwear Swaps (transitioning from day to evening).
+- Recommended Solution: Highlight one of our boutique pieces as the centerpiece outfit.
+""",
+        "care": """
+- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately explain the fabric fiber structure and the #1 golden rule of washing/caring for it. No fluff!
+- Section 1 (Topic-Specific H2): Step-by-Step Laundry Protocol (water temperature, cycle, detergent, drying method, steaming vs ironing).
+- Section 2 (Topic-Specific H2): Common Mistakes That Ruin Garments (fabric softener buildup, hanging heavy knits, color bleed).
+- Recommended Solution: Mention how boutique fabric blends maintain longevity when cared for properly.
+"""
+    }
+
+    selected_archetype_guide = archetype_instructions.get(archetype, archetype_instructions["fit_solver"])
+
     article_prompt = f"""
-Act as a senior fashion director and boutique stylist at MeeeShop (USA). Write a comprehensive, highly engaging, Google Discover-eligible fashion styling guide answering: "{topic}".
+Act as a senior boutique stylist at MeeeShop (USA). Write an authoritative, engaging, and genuinely helpful fashion styling guide answering the real shopper search query: "{topic}".
 
-GOOGLE DISCOVER & EDITORIAL REQUIREMENTS:
-1. Audience & Voice: Authentic, conversational, first-person stylist voice sharing real fitting room experience.
-2. Structure & Formatting:
+EDITORIAL & SEARCH INTENT REQUIREMENTS:
+1. STRICTLY FORBIDDEN CLICHÉS:
+   - Do NOT write opening stories about "drinking a latte", "morning commute", "sprinting to the subway", "rooftop bistro/lunch", "coffee run", or "picture this in the fitting room".
+   - Do NOT use generic headings like "Daytime Proportions vs Evening Layering", "Formula 1, 2, 3", or "Pro Stylist Rule-of-Thumb". Make all H2 headings UNIQUE and tailored to "{topic}".
+   - Do NOT use repetitive table formats.
+
+2. SEARCH INTENT ARCHETYPE GUIDELINES:
+{selected_archetype_guide}
+
+3. PRO STYLIST RULE:
+   - Include 1 memorable styling rule-of-thumb inside a styled <blockquote>Rule-of-Thumb: <em>...</em></blockquote>.
+
+4. REAL PRODUCT & COLLECTION INTEGRATION:
+{products_context}
+{collections_context}
+   - Weave 1 to 2 of the specific store products into your explanations with exact HTML links <a href='/products/...'>Product Title</a>.
+
+5. PEOPLE ALSO ASK (PAA) FAQS:
+   - Include an <h2>Frequently Asked Questions</h2> section with EXACTLY 2 real questions shoppers ask online about "{topic}".
+   - Format: <p><strong>Q: ...</strong></p><p>A: ...</p>
+   - Answer each question authoritatively in 2-3 complete sentences.
+
+6. OUTPUT FORMAT:
    - Line 1 MUST be: <h1>{topic}</h1>
-   - Introduction: Set a relatable scene (coffee runs, morning commute, event dressing) explaining why proportions matter.
-   - 2 Detailed Styling Sections with <h2> subheadings (e.g. Daytime Proportions vs Evening Layering).
-     Include an explanation paragraph + a clear outfit formula checklist (<ul><li>).
-   - A styled <blockquote> with a pro stylist rule-of-thumb tip.
-   - A dedicated <h2>Frequently Asked Questions</h2> section with EXACTLY 2 complete, well-reasoned Q&As (<p><strong>Q: ...</strong></p><p>A: ...</p>).
-3. Forbidden AI Telltales: Do NOT use phrases like {", ".join(AI_CLICHES[:8])}.
-4. Length & Completion: Ensure ALL sentences and FAQs are 100% complete and not cut off. Total length should be ~600-800 words.
-5. Internal Linking: Naturally integrate 2-3 links to our store collections below using exact HTML anchor tags:
-{context}
-6. Output: Return ONLY raw valid HTML. Do NOT wrap in ```html markdown fences.
+   - Return ONLY raw valid HTML. Do NOT wrap in ```html fences. Total length: 650-800 words.
 """
 
     html_content = ai_generate(article_prompt, max_tokens=1600, temperature=0.7)
     if not html_content:
         raise RuntimeError("Failed generating article body across all AI providers.")
-    
+
     html_content = html_content.strip()
 
     if html_content.startswith("```html"):
@@ -776,7 +889,6 @@ GOOGLE DISCOVER & EDITORIAL REQUIREMENTS:
 
     # Safeguard: ensure HTML doesn't end on a broken unclosed tag or sentence
     if not html_content.endswith((".", "</p>", "</ul>", "</blockquote>", "</div>", ">")):
-        # Cleanly trim back to last completed period or tag
         last_period = max(html_content.rfind("."), html_content.rfind("</p>"))
         if last_period > len(html_content) - 150:
             html_content = html_content[:last_period + 1]
@@ -792,6 +904,11 @@ GOOGLE DISCOVER & EDITORIAL REQUIREMENTS:
         article_title = sanitize_editorial_title(extracted_h1)
         html_content = html_content[:html_content.find("<h1>")] + html_content[h1_end + 5:]
         html_content = html_content.strip()
+
+    # Append high-converting Stylist Product Showcase Block
+    product_showcase_html = render_stylist_product_showcase(matched_products)
+    if product_showcase_html:
+        html_content = html_content + "\n" + product_showcase_html
 
     # Generate high-CTR 50-60 char SEO Title and 140-155 char Meta Description matching search intent
     if len(article_title) <= 45:
@@ -1168,27 +1285,32 @@ def main():
     existing_titles = get_all_existing_titles(session, shopify_store, blogs)
     print(f"  [OK] {len(existing_titles)} existing articles indexed to prevent duplicate topics")
 
-    # 5. Fetch Verified Collections (>= 20 Active Products Rule)
+    # 5. Select High-Intent Search / People Also Ask Topic
+    print(f"\n[*] Selecting high-intent search query / PAA topic for '{category_meta['name']}'...")
+    topic = select_high_intent_topic(category_meta, existing_titles)
+    print(f"  [OK] Selected Topic: '{topic}'")
+
+    # 6. Fetch Verified Collections (>= 20 Active Products Rule)
     print(f"\n[*] Fetching verified store collections (>= 20 active products) for '{category_meta['name']}'...")
     collections = fetch_category_shopify_data(session, shopify_store, category_meta)
     print(f"  [OK] Found {len(collections)} verified active collection links:")
     for c in collections:
         print(f"    - {c['title']} (URL: {c['url']}, Active Products: {c['count']})")
 
-    # 6. Generate Content (Clean Editorial Style + Structured FAQs)
-    print(f"\n[*] Generating Google Discover eligible article content with FAQs...")
+    # 7. Fetch Topic-Matched Products for In-Article Conversion & 1200x630 Discover Image
+    print(f"\n[*] Fetching topic-matched store products for '{topic}'...")
+    matched_products = fetch_topic_matched_products(session, shopify_store, category_meta, topic)
+    print(f"  [OK] Selected {len(matched_products)} topic-matched products:")
+    for p in matched_products[:3]:
+        print(f"    - {p['title']} (Price: ${p.get('price', '')}, Type: {p.get('product_type', '')})")
+
+    # 8. Generate Content (Intent-driven, direct answers, store product recommendations)
+    print(f"\n[*] Generating high-intent, Google Discover & PAA optimized article content...")
     title, seo_title, meta_desc, html_content = generate_blog_content(
-        gemini_key, category_meta, collections, existing_titles
+        category_meta, collections, matched_products, topic
     )
 
-    # 7. Fetch Topic-Matched Products for 1200x630 Discover Image
-    print(f"\n[*] Fetching topic-matched products for '{title}'...")
-    matched_products = fetch_topic_matched_products(session, shopify_store, category_meta, title)
-    print(f"  [OK] Selected {len(matched_products)} topic-matched products for featured image:")
-    for p in matched_products[:3]:
-        print(f"    - {p['title']} (Type: {p['product_type']})")
-
-    # 8. Generate 1200x630 Discover Image (AI or 3-Panel Topic-Matched Collage)
+    # 9. Generate 1200x630 Discover Image (Single-frame seamless 3-product blend)
     image_bytes = generate_article_featured_image(gemini_key, title, category_meta['name'], matched_products)
 
     # 9. Select E-E-A-T Stylist Persona
