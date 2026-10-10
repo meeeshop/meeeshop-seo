@@ -502,10 +502,24 @@ EDITORIAL, READABILITY & SEARCH INTENT REQUIREMENTS:
     )[:155]
 
     # 1. Cleanly strip any raw or incomplete FAQ output from AI to prevent dangling tags
-    html_content = re.sub(r'<h2>\s*Frequently Asked Questions.*?$', '', html_content, flags=re.DOTALL | re.IGNORECASE).strip()
+    html_content = re.sub(r'<h2[^>]*>\s*Frequently Asked Questions.*?$', '', html_content, flags=re.DOTALL | re.IGNORECASE).strip()
     html_content = re.sub(r'<div class="faq-item">.*?$', '', html_content, flags=re.DOTALL | re.IGNORECASE).strip()
     html_content = re.sub(r'<p><strong>\s*(?:Q:?|Question:?).*?$', '', html_content, flags=re.DOTALL | re.IGNORECASE).strip()
     html_content = re.sub(r'<[^>]*$', '', html_content).strip()
+
+    # Cleanly resolve or remove any dangling/incomplete recommendation sentence ending abruptly before FAQs (e.g. "from our")
+    html_content = re.sub(
+        r'<h[2-4][^>]*>\s*Recommended Solution\s*</h[2-4]>\s*(?:<p[^>]*>[^<]*?\b(?:from|with|explore|check|at|visit)\s+(?:our|the)\s*</p>\s*)?$',
+        '',
+        html_content,
+        flags=re.IGNORECASE
+    ).strip()
+    html_content = re.sub(
+        r'\b(?:from|with|explore|check|at|visit)\s+(?:our|the)\s*(?:</p>)?\s*$',
+        '.</p>',
+        html_content,
+        flags=re.IGNORECASE
+    ).strip()
 
     # 2. Fetch 2-3 guaranteed, fully answered, high-depth styling FAQs
     faq_items = generate_topic_faqs(topic, category_name)

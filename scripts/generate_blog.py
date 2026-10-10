@@ -982,6 +982,20 @@ EDITORIAL, READABILITY & SEARCH INTENT REQUIREMENTS:
     html_content = re.sub(r'<p><strong>\s*(?:Q:?|Question:?).*?$', '', html_content, flags=re.DOTALL | re.IGNORECASE).strip()
     html_content = re.sub(r'<[^>]*$', '', html_content).strip()
 
+    # Cleanly resolve or remove any dangling/incomplete recommendation sentence ending abruptly before FAQs (e.g. "from our")
+    html_content = re.sub(
+        r'<h[2-4][^>]*>\s*Recommended Solution\s*</h[2-4]>\s*(?:<p[^>]*>[^<]*?\b(?:from|with|explore|check|at|visit)\s+(?:our|the)\s*</p>\s*)?$',
+        '',
+        html_content,
+        flags=re.IGNORECASE
+    ).strip()
+    html_content = re.sub(
+        r'\b(?:from|with|explore|check|at|visit)\s+(?:our|the)\s*(?:</p>)?\s*$',
+        '.</p>',
+        html_content,
+        flags=re.IGNORECASE
+    ).strip()
+
     # Fetch 3 guaranteed, fully answered styling FAQs
     faq_items = generate_topic_faqs(topic, category_name)
 
