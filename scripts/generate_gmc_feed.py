@@ -178,9 +178,10 @@ def clean_feed_title(title):
 
 def build_optimized_feed_title(product, variant, brand, color, size):
     """
-    Constructs high-intent Google Shopping titles complying with Google Merchant Center specifications.
-    Formula: [Brand] + [Gender] + [Enriched Style/Keyword] + [Category Cut] + [Color/Size]
-    Ensures primary matching keywords are placed within the first 70 visible mobile characters.
+    Constructs clean, high-intent Google Shopping titles complying with Google Merchant Center specifications.
+    Uses natural keyword enrichment (e.g. Graphic, Knit, Crossbody) without prepending duplicate brand or gender prefixes.
+    Dedicated 'brand' and 'gender' columns are provided directly to GMC.
+    Formula: [Enriched Clean Title] + [Variant Suffix (Color / Size)]
     """
     raw_title = product.get("title", "")
     base_title = clean_feed_title(raw_title)
@@ -206,19 +207,7 @@ def build_optimized_feed_title(product, variant, brand, color, size):
         if "shapewear" in t_lower:
             enriched = re.sub(r'\b(shapewear)\b', r'Tummy Control \1', enriched, flags=re.IGNORECASE)
             
-    # Add authentic Brand prefix if recognized consumer brand
-    brand_prefix = ""
-    if brand and brand.lower() not in ["meeeshop", "default", ""]:
-        if not enriched.lower().startswith(brand.lower()):
-            brand_prefix = f"{brand} "
-            
-    # Add Gender Prefix for Google Apparel Taxonomy if missing
-    gender_prefix = ""
-    if "women" not in enriched.lower() and "girl" not in enriched.lower() and "men" not in enriched.lower():
-        gender_prefix = "Women's "
-        
-    core_title = f"{brand_prefix}{gender_prefix}{enriched}".strip()
-    core_title = re.sub(r'\s+', ' ', core_title)
+    core_title = re.sub(r'\s+', ' ', enriched).strip()
     
     # Format Variant Suffix (Color / Size)
     var_title = (variant.get("title") or "").strip()
