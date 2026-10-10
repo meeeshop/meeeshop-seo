@@ -160,6 +160,7 @@ def clean_feed_title(title):
     if not title:
         return ""
     t = title.strip()
+    t = t.replace('"', '').replace("'", "").strip()
     t = re.sub(r'^[\s\.\,\*\-\–\—\:\_]+', '', t).strip()
     for pat in SUPPLIER_PATTERNS:
         t = re.sub(pat, '', t, flags=re.IGNORECASE).strip()
@@ -174,6 +175,57 @@ def clean_feed_title(title):
     if t:
         t = t[0].upper() + t[1:] if len(t) > 1 else t.upper()
     return t
+
+def build_optimized_feed_title(product, variant, brand, color, size):
+    """
+    Constructs clean, high-intent Google Shopping titles complying with Google Merchant Center specifications.
+    Uses natural keyword enrichment (e.g. Graphic, Knit, Crossbody) without prepending duplicate brand or gender prefixes.
+    Dedicated 'brand' and 'gender' columns are provided directly to GMC.
+    Formula: [Enriched Clean Title] + [Variant Suffix (Color / Size)]
+    """
+    raw_title = product.get("title", "")
+    base_title = clean_feed_title(raw_title)
+    if not base_title:
+        return ""
+        
+    p_type = (product.get("product_type") or "").lower()
+    tags = (product.get("tags") or "").lower()
+    t_lower = base_title.lower()
+    combined_meta = f"{t_lower} {p_type} {tags}"
+    
+    # Natural Keyword Enrichment for high-intent search queries
+    enriched = base_title
+    if "graphic" not in t_lower and any(w in combined_meta for w in ["rodeo", "cowboy", "country", "graphic", "vintage tee"]):
+        enriched = re.sub(r'\b(crop top|t-shirt|tee|tank top|tank)\b', r'Graphic \1', enriched, flags=re.IGNORECASE)
+    if "knit" not in t_lower and "sweater" in t_lower:
+        enriched = re.sub(r'\b(sweater|cardigan|pullover)\b', r'Knit \1', enriched, flags=re.IGNORECASE)
+    if "crossbody" not in t_lower and any(w in combined_meta for w in ["camera bag", "crossbody", "sling"]):
+        enriched = re.sub(r'\b(bag|purse)\b', r'Crossbody \1', enriched, flags=re.IGNORECASE)
+    if "shoulder" not in t_lower and "tote" in t_lower and "bag" in t_lower:
+        enriched = re.sub(r'\b(tote bag|tote)\b', r'\1 Shoulder Bag', enriched, flags=re.IGNORECASE)
+    if "tummy control" not in t_lower and any(w in combined_meta for w in ["shapewear", "tummy control"]):
+        if "shapewear" in t_lower:
+            enriched = re.sub(r'\b(shapewear)\b', r'Tummy Control \1', enriched, flags=re.IGNORECASE)
+            
+    core_title = re.sub(r'\s+', ' ', enriched).strip()
+    
+    # Format Variant Suffix (Color / Size)
+    var_title = (variant.get("title") or "").strip()
+    var_suffix = ""
+    if var_title and var_title != "Default Title":
+        v_clean = var_title.replace('"', '').strip()
+        var_suffix = f" - {v_clean}"
+    elif color or size:
+        parts = [p for p in [color, size] if p and p not in ["Multi", "Default Title"]]
+        if parts:
+            var_suffix = f" - {' / '.join(parts)}"
+            
+    final_title = f"{core_title}{var_suffix}".strip()
+    final_title = re.sub(r'\s+', ' ', final_title)
+    if len(final_title) > 150:
+        final_title = final_title[:147] + "..."
+    return final_title
+
 
 def clean_html(raw_html):
     """Removes HTML tags from product descriptions for the GMC feed."""
@@ -579,8 +631,8 @@ def generate_feed():
 
         additional_images = ",".join(additional_images_list)
         prod_desc = clean_html(product.get("body_html", ""))
-        if len(prod_desc) > 500:
-            prod_desc = prod_desc[:497] + "..."
+        if len(prod_desc) > 1500:
+            prod_desc = prod_desc[:1497] + "..."
         brand = resolve_feed_brand(product)
         item_group_id = str(product.get("id"))
         product_type = product.get("product_type", "")
@@ -595,10 +647,6 @@ def generate_feed():
             sku = variant.get("sku") or var_id
             feed_id = f"shopify_ZZ_{item_group_id}_{var_id}"
             
-            title = clean_feed_title(product.get("title"))
-            if variant.get("title") and variant.get("title") != "Default Title":
-                title = f"{title} - {variant.get('title')}"
-                
             link = f"{STORE_BASE_URL.rstrip('/')}/products/{product.get('handle')}?variant={var_id}"
             
             qty = variant.get("inventory_quantity", 0)
@@ -626,6 +674,9 @@ def generate_feed():
                     size = val
                     
             color = extract_color(product, variant, color)
+            
+            # High-intent Google Shopping title optimization
+            title = build_optimized_feed_title(product, variant, brand, color, size)
                     
             rows.append({
                 "id": feed_id,
