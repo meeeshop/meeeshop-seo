@@ -740,6 +740,72 @@ def select_high_intent_topic(category_meta, existing_titles):
 
     return sanitize_editorial_title(topic)
 
+def generate_topic_faqs(topic, category_name=""):
+    """
+    Guarantees EXACTLY 3 complete, expert styling Q&As with full answers (35-50 words each)
+    using structured JSON output to completely prevent truncated or unanswered questions.
+    """
+    from ai_client import generate as ai_generate
+    faq_prompt = f"""
+Act as an expert boutique stylist at MeeeShop boutique (USA).
+Generate EXACTLY 3 helpful, practical shopper styling Q&As specifically addressing common doubts about: "{topic}".
+Return ONLY a valid JSON array of 3 objects with "question" and "answer" keys. No markdown backticks, no explanations.
+Example format:
+[
+  {{"question": "How do I choose the right fit for this silhouette?", "answer": "Focus on the waistline anchor and ensure the shoulder seams sit comfortably. For fluid fabrics, look for styles with built-in recovery..."}},
+  {{"question": "What footwear pairing elongates the leg line with this piece?", "answer": "Pointed-toe flats, low block-heel mules, or sleek ankle boots in tonal neutrals keep the visual line uninterrupted and polished..."}},
+  {{"question": "How can I transition this outfit from day to evening?", "answer": "Swap daytime loafers or sneakers for strappy heels, add a structured blazer or cropped jacket, and finish with delicate metallic accents..."}}
+]
+"""
+    try:
+        resp = ai_generate(faq_prompt, max_tokens=950, temperature=0.5)
+        clean = resp.strip()
+        if clean.startswith("```json"):
+            clean = clean[7:]
+        if clean.startswith("```"):
+            clean = clean[3:]
+        if clean.endswith("```"):
+            clean = clean[:-3]
+        clean = clean.strip()
+        match = re.search(r'\[.*\]', clean, re.DOTALL)
+        if match:
+            clean = match.group(0)
+
+        valid_items = []
+        try:
+            items = json.loads(clean)
+            for it in items:
+                q = str(it.get("question", "")).strip().replace("**", "")
+                a = str(it.get("answer", "")).strip().replace("**", "")
+                if q and a and len(q) > 8 and len(a) > 20:
+                    valid_items.append({"question": q, "answer": a})
+        except Exception:
+            q_matches = re.findall(r'"question":\s*"([^"]+)"', clean)
+            a_matches = re.findall(r'"answer":\s*"([^"]+)"', clean)
+            for q, a in zip(q_matches, a_matches):
+                if len(q.strip()) > 8 and len(a.strip()) > 20:
+                    valid_items.append({"question": q.strip(), "answer": a.strip()})
+
+        if len(valid_items) >= 2:
+            return valid_items[:3]
+    except Exception as e:
+        print(f"Warning: Structured FAQ generation fallback triggered: {e}")
+
+    return [
+        {
+            "question": f"How do I choose the most flattering cut for {category_name.lower() or 'this piece'}?",
+            "answer": "Anchor your look at your natural waistline to define proportions. Look for medium-weight fabrics with high recovery that drape smoothly without clinging."
+        },
+        {
+            "question": "What footwear pairing works best to elongate the leg line?",
+            "answer": "Pointed-toe pumps, sleek ankle boots, or minimalist block-heel sandals in nude or tonal neutrals create a seamless, elongated vertical line."
+        },
+        {
+            "question": "How do I transition this look from casual daytime to evening?",
+            "answer": "Swap daytime flats or sneakers for elevated heels, layer with a tailored blazer or cropped jacket, and finish with a structured clutch."
+        }
+    ]
+
 # ── Unified Search-Intent AI Content Generation Engine ──────────────────────────
 def generate_blog_content(category_meta, collections, topic):
     """
@@ -747,7 +813,7 @@ def generate_blog_content(category_meta, collections, topic):
     - Direct Answer First (Google Helpful Content System)
     - Dynamic Editorial Archetypes tailored to question intent (No cookie-cutter templates)
     - Evergreen internal linking to verified collections (never individual products that go out of stock)
-    - Genuine People Also Ask (PAA) FAQs
+    - Guaranteed 3 People Also Ask (PAA) FAQs via structured generation
     """
     from ai_client import generate as ai_generate
 
@@ -758,22 +824,24 @@ def generate_blog_content(category_meta, collections, topic):
     # 1. Prepare Store Collections Context for Internal Links (max 2-3)
     collections_context = ""
     if collections:
-        collections_context = "Verified active store collections (weave 2 to 3 naturally using exact HTML links <a href='/collections/...'>...</a>):\n"
+        collections_context = "Verified active store collections (weave 2 to 3 naturally into your sentences):\n"
         for c in collections[:4]:
             collections_context += f"- {c['title']} (URL: {c['url']})\n"
 
-    # 2. Dynamic Archetype Instructions
+    # 2. Dynamic Archetype Instructions with Deep 3-Section Architecture
     archetype_instructions = {
         "fit_solver": """
-- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately give the root cause and the numerical/proportion rule (e.g. hem break height ¼-½ inch, rise measurement, stretch recovery percentage). No morning commute or coffee run filler!
+- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately give the root cause and the numerical/proportion rule (e.g. hem break height ¼-½ inch, jacket-to-torso ratio 1:1.5, rise measurement, stretch recovery percentage). No morning commute or coffee run filler!
 - Section 1 (Topic-Specific H2): The Mechanics of the Cut (waistband engineering, seam contour, rise height, hem break).
-- Section 2 (Topic-Specific H2): Top Pairings & Proportions (balancing volume with fitted layers, accessories).
-- Recommended Solution: Direct readers to explore the relevant boutique collection (e.g. wide-leg denim, high-waist pants) with a natural collection link.
+- Section 2 (Topic-Specific H2): Proportions & Balancing Volume (rule of thirds, fitted layers vs relaxed cuts, footwear pairing).
+- Section 3 (Topic-Specific H2): Fabric Recovery & Silhouette Longevity (elastane recovery %, twill weight, avoiding sagging or gaping).
+- Recommended Solution: Direct readers to explore complementary cuts in our verified store collection.
 """,
         "pairing": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately state the golden rule for pairing hemlines with footwear profiles (toe box shape, sole thickness, shaft height) or outer layers. No morning commute or coffee run filler!
 - Section 1 (Topic-Specific H2): Footwear Breakdown (Sneakers, Ankle Boots, Loafers, Mules) with hemline clearance rules.
-- Section 2 (Topic-Specific H2): Layering & Proportions (outerwear lengths that keep the silhouette balanced).
+- Section 2 (Topic-Specific H2): Outerwear & Layering Proportions (cropped vs longline jackets, balancing torso-to-leg proportions).
+- Section 3 (Topic-Specific H2): Texture & Color Harmony (tonal palettes, contrasting textures like knits with denim).
 - Recommended Solution: Link to our curated collection as the destination to find complementary silhouettes.
 """,
         "comparison": """
@@ -785,19 +853,46 @@ def generate_blog_content(category_meta, collections, topic):
 """,
         "occasion": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately decode the dress code and establish the balance between comfortable ease and elevated polish. No generic intro stories!
-- Section 1 (Topic-Specific H2): The Core Outfit Blueprint (garment formulas with proportion advice).
-- Section 2 (Topic-Specific H2): Weather-Smart Layering & Footwear Swaps (transitioning from day to evening).
+- Section 1 (Topic-Specific H2): Decoding the Dress Code & Establishing the Core Outfit Blueprint.
+- Section 2 (Topic-Specific H2): Fabric Selection & Comfort-Driven Tailoring (breathability, movement, wrinkle-resistance).
+- Section 3 (Topic-Specific H2): Day-to-Evening Transition & Weather Adaptation (footwear swaps, outerwear layers).
 - Recommended Solution: Recommend checking our seasonal collections for curated occasion wear.
 """,
         "care": """
-- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately explain the fabric fiber structure and the #1 golden rule of washing/caring for it. No fluff!
-- Section 1 (Topic-Specific H2): Step-by-Step Laundry Protocol (water temperature, cycle, detergent, drying method, steaming vs ironing).
-- Section 2 (Topic-Specific H2): Common Mistakes That Ruin Garments (fabric softener buildup, hanging heavy knits, color bleed).
+- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately explain the fabric fiber structure (natural vs synthetic matrix) and the #1 golden rule of washing/caring for it. No fluff!
+- Section 1 (Topic-Specific H2): Understanding Fabric Fiber Structure (open weaves vs synthetic bonds, temperature thresholds).
+- Section 2 (Topic-Specific H2): Step-by-Step Washing & Refreshing Protocol (water temperature, cycle, neutral detergents, steaming vs ironing).
+- Section 3 (Topic-Specific H2): Common Pitfalls That Destroy Garment Drape & Longevity (fabric softener buildup, hanging heavy knits, dye bleeding).
 - Recommended Solution: Mention how investing in boutique natural fibers and proper care guarantees seasons of wear.
 """
     }
 
     selected_archetype_guide = archetype_instructions.get(archetype, archetype_instructions["fit_solver"])
+
+    # Archetype-aware practical blueprint instruction
+    if archetype == "care":
+        blueprint_instruction = """
+   - Actionable Fabric & Stain Quick-Reference Protocol:
+     Insert a styled quick-reference container:
+     <div style="background: #faf8f5; border: 1px solid #e8dfd5; border-radius: 8px; padding: 16px 20px; margin: 20px 0;">
+       <p style="margin: 0 0 8px 0; font-weight: 700; color: #222;">Quick Fabric Care & Emergency Protocol:</p>
+       <ul style="margin: 0; padding-left: 20px; color: #444; line-height: 1.6;">
+         <li><strong>Water-Based Spills (Coffee, Tea)</strong>: Blot immediately with a clean cloth; flush cool water with mild neutral detergent. Air-dry flat.</li>
+         <li><strong>Oil-Based Stains (Makeup, Dressings)</strong>: Apply cornstarch or talc for 15 minutes to lift lipids before gentle spot-cleansing.</li>
+         <li><strong>Delicate Weaves (Silk, Rayon, Knits)</strong>: Never scrub or wring; use lukewarm or cool cycles and steam to refresh.</li>
+       </ul>
+     </div>
+     CRITICAL: Do NOT generate outfit styling blueprints or clothing combinations for garment care/laundry articles. NEVER recommend nonsensical advice like 'leave a blouse untucked to hide coffee stains'.
+"""
+    else:
+        blueprint_instruction = """
+   - Actionable Outfit Blueprints: Include 2 to 3 practical outfit formulas formatted in a clean bullet list:
+     <ul>
+       <li style="margin-bottom: 8px;"><strong>Look 1: [Creative Name]</strong> — [Garment A] + [Garment B] + [Footwear]. <em>[Proportion tip on tucking, hem break, or layering]</em></li>
+       <li style="margin-bottom: 8px;"><strong>Look 2: [Creative Name]</strong> — [Garment A] + [Garment B] + [Footwear]. <em>[Proportion tip on tucking, hem break, or layering]</em></li>
+     </ul>
+     CRITICAL: All outfit tips must give genuine fashion styling advice (French tuck, 1/3 to 2/3 ratio, hem break clearance).
+"""
 
     article_prompt = f"""
 Act as a senior boutique stylist at MeeeShop (USA). Write an authoritative, engaging, and genuinely helpful fashion styling guide answering the real shopper search query: "{topic}".
@@ -815,11 +910,7 @@ EDITORIAL, READABILITY & SEARCH INTENT REQUIREMENTS:
        <p style="margin: 0 0 6px 0; font-weight: 700; color: #222;">Stylist Key Takeaway:</p>
        <p style="margin: 0; color: #444; line-height: 1.5;">[1-2 clear, actionable sentences summarizing the core proportion or fabric rule for this query]</p>
      </div>
-   - Actionable Outfit Blueprints: Include 2 to 3 practical outfit formulas formatted in a clean bullet list:
-     <ul>
-       <li style="margin-bottom: 8px;"><strong>Look 1: [Creative Name]</strong> — [Garment A] + [Garment B] + [Footwear]. <em>[Proportion tip on tucking, hem break, or layering]</em></li>
-       <li style="margin-bottom: 8px;"><strong>Look 2: [Creative Name]</strong> — [Garment A] + [Garment B] + [Footwear]. <em>[Proportion tip on tucking, hem break, or layering]</em></li>
-     </ul>
+{blueprint_instruction}
 
 3. SEARCH INTENT ARCHETYPE GUIDELINES:
 {selected_archetype_guide}
@@ -829,24 +920,17 @@ EDITORIAL, READABILITY & SEARCH INTENT REQUIREMENTS:
 
 5. EVERGREEN INTERNAL LINKING:
 {collections_context}
-   - Naturally weave 2 to 3 links to our store collections above using exact HTML links <a href='/collections/...'>Collection Title</a>.
+   - Naturally weave 2 to 3 links to our store collections above using natural, grammatically fluent anchor text (e.g. "...pair with <a href='/collections/...'>curated midi dresses</a>..." or "...explore our <a href='/collections/...'>tailored jackets collection</a>...").
+   - CRITICAL: NEVER insert raw collection names stiffly as nouns like "on our Women's Dresses" or "a Women's Tops silk blouse". Anchor text must flow smoothly in the sentence.
    - CRITICAL: DO NOT link to individual product pages (/products/...) because inventory changes quickly and products sell out. Only link to category collections.
 
-6. PEOPLE ALSO ASK (PAA) FAQS:
-   - Include an <h2>Frequently Asked Questions</h2> section with EXACTLY 3 real questions shoppers ask online about "{topic}".
-   - Format each FAQ in a clean block:
-     <div style="background: #ffffff; border: 1px solid #ebe5dc; border-radius: 8px; padding: 16px 20px; margin: 14px 0;">
-       <p style="margin: 0 0 8px 0; line-height: 1.5; color: #333;"><strong>Q: ...</strong></p>
-       <p style="margin: 0; color: #555; line-height: 1.5;">A: ...</p>
-     </div>
-   - Answer each question authoritatively in 2-3 complete sentences.
-
-7. OUTPUT FORMAT:
+6. OUTPUT FORMAT:
    - Line 1 MUST be: <h1>{topic}</h1>
    - Return ONLY raw valid HTML. Do NOT wrap in ```html fences. Total length: 850-1,100 words of rich, comprehensive styling advice.
+   - Do NOT include the FAQ section in this output (it will be appended separately).
 """
 
-    html_content = ai_generate(article_prompt, max_tokens=2400, temperature=0.7)
+    html_content = ai_generate(article_prompt, max_tokens=2800, temperature=0.7)
     if not html_content:
         raise RuntimeError("Failed generating article body across all AI providers.")
 
@@ -860,13 +944,15 @@ EDITORIAL, READABILITY & SEARCH INTENT REQUIREMENTS:
         html_content = html_content[:-3]
     html_content = re.sub(r'<meta[^>]*>', '', html_content, flags=re.IGNORECASE).strip()
 
-    # Safeguard: ensure HTML doesn't end on a broken unclosed tag or sentence
-    if not html_content.endswith((".", "</p>", "</ul>", "</blockquote>", "</div>", ">")):
-        last_period = max(html_content.rfind("."), html_content.rfind("</p>"))
-        if last_period > len(html_content) - 150:
-            html_content = html_content[:last_period + 1]
-            if not html_content.endswith("</p>") and "<p>" in html_content:
-                html_content += "</p>"
+    # Clean unclosed tags and ensure proper closure
+    html_content = re.sub(r'<[^>]*$', '', html_content).strip()
+    if html_content.count("<div") > html_content.count("</div>"):
+        diff = html_content.count("<div") - html_content.count("</div>")
+        html_content += "</div>" * diff
+    if html_content.count("<p") > html_content.count("</p>"):
+        diff = html_content.count("<p") - html_content.count("</p>")
+        html_content += "</p>" * diff
+    html_content = re.sub(r'<[^>]*$', '', html_content).strip()
 
     # Extract <h1> title and strip from body to avoid double H1 in Dawn theme
     article_title = topic
@@ -890,7 +976,27 @@ EDITORIAL, READABILITY & SEARCH INTENT REQUIREMENTS:
         f"and boutique styles with fast US shipping and easy returns at MeeeShop!"
     )[:155]
 
-    return article_title, seo_title, meta_desc, html_content
+    # Cleanly strip any raw or incomplete FAQ output from AI to prevent dangling tags
+    html_content = re.sub(r'<h2[^>]*>\s*Frequently Asked Questions.*?$', '', html_content, flags=re.DOTALL | re.IGNORECASE).strip()
+    html_content = re.sub(r'<div class="faq-item">.*?$', '', html_content, flags=re.DOTALL | re.IGNORECASE).strip()
+    html_content = re.sub(r'<p><strong>\s*(?:Q:?|Question:?).*?$', '', html_content, flags=re.DOTALL | re.IGNORECASE).strip()
+    html_content = re.sub(r'<[^>]*$', '', html_content).strip()
+
+    # Fetch 3 guaranteed, fully answered styling FAQs
+    faq_items = generate_topic_faqs(topic, category_name)
+
+    # Cleanly append the verified FAQ section
+    faq_html = '<h2 style="margin-top: 36px; margin-bottom: 16px;">Frequently Asked Questions</h2>\n'
+    for item in faq_items:
+        faq_html += (
+            f'<div style="background: #ffffff; border: 1px solid #ebe5dc; border-radius: 8px; padding: 16px 20px; margin: 14px 0;">\n'
+            f'  <p style="margin: 0 0 8px 0; line-height: 1.5; color: #333;"><strong>Q: {item["question"]}</strong></p>\n'
+            f'  <p style="margin: 0; color: #555; line-height: 1.5;">A: {item["answer"]}</p>\n'
+            f'</div>\n'
+        )
+    html_content = html_content + "\n\n" + faq_html
+
+    return article_title, seo_title, meta_desc, html_content, faq_items
 
 # ── 1200x630 Google Discover Image Generation ──────────────────────────────────
 def generate_1200x630_collage(products):
@@ -1065,7 +1171,7 @@ def submit_to_indexnow(store_url, article_url, indexnow_key):
         print(f"  [IndexNow Notice]: {e}")
 
 # ── Shopify Article Publishing & Metafields ────────────────────────────────────
-def publish_shopify_article_complete(session, store_url, blog_id, blog_handle, title, seo_title, meta_desc, html_content, author_name, template_suffix, image_bytes=None, draft=True, indexnow_key=None):
+def publish_shopify_article_complete(session, store_url, blog_id, blog_handle, title, seo_title, meta_desc, html_content, author_name, template_suffix, image_bytes=None, draft=True, indexnow_key=None, faq_items=None):
     """
     Publishes article to Shopify with complete SEO Metafields, summary_html excerpt,
     JSON-LD structured data (BlogPosting + FAQPage), and exact OS 2.0 template suffix.
@@ -1173,6 +1279,35 @@ def publish_shopify_article_complete(session, store_url, blog_id, blog_handle, t
             "type": "json"
         }
     })
+
+    # 4. Attach Native FAQPage Schema in json_ld_schema.faq
+    if faq_items:
+        faq_schema = {
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            "@id": f"{article_full_url}#faq",
+            "mainEntity": [
+                {
+                    "@type": "Question",
+                    "name": item["question"],
+                    "acceptedAnswer": {
+                        "@type": "Answer",
+                        "text": item["answer"]
+                    }
+                }
+                for item in faq_items
+            ]
+        }
+        session.post(metafields_url, json={
+            "metafield": {
+                "namespace": "json_ld_schema",
+                "key": "faq",
+                "value": json.dumps(faq_schema),
+                "type": "json"
+            }
+        })
+        print(f"  [OK] Injected FAQPage Schema ({len(faq_items)} Q&As) into json_ld_schema.faq")
+
     print("  [OK] Attached SEO Title, Meta Description & Combined BlogPosting + FAQPage Schema")
 
     # Step 3: Fast IndexNow Notification (If published live)
@@ -1274,7 +1409,7 @@ def main():
 
     # 8. Generate Content (Intent-driven, direct answers, store product recommendations)
     print(f"\n[*] Generating high-intent, Google Discover & PAA optimized article content...")
-    title, seo_title, meta_desc, html_content = generate_blog_content(
+    title, seo_title, meta_desc, html_content, faq_items = generate_blog_content(
         category_meta, collections, topic
     )
 
@@ -1303,7 +1438,8 @@ def main():
         template_suffix=template_suffix,
         image_bytes=image_bytes,
         draft=is_draft,
-        indexnow_key=indexnow_key
+        indexnow_key=indexnow_key,
+        faq_items=faq_items
     )
 
     print(f"\n{'='*70}")

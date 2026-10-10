@@ -347,18 +347,20 @@ def generate_discover_article(category_meta, collections, existing_titles, topic
         for c in collections[:4]:
             collections_context += f"- {c['title']} (URL: {c['url']})\n"
 
-    # 3. Dynamic Archetype Instructions
+    # 3. Dynamic Archetype Instructions with Deep 3-Section Architecture
     archetype_instructions = {
         "fit_solver": """
-- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately give the root cause and the numerical/proportion rule (e.g. hem break height ¼-½ inch, rise measurement, stretch recovery percentage). No morning commute or coffee run filler!
+- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately give the root cause and the numerical/proportion rule (e.g. hem break height ¼-½ inch, jacket-to-torso ratio 1:1.5, rise measurement, stretch recovery percentage). No morning commute or coffee run filler!
 - Section 1 (Topic-Specific H2): The Mechanics of the Cut (waistband engineering, seam contour, rise height, hem break).
-- Section 2 (Topic-Specific H2): Top Pairings & Proportions (balancing volume with fitted layers, accessories).
-- Recommended Solution: Direct readers to explore the relevant boutique collection (e.g. wide-leg denim, high-waist pants) with a natural collection link.
+- Section 2 (Topic-Specific H2): Proportions & Balancing Volume (rule of thirds, fitted layers vs relaxed cuts, footwear pairing).
+- Section 3 (Topic-Specific H2): Fabric Recovery & Silhouette Longevity (elastane recovery %, twill weight, avoiding sagging or gaping).
+- Recommended Solution: Direct readers to explore complementary cuts in our verified store collection.
 """,
         "pairing": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately state the golden rule for pairing hemlines with footwear profiles (toe box shape, sole thickness, shaft height) or outer layers. No morning commute or coffee run filler!
 - Section 1 (Topic-Specific H2): Footwear Breakdown (Sneakers, Ankle Boots, Loafers, Mules) with hemline clearance rules.
-- Section 2 (Topic-Specific H2): Layering & Proportions (outerwear lengths that keep the silhouette balanced).
+- Section 2 (Topic-Specific H2): Outerwear & Layering Proportions (cropped vs longline jackets, balancing torso-to-leg proportions).
+- Section 3 (Topic-Specific H2): Texture & Color Harmony (tonal palettes, contrasting textures like knits with denim).
 - Recommended Solution: Link to our curated collection as the destination to find complementary silhouettes.
 """,
         "comparison": """
@@ -370,18 +372,45 @@ def generate_discover_article(category_meta, collections, existing_titles, topic
 """,
         "occasion": """
 - DIRECT ANSWER FIRST: Paragraph 1 MUST immediately decode the dress code and establish the balance between comfortable ease and elevated polish. No generic intro stories!
-- Section 1 (Topic-Specific H2): The Core Outfit Blueprint (garment formulas with proportion advice).
-- Section 2 (Topic-Specific H2): Weather-Smart Layering & Footwear Swaps (transitioning from day to evening).
+- Section 1 (Topic-Specific H2): Decoding the Dress Code & Establishing the Core Outfit Blueprint.
+- Section 2 (Topic-Specific H2): Fabric Selection & Comfort-Driven Tailoring (breathability, movement, wrinkle-resistance).
+- Section 3 (Topic-Specific H2): Day-to-Evening Transition & Weather Adaptation (footwear swaps, outerwear layers).
 - Recommended Solution: Recommend checking our seasonal collections for curated occasion wear.
 """,
         "care": """
-- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately explain the fabric fiber structure and the #1 golden rule of washing/caring for it. No fluff!
-- Section 1 (Topic-Specific H2): Step-by-Step Laundry Protocol (water temperature, cycle, detergent, drying method, steaming vs ironing).
-- Section 2 (Topic-Specific H2): Common Mistakes That Ruin Garments (fabric softener buildup, hanging heavy knits, color bleed).
-- Recommended Solution: Mention how boutique fabric blends maintain longevity when cared for properly.
+- DIRECT ANSWER FIRST: Paragraph 1 MUST immediately explain the fabric fiber structure (natural vs synthetic matrix) and the #1 golden rule of washing/caring for it. No fluff!
+- Section 1 (Topic-Specific H2): Understanding Fabric Fiber Structure (open weaves vs synthetic bonds, temperature thresholds).
+- Section 2 (Topic-Specific H2): Step-by-Step Washing & Refreshing Protocol (water temperature, cycle, neutral detergents, steaming vs ironing).
+- Section 3 (Topic-Specific H2): Common Pitfalls That Destroy Garment Drape & Longevity (fabric softener buildup, hanging heavy knits, dye bleeding).
+- Recommended Solution: Mention how investing in boutique natural fibers and proper care guarantees seasons of wear.
 """
     }
     selected_archetype_guide = archetype_instructions.get(archetype, archetype_instructions["fit_solver"])
+
+    # Archetype-aware practical blueprint instruction
+    if archetype == "care":
+        blueprint_instruction = """
+   - Actionable Fabric & Stain Quick-Reference Protocol:
+     Insert a styled quick-reference container:
+     <div style="background: #faf8f5; border: 1px solid #e8dfd5; border-radius: 8px; padding: 16px 20px; margin: 20px 0;">
+       <p style="margin: 0 0 8px 0; font-weight: 700; color: #222;">Quick Fabric Care & Emergency Protocol:</p>
+       <ul style="margin: 0; padding-left: 20px; color: #444; line-height: 1.6;">
+         <li><strong>Water-Based Spills (Coffee, Tea)</strong>: Blot immediately with a clean cloth; flush cool water with mild neutral detergent. Air-dry flat.</li>
+         <li><strong>Oil-Based Stains (Makeup, Dressings)</strong>: Apply cornstarch or talc for 15 minutes to lift lipids before gentle spot-cleansing.</li>
+         <li><strong>Delicate Weaves (Silk, Rayon, Knits)</strong>: Never scrub or wring; use lukewarm or cool cycles and steam to refresh.</li>
+       </ul>
+     </div>
+     CRITICAL: Do NOT generate outfit styling blueprints or clothing combinations for garment care/laundry articles. NEVER recommend nonsensical advice like 'leave a blouse untucked to hide coffee stains'.
+"""
+    else:
+        blueprint_instruction = """
+   - Actionable Outfit Blueprints: Include 2 to 3 practical outfit formulas formatted in a clean bullet list:
+     <ul>
+       <li style="margin-bottom: 8px;"><strong>Look 1: [Creative Name]</strong> — [Garment A] + [Garment B] + [Footwear]. <em>[Proportion tip on tucking, hem break, or layering]</em></li>
+       <li style="margin-bottom: 8px;"><strong>Look 2: [Creative Name]</strong> — [Garment A] + [Garment B] + [Footwear]. <em>[Proportion tip on tucking, hem break, or layering]</em></li>
+     </ul>
+     CRITICAL: All outfit tips must give genuine fashion styling advice (French tuck, 1/3 to 2/3 ratio, hem break clearance).
+"""
 
     prompt = f"""
 Act as a senior fashion director and editorial stylist at MeeeShop boutique (USA). Write an authoritative, Google Discover and Bing News eligible fashion styling guide answering: "{topic}".
@@ -399,11 +428,7 @@ EDITORIAL, READABILITY & SEARCH INTENT REQUIREMENTS:
        <p style="margin: 0 0 6px 0; font-weight: 700; color: #222;">Stylist Key Takeaway:</p>
        <p style="margin: 0; color: #444; line-height: 1.5;">[1-2 clear, actionable sentences summarizing the core proportion or fabric rule for this query]</p>
      </div>
-   - Actionable Outfit Blueprints: Include 2 to 3 practical outfit formulas formatted in a clean bullet list:
-     <ul>
-       <li style="margin-bottom: 8px;"><strong>Look 1: [Creative Name]</strong> — [Garment A] + [Garment B] + [Footwear]. <em>[Proportion tip on tucking, hem break, or layering]</em></li>
-       <li style="margin-bottom: 8px;"><strong>Look 2: [Creative Name]</strong> — [Garment A] + [Garment B] + [Footwear]. <em>[Proportion tip on tucking, hem break, or layering]</em></li>
-     </ul>
+{blueprint_instruction}
 
 3. SEARCH INTENT ARCHETYPE GUIDELINES:
 {selected_archetype_guide}
@@ -413,12 +438,14 @@ EDITORIAL, READABILITY & SEARCH INTENT REQUIREMENTS:
 
 5. EVERGREEN INTERNAL LINKING:
 {collections_context}
-   - Naturally weave 2 to 3 links to our verified store collections above using exact HTML links <a href='/collections/...'>Collection Title</a>.
+   - Naturally weave 2 to 3 links to our store collections above using natural, grammatically fluent anchor text (e.g. "...pair with <a href='/collections/...'>curated midi dresses</a>..." or "...explore our <a href='/collections/...'>tailored jackets collection</a>...").
+   - CRITICAL: NEVER insert raw collection names stiffly as nouns like "on our Women's Dresses" or "a Women's Tops silk blouse". Anchor text must flow smoothly in the sentence.
    - CRITICAL: DO NOT link to individual product pages (/products/...) because inventory changes quickly and products sell out. Only link to category collections.
 
 6. OUTPUT FORMAT:
    - Line 1 MUST be: <h1>{topic}</h1>
    - Return ONLY raw valid HTML. Do NOT include markdown blocks. Do NOT wrap in ```html fences. Total length: 850-1,100 words of rich, comprehensive styling advice.
+   - Do NOT include the FAQ section in this output (it will be appended separately).
 """
 
     html_content = ai_generate(prompt, max_tokens=2800, temperature=0.7)

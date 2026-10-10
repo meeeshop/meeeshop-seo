@@ -1424,12 +1424,10 @@ def generate_fallback_content(
 """
         for idx, p in enumerate(matching_products):
             pair_title = p["title"]
-            pair_handle = p.get("handle", "")
-            pair_url = f"{STORE_URL}/products/{pair_handle}"
             pairings_html += f"""
 <div style="border: 1px solid #eaeaea; border-radius: 8px; padding: 15px; margin-bottom: 20px; background:#fff;">
   <h3 style="margin-top:0; font-size:16px; color:#111;">Recipe {idx+1}: The {pair_title} Pairing</h3>
-  <p>Create a cohesive, high-end look by pairing the <strong>{prod_title}</strong> with the <a href="{pair_url}" style="color:#111; text-decoration:underline;">{pair_title}</a>. This combination creates a beautiful balance of textures and colors, perfect for transitional weather or a smart-casual dress code.</p>
+  <p>Create a cohesive, high-end look by pairing the <strong>{prod_title}</strong> with <strong>{pair_title}</strong>. This combination creates a beautiful balance of textures and colors, perfect for transitional weather or a smart-casual dress code.</p>
 </div>
 """
         care_html = f"""
