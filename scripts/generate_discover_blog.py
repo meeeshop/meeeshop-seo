@@ -386,26 +386,39 @@ def generate_discover_article(category_meta, collections, existing_titles, topic
     prompt = f"""
 Act as a senior fashion director and editorial stylist at MeeeShop boutique (USA). Write an authoritative, Google Discover and Bing News eligible fashion styling guide answering: "{topic}".
 
-EDITORIAL & SEARCH INTENT REQUIREMENTS:
+EDITORIAL, READABILITY & SEARCH INTENT REQUIREMENTS:
 1. STRICTLY FORBIDDEN CLICHÉS:
    - Do NOT write opening stories about "drinking a latte", "morning commute", "sprinting to the subway", "rooftop bistro/lunch", "coffee run", or "picture this in the fitting room".
    - Do NOT use generic headings like "Daytime Proportions vs Evening Layering", "Formula 1, 2, 3", or "Cut & Silhouette Fit Guide". Make all H2 headings UNIQUE and tailored to "{topic}".
    - Do NOT use repetitive table formats.
 
-2. SEARCH INTENT ARCHETYPE GUIDELINES:
+2. MOBILE-FRIENDLY FORMATTING FOR MODERN WOMEN SHOPPERS:
+   - Paragraph Brevity: Keep every paragraph concise (2 to 3 sentences max) so it reads smoothly on mobile screens without dense walls of text.
+   - Quick Stylist Takeaway Box: Immediately following the Direct Answer introduction paragraph, insert a styled callout box:
+     <div style="background: #fbf9f6; border-left: 4px solid #b8977e; padding: 14px 18px; margin: 20px 0; border-radius: 0 6px 6px 0;">
+       <p style="margin: 0 0 6px 0; font-weight: 700; color: #222;">Stylist Key Takeaway:</p>
+       <p style="margin: 0; color: #444; line-height: 1.5;">[1-2 clear, actionable sentences summarizing the core proportion or fabric rule for this query]</p>
+     </div>
+   - Actionable Outfit Blueprints: Include 2 to 3 practical outfit formulas formatted in a clean bullet list:
+     <ul>
+       <li style="margin-bottom: 8px;"><strong>Look 1: [Creative Name]</strong> — [Garment A] + [Garment B] + [Footwear]. <em>[Proportion tip on tucking, hem break, or layering]</em></li>
+       <li style="margin-bottom: 8px;"><strong>Look 2: [Creative Name]</strong> — [Garment A] + [Garment B] + [Footwear]. <em>[Proportion tip on tucking, hem break, or layering]</em></li>
+     </ul>
+
+3. SEARCH INTENT ARCHETYPE GUIDELINES:
 {selected_archetype_guide}
 
-3. PRO STYLIST RULE:
+4. PRO STYLIST RULE:
    - Include 1 memorable styling rule-of-thumb inside a styled <blockquote style="border-left: 3px solid #b8977e; margin: 24px 0; padding: 12px 20px; font-style: italic; background: #faf8f5; color: #444;">Rule-of-Thumb: <em>...</em></blockquote>.
 
-4. EVERGREEN INTERNAL LINKING:
+5. EVERGREEN INTERNAL LINKING:
 {collections_context}
    - Naturally weave 2 to 3 links to our verified store collections above using exact HTML links <a href='/collections/...'>Collection Title</a>.
    - CRITICAL: DO NOT link to individual product pages (/products/...) because inventory changes quickly and products sell out. Only link to category collections.
 
-5. OUTPUT FORMAT:
+6. OUTPUT FORMAT:
    - Line 1 MUST be: <h1>{topic}</h1>
-   - Return ONLY raw valid HTML. Do NOT include markdown blocks. Do NOT wrap in ```html fences. Total length: 650-800 words.
+   - Return ONLY raw valid HTML. Do NOT include markdown blocks. Do NOT wrap in ```html fences. Total length: 850-1,100 words of rich, comprehensive styling advice.
 """
 
     html_content = ai_generate(prompt, max_tokens=2800, temperature=0.7)

@@ -802,34 +802,51 @@ def generate_blog_content(category_meta, collections, topic):
     article_prompt = f"""
 Act as a senior boutique stylist at MeeeShop (USA). Write an authoritative, engaging, and genuinely helpful fashion styling guide answering the real shopper search query: "{topic}".
 
-EDITORIAL & SEARCH INTENT REQUIREMENTS:
+EDITORIAL, READABILITY & SEARCH INTENT REQUIREMENTS:
 1. STRICTLY FORBIDDEN CLICHÉS:
    - Do NOT write opening stories about "drinking a latte", "morning commute", "sprinting to the subway", "rooftop bistro/lunch", "coffee run", or "picture this in the fitting room".
    - Do NOT use generic headings like "Daytime Proportions vs Evening Layering", "Formula 1, 2, 3", or "Pro Stylist Rule-of-Thumb". Make all H2 headings UNIQUE and tailored to "{topic}".
    - Do NOT use repetitive table formats.
 
-2. SEARCH INTENT ARCHETYPE GUIDELINES:
+2. MOBILE-FRIENDLY FORMATTING FOR MODERN WOMEN SHOPPERS:
+   - Paragraph Brevity: Keep every paragraph concise (2 to 3 sentences max) so it reads smoothly on mobile screens without dense walls of text.
+   - Quick Stylist Takeaway Box: Immediately following the Direct Answer introduction paragraph, insert a styled callout box:
+     <div style="background: #fbf9f6; border-left: 4px solid #b8977e; padding: 14px 18px; margin: 20px 0; border-radius: 0 6px 6px 0;">
+       <p style="margin: 0 0 6px 0; font-weight: 700; color: #222;">Stylist Key Takeaway:</p>
+       <p style="margin: 0; color: #444; line-height: 1.5;">[1-2 clear, actionable sentences summarizing the core proportion or fabric rule for this query]</p>
+     </div>
+   - Actionable Outfit Blueprints: Include 2 to 3 practical outfit formulas formatted in a clean bullet list:
+     <ul>
+       <li style="margin-bottom: 8px;"><strong>Look 1: [Creative Name]</strong> — [Garment A] + [Garment B] + [Footwear]. <em>[Proportion tip on tucking, hem break, or layering]</em></li>
+       <li style="margin-bottom: 8px;"><strong>Look 2: [Creative Name]</strong> — [Garment A] + [Garment B] + [Footwear]. <em>[Proportion tip on tucking, hem break, or layering]</em></li>
+     </ul>
+
+3. SEARCH INTENT ARCHETYPE GUIDELINES:
 {selected_archetype_guide}
 
-3. PRO STYLIST RULE:
-   - Include 1 memorable styling rule-of-thumb inside a styled <blockquote>Rule-of-Thumb: <em>...</em></blockquote>.
+4. PRO STYLIST RULE:
+   - Include 1 memorable styling rule-of-thumb inside a styled <blockquote style="border-left: 3px solid #b8977e; margin: 24px 0; padding: 12px 20px; font-style: italic; background: #faf8f5; color: #444;">Rule-of-Thumb: <em>...</em></blockquote>.
 
-4. EVERGREEN INTERNAL LINKING:
+5. EVERGREEN INTERNAL LINKING:
 {collections_context}
    - Naturally weave 2 to 3 links to our store collections above using exact HTML links <a href='/collections/...'>Collection Title</a>.
    - CRITICAL: DO NOT link to individual product pages (/products/...) because inventory changes quickly and products sell out. Only link to category collections.
 
-5. PEOPLE ALSO ASK (PAA) FAQS:
-   - Include an <h2>Frequently Asked Questions</h2> section with EXACTLY 2 real questions shoppers ask online about "{topic}".
-   - Format: <p><strong>Q: ...</strong></p><p>A: ...</p>
+6. PEOPLE ALSO ASK (PAA) FAQS:
+   - Include an <h2>Frequently Asked Questions</h2> section with EXACTLY 3 real questions shoppers ask online about "{topic}".
+   - Format each FAQ in a clean block:
+     <div style="background: #ffffff; border: 1px solid #ebe5dc; border-radius: 8px; padding: 16px 20px; margin: 14px 0;">
+       <p style="margin: 0 0 8px 0; line-height: 1.5; color: #333;"><strong>Q: ...</strong></p>
+       <p style="margin: 0; color: #555; line-height: 1.5;">A: ...</p>
+     </div>
    - Answer each question authoritatively in 2-3 complete sentences.
 
-6. OUTPUT FORMAT:
+7. OUTPUT FORMAT:
    - Line 1 MUST be: <h1>{topic}</h1>
-   - Return ONLY raw valid HTML. Do NOT wrap in ```html fences. Total length: 650-800 words.
+   - Return ONLY raw valid HTML. Do NOT wrap in ```html fences. Total length: 850-1,100 words of rich, comprehensive styling advice.
 """
 
-    html_content = ai_generate(article_prompt, max_tokens=1600, temperature=0.7)
+    html_content = ai_generate(article_prompt, max_tokens=2400, temperature=0.7)
     if not html_content:
         raise RuntimeError("Failed generating article body across all AI providers.")
 

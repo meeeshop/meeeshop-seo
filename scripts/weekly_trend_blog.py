@@ -1180,15 +1180,18 @@ Zero-Search-Volume: {', '.join(zero_search[:5])}
 
 ────────── MANDATORY EDITORIAL & VISUAL STYLING RULES ──────────
 1. Target audience: Women in the USA, ages 25-55. Speak directly to her. All advice must be practical and help women in their real-life decisions about clothing & accessories.
-2. STRICTLY FORBIDDEN CLICHÉS:
+2. STRICTLY FORBIDDEN CLICHÉS & DIRECT ANSWER:
    - Do NOT write opening stories about "drinking a latte", "morning commute", "sprinting to the subway", "rooftop bistro/lunch", "coffee run", or "picture this in the fitting room".
    - Open with a DIRECT ANSWER FIRST explaining the root cause and actionable rule.
-3. Include a Table of Contents (HTML anchor links) after the intro. The Table of Contents MUST be formatted as a structured bulleted list (using `<ul>` and `<li>`) wrapped in a styled container (<div style="background:#f9f9f9; border:1px solid #eaeaea; padding:15px; border-radius:8px; margin:20px 0;"><p style="font-weight:bold; margin-top:0;">Table of Contents</p><ul style="margin:0; padding-left:20px; line-height:1.6;">...</ul></div>).
-4. Use H2 and H3 headers. Every section must provide REAL, actionable value tailored specifically to the search question.
-5. Include at least one numbered list OR bullet-point checklist with 5+ items.
-6. End with an FAQ section containing 4-5 specific, realistic questions women ask about this topic, with detailed answers wrapped in clean div blocks.
-7. DO NOT be generic in advice. Every tip must be specific in terms of cuts, colors, and fabrics.
-8. Article length: Aim for 800-1100 words of body content (excluding product cards added separately).
+3. MOBILE-FRIENDLY PARAGRAPH BREVITY & SCANNABILITY:
+   - Paragraph Brevity: Keep every paragraph concise (2 to 3 sentences max) to eliminate mobile text walls.
+   - Actionable Outfit Blueprints: Include practical outfit recipes formatted in clean bullet points with exact garments, footwear pairings, and proportion tips.
+4. Include a Table of Contents (HTML anchor links) after the intro. The Table of Contents MUST be formatted as a structured bulleted list (using `<ul>` and `<li>`) wrapped in a styled container (<div style="background:#f9f9f9; border:1px solid #eaeaea; padding:15px; border-radius:8px; margin:20px 0;"><p style="font-weight:bold; margin-top:0;">Table of Contents</p><ul style="margin:0; padding-left:20px; line-height:1.6;">...</ul></div>).
+5. Use H2 and H3 headers. Every section must provide REAL, actionable value tailored specifically to the search question.
+6. Include at least one numbered list OR bullet-point checklist with 5+ items.
+7. End with an FAQ section containing 4-5 specific, realistic questions women ask about this topic, with detailed answers wrapped in clean div blocks.
+8. DO NOT be generic in advice. Every tip must be specific in terms of cuts, colors, and fabrics.
+9. Article length: Aim for 850-1,100 words of body content (excluding product cards added separately).
 9. PREMIUM HTML STYLING:
    - Styled Blockquotes: Use `<blockquote>` with elegant borders (<blockquote style="border-left: 4px solid #111; padding-left: 20px; font-style: italic; margin: 30px 0; color: #555;">...</blockquote>).
    - Key Takeaway Cards: Insert styled callout boxes (<div style="background: #faf5f5; border-left: 4px solid #d9534f; padding: 15px 20px; margin: 20px 0; border-radius: 4px;"><strong>Stylist Tip:</strong> ...</div>).
