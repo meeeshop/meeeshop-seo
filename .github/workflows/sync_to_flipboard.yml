@@ -2,9 +2,8 @@ name: Flipboard Syndication Automation
 
 on:
   schedule:
-    # Run daily at 11:30 AM UTC (7:30 AM EDT / 4:30 AM PDT - peak US morning window)
-    # Tue/Thu/Sun: Flips fresh blog articles; Mon/Wed/Fri/Sat: Flips rotating evergreen guides (June Strategy)
-    - cron: '30 11 * * *'
+    # Run on Monday, Wednesday, Friday at 13:00 UTC (9:00 AM EST / peak US morning window)
+    - cron: '0 13 * * 1,3,5'
   
   workflow_dispatch:
     inputs:
