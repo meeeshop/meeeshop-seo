@@ -843,10 +843,10 @@ ARTICLE_MODES = [
         "id": "capsule_wardrobe",
         "title_pattern": "Build Your {season} Capsule Wardrobe with {num} {ptype} Staples",
         "angle": "capsule-wardrobe-minimalism",
-        "description": "Teach readers how to build a seasonal capsule wardrobe around this product type. Show how {num} key pieces create 20+ outfits. Emphasise mix-and-match, cost-per-wear and avoiding impulse buys.",
-        "structure": "Hook (why capsule?) | The formula (X pieces = Y outfits) | Each capsule piece with: what it is + why it works + how to style | The outfit matrix table | Budget breakdown | FAQ | MeeeShop product picks",
+        "description": "Teach readers how to build a seasonal capsule wardrobe around this product type. Show how {num} key pieces create versatile daily outfits. Emphasise mix-and-match, silhouette balance, and quality fabric investments.",
+        "structure": "Direct Answer First (core capsule blueprint) | TOC | Key versatile pieces with fit & styling tips | Day-to-night mix & match outfit recipes | Fabric & silhouette longevity guide | FAQ (5-6 specific questions) | MeeeShop product picks",
         "tone": "Thoughtful minimalist editor, warm and practical",
-        "title_examples": ["Your Summer Capsule Wardrobe: 10 Pieces, 30 Outfits", "Build the Perfect Fall Wardrobe Around 1 Pair of Dark-Wash Jeans"],
+        "title_examples": ["Your Summer Capsule Wardrobe: 7 Essential Pieces", "Build the Perfect Fall Wardrobe Around 1 Pair of Dark-Wash Jeans"],
     },
     {
         "id": "trend_report",
@@ -1161,17 +1161,14 @@ Instructions:
 2. The "Required Structure" below is just a baseline guideline. You MUST adapt and customize the headings and flow to directly answer the Target Question, rather than relying on a rigid, generic template. Do NOT output a generic article that ignores the specific question.
 3. Include a 2-3 sentence clear, authoritative Direct Answer box right after the opening paragraph for Google Discover & Featured Snippet eligibility.
 
-────────── PRODUCT CATEGORY FOCUS (100% GENERIC ARTICLE) ──────────
+────────── PRODUCT CATEGORY FOCUS & EVERGREEN LINKING ──────────
 Target Product Category: {ptype} for Women
-Recommended Store Items (to be displayed in shop callout blocks at the bottom): {', '.join([main_product['title']] + m_names)}
 Store URL base: {STORE_URL}
 
-CRITICAL MANDATORY RULE (STRICTLY ENFORCED):
-- This article MUST be 100% generic fashion advice about {ptype} for women.
-- NEVER make any single store product the hero, title, or centerpiece of the article or outfit recipes.
-- DO NOT mention specific store product names like "{main_product['title']}" in the main body text or section titles.
-- Describe outfits using generic terms (e.g., "a relaxed linen shirt top", "a cropped blouse with wide-leg jeans", "a silk midi dress").
-- MeeeShop store products will be presented separately in recommended shopping callout blocks at the bottom of the article.
+EVERGREEN LINKING GUIDELINES:
+- Focus on genuinely answering the customer's styling question with practical, expert advice.
+- CRITICAL: DO NOT link to individual product URLs (/products/...) because boutique stock moves rapidly and items sell out without restocking. All shopping navigation links MUST point to collections (/collections/...) or stay generic.
+- Dynamic in-stock products are already rendered below the article content by the store theme. Do NOT embed static product cards or specific item links inside the text body.
 
 ────────── SEO KEYWORDS ──────────
 Weave these naturally — never stuff them:
@@ -1183,56 +1180,34 @@ Zero-Search-Volume: {', '.join(zero_search[:5])}
 
 ────────── MANDATORY EDITORIAL & VISUAL STYLING RULES ──────────
 1. Target audience: Women in the USA, ages 25-55. Speak directly to her. All advice must be practical and help women in their real-life decisions about clothing & accessories.
-2. Open with a STRONG hook — surprising stat, relatable pain point, bold statement, or intriguing question. NO generic 'In today's world...' openers.
-3. Include a Table of Contents (HTML anchor links) after the intro. The Table of Contents MUST be formatted as a structured bulleted list (using `<ul>` and `<li>`) or numbered list (using `<ol>` and `<li>`), wrapped in a styled container (e.g. `<div style="background:#f9f9f9; border:1px solid #eaeaea; padding:15px; border-radius:8px; margin:20px 0;"><p style="font-weight:bold; margin-top:0;">Table of Contents</p><ul style="margin:0; padding-left:20px; line-height:1.6;">...</ul></div>`). Never output it as a single paragraph or plain text.
-4. Use H2 and H3 headers. Every section must provide REAL, actionable value.
-5. Include at least one numbered list OR bullet-point checklist with 5+ items.
-6. Focus 100% on generic fashion styling advice for {ptype}. Do NOT center the article around any single product name.
-7. End with an FAQ section containing 5-6 specific, realistic questions women ask about this topic, with detailed answers.
+2. STRICTLY FORBIDDEN CLICHÉS & DIRECT ANSWER:
+   - Do NOT write opening stories about "drinking a latte", "morning commute", "sprinting to the subway", "rooftop bistro/lunch", "coffee run", or "picture this in the fitting room".
+   - Open with a DIRECT ANSWER FIRST explaining the root cause and actionable rule.
+3. MOBILE-FRIENDLY PARAGRAPH BREVITY & SCANNABILITY:
+   - Paragraph Brevity: Keep every paragraph concise (2 to 3 sentences max) to eliminate mobile text walls.
+   - Actionable Outfit Blueprints: Include practical outfit recipes formatted in clean bullet points with exact garments, footwear pairings, and proportion tips.
+4. Include a Table of Contents (HTML anchor links) after the intro. The Table of Contents MUST be formatted as a structured bulleted list (using `<ul>` and `<li>`) wrapped in a styled container (<div style="background:#f9f9f9; border:1px solid #eaeaea; padding:15px; border-radius:8px; margin:20px 0;"><p style="font-weight:bold; margin-top:0;">Table of Contents</p><ul style="margin:0; padding-left:20px; line-height:1.6;">...</ul></div>).
+5. Use H2 and H3 headers. Every section must provide REAL, actionable value tailored specifically to the search question.
+6. Include at least one numbered list OR bullet-point checklist with 5+ items.
+7. End with an FAQ section containing 4-5 specific, realistic questions women ask about this topic, with detailed answers wrapped in clean div blocks.
 8. DO NOT be generic in advice. Every tip must be specific in terms of cuts, colors, and fabrics.
-9. Article length: Aim for 900-1200 words of body content (excluding product cards added separately).
-10. PREMIUM HTML STYLING: Make the article visually outstanding and premium. Use these HTML elements:
-    - **Styled Blockquotes**: Use `<blockquote>` with elegant borders and styling (e.g. `<blockquote style="border-left: 4px solid #111; padding-left: 20px; font-style: italic; margin: 30px 0; color: #555;">...</blockquote>`).
-    - **Key Takeaway Cards / Callout Boxes**: Insert styled `div`s for editor's tips or warnings (e.g. `<div style="background: #faf5f5; border-left: 4px solid #d9534f; padding: 15px 20px; margin: 20px 0; border-radius: 4px;"><strong>Editor's Note:</strong> ...</div>`).
-    - **Comparison / Styling Recipe Cards**: Create side-by-side recipe or match guides with inline style (using border-radius, clean fonts, subtle colors).
-11. LIST FORMATTING (CRITICAL): NEVER write numbered items, tips, or Q&A as a single paragraph of text. ALWAYS use proper HTML list elements:
-    - For numbered steps/tips/ideas, use `<ol><li>…</li></ol>`.
-12. OUTFIT / ITEM COUNT ALIGNMENT (CRITICAL): The title/handle specifies {extract_handle_count(original_handle_hint or title_hint)} outfits/items/rules. You MUST structure the body with generic fashion styling recipes (e.g. Outfit 1: Pair a cropped shirt top with high-waisted wide-leg jeans...).
-13. CURRENT YEAR ENFORCEMENT (CRITICAL): The current year is {YEAR}. You MUST write all titles, subheadings, and content specifically for {YEAR}. You MUST NEVER output past years (2024, 2025, 2023, or older). If any research reference mentions an older year, you MUST update it to {YEAR}.
-    - For unordered items/checklists, use `<ul><li>…</li></ul>`.
-    - For the FAQ section, wrap each Q&A in its own `<div>` block. Use a `<strong>` or `<h3>` for the question and a `<p>` for the answer, NEVER inline them like "Q: ... A: ..." in one paragraph.
-    - Example of WRONG format: "Here are tips: 1. Do X 2. Do Y 3. Do Z"
-    - Example of CORRECT format: `<ol><li>Do X</li><li>Do Y</li><li>Do Z</li></ol>`
+9. Article length: Aim for 850-1,100 words of body content (excluding product cards added separately).
+9. PREMIUM HTML STYLING:
+   - Styled Blockquotes: Use `<blockquote>` with elegant borders (<blockquote style="border-left: 4px solid #111; padding-left: 20px; font-style: italic; margin: 30px 0; color: #555;">...</blockquote>).
+   - Key Takeaway Cards: Insert styled callout boxes (<div style="background: #faf5f5; border-left: 4px solid #d9534f; padding: 15px 20px; margin: 20px 0; border-radius: 4px;"><strong>Stylist Tip:</strong> ...</div>).
+10. CURRENT YEAR ENFORCEMENT (CRITICAL): The current year is {YEAR}. You MUST write all titles, subheadings, and content specifically for {YEAR}. You MUST NEVER output past years (2024, 2025, 2023, or older).
 
 At the very end, append this block:
 <seometa>
-SEO_TITLE: [50-60 chars, include main keyword near start, MUST use current year {YEAR} or 'for Women', NEVER past years like 2024 or 2025]
+SEO_TITLE: [50-60 chars, include main keyword near start, current year {YEAR} or 'for Women']
 META_DESC: [140-155 chars, benefit-first, end with CTA]
-IMG_ALT: [10-15 words describing the featured image styling scene]
-SUGGESTED_HANDLE: [url-slug-format]
-SUGGESTED_TAGS: [comma-separated list of 6-8 relevant tags]
-ARTICLE_MODE: {mode['id']}
-</seometa>e="background: #faf5f5; border-left: 4px solid #d9534f; padding: 15px 20px; margin: 20px 0; border-radius: 4px;"><strong>Editor's Note:</strong> ...</div>`).
-    - **Comparison / Styling Recipe Cards**: Create side-by-side recipe or match guides with inline style (using border-radius, clean fonts, subtle colors).
-11. LIST FORMATTING (CRITICAL): NEVER write numbered items, tips, or Q&A as a single paragraph of text. ALWAYS use proper HTML list elements:
-    - For numbered steps/tips/ideas, use `<ol><li>…</li></ol>`.
-12. OUTFIT / ITEM COUNT ALIGNMENT (CRITICAL): The title/handle specifies {extract_handle_count(original_handle_hint or title_hint)} outfits/items/rules. You MUST structure the body with exactly {extract_handle_count(original_handle_hint or title_hint)} distinct outfit formulas/sections (e.g. 'Outfit 1', 'Outfit 2', ... 'Outfit {extract_handle_count(original_handle_hint or title_hint)}') to match the handle and title count, featuring the hero product and all complementary products provided ({', '.join(m_names)}).
-    - For unordered items/checklists, use `<ul><li>…</li></ul>`.
-    - For the FAQ section, wrap each Q&A in its own `<div>` block. Use a `<strong>` or `<h3>` for the question and a `<p>` for the answer, NEVER inline them like "Q: ... A: ..." in one paragraph.
-    - Example of WRONG format: "Here are tips: 1. Do X 2. Do Y 3. Do Z"
-    - Example of CORRECT format: `<ol><li>Do X</li><li>Do Y</li><li>Do Z</li></ol>`
-
-At the very end, append this block:
-<seometa>
-SEO_TITLE: [50-60 chars, include main keyword near start, current year or 'for Women']
-META_DESC: [140-155 chars, benefit-first, end with CTA]
-IMG_ALT: [12-18 word visual description of featured outfit collage: include product name, fit/silhouette (e.g. high-waisted, oversized), color palette, and US styling occasion (e.g. casual office, weekend brunch)]
+IMG_ALT: [12-18 word visual description of featured outfit: include product name, fit/silhouette, and styling occasion]
 SUGGESTED_HANDLE: [url-slug-format]
 SUGGESTED_TAGS: [comma-separated list of 6-8 relevant tags]
 ARTICLE_MODE: {mode['id']}
 </seometa>
 
-Output ONLY clean HTML body content starting IMMEDIATELY with the <h1> tag, followed by the <seometa> block at the end. DO NOT output any chain-of-thought, internal reflections, planning thoughts, prompt analysis, or commentary (e.g. 'This is tricky', 'Must have sections', 'We need to satisfy'). No markdown fences. Start directly with <h1>.
+Output ONLY clean HTML body content starting IMMEDIATELY with the <h1> tag, followed by the <seometa> block at the end. DO NOT output any chain-of-thought, internal reflections, planning thoughts, prompt analysis, or commentary. No markdown fences. Start directly with <h1>.
 """
     if original_handle_hint:
         prompt += f"""
@@ -1449,12 +1424,10 @@ def generate_fallback_content(
 """
         for idx, p in enumerate(matching_products):
             pair_title = p["title"]
-            pair_handle = p.get("handle", "")
-            pair_url = f"{STORE_URL}/products/{pair_handle}"
             pairings_html += f"""
 <div style="border: 1px solid #eaeaea; border-radius: 8px; padding: 15px; margin-bottom: 20px; background:#fff;">
   <h3 style="margin-top:0; font-size:16px; color:#111;">Recipe {idx+1}: The {pair_title} Pairing</h3>
-  <p>Create a cohesive, high-end look by pairing the <strong>{prod_title}</strong> with the <a href="{pair_url}" style="color:#111; text-decoration:underline;">{pair_title}</a>. This combination creates a beautiful balance of textures and colors, perfect for transitional weather or a smart-casual dress code.</p>
+  <p>Create a cohesive, high-end look by pairing the <strong>{prod_title}</strong> with <strong>{pair_title}</strong>. This combination creates a beautiful balance of textures and colors, perfect for transitional weather or a smart-casual dress code.</p>
 </div>
 """
         care_html = f"""
@@ -1753,10 +1726,7 @@ def generate_single_article_content(
     img_alt = enforce_current_year(img_alt, str(YEAR))
     html_body = enforce_current_year(html_body, str(YEAR))
 
-    # 5. Inject recommended products section at the bottom
-    html_body += "\n" + make_related_products_section([main_product] + matching_products)
-
-    # 6. Inject natural internal links
+    # 5. Inject natural internal links to collections
     html_body = inject_internal_links(html_body, link_map, main_product["title"])
 
     # 7. Generate and upload featured image collage
