@@ -2,9 +2,9 @@ name: Flipboard Syndication Automation
 
 on:
   schedule:
-    # Run daily at 11:30 AM UTC (7:30 AM EDT / 4:30 AM PDT - peak US morning window)
-    # Tue/Thu/Sun: Flips fresh blog articles; Mon/Wed/Fri/Sat: Flips rotating evergreen guides (June Strategy)
-    - cron: '30 11 * * *'
+    # Run daily at 17:00 UTC (1:00 PM EDT / 10:00 AM PDT - peak US lunchtime shopping window)
+    # Staggers MeeeShop store content and curated trending fashion for maximum reach
+    - cron: '0 17 * * *'
   
   workflow_dispatch:
     inputs:
@@ -60,8 +60,8 @@ jobs:
           fi
           
           DAYS="${{ github.event.inputs.days || '14' }}"
-          LIMIT="${{ github.event.inputs.limit || '5' }}"
-          REFLIP_LIMIT="${{ github.event.inputs.reflip_limit || '3' }}"
+          LIMIT="${{ github.event.inputs.limit || '2' }}"
+          REFLIP_LIMIT="${{ github.event.inputs.reflip_limit || '2' }}"
           
           python scripts/sync_to_flipboard.py --days $DAYS --limit $LIMIT --reflip-limit $REFLIP_LIMIT $DRY_RUN_FLAG
 

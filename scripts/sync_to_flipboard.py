@@ -80,10 +80,26 @@ API_VER = "2024-10"
 SHOP_BASE = f"https://{SHOP}/admin/api/{API_VER}"
 SHOP_HEADERS = {"X-Shopify-Access-Token": SHOP_TOKEN, "Content-Type": "application/json"}
 
+# ── Dynamic Seasonal Guidance for US Women Shoppers ────────────────────────────
+def get_seasonal_info():
+    """Return seasonal topic slug and curated trending hashtags for US fashion."""
+    month = datetime.now().month
+    if month in [9, 10, 11]:
+        return "fall-fashion", ["#FallFashion", "#AutumnStyle", "#LayeringVibes", "#CozyChic"]
+    elif month in [12, 1, 2]:
+        return "winter-fashion", ["#WinterStyle", "#CozyStyle", "#HolidayOutfits", "#WinterFashion"]
+    elif month in [3, 4, 5]:
+        return "spring-fashion", ["#SpringTrends", "#SpringStyle", "#FreshLooks", "#CasualChic"]
+    else:
+        return "summer-fashion", ["#SummerOutfits", "#SunnyStyle", "#SummerVibes", "#WarmWeather"]
+
+SEASONAL_TOPIC, SEASONAL_TAGS = get_seasonal_info()
+PRIMARY_SEASON_TAG = SEASONAL_TAGS[0]
+
 # ── Category to Flipboard Magazine Routing ─────────────────────────────────────
 MAGAZINE_ROUTING = {
     "dress": "Women's Dresses",
-    "skirt": "Women's Dresses",
+    "skirt": "Women's Jeans & Bottoms",
     "jean": "Women's Jeans & Bottoms",
     "denim": "Women's Jeans & Bottoms",
     "pant": "Women's Jeans & Bottoms",
@@ -119,29 +135,29 @@ MAGAZINE_ROUTING = {
 # ── Curated Trending Topic Feeds Matching Women's Fashion & Product Lines ──────
 TRENDING_TOPIC_CONFIGS = [
     {
-        "topics": ["streetstyle", "fashion-trends", "capsule-wardrobe", "fall-fashion", "summer-fashion"],
+        "topics": ["streetstyle", "fashion-trends", "capsule-wardrobe", SEASONAL_TOPIC],
         "target_mag": "Trending Clothing Tips & Styles For Women",
-        "hashtags": "#WomensFashion #StreetStyle #OutfitInspo #FashionTrends #Style"
+        "hashtags": f"#WomensFashion #StreetStyle #OutfitInspo #FashionTrends {PRIMARY_SEASON_TAG}"
     },
     {
         "topics": ["denim", "jeans"],
         "target_mag": "Women's Jeans & Bottoms",
-        "hashtags": "#DenimOutfits #Jeans #CasualChic #OutfitIdeas #Style"
+        "hashtags": f"#DenimOutfits #Jeans #CasualChic #OutfitIdeas {PRIMARY_SEASON_TAG}"
     },
     {
         "topics": ["plus-size", "plussize"],
         "target_mag": "Curvy | Plus Size Styles & Tips",
-        "hashtags": "#PlusSizeFashion #CurvyStyle #BodyPositive #StyleInspo"
+        "hashtags": f"#PlusSizeFashion #CurvyStyle #BodyPositive #StyleInspo {PRIMARY_SEASON_TAG}"
     },
     {
         "topics": ["sustainable-fashion", "sustainablefashion"],
         "target_mag": "Veganism | Eco-Friendly & Sustainable",
-        "hashtags": "#SustainableFashion #EcoFriendly #ConsciousStyle #SlowFashion"
+        "hashtags": f"#SustainableFashion #EcoFriendly #ConsciousStyle #SlowFashion {PRIMARY_SEASON_TAG}"
     },
     {
-        "topics": ["capsule-wardrobe", "fashion-trends", "fall-fashion"],
+        "topics": ["capsule-wardrobe", "fashion-trends", SEASONAL_TOPIC],
         "target_mag": "Women's Dresses",
-        "hashtags": "#Dresses #DressStyle #OOTD #SummerOutfits #Style"
+        "hashtags": f"#Dresses #DressStyle #OOTD #Style {PRIMARY_SEASON_TAG}"
     }
 ]
 
@@ -161,10 +177,8 @@ if not all([SHOP_TOKEN, FLIPBOARD_EMAIL, FLIPBOARD_PASSWORD, SHOP]):
     logging.error("Missing required secrets: SHOPIFY_STORE, SHOPIFY_ACCESS_TOKEN, FLIPBOARD_EMAIL, FLIPBOARD_PASSWORD")
     sys.exit(1)
 
-# Flipboard scraper often fails to fetch OpenGraph images if URLs have complex query params.
-# We remove UTM tracking so Flipboard uses the clean canonical URL and generates a rich preview card.
-# (Rich cards are critical; text-only cards get 0 clicks).
-UTM_TRACKING = ""
+# Clean, scraper-safe UTM tracking parameters for Shopify & GA4 attribution
+UTM_TRACKING = "utm_source=flipboard&utm_medium=social&utm_campaign=flipboard_daily"
 
 # ── Shopify & Caption Helpers ──────────────────────────────────────────────────
 def clean_html_text(raw_html: str) -> str:
@@ -177,7 +191,7 @@ def clean_html_text(raw_html: str) -> str:
     return clean
 
 def generate_flip_caption(art: dict) -> str:
-    """Generate an engaging caption with high-traffic, category-matched fashion hashtags."""
+    """Generate an engaging, high-CTR caption tailored for US women shoppers with seasonal hashtags."""
     title = html.unescape(art.get("title", ""))
     summary = clean_html_text(art.get("summary_html", ""))
     body = clean_html_text(art.get("body_html", ""))
@@ -189,48 +203,49 @@ def generate_flip_caption(art: dict) -> str:
     tags = [t.strip().lower() for t in (art.get("tags") or "").split(",") if t.strip()]
     text_corpus = f"{title} {excerpt} {' '.join(tags)}".lower()
 
-    # Product-type specific hashtag prioritization and conversational hooks
-    if any(k in text_corpus for k in ["cardigan", "sweater", "knitwear", "knit", "pullover"]):
-        hook = "Stay cozy and chic. "
-        hashtags = ["#SweaterWeather", "#Style"]
+    # Specific garment checks first before generic fabric checks (prevents 'knit skirt' from matching sweaters)
+    if any(k in text_corpus for k in ["skirt"]):
+        hook = "The perfect skirt changes everything. "
+        hashtags = ["#SkirtStyle", "#OutfitInspo", PRIMARY_SEASON_TAG]
+    elif any(k in text_corpus for k in ["jean", "denim", "flares", "flare", "skinny"]):
+        hook = "Elevate your denim game with these flattering cuts. "
+        hashtags = ["#DenimStyle", "#Jeans", PRIMARY_SEASON_TAG]
+    elif any(k in text_corpus for k in ["dress", "maxi", "midi", "sundress", "slip dress"]):
+        hook = "Looking for your next go-to dress? "
+        hashtags = ["#DressStyle", "#OOTD", PRIMARY_SEASON_TAG]
+    elif any(k in text_corpus for k in ["pant", "trouser", "slack", "bottom", "legging"]):
+        hook = "Chic, flattering bottoms for effortless everyday styling. "
+        hashtags = ["#WomensFashion", "#Style", PRIMARY_SEASON_TAG]
+    elif any(k in text_corpus for k in ["cardigan", "sweater", "pullover", "knitwear"]) or (
+        "knit" in text_corpus and not any(k in text_corpus for k in ["skirt", "dress", "pant"])
+    ):
+        hook = "Stay cozy and chic with these everyday essentials. "
+        hashtags = ["#SweaterWeather", "#Knitwear", PRIMARY_SEASON_TAG]
     elif any(k in text_corpus for k in ["blazer", "jacket", "coat", "outerwear", "shacket"]):
-        hook = "Layer up with these stunning pieces. "
-        hashtags = ["#Outerwear", "#Fashion"]
-    elif any(k in text_corpus for k in ["dress", "maxi", "midi", "sundress"]):
-        hook = "Looking for the perfect dress? "
-        hashtags = ["#DressStyle", "#OOTD"]
-    elif any(k in text_corpus for k in ["skirt"]):
-        hook = "A beautiful skirt changes everything. "
-        hashtags = ["#SkirtStyle", "#OOTD"]
-    elif any(k in text_corpus for k in ["jean", "denim"]):
-        hook = "Elevate your denim game. "
-        hashtags = ["#DenimStyle", "#Jeans"]
-    elif any(k in text_corpus for k in ["pant", "trouser", "slack"]):
-        hook = "Chic bottoms for every occasion. "
-        hashtags = ["#WomensFashion", "#Style"]
+        hook = "Layer up in style with these statement pieces. "
+        hashtags = ["#Outerwear", "#Fashion", PRIMARY_SEASON_TAG]
     elif any(k in text_corpus for k in ["plus", "curvy"]):
-        hook = "Flattering, confident, and beautiful styles. "
-        hashtags = ["#CurvyStyle", "#BodyPositive"]
+        hook = "Flattering, confident styles designed to fit and flatter. "
+        hashtags = ["#CurvyStyle", "#BodyPositive", PRIMARY_SEASON_TAG]
     elif any(k in text_corpus for k in ["vegan", "eco", "sustainable", "plant-based"]):
         hook = "Fashion that looks good and does good. "
-        hashtags = ["#SustainableFashion", "#EcoFriendly"]
+        hashtags = ["#SustainableFashion", "#EcoFriendly", PRIMARY_SEASON_TAG]
     elif any(k in text_corpus for k in ["top", "blouse", "shirt", "tee"]):
-        hook = "Refresh your wardrobe with these tops. "
-        hashtags = ["#WomensTops", "#OOTD"]
-    elif any(k in text_corpus for k in ["bag", "handbag", "purse"]):
-        hook = "The perfect accessory to complete your look. "
-        hashtags = ["#Handbags", "#Accessories"]
-    elif any(k in text_corpus for k in ["shoe", "boot", "sandal", "sneaker", "footwear"]):
-        hook = "Step out in style. "
-        hashtags = ["#ShoeStyle", "#Footwear"]
+        hook = "Refresh your rotation with these easy-to-style tops. "
+        hashtags = ["#WomensTops", "#OOTD", PRIMARY_SEASON_TAG]
+    elif any(k in text_corpus for k in ["bag", "handbag", "purse", "crossbody"]):
+        hook = "The perfect boutique bag to complete your look. "
+        hashtags = ["#Handbags", "#Accessories", PRIMARY_SEASON_TAG]
+    elif any(k in text_corpus for k in ["shoe", "boot", "sandal", "sneaker", "footwear", "heels"]):
+        hook = "Step out in style with curated footwear essentials. "
+        hashtags = ["#ShoeStyle", "#Footwear", PRIMARY_SEASON_TAG]
     else:
-        hook = "Discover the latest in women's fashion. "
-        hashtags = ["#FashionTrends", "#Style"]
+        hook = "Discover the latest in curated women's styling. "
+        hashtags = ["#FashionTrends", "#Style", PRIMARY_SEASON_TAG]
 
     unique_tags = list(dict.fromkeys(hashtags))
     hashtag_str = " ".join(unique_tags)
 
-    # Keep it short, conversational, and avoid spammy blocks of hashtags
     if excerpt:
         return f"{hook}{excerpt} {hashtag_str}"
     else:
@@ -409,10 +424,18 @@ def fetch_old_articles(limit: int = 2) -> list:
     random.shuffle(available_cats)
 
     selected = []
-    for cat in available_cats:
+    for idx, cat in enumerate(available_cats):
         if len(selected) >= limit:
             break
         art_choice = random.choice(articles_by_cat[cat])
+        # Balanced syndication: First evergreen article rotates into the flagship
+        # magazine ('Trending Clothing Tips & Styles For Women') to maintain audience authority;
+        # subsequent article routes to its targeted category magazine.
+        if idx == 0:
+            art_choice["_target_mag"] = FLIPBOARD_MAGAZINE
+            art_choice["_stagger_stage"] = 1
+        else:
+            art_choice["_stagger_stage"] = 2
         selected.append(art_choice)
 
     logging.info(f"Selected {len(selected)} diverse evergreen MeeeShop article(s) for daily syndication.")
