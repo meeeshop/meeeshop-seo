@@ -157,6 +157,14 @@ jobs:
             python scripts/price_update.py --mode ${{ needs.setup.outputs.mode }}
           fi
 
+      - name: Exclude products tagged 'exclude-shop-app' from Shop App
+        if: always()
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          python scripts/exclude_shop_app.py
+
       - name: Price update summary
         if: always()
         run: |
@@ -221,6 +229,14 @@ jobs:
             --mode force \
             --batch-size ${{ env.BATCH_SIZE }} \
             --batch-index ${{ matrix.batch_index }}
+
+      - name: Exclude products tagged 'exclude-shop-app' from Shop App
+        if: always()
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          python scripts/exclude_shop_app.py
 
       - name: Price update summary
         if: always()
