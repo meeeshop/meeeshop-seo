@@ -423,17 +423,15 @@ def calculate_optimal_price_and_eligibility(
             capped_price = snap_to_ending(capped_price)
             return capped_price, True, f"CAPPED & EXCLUDED (exceeds ${std_ceiling:.2f} ceiling)"
     else:
-        # Fallback when unit cost is not provided
-        if current_price < 40.0:
-            raw = max(MIN_PRICE_FLOOR, current_price + 35.0)
-        elif current_price < 65.0:
-            raw = max(79.99, current_price + 25.0)
-        elif current_price < 90.0:
-            raw = max(94.99, current_price + 20.0)
+        # Fallback when unit cost is not provided:
+        # Preserve prices that are already at or above MIN_PRICE_FLOOR to prevent creeping inflation on repeated force runs.
+        if current_price >= MIN_PRICE_FLOOR and is_valid_ending(current_price):
+            target = current_price
+        elif current_price < MIN_PRICE_FLOOR:
+            target = snap_to_ending(max(MIN_PRICE_FLOOR, current_price + 20.0))
         else:
-            raw = current_price + 15.0
+            target = snap_to_ending(current_price)
 
-        target = snap_to_ending(raw)
         if target > std_ceiling:
             return std_ceiling, True, f"CAPPED & EXCLUDED (exceeds ${std_ceiling:.2f})"
         return target, False, f"STANDARD ({category})"
