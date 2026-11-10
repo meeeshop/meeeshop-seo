@@ -1,15 +1,18 @@
 """
-Dynamic pricing and margin protection engine for MeeeShop inventory.
+Dynamic pricing, market competitiveness, and margin protection engine for MeeeShop inventory.
 
 Rules:
   - Protects store profits against Shop App CAC ($29.00), Shopify Capital repayment (10%),
     and payment processing fees (~2.9% + $0.30).
   - Guarantees minimum +$10.00 net profit per single-item order on Shop App.
+  - Market Competitiveness Guardrails: Checks category-specific price ceilings (Tops, Sweaters,
+    Denim, Dresses, Outerwear, Bags) so products are NEVER overpriced. Customers won't be scared
+    away by inflated prices.
+  - Smart Channel Routing: If a product's required break-even price exceeds its category market ceiling,
+    it is capped at a competitive market price and automatically tagged 'exclude-shop-app' (so it sells
+    profitably on Web / Google / Pinterest without the $29 CAC penalty).
   - Ensures uniform retail pricing across all standard sizes (XS - XXL) of a product.
   - Fixes inverted compare-at prices.
-  - Automatically tags uncompetitively high-cost (> $75 wholesale) or low-ticket (< $45)
-    products with 'exclude-shop-app' so they will not be published to the Shop App sales channel.
-  - Automatically removes 'exclude-shop-app' if a product is safely profitable.
   - Snaps prices to clean boutique endings (x4.99 or x9.99).
 
 Modes:
@@ -68,8 +71,53 @@ PAYMENT_FIXED_FEE = 0.30           # $0.30 fixed processing fee
 ESTIMATED_DROPSHIP_SHIPPING = 7.50  # Average vendor dropship & handling fee
 TARGET_MIN_PROFIT = 10.00          # Minimum target net profit per single-item order
 MIN_PRICE_FLOOR = 74.99            # Minimum price floor to safeguard margins
-MAX_MARKET_CEILING = 159.99        # Maximum realistic price for standard boutique items before auto-excluding
 API_DELAY_SECONDS = 0.4            # Delay between Shopify API calls to respect rate limits
+
+# ---------------------------------------------------------------------------
+# Category Market Ceilings (Prevents Overpricing)
+# ---------------------------------------------------------------------------
+# If an item requires a price above these ceilings to cover Shop App CAC,
+# it is capped at the ceiling and EXCLUDED from Shop App to preserve high
+# conversion rates on Web / Google / Pinterest.
+CATEGORY_MARKET_CEILINGS = {
+    "outerwear": 159.99,    # Coats, Jackets, Blazers, Parkas, Vests
+    "dresses": 134.99,      # Maxi, Midi, Gowns, Jumpsuits, Rompers
+    "sweaters": 104.99,     # Knitwear, Sweaters, Cardigans, Pullovers
+    "bottoms": 104.99,      # Jeans, Denim, Pants, Trousers, Skirts
+    "bags": 119.99,         # Handbags, Totes, Crossbody, Backpacks
+    "shoes": 119.99,        # Boots, Heels, Sneakers, Flats
+    "tops": 84.99,          # Blouses, Button-ups, Shirts, Camis, Halters
+    "tees": 64.99,          # Graphic Tees, Basic T-Shirts
+    "accessories": 49.99,   # Hats, Belts, Scarves, Jewelry, Socks
+    "general": 99.99,       # Default fallback ceiling
+}
+
+
+def get_category_market_ceiling(title: str, product_type: str) -> Tuple[str, float]:
+    """
+    Classifies a product into its fashion category and returns its market ceiling.
+    Ensures retail prices remain competitive and attractive to shoppers.
+    """
+    text = f"{product_type} {title}".lower()
+    if any(k in text for k in ['jacket', 'coat', 'blazer', 'outerwear', 'parka', 'vest', 'shacket']):
+        return "outerwear", CATEGORY_MARKET_CEILINGS["outerwear"]
+    if any(k in text for k in ['dress', 'gown', 'jumpsuit', 'romper', 'maxi', 'midi']):
+        return "dresses", CATEGORY_MARKET_CEILINGS["dresses"]
+    if any(k in text for k in ['sweater', 'cardigan', 'knit', 'pullover', 'hoodie']):
+        return "sweaters", CATEGORY_MARKET_CEILINGS["sweaters"]
+    if any(k in text for k in ['jean', 'denim', 'pant', 'trouser', 'legging', 'skirt', 'short']):
+        return "bottoms", CATEGORY_MARKET_CEILINGS["bottoms"]
+    if any(k in text for k in ['bag', 'tote', 'backpack', 'crossbody', 'purse', 'satchel', 'wallet']):
+        return "bags", CATEGORY_MARKET_CEILINGS["bags"]
+    if any(k in text for k in ['boot', 'shoe', 'heel', 'sneaker', 'sandal', 'flat']):
+        return "shoes", CATEGORY_MARKET_CEILINGS["shoes"]
+    if any(k in text for k in ['tee', 't-shirt', 'graphic']):
+        return "tees", CATEGORY_MARKET_CEILINGS["tees"]
+    if any(k in text for k in ['top', 'blouse', 'cami', 'tank', 'shirt', 'halter', 'corset']):
+        return "tops", CATEGORY_MARKET_CEILINGS["tops"]
+    if any(k in text for k in ['hat', 'beanie', 'scarf', 'belt', 'jewelry', 'earring', 'necklace', 'bracelet', 'sock']):
+        return "accessories", CATEGORY_MARKET_CEILINGS["accessories"]
+    return "general", CATEGORY_MARKET_CEILINGS["general"]
 
 
 # ---------------------------------------------------------------------------
@@ -178,14 +226,6 @@ query ($first: Int!, $after: String, $query: String!) {
 
 
 def get_products(mode: str, window_hours: Optional[int] = None) -> List[Dict]:
-    """
-    Fetch active products filtered by creation date.
-
-    daily              -> last 48 hours (or --window override)
-    weekly             -> last 168 hours / 7 days (or --window override)
-    force              -> all active products (no date filter)
-    --window <hours>   -> override fetch window for daily/weekly
-    """
     now = datetime.now(timezone.utc)
     if mode == "daily":
         hours = window_hours if window_hours is not None else 48
@@ -260,7 +300,7 @@ def get_products(mode: str, window_hours: Optional[int] = None) -> List[Dict]:
 
 
 # ---------------------------------------------------------------------------
-# Pricing logic
+# Pricing & Market Guardrail Logic
 # ---------------------------------------------------------------------------
 
 def snap_to_ending(price: float) -> float:
@@ -280,70 +320,68 @@ def is_valid_ending(price: float) -> bool:
     return cents in (4.99, 9.99)
 
 
-def calculate_target_price(current_price: float, unit_cost: Optional[float] = None) -> float:
+def calculate_optimal_price_and_eligibility(
+    current_price: float,
+    unit_cost: Optional[float],
+    title: str,
+    product_type: str
+) -> Tuple[float, bool]:
     """
-    Tiered dynamic margin pricing engine:
-    Protects store profits against Shop App CAC ($29.00), Shopify Capital (10%),
-    and payment processing fees (~2.9% + $0.30).
+    Balances profit guarantee with market price competitiveness:
 
-    Formula:
-      Net Revenue = Price * (1 - 0.10 - 0.029) - (VendorCost + $29.00 + $0.30)
-      Net Revenue = 0.871 * Price - VendorCost - $29.30
-    For Net Profit >= $10.00:
-      0.871 * Price >= VendorCost + $39.30
-      Price >= (VendorCost + $39.30) / 0.871
+    1. Computes the required break-even + profit price for Shop App:
+       Required = (VendorCost + $29 CAC + $0.30 fee + $10 profit) / 0.871
 
-    Tiers (when unit_cost is known from inventory item):
-      VendorCost = unit_cost + $7.50 dropshipping/handling
-      Required Price = (VendorCost + $39.30) / 0.871
-      Enforces MIN_PRICE_FLOOR ($74.99).
+    2. Checks the Category Market Ceiling (e.g. $84.99 for Tops, $104.99 for Sweaters/Jeans, $134.99 for Dresses):
+       - If Required Price <= Category Market Ceiling:
+         The price is competitive, attractive to customers, AND profitable on Shop App!
+         -> Sets price to Required Price (snapped to .99/.49)
+         -> Eligible for Shop App (exclude_from_shop = False)
 
-    Fallback (when unit_cost is not provided):
-      - current_price < $40.00:  target = max(MIN_PRICE_FLOOR, current_price + $35.00)
-      - current_price $40-$65:   target = max(79.99, current_price + $25.00)
-      - current_price $65-$90:   target = max(94.99, current_price + $20.00)
-      - current_price >= $90.00: target = current_price + $15.00
+       - If Required Price > Category Market Ceiling:
+         Charging the required price would make the item too expensive for shoppers.
+         Instead of overpricing the item and destroying sales conversion:
+         -> Caps price at the competitive Category Market Ceiling.
+         -> Excludes item from Shop App (exclude_from_shop = True) so it sells profitably on
+            Web / Google / Pinterest (where no $29 CAC applies, yielding healthy 50%+ margins).
+
+    3. Low-Ticket Items (< $45 MSRP accessories/tees):
+       -> Kept at standard competitive boutique price.
+       -> Excluded from Shop App (exclude_from_shop = True).
     """
+    category, market_ceiling = get_category_market_ceiling(title, product_type)
+
     if unit_cost is not None and unit_cost > 0:
         vendor_payout = unit_cost + ESTIMATED_DROPSHIP_SHIPPING
         required_raw = (vendor_payout + SHOP_APP_CAC + PAYMENT_FIXED_FEE + TARGET_MIN_PROFIT) / (1.0 - SHOPIFY_CAPITAL_RATE - PAYMENT_GATEWAY_RATE)
-        raw_price = max(MIN_PRICE_FLOOR, required_raw)
-    else:
-        if current_price < 40.0:
-            raw_price = max(MIN_PRICE_FLOOR, current_price + 35.0)
-        elif current_price < 65.0:
-            raw_price = max(79.99, current_price + 25.0)
-        elif current_price < 90.0:
-            raw_price = max(94.99, current_price + 20.0)
+        required_price = snap_to_ending(max(MIN_PRICE_FLOOR, required_raw))
+
+        if required_price <= market_ceiling and unit_cost <= 70.0:
+            # Safe and competitive for Shop App!
+            final_price = max(required_price, current_price)
+            final_price = snap_to_ending(final_price)
+            return final_price, False
         else:
-            raw_price = current_price + 15.0
+            # Over market ceiling: Cap at market ceiling to keep customers buying on Web/Google,
+            # and exclude from Shop App to protect CAC margins.
+            competitive_price = min(max(MIN_PRICE_FLOOR, current_price), market_ceiling)
+            competitive_price = snap_to_ending(competitive_price)
+            return competitive_price, True
+    else:
+        # Fallback when unit cost is not provided in inventoryItem
+        if current_price < 40.0:
+            raw = max(MIN_PRICE_FLOOR, current_price + 35.0)
+        elif current_price < 65.0:
+            raw = max(79.99, current_price + 25.0)
+        elif current_price < 90.0:
+            raw = max(94.99, current_price + 20.0)
+        else:
+            raw = current_price + 15.0
 
-    target = snap_to_ending(raw_price)
-    return max(MIN_PRICE_FLOOR, target)
-
-
-def should_exclude_from_shop_app(
-    target_price: float,
-    unit_cost: Optional[float] = None,
-    current_price: float = 0.0,
-    product_type: str = ""
-) -> bool:
-    """
-    Determine whether a product should be tagged 'exclude-shop-app'.
-    Products excluded:
-      1. Vendor wholesale cost is too high (unit_cost > $75.0) such that retail price would exceed market ceiling.
-      2. Required target price exceeds MAX_MARKET_CEILING ($159.99).
-      3. Low-ticket items (original MSRP < $45) that are small accessories/tees/socks/jewelry where pushing
-         to $74.99+ is unreasonable.
-    """
-    if unit_cost is not None and unit_cost > 75.0:
-        return True
-    if target_price > MAX_MARKET_CEILING:
-        return True
-    pt_lower = (product_type or "").lower()
-    if 0 < current_price < 45.0 and any(k in pt_lower for k in ['accessory', 'socks', 'jewelry', 'hat', 'belt', 'tee', 'cami']):
-        return True
-    return False
+        target = snap_to_ending(raw)
+        if target > market_ceiling:
+            return market_ceiling, True
+        return target, False
 
 
 # ---------------------------------------------------------------------------
@@ -426,11 +464,13 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
                           skip_ids: Optional[set] = None,
                           dry_run: bool = False) -> Dict:
     """
-    Process products list with tiered margin pricing and Shop App channel exclusion.
+    Process products list with market guardrails and Shop App channel exclusion.
 
-    Enforces uniform variant pricing across all sizes of a product.
-    Fixes inverted compare-at prices.
-    Auto-tags uncompetitive products with 'exclude-shop-app'.
+    Guarantees:
+      1. Prices are competitive as per category market ceilings (never too expensive).
+      2. Prices cover Shop App CAC + 10% Capital + 3% Fees + $10 Profit.
+      3. Products exceeding market ceiling are capped and tagged 'exclude-shop-app'.
+      4. All sizes of a product share a uniform retail price.
     """
     if batch_size > 0:
         start = batch_index * batch_size
@@ -456,12 +496,12 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
     }
 
     mode_tag = " (DRY RUN)" if dry_run else ""
-    col = f"{'#':<5} | {'Product':<36} | {'Old Price':>10} | {'New Price':>10} | Status{mode_tag}"
+    col = f"{'#':<5} | {'Product':<34} | {'Category':<10} | {'Old Price':>9} | {'New Price':>9} | Status{mode_tag}"
     print(f"\n{col}")
     print("-" * len(col))
 
     for i, product in enumerate(slice_, 1):
-        title = product.get("title", "Unknown")[:33]
+        title = product.get("title", "Unknown")[:32]
         product_id = product.get("id")
         product_tags = product.get("tags", [])
         product_type = product.get("product_type", "")
@@ -471,30 +511,23 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
         if not variants:
             continue
 
-        # Extract costs and prices across variants
         valid_prices = [v["price"] for v in variants if v.get("price", 0) > 0]
         valid_costs = [v["unit_cost"] for v in variants if v.get("unit_cost") is not None and v["unit_cost"] > 0]
 
         if not valid_prices:
-            print(f"{i:<5} | {title:<36} | {'—':>10} | {'—':>10} | NO PRICE")
+            print(f"{i:<5} | {title:<34} | {'—':<10} | {'—':>9} | {'—':>9} | NO PRICE")
             stats["skipped"] += len(variants)
             continue
 
         product_max_price = max(valid_prices)
         avg_cost = sum(valid_costs) / len(valid_costs) if valid_costs else None
 
-        # Determine uniform target retail price for the product
-        uniform_target = calculate_target_price(product_max_price, avg_cost)
-        # Protect against lowering existing luxury or higher-priced variants
-        uniform_target = max(uniform_target, product_max_price)
-        if not is_valid_ending(uniform_target):
-            uniform_target = snap_to_ending(uniform_target)
+        category, market_ceiling = get_category_market_ceiling(product.get("title", ""), product_type)
 
-        # Check whether this product should be excluded from Shop App
-        must_exclude = should_exclude_from_shop_app(
-            target_price=uniform_target,
-            unit_cost=avg_cost,
+        uniform_target, must_exclude = calculate_optimal_price_and_eligibility(
             current_price=product_max_price,
+            unit_cost=avg_cost,
+            title=product.get("title", ""),
             product_type=product_type
         )
 
@@ -504,10 +537,9 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
                 if not dry_run:
                     if set_product_tag(product_id, "exclude-shop-app", add=True):
                         stats["tagged_excluded"] += 1
-                        _log.info("[ExcludeTag] Added 'exclude-shop-app' to %s", title)
+                        _log.info("[ExcludeTag] Added 'exclude-shop-app' to %s (Ceiling: $%.2f)", title, market_ceiling)
                 else:
                     stats["tagged_excluded"] += 1
-                    _log.info("[DryRun] Would add 'exclude-shop-app' to %s", title)
         else:
             if "exclude-shop-app" in product_tags:
                 if not dry_run:
@@ -526,18 +558,16 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
                 stats["skipped"] += 1
                 continue
 
-            # Skip variants recently processed in previous runs
             if variant_id in skip_ids:
                 stats["skipped"] += 1
                 continue
 
             needs_price_change = abs(current_price - uniform_target) >= 0.01
 
-            # Inversion check: compare_at must be higher than selling price if present
+            # Inversion check
             needs_compare_at_change = False
             new_compare_at = compare_at
             if compare_at is not None and compare_at <= uniform_target:
-                # Set compare-at to reasonable markup or remove inversion
                 new_compare_at = snap_to_ending(uniform_target + 15.0)
                 needs_compare_at_change = True
 
@@ -557,17 +587,18 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
         if to_update:
             if dry_run:
                 success = True
-                label = "DRY RUN (WOULD UPDATE)"
+                label = "DRY RUN"
             else:
                 success = bulk_update_variants(product_id, to_update)
                 label = "UPDATED" if success else "ERROR"
                 time.sleep(API_DELAY_SECONDS)
 
             for item in to_update:
-                print(f"{i:<5} | {title:<36} | ${item['old_price']:>9.2f} | ${item['price']:>9.2f} | {label}")
+                ex_note = " [EXCLUDED]" if must_exclude else " [SHOP-OK]"
+                print(f"{i:<5} | {title:<34} | {category:<10} | ${item['old_price']:>8.2f} | ${item['price']:>8.2f} | {label}{ex_note}")
                 entry = {
-                    "sku": item["sku"], "title": title, "variant_gid": item["id"],
-                    "old_price": item["old_price"], "new_price": item["price"],
+                    "sku": item["sku"], "title": title, "category": category, "variant_gid": item["id"],
+                    "old_price": item["old_price"], "new_price": item["price"], "excluded_from_shop": must_exclude,
                     "status": "would_update" if dry_run else ("updated" if success else "error"),
                 }
                 if success:
@@ -576,7 +607,8 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
                     stats["errors"] += 1
                 stats["products"].append(entry)
         else:
-            print(f"{i:<5} | {title:<36} | ${product_max_price:>9.2f} | ${uniform_target:>9.2f} | ALREADY OK")
+            ex_note = " [EXCLUDED]" if must_exclude else " [SHOP-OK]"
+            print(f"{i:<5} | {title:<34} | {category:<10} | ${product_max_price:>8.2f} | ${uniform_target:>8.2f} | ALREADY OK{ex_note}")
 
     print("-" * len(col))
     print(f"\n[Done] {stats['updated']} updated, {stats['skipped']} skipped, {stats['tagged_excluded']} tagged excluded, {stats['errors']} errors")
@@ -589,7 +621,6 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
 
 def load_recently_updated_ids(filepath: str = "price_update_log.json",
                               within_hours: Optional[int] = None) -> set:
-    """Return set of variant IDs updated in recent runs."""
     log_files = []
     if os.path.exists(filepath):
         log_files.append(Path(filepath))
@@ -684,7 +715,7 @@ def save_update_log(stats: Dict, filepath: str = "price_update_log.json"):
 # ---------------------------------------------------------------------------
 
 def parse_args():
-    p = argparse.ArgumentParser(description="MeeeShop dynamic pricing and margin protection engine")
+    p = argparse.ArgumentParser(description="MeeeShop dynamic pricing and market guardrail engine")
     p.add_argument(
         "--mode",
         choices=["daily", "weekly", "force"],
@@ -721,7 +752,7 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
-    print(f"[MeeeShop] Tiered Profit Margin & Shop App Protection Engine (Floor: ${MIN_PRICE_FLOOR:.2f})")
+    print(f"[MeeeShop] Tiered Profit Margin & Market Guardrail Engine (Floor: ${MIN_PRICE_FLOOR:.2f})")
     print(f"Store   : {SHOPIFY_STORE}")
     print(f"Mode    : {args.mode}")
     print(f"Dry Run : {args.dry_run}")
