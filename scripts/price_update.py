@@ -1,14 +1,16 @@
 """
-Dynamic pricing engine for MeeeShop inventory.
+Dynamic pricing and margin protection engine for MeeeShop inventory.
 
 Rules:
-  - Take current MSRP (selling price) from Shopify
-  - Add $20.00 to every variant
-  - Snap to nearest x4.99 or x9.99 ending
-      e.g. $71.99 + $20 = $91.99 -> $94.99
-           $76.99 + $20 = $96.99 -> $99.99
-           $45.00 + $20 = $65.00 -> $69.99
-  - Skip variants already at the correct target price
+  - Protects store profits against Shop App CAC ($29.00), Shopify Capital repayment (10%),
+    and payment processing fees (~2.9% + $0.30).
+  - Guarantees minimum +$10.00 net profit per single-item order on Shop App.
+  - Ensures uniform retail pricing across all standard sizes (XS - XXL) of a product.
+  - Fixes inverted compare-at prices.
+  - Automatically tags uncompetitively high-cost (> $75 wholesale) or low-ticket (< $45)
+    products with 'exclude-shop-app' so they will not be published to the Shop App sales channel.
+  - Automatically removes 'exclude-shop-app' if a product is safely profitable.
+  - Snaps prices to clean boutique endings (x4.99 or x9.99).
 
 Modes:
   daily  -- products created in the last 48 hours (default)
@@ -19,18 +21,18 @@ Modes:
 Usage:
   python price_update.py --mode daily
   python price_update.py --mode weekly
-  python price_update.py --mode force --batch-size 200 --batch-index 0
-  python price_update.py --mode force --batch-size 200 --batch-index 1
+  python price_update.py --mode force --batch-size 150 --batch-index 0
 """
 
 import os
 import sys
 import json
 import time
+import math
 import argparse
 import requests
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Set, Tuple
 from datetime import datetime, timezone, timedelta
 
 import logging
@@ -54,11 +56,20 @@ except Exception as _e:
     _log.critical("[secrets] Failed to load Shopify credentials: %s", _e, exc_info=True)
     sys.exit(1)
 
-API_VERSION = "2025-01"
-PRICE_MARKUP = 20.00
-MIN_PRICE_FLOOR = 69.99  # Absolute minimum retail price to protect margin against Shop App CAC ($29)
-# Shopify REST API allows ~2 req/s on standard plans; stay well under to avoid 429s
-API_DELAY_SECONDS = 0.6
+API_VERSION = "2024-10"
+
+# ---------------------------------------------------------------------------
+# Unit Economics Parameters (Shop App & Storefront)
+# ---------------------------------------------------------------------------
+SHOP_APP_CAC = 29.00               # Fixed acquisition fee per converted Shop App customer
+SHOPIFY_CAPITAL_RATE = 0.10        # 10% deduction on gross store revenue
+PAYMENT_GATEWAY_RATE = 0.029       # ~2.9% Shopify Payments / Shop Pay processing fee
+PAYMENT_FIXED_FEE = 0.30           # $0.30 fixed processing fee
+ESTIMATED_DROPSHIP_SHIPPING = 7.50  # Average vendor dropship & handling fee
+TARGET_MIN_PROFIT = 10.00          # Minimum target net profit per single-item order
+MIN_PRICE_FLOOR = 74.99            # Minimum price floor to safeguard margins
+MAX_MARKET_CEILING = 159.99        # Maximum realistic price for standard boutique items before auto-excluding
+API_DELAY_SECONDS = 0.4            # Delay between Shopify API calls to respect rate limits
 
 
 # ---------------------------------------------------------------------------
@@ -141,13 +152,18 @@ query ($first: Int!, $after: String, $query: String!) {
       node {
         id
         title
+        vendor
+        productType
+        tags
         createdAt
         variants(first: 100) {
           edges {
             node {
               id
+              title
               sku
               price
+              compareAtPrice
               inventoryItem {
                 unitCost { amount }
               }
@@ -205,6 +221,9 @@ def get_products(mode: str, window_hours: Optional[int] = None) -> List[Dict]:
                 product = {
                     "id": node.get("id"),
                     "title": node.get("title"),
+                    "vendor": node.get("vendor", ""),
+                    "product_type": node.get("productType", ""),
+                    "tags": node.get("tags", []),
                     "created_at": node.get("createdAt"),
                     "variants": [],
                 }
@@ -212,10 +231,14 @@ def get_products(mode: str, window_hours: Optional[int] = None) -> List[Dict]:
                     v = var_edge.get("node", {})
                     cost_node = v.get("inventoryItem", {}).get("unitCost")
                     unit_cost = float(cost_node["amount"]) if cost_node and cost_node.get("amount") else None
+                    compare_at = float(v["compareAtPrice"]) if v.get("compareAtPrice") else None
+
                     product["variants"].append({
                         "id": v.get("id"),
+                        "title": v.get("title", ""),
                         "sku": v.get("sku", ""),
                         "price": float(v.get("price") or 0),
+                        "compare_at_price": compare_at,
                         "unit_cost": unit_cost,
                     })
                 batch.append(product)
@@ -260,63 +283,97 @@ def is_valid_ending(price: float) -> bool:
 def calculate_target_price(current_price: float, unit_cost: Optional[float] = None) -> float:
     """
     Tiered dynamic margin pricing engine:
-    Protects store profits against Shop App CAC ($29.00) and payment processing fees (~3.2%).
+    Protects store profits against Shop App CAC ($29.00), Shopify Capital (10%),
+    and payment processing fees (~2.9% + $0.30).
 
-    Tiers (when unit_cost is known from Shopify Collective):
-      - unit_cost < $25.00:  target = max(69.99, unit_cost + $45.00) -> guarantees $15+ profit after $29 CAC
-      - unit_cost $25-$45:   target = max(79.99, unit_cost + $50.00) -> guarantees $20+ profit after $29 CAC
-      - unit_cost $45-$70:   target = max(99.99, unit_cost + $55.00) -> guarantees $25+ profit after $29 CAC
-      - unit_cost >= $70.00: target = unit_cost + $65.00             -> high-ticket, market-competitive
+    Formula:
+      Net Revenue = Price * (1 - 0.10 - 0.029) - (VendorCost + $29.00 + $0.30)
+      Net Revenue = 0.871 * Price - VendorCost - $29.30
+    For Net Profit >= $10.00:
+      0.871 * Price >= VendorCost + $39.30
+      Price >= (VendorCost + $39.30) / 0.871
+
+    Tiers (when unit_cost is known from inventory item):
+      VendorCost = unit_cost + $7.50 dropshipping/handling
+      Required Price = (VendorCost + $39.30) / 0.871
+      Enforces MIN_PRICE_FLOOR ($74.99).
 
     Fallback (when unit_cost is not provided):
-      - current_price < $35.00:  target = max(69.99, current_price + $35.00)
-      - current_price $35-$65:   target = max(74.99, current_price + $25.00)
-      - current_price >= $65.00: target = current_price + PRICE_MARKUP
+      - current_price < $40.00:  target = max(MIN_PRICE_FLOOR, current_price + $35.00)
+      - current_price $40-$65:   target = max(79.99, current_price + $25.00)
+      - current_price $65-$90:   target = max(94.99, current_price + $20.00)
+      - current_price >= $90.00: target = current_price + $15.00
     """
     if unit_cost is not None and unit_cost > 0:
-        if unit_cost < 25.0:
-            raw = max(MIN_PRICE_FLOOR, unit_cost + 45.0)
-        elif unit_cost < 45.0:
-            raw = max(79.99, unit_cost + 50.0)
-        elif unit_cost < 70.0:
-            raw = max(99.99, unit_cost + 55.0)
-        else:
-            raw = unit_cost + 65.0
+        vendor_payout = unit_cost + ESTIMATED_DROPSHIP_SHIPPING
+        required_raw = (vendor_payout + SHOP_APP_CAC + PAYMENT_FIXED_FEE + TARGET_MIN_PROFIT) / (1.0 - SHOPIFY_CAPITAL_RATE - PAYMENT_GATEWAY_RATE)
+        raw_price = max(MIN_PRICE_FLOOR, required_raw)
     else:
-        if current_price < 35.0:
-            raw = max(MIN_PRICE_FLOOR, current_price + 35.0)
+        if current_price < 40.0:
+            raw_price = max(MIN_PRICE_FLOOR, current_price + 35.0)
         elif current_price < 65.0:
-            raw = max(74.99, current_price + 25.0)
+            raw_price = max(79.99, current_price + 25.0)
+        elif current_price < 90.0:
+            raw_price = max(94.99, current_price + 20.0)
         else:
-            raw = current_price + PRICE_MARKUP
+            raw_price = current_price + 15.0
 
-    target = snap_to_ending(raw)
-    if target < MIN_PRICE_FLOOR:
-        target = MIN_PRICE_FLOOR
-    return target
+    target = snap_to_ending(raw_price)
+    return max(MIN_PRICE_FLOOR, target)
+
+
+def should_exclude_from_shop_app(
+    target_price: float,
+    unit_cost: Optional[float] = None,
+    current_price: float = 0.0,
+    product_type: str = ""
+) -> bool:
+    """
+    Determine whether a product should be tagged 'exclude-shop-app'.
+    Products excluded:
+      1. Vendor wholesale cost is too high (unit_cost > $75.0) such that retail price would exceed market ceiling.
+      2. Required target price exceeds MAX_MARKET_CEILING ($159.99).
+      3. Low-ticket items (original MSRP < $45) that are small accessories/tees/socks/jewelry where pushing
+         to $74.99+ is unreasonable.
+    """
+    if unit_cost is not None and unit_cost > 75.0:
+        return True
+    if target_price > MAX_MARKET_CEILING:
+        return True
+    pt_lower = (product_type or "").lower()
+    if 0 < current_price < 45.0 and any(k in pt_lower for k in ['accessory', 'socks', 'jewelry', 'hat', 'belt', 'tee', 'cami']):
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
-# Price update
+# Bulk Mutations
 # ---------------------------------------------------------------------------
 
 def bulk_update_variants(product_id: str, variant_updates: List[Dict]) -> bool:
-    """Update multiple variant prices for a product in bulk via GraphQL."""
+    """Update multiple variant prices and compare-at prices for a product in bulk via GraphQL."""
     query = """
     mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
       productVariantsBulkUpdate(productId: $productId, variants: $variants) {
         product { id }
-        productVariants { id price }
+        productVariants { id price compareAtPrice }
         userErrors { field message }
       }
     }
     """
+    formatted_variants = []
+    for vu in variant_updates:
+        v_dict = {
+            "id": vu["id"],
+            "price": f"{vu['price']:.2f}"
+        }
+        if "compare_at_price" in vu and vu["compare_at_price"] is not None:
+            v_dict["compareAtPrice"] = f"{vu['compare_at_price']:.2f}"
+        formatted_variants.append(v_dict)
+
     variables = {
         "productId": product_id,
-        "variants": [
-            {"id": vu["id"], "price": f"{vu['price']:.2f}"}
-            for vu in variant_updates
-        ]
+        "variants": formatted_variants
     }
     try:
         res = _shopify_graphql(query, variables)
@@ -330,15 +387,50 @@ def bulk_update_variants(product_id: str, variant_updates: List[Dict]) -> bool:
         return False
 
 
+def set_product_tag(product_id: str, tag: str, add: bool = True) -> bool:
+    """Add or remove a tag from a product via GraphQL."""
+    mutation = """
+    mutation tagsAdd($id: ID!, $tags: [String!]!) {
+      tagsAdd(id: $id, tags: $tags) {
+        node { id }
+        userErrors { field message }
+      }
+    }
+    """ if add else """
+    mutation tagsRemove($id: ID!, $tags: [String!]!) {
+      tagsRemove(id: $id, tags: $tags) {
+        node { id }
+        userErrors { field message }
+      }
+    }
+    """
+    op = "tagsAdd" if add else "tagsRemove"
+    try:
+        res = _shopify_graphql(mutation, {"id": product_id, "tags": [tag]})
+        errors = res.get("data", {}).get(op, {}).get("userErrors", [])
+        if errors:
+            _log.error("[Tags] %s error for %s: %s", op, product_id, errors)
+            return False
+        return True
+    except Exception as e:
+        _log.error("[Tags] Exception in %s for %s: %s", op, product_id, e)
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Core Pricing & Channel Protection Engine
+# ---------------------------------------------------------------------------
+
 def update_product_prices(products: List[Dict], batch_index: int = 0,
                           batch_size: int = 0,
                           skip_ids: Optional[set] = None,
                           dry_run: bool = False) -> Dict:
     """
-    Process products list with tiered margin pricing.
+    Process products list with tiered margin pricing and Shop App channel exclusion.
 
-    When batch_size > 0, only process the slice [batch_index*batch_size :
-    (batch_index+1)*batch_size] — used by force mode to split work across jobs.
+    Enforces uniform variant pricing across all sizes of a product.
+    Fixes inverted compare-at prices.
+    Auto-tags uncompetitive products with 'exclude-shop-app'.
     """
     if batch_size > 0:
         start = batch_index * batch_size
@@ -357,6 +449,7 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
         "total": len(slice_),
         "updated": 0,
         "skipped": 0,
+        "tagged_excluded": 0,
         "errors": 0,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "products": [],
@@ -370,51 +463,96 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
     for i, product in enumerate(slice_, 1):
         title = product.get("title", "Unknown")[:33]
         product_id = product.get("id")
+        product_tags = product.get("tags", [])
+        product_type = product.get("product_type", "")
+        vendor = product.get("vendor", "")
 
+        variants = product.get("variants", [])
+        if not variants:
+            continue
+
+        # Extract costs and prices across variants
+        valid_prices = [v["price"] for v in variants if v.get("price", 0) > 0]
+        valid_costs = [v["unit_cost"] for v in variants if v.get("unit_cost") is not None and v["unit_cost"] > 0]
+
+        if not valid_prices:
+            print(f"{i:<5} | {title:<36} | {'—':>10} | {'—':>10} | NO PRICE")
+            stats["skipped"] += len(variants)
+            continue
+
+        product_max_price = max(valid_prices)
+        avg_cost = sum(valid_costs) / len(valid_costs) if valid_costs else None
+
+        # Determine uniform target retail price for the product
+        uniform_target = calculate_target_price(product_max_price, avg_cost)
+        # Protect against lowering existing luxury or higher-priced variants
+        uniform_target = max(uniform_target, product_max_price)
+        if not is_valid_ending(uniform_target):
+            uniform_target = snap_to_ending(uniform_target)
+
+        # Check whether this product should be excluded from Shop App
+        must_exclude = should_exclude_from_shop_app(
+            target_price=uniform_target,
+            unit_cost=avg_cost,
+            current_price=product_max_price,
+            product_type=product_type
+        )
+
+        # Manage 'exclude-shop-app' tag
+        if must_exclude:
+            if "exclude-shop-app" not in product_tags:
+                if not dry_run:
+                    if set_product_tag(product_id, "exclude-shop-app", add=True):
+                        stats["tagged_excluded"] += 1
+                        _log.info("[ExcludeTag] Added 'exclude-shop-app' to %s", title)
+                else:
+                    stats["tagged_excluded"] += 1
+                    _log.info("[DryRun] Would add 'exclude-shop-app' to %s", title)
+        else:
+            if "exclude-shop-app" in product_tags:
+                if not dry_run:
+                    if set_product_tag(product_id, "exclude-shop-app", add=False):
+                        _log.info("[ExcludeTag] Removed 'exclude-shop-app' from now profitable product %s", title)
+
+        # Build variant updates (ensures uniform pricing across all sizes)
         to_update = []
-        for variant in product.get("variants", []):
+        for variant in variants:
             variant_id = variant.get("id", "")
             sku = variant.get("sku", "N/A")
             current_price = float(variant.get("price", 0))
-            unit_cost = variant.get("unit_cost")
+            compare_at = variant.get("compare_at_price")
 
             if current_price <= 0:
-                print(f"{i:<5} | {title:<36} | {'—':>10} | {'—':>10} | NO PRICE")
                 stats["skipped"] += 1
-                stats["products"].append({"sku": sku, "title": title, "status": "skipped_no_price"})
                 continue
 
-            # Skip variants updated in a recent prior run (within 23h)
+            # Skip variants recently processed in previous runs
             if variant_id in skip_ids:
-                print(f"{i:<5} | {title:<36} | ${current_price:>9.2f} | {'—':>10} | SKIP (recent)")
                 stats["skipped"] += 1
-                stats["products"].append({
-                    "sku": sku, "title": title, "variant_gid": variant_id,
-                    "old_price": current_price, "status": "skipped_recent_run",
-                })
                 continue
 
-            new_price = calculate_target_price(current_price, unit_cost)
+            needs_price_change = abs(current_price - uniform_target) >= 0.01
 
-            # Already correct:
-            # 1. Price is already at or above target price, meets minimum floor, and has clean .99/.49 ending
-            # 2. Or current price is already identical to new_price
-            if (current_price >= new_price and current_price >= MIN_PRICE_FLOOR and is_valid_ending(current_price)) or abs(current_price - new_price) < 0.01:
-                print(f"{i:<5} | {title:<36} | ${current_price:>9.2f} | ${current_price:>9.2f} | ALREADY OK")
+            # Inversion check: compare_at must be higher than selling price if present
+            needs_compare_at_change = False
+            new_compare_at = compare_at
+            if compare_at is not None and compare_at <= uniform_target:
+                # Set compare-at to reasonable markup or remove inversion
+                new_compare_at = snap_to_ending(uniform_target + 15.0)
+                needs_compare_at_change = True
+
+            if needs_price_change or needs_compare_at_change:
+                update_item = {
+                    "id": variant_id,
+                    "price": uniform_target,
+                    "sku": sku,
+                    "old_price": current_price
+                }
+                if needs_compare_at_change:
+                    update_item["compare_at_price"] = new_compare_at
+                to_update.append(update_item)
+            else:
                 stats["skipped"] += 1
-                stats["products"].append({
-                    "sku": sku, "title": title, "variant_gid": variant_id,
-                    "old_price": current_price, "new_price": current_price,
-                    "status": "skipped_optimal",
-                })
-                continue
-
-            to_update.append({
-                "id": variant_id,
-                "price": new_price,
-                "sku": sku,
-                "old_price": current_price
-            })
 
         if to_update:
             if dry_run:
@@ -423,6 +561,7 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
             else:
                 success = bulk_update_variants(product_id, to_update)
                 label = "UPDATED" if success else "ERROR"
+                time.sleep(API_DELAY_SECONDS)
 
             for item in to_update:
                 print(f"{i:<5} | {title:<36} | ${item['old_price']:>9.2f} | ${item['price']:>9.2f} | {label}")
@@ -436,9 +575,11 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
                 else:
                     stats["errors"] += 1
                 stats["products"].append(entry)
+        else:
+            print(f"{i:<5} | {title:<36} | ${product_max_price:>9.2f} | ${uniform_target:>9.2f} | ALREADY OK")
 
     print("-" * len(col))
-    print(f"\n[Done] {stats['updated']} updated, {stats['skipped']} skipped, {stats['errors']} errors")
+    print(f"\n[Done] {stats['updated']} updated, {stats['skipped']} skipped, {stats['tagged_excluded']} tagged excluded, {stats['errors']} errors")
     return stats
 
 
@@ -448,21 +589,11 @@ def update_product_prices(products: List[Dict], batch_index: int = 0,
 
 def load_recently_updated_ids(filepath: str = "price_update_log.json",
                               within_hours: Optional[int] = None) -> set:
-    """
-    Return a set of variant IDs (GID strings) that were successfully updated.
-    If within_hours is provided, only retrieves those updated within the last
-    `within_hours` hours. Otherwise, retrieves ALL previously updated variant IDs.
-    
-    This function searches recursively for all `price_update_log.json` files in the
-    workspace to merge logs from previous runs and matrix batch runs.
-    """
+    """Return set of variant IDs updated in recent runs."""
     log_files = []
-    # If the root/specified filepath exists, add it
     if os.path.exists(filepath):
         log_files.append(Path(filepath))
 
-    # Search current directory and all subdirectories for other price_update_log.json files
-    # to support downloaded logs from previous matrix jobs
     for p in Path(".").glob("**/price_update_log.json"):
         if p.resolve() not in [lf.resolve() for lf in log_files]:
             log_files.append(p)
@@ -495,7 +626,7 @@ def load_recently_updated_ids(filepath: str = "price_update_log.json",
                         updated_ids.add(p["variant_gid"])
         except Exception as e:
             _log.warning("Failed to parse log file %s: %s", lf, e)
-            
+
     return updated_ids
 
 
@@ -510,7 +641,6 @@ def save_update_log(stats: Dict, filepath: str = "price_update_log.json"):
 
     existing_timestamps = {entry.get("timestamp") for entry in logs if isinstance(entry, dict)}
 
-    # Search and merge entries from other price_update_log.json files
     for p in Path(".").glob("**/price_update_log.json"):
         if p.resolve() == log_path.resolve():
             continue
@@ -526,7 +656,6 @@ def save_update_log(stats: Dict, filepath: str = "price_update_log.json"):
         except Exception as e:
             _log.warning("Failed to parse sub-log file %s: %s", p, e)
 
-    # Sort logs chronologically by timestamp
     def get_ts(entry):
         return entry.get("timestamp") or ""
     logs.sort(key=get_ts)
@@ -540,6 +669,7 @@ def save_update_log(stats: Dict, filepath: str = "price_update_log.json"):
             "total_in_batch": stats["total"],
             "updated": stats["updated"],
             "skipped": stats["skipped"],
+            "tagged_excluded": stats.get("tagged_excluded", 0),
             "errors": stats["errors"],
         },
         "products": stats.get("products", []),
@@ -554,7 +684,7 @@ def save_update_log(stats: Dict, filepath: str = "price_update_log.json"):
 # ---------------------------------------------------------------------------
 
 def parse_args():
-    p = argparse.ArgumentParser(description="MeeeShop price update engine")
+    p = argparse.ArgumentParser(description="MeeeShop dynamic pricing and margin protection engine")
     p.add_argument(
         "--mode",
         choices=["daily", "weekly", "force"],
@@ -578,8 +708,7 @@ def parse_args():
         type=int,
         default=None,
         metavar="HOURS",
-        help="Override the fetch window in hours (e.g. --window 12 fetches products created in last 12h). "
-             "Only applies to daily/weekly modes. Next daily run will skip these via log.",
+        help="Override fetch window in hours (e.g. --window 12). Only applies to daily/weekly modes.",
     )
     p.add_argument(
         "--dry-run",
@@ -592,7 +721,7 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
-    print(f"[MeeeShop] Tiered Margin Price Update Engine (Floor: ${MIN_PRICE_FLOOR:.2f})")
+    print(f"[MeeeShop] Tiered Profit Margin & Shop App Protection Engine (Floor: ${MIN_PRICE_FLOOR:.2f})")
     print(f"Store   : {SHOPIFY_STORE}")
     print(f"Mode    : {args.mode}")
     print(f"Dry Run : {args.dry_run}")
@@ -610,7 +739,6 @@ if __name__ == "__main__":
             print("[Done] No products to process.")
             sys.exit(0)
 
-        # Skip variants already updated in any previous run (unless force mode is used)
         skip_ids = set()
         if args.mode != "force" and not args.dry_run:
             skip_ids = load_recently_updated_ids()
