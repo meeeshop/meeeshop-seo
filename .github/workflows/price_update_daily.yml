@@ -157,6 +157,18 @@ jobs:
             python scripts/price_update.py --mode ${{ needs.setup.outputs.mode }}
           fi
 
+      - name: Exclude products tagged 'exclude-shop-app' from Shop App
+        if: always()
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          python scripts/exclude_shop_app.py
+
+      - name: Price update summary
+        if: always()
+        run: python scripts/price_summary.py
+
       - name: Upload log
         if: always()
         uses: actions/upload-artifact@v4
@@ -199,6 +211,18 @@ jobs:
             --mode force \
             --batch-size ${{ env.BATCH_SIZE }} \
             --batch-index ${{ matrix.batch_index }}
+
+      - name: Exclude products tagged 'exclude-shop-app' from Shop App
+        if: always()
+        env:
+          ENCRYPTION_KEY_PRIMARY: ${{ secrets.ENCRYPTION_KEY_PRIMARY }}
+          ENCRYPTION_KEY_FALLBACK: ${{ secrets.ENCRYPTION_KEY_FALLBACK }}
+        run: |
+          python scripts/exclude_shop_app.py
+
+      - name: Price update summary
+        if: always()
+        run: python scripts/price_summary.py "Batch ${{ matrix.batch_index }}"
 
       - name: Upload batch log
         if: always()
