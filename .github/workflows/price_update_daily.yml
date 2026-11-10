@@ -167,25 +167,7 @@ jobs:
 
       - name: Price update summary
         if: always()
-        run: |
-          if [ -f price_update_log.json ]; then
-            python -c "
-            import json, os
-            try:
-                logs = json.loads(open('price_update_log.json', encoding='utf-8').read())
-                last = logs[-1]['summary'] if logs and 'summary' in logs[-1] else {}
-                with open(os.environ.get('GITHUB_STEP_SUMMARY', 'summary.md'), 'a', encoding='utf-8') as f:
-                    f.write('## MeeeShop Price & Profit Margin Protection Summary\n\n')
-                    f.write('| Metric | Count |\n|---|---|\n')
-                    f.write(f'| Total Products Evaluated | {last.get(\"total_in_batch\", 0)} |\n')
-                    f.write(f'| Variants Updated | {last.get(\"updated\", 0)} |\n')
-                    f.write(f'| Tagged Excluded from Shop App | {last.get(\"tagged_excluded\", 0)} |\n')
-                    f.write(f'| Skipped (Already Optimal) | {last.get(\"skipped\", 0)} |\n')
-                    f.write(f'| Errors | {last.get(\"errors\", 0)} |\n')
-            except Exception as e:
-                print('Summary error:', e)
-            "
-          fi
+        run: python scripts/price_summary.py
 
       - name: Upload log
         if: always()
@@ -240,25 +222,7 @@ jobs:
 
       - name: Price update summary
         if: always()
-        run: |
-          if [ -f price_update_log.json ]; then
-            python -c "
-            import json, os
-            try:
-                logs = json.loads(open('price_update_log.json', encoding='utf-8').read())
-                last = logs[-1]['summary'] if logs and 'summary' in logs[-1] else {}
-                with open(os.environ.get('GITHUB_STEP_SUMMARY', 'summary.md'), 'a', encoding='utf-8') as f:
-                    f.write(f'## MeeeShop Price & Profit Margin Protection Summary (Batch ${{ matrix.batch_index }})\n\n')
-                    f.write('| Metric | Count |\n|---|---|\n')
-                    f.write(f'| Total Products Evaluated | {last.get(\"total_in_batch\", 0)} |\n')
-                    f.write(f'| Variants Updated | {last.get(\"updated\", 0)} |\n')
-                    f.write(f'| Tagged Excluded from Shop App | {last.get(\"tagged_excluded\", 0)} |\n')
-                    f.write(f'| Skipped (Already Optimal) | {last.get(\"skipped\", 0)} |\n')
-                    f.write(f'| Errors | {last.get(\"errors\", 0)} |\n')
-            except Exception as e:
-                print('Summary error:', e)
-            "
-          fi
+        run: python scripts/price_summary.py "Batch ${{ matrix.batch_index }}"
 
       - name: Upload batch log
         if: always()
