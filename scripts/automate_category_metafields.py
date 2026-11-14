@@ -40,14 +40,30 @@ standard_values_cache = {}
 loaded_categories = set()
 
 TAXONOMY_MAP = {
+    # Color & Patterns
     "color": {
         "key": "color-pattern",
         "type": "shopify--color-pattern"
     },
+    # Fabric
     "fabric": {
         "key": "fabric",
         "type": "shopify--fabric"
     },
+    # Pants, Jeans & Denim Specific Metafields
+    "waist_rise": {
+        "key": "waist-rise",
+        "type": "shopify--waist-rise"
+    },
+    "pants_length_type": {
+        "key": "pants-length-type",
+        "type": "shopify--pants-length-type"
+    },
+    "fit": {
+        "key": "fit",
+        "type": "shopify--fit"
+    },
+    # Handbags & Bags
     "bag_case_material": {
         "key": "bag-case-material",
         "type": "shopify--bag-case-material"
@@ -72,6 +88,7 @@ TAXONOMY_MAP = {
         "key": "bag-case-storage-features",
         "type": "shopify--bag-case-storage-features"
     },
+    # Demographics
     "target_gender": {
         "key": "target-gender",
         "type": "shopify--target-gender"
@@ -80,22 +97,37 @@ TAXONOMY_MAP = {
         "key": "age-group",
         "type": "shopify--age-group"
     },
+    # Tops / Blouses / Sweaters / Outerwear
     "sleeve_length_type": {
         "key": "sleeve-length-type",
         "type": "shopify--sleeve-length-type"
-    },
-    "dress_style": {
-        "key": "dress-style",
-        "type": "shopify--dress-style"
     },
     "neckline": {
         "key": "neckline",
         "type": "shopify--neckline"
     },
+    "outerwear_clothing_features": {
+        "key": "outerwear-clothing-features",
+        "type": "shopify--outerwear-clothing-features"
+    },
+    "one_piece_style": {
+        "key": "one-piece-style",
+        "type": "shopify--one-piece-style"
+    },
+    # Dresses
+    "dress_style": {
+        "key": "dress-style",
+        "type": "shopify--dress-style"
+    },
     "skirt_length_type": {
         "key": "skirt-dress-length-type",
         "type": "shopify--skirt-dress-length-type"
     },
+    "dress_occasion": {
+        "key": "dress-occasion",
+        "type": "shopify--dress-occasion"
+    },
+    # Care & Features
     "care_instructions": {
         "key": "care-instructions",
         "type": "shopify--care-instructions"
@@ -103,10 +135,6 @@ TAXONOMY_MAP = {
     "clothing_features": {
         "key": "clothing-features",
         "type": "shopify--clothing-features"
-    },
-    "dress_occasion": {
-        "key": "dress-occasion",
-        "type": "shopify--dress-occasion"
     }
 }
 
@@ -145,6 +173,9 @@ def init_taxonomy_cache():
     TAXONOMY_TYPES = [
         "shopify--color-pattern",
         "shopify--fabric",
+        "shopify--waist-rise",
+        "shopify--pants-length-type",
+        "shopify--fit",
         "shopify--bag-case-material",
         "shopify--carry-options",
         "shopify--accessory-size",
@@ -154,6 +185,7 @@ def init_taxonomy_cache():
         "shopify--target-gender",
         "shopify--age-group",
         "shopify--sleeve-length-type",
+        "shopify--outerwear-clothing-features",
         "shopify--one-piece-style",
         "shopify--dress-style",
         "shopify--neckline",
@@ -313,7 +345,47 @@ def resolve_metaobject_value(mo_type, val_cleaned):
         "gray": "grey",
         "adult": "adults",
         "round neck": "round",
-        "mock neck": "mock"
+        "mock neck": "mock",
+        "v neck": "v-neck",
+        "crew neck": "crew",
+        "high-rise": "high",
+        "high rise": "high",
+        "high waist": "high",
+        "high waisted": "high",
+        "mid-rise": "mid",
+        "mid rise": "mid",
+        "medium rise": "mid",
+        "low-rise": "low",
+        "low rise": "low",
+        "ultra high rise": "ultra high",
+        "wide leg": "wide",
+        "wide-leg": "wide",
+        "boot cut": "bootcut",
+        "boot-cut": "bootcut",
+        "straight leg": "straight",
+        "straight-leg": "straight",
+        "relaxed fit": "relaxed",
+        "skinny fit": "skinny",
+        "regular fit": "regular",
+        "slim fit": "slim",
+        "full length": "long",
+        "full-length": "long",
+        "ankle length": "ankle",
+        "ankle-length": "ankle",
+        "crop": "cropped",
+        "3/4 sleeve": "3/4",
+        "three quarter": "3/4",
+        "short-sleeve": "short",
+        "long-sleeve": "long",
+        "pocket": "pockets",
+        "hood": "hooded",
+        "button": "button front",
+        "buttons": "button front",
+        "zip": "zipper front",
+        "zipper": "zipper front",
+        "overalls": "overall",
+        "rompers": "romper",
+        "jumpsuits": "jumpsuit"
     }
     norm_val = normalizations.get(val_cleaned)
     if norm_val:
@@ -388,26 +460,16 @@ def run_graphql(query, variables=None):
         print("GraphQL Errors:", result["errors"])
     return result
 
-def get_product_by_handle(handle):
-    """Retrieve product, variants, and media by product handle."""
-    query = """
-    query GetProduct($handle: String!) {
-      productByHandle(handle: $handle) {
-        id
-        title
-        handle
-        descriptionHtml
-        productType
-        category {
-          id
-          name
-        }
-        metafields(first: 20, keys: [
+METAFIELDS_QUERY_FRAGMENT = """
+        metafields(first: 50, keys: [
           "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
           "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
           "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
           "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
-          "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features"
+          "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features",
+          "shopify.waist-rise", "shopify.pants-length-type", "shopify.fit", "shopify.outerwear-clothing-features",
+          "shopify--discovery--product_search_boost.queries",
+          "custom.search_keyword_1", "custom.search-keyword_2", "custom.search-keyword_3", "custom.search-keyword_4", "custom.search-keyword_5"
         ]) {
           edges {
             node {
@@ -418,115 +480,119 @@ def get_product_by_handle(handle):
             }
           }
         }
-        media(first: 50) {
-          edges {
-            node {
+"""
+
+def get_product_by_handle(handle):
+    """Retrieve product, variants, and media by product handle."""
+    query = f"""
+    query GetProduct($handle: String!) {{
+      productByHandle(handle: $handle) {{
+        id
+        title
+        handle
+        descriptionHtml
+        productType
+        vendor
+        category {{
+          id
+          name
+        }}
+        {METAFIELDS_QUERY_FRAGMENT}
+        media(first: 50) {{
+          edges {{
+            node {{
               id
               alt
               mediaContentType
-              ... on MediaImage {
-                image {
+              ... on MediaImage {{
+                image {{
                   url
-                }
-              }
-            }
-          }
-        }
-        variants(first: 100) {
-          edges {
-            node {
+                }}
+              }}
+            }}
+          }}
+        }}
+        variants(first: 100) {{
+          edges {{
+            node {{
               id
               title
-              media(first: 1) {
-                nodes {
+              media(first: 1) {{
+                nodes {{
                   id
-                }
-              }
-              selectedOptions {
+                }}
+              }}
+              selectedOptions {{
                 name
                 value
-              }
-            }
-          }
-        }
-      }
-    }
+              }}
+            }}
+          }}
+        }}
+      }}
+    }}
     """
     res = run_graphql(query, {"handle": handle})
     return res.get("data", {}).get("productByHandle")
 
 def get_collection_products_by_handle(handle):
     """Retrieve all products inside a collection by collection handle."""
-    query = """
-    query GetCollectionProducts($handle: String!) {
-      collectionByHandle(handle: $handle) {
+    query = f"""
+    query GetCollectionProducts($handle: String!) {{
+      collectionByHandle(handle: $handle) {{
         id
         title
         handle
-        products(first: 50) {
-          edges {
-            node {
+        products(first: 50) {{
+          edges {{
+            node {{
               id
               title
               handle
               descriptionHtml
               productType
-              category {
+              vendor
+              category {{
                 id
                 name
-              }
-              metafields(first: 20, keys: [
-                "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
-                "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
-                "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
-                "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
-                "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features"
-              ]) {
-                edges {
-                  node {
-                    id
-                    namespace
-                    key
-                    value
-                  }
-                }
-              }
-              media(first: 50) {
-                edges {
-                  node {
+              }}
+              {METAFIELDS_QUERY_FRAGMENT}
+              media(first: 50) {{
+                edges {{
+                  node {{
                     id
                     alt
                     mediaContentType
-                    ... on MediaImage {
-                      image {
+                    ... on MediaImage {{
+                      image {{
                         url
-                      }
-                    }
-                  }
-                }
-              }
-              variants(first: 100) {
-                edges {
-                  node {
+                      }}
+                    }}
+                  }}
+                }}
+              }}
+              variants(first: 100) {{
+                edges {{
+                  node {{
                     id
                     title
-                    media(first: 1) {
-                      nodes {
+                    media(first: 1) {{
+                      nodes {{
                         id
-                      }
-                    }
-                    selectedOptions {
+                      }}
+                    }}
+                    selectedOptions {{
                       name
                       value
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
+                    }}
+                  }}
+                }}
+              }}
+            }}
+          }}
+        }}
+      }}
+    }}
     """
     res = run_graphql(query, {"handle": handle})
     col = res.get("data", {}).get("collectionByHandle")
@@ -540,75 +606,60 @@ def get_collection_products_by_handle(handle):
 
 def get_recent_products(since_iso, query_field="created_at"):
     """Retrieve products since a specific timestamp using a specific date field."""
-    query = """
-    query GetRecentProducts($queryStr: String, $cursor: String) {
-      products(first: 50, query: $queryStr, after: $cursor) {
-        edges {
-          node {
+    query = f"""
+    query GetRecentProducts($queryStr: String, $cursor: String) {{
+      products(first: 50, query: $queryStr, after: $cursor) {{
+        edges {{
+          node {{
             id
             title
             handle
             descriptionHtml
             productType
-            category {
+            vendor
+            category {{
               id
               name
-            }
-            metafields(first: 20, keys: [
-              "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
-              "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
-              "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
-              "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
-              "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features"
-            ]) {
-              edges {
-                node {
-                  id
-                  namespace
-                  key
-                  value
-                }
-              }
-            }
-            media(first: 50) {
-              edges {
-                node {
+            }}
+            {METAFIELDS_QUERY_FRAGMENT}
+            media(first: 50) {{
+              edges {{
+                node {{
                   id
                   alt
                   mediaContentType
-                  ... on MediaImage {
-                    image {
+                  ... on MediaImage {{
+                    image {{
                       url
-                    }
-                  }
-                }
-              }
-            }
-            variants(first: 100) {
-              edges {
-                node {
+                    }}
+                  }}
+                }}
+              }}
+            }}
+            variants(first: 100) {{
+              edges {{
+                node {{
                   id
                   title
-                  media(first: 1) {
-                    nodes {
-                      id
-                    }
-                  }
-                  selectedOptions {
-                    name
-                    value
-                  }
-                }
-              }
-            }
-          }
-        }
-        pageInfo {
+                  media(first: 1) {{
+                    nodes {{
+                  id
+                }}
+              }}
+              selectedOptions {{
+                name
+                value
+              }}
+            }}
+          }}
+        }}
+      }}
+        pageInfo {{
           hasNextPage
           endCursor
-        }
-      }
-    }
+        }}
+      }}
+    }}
     """
     products = []
     has_next = True
@@ -631,75 +682,61 @@ def get_recent_products(since_iso, query_field="created_at"):
 
 def get_all_products():
     """Retrieve all products in the store."""
-    query = """
-    query GetAllProducts($cursor: String) {
-      products(first: 50, after: $cursor) {
-        edges {
-          node {
+    query = f"""
+    query GetAllProducts($cursor: String) {{
+      products(first: 50, after: $cursor) {{
+        edges {{
+          node {{
             id
             title
             handle
             descriptionHtml
             productType
-            category {
+            vendor
+            category {{
               id
               name
-            }
-            metafields(first: 20, keys: [
-              "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
-              "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
-              "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
-              "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
-              "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features"
-            ]) {
-              edges {
-                node {
-                  id
-                  namespace
-                  key
-                  value
-                }
-              }
-            }
-            media(first: 50) {
-              edges {
-                node {
+            }}
+            {METAFIELDS_QUERY_FRAGMENT}
+            media(first: 50) {{
+              edges {{
+                node {{
                   id
                   alt
                   mediaContentType
-                  ... on MediaImage {
-                    image {
+                  ... on MediaImage {{
+                    image {{
                       url
-                    }
-                  }
-                }
-              }
-            }
-            variants(first: 100) {
-              edges {
-                node {
+                    }}
+                  }}
+                }}
+              }}
+            }}
+            variants(first: 100) {{
+              edges {{
+                node {{
                   id
                   title
-                  media(first: 1) {
-                    nodes {
+                  media(first: 1) {{
+                    nodes {{
                       id
-                    }
-                  }
-                  selectedOptions {
+                    }}
+                  }}
+                  selectedOptions {{
                     name
                     value
-                  }
-                }
-              }
-            }
-          }
-        }
-        pageInfo {
+                  }}
+                }}
+              }}
+            }}
+          }}
+        }}
+        pageInfo {{
           hasNextPage
           endCursor
-        }
-      }
-    }
+        }}
+      }}
+    }}
     """
     products = []
     has_next = True
@@ -721,75 +758,61 @@ def get_all_products():
 
 def get_products_by_query(query_str):
     """Retrieve products matching a specific query string."""
-    query = """
-    query GetProductsByQuery($queryStr: String, $cursor: String) {
-      products(first: 50, query: $queryStr, after: $cursor) {
-        edges {
-          node {
+    query = f"""
+    query GetProductsByQuery($queryStr: String, $cursor: String) {{
+      products(first: 50, query: $queryStr, after: $cursor) {{
+        edges {{
+          node {{
             id
             title
             handle
             descriptionHtml
             productType
-            category {
+            vendor
+            category {{
               id
               name
-            }
-            metafields(first: 20, keys: [
-              "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
-              "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
-              "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
-              "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
-              "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features"
-            ]) {
-              edges {
-                node {
-                  id
-                  namespace
-                  key
-                  value
-                }
-              }
-            }
-            media(first: 50) {
-              edges {
-                node {
+            }}
+            {METAFIELDS_QUERY_FRAGMENT}
+            media(first: 50) {{
+              edges {{
+                node {{
                   id
                   alt
                   mediaContentType
-                  ... on MediaImage {
-                    image {
+                  ... on MediaImage {{
+                    image {{
                       url
-                    }
-                  }
-                }
-              }
-            }
-            variants(first: 100) {
-              edges {
-                node {
+                    }}
+                  }}
+                }}
+              }}
+            }}
+            variants(first: 100) {{
+              edges {{
+                node {{
                   id
                   title
-                  media(first: 1) {
-                    nodes {
+                  media(first: 1) {{
+                    nodes {{
                       id
-                    }
-                  }
-                  selectedOptions {
+                    }}
+                  }}
+                  selectedOptions {{
                     name
                     value
-                  }
-                }
-              }
-            }
-          }
-        }
-        pageInfo {
+                  }}
+                }}
+              }}
+            }}
+          }}
+        }}
+        pageInfo {{
           hasNextPage
           endCursor
-        }
-      }
-    }
+        }}
+      }}
+    }}
     """
     products = []
     has_next = True
@@ -811,240 +834,478 @@ def get_products_by_query(query_str):
 
 # --- Local Heuristics / Rules Fallback ---
 
-def parse_with_heuristics(title, desc, category_name):
-    """Locally extract attributes using simple keyword rules if AI is limited."""
-    text = f"{title} {desc}".lower()
+# --- Product Domain Classification & SEO Keywords ---
+
+def classify_product_domain(product_type: str = "", category_name: str = "", title: str = "") -> str:
+    """Classify product into core domain for category-accurate metafield extraction."""
+    comb = f"{product_type or ''} {category_name or ''} {title or ''}".lower()
     
-    # 1. Color matching
+    if any(k in comb for k in ["handbag", "purse", "tote bag", "crossbody bag", "clutch", "backpack", "satchel", "wallet"]):
+        return "handbags"
+    if any(k in comb for k in ["romper", "jumpsuit", "overall"]):
+        return "one_piece"
+    if any(k in comb for k in ["jacket", "coat", "blazer", "vest", "shacket", "parka", "puffer", "outerwear"]):
+        return "outerwear"
+    if any(k in comb for k in ["dress", "gown", "sundress"]):
+        return "dresses"
+    if any(k in comb for k in ["jean", "denim pant", "pants", "pant", "trouser", "legging", "jeggings", "shorts", "skort"]):
+        return "pants_denim"
+    if any(k in comb for k in ["top", "shirt", "blouse", "sweater", "cardigan", "tee", "t-shirt", "tank", "cami", "pullover", "hoodie", "sweatshirt", "bodysuit"]):
+        return "tops_sweaters"
+    return "apparel_general"
+
+
+def generate_product_seo_keywords(title: str, desc: str, domain: str, vendor: str, attributes: dict):
+    """
+    Generate high-converting US women shopper search boost queries (up to 10)
+    and 5 custom search keywords for organic discovery.
+    """
+    queries = []
+    clean_vendor = (vendor or "").strip()
+    clean_title = (title or "").strip()
+    
+    # 1. Vendor + core item
+    if clean_vendor and clean_vendor.lower() not in clean_title.lower():
+        queries.append(f"{clean_vendor} {clean_title}"[:100])
+    else:
+        queries.append(clean_title[:100])
+        
+    # Domain specific queries for US women shoppers
+    if domain == "pants_denim":
+        rise = attributes.get("waist_rise") or "high rise"
+        fit = attributes.get("fit") or "stretch"
+        if isinstance(rise, list): rise = rise[0]
+        if isinstance(fit, list): fit = fit[0]
+        
+        queries.append(f"women's {rise.lower()} {fit.lower()} jeans")
+        queries.append(f"women's {fit.lower()} denim pants")
+        queries.append("tummy control stretch jeans women")
+        queries.append("comfortable stretch denim women")
+        queries.append("trending women's boutique jeans")
+        if clean_vendor:
+            queries.append(f"{clean_vendor} {fit.lower()} jeans for women")
+        queries.append("boutique high waisted jeans usa")
+    elif domain == "dresses":
+        style = attributes.get("dress_style") or "casual"
+        length = attributes.get("skirt_length_type") or "maxi"
+        occasion = attributes.get("dress_occasion") or "everyday"
+        if isinstance(style, list): style = style[0]
+        if isinstance(length, list): length = length[0]
+        if isinstance(occasion, list): occasion = occasion[0]
+        
+        queries.append(f"women's {length.lower()} {style.lower()} dress")
+        queries.append(f"women's {occasion.lower()} boutique dress")
+        queries.append("flowy boho floral dresses for women")
+        queries.append("casual summer sundresses women")
+        queries.append("chic party evening midi dress")
+        if clean_vendor:
+            queries.append(f"{clean_vendor} women's dresses")
+        queries.append("trendy boutique dresses usa")
+    elif domain == "tops_sweaters":
+        sleeve = attributes.get("sleeve_length_type") or "long sleeve"
+        neck = attributes.get("neckline") or "v-neck"
+        if isinstance(sleeve, list): sleeve = sleeve[0]
+        if isinstance(neck, list): neck = neck[0]
+        
+        queries.append(f"women's {sleeve.lower()} {neck.lower()} top")
+        queries.append("soft knit cozy sweater women")
+        queries.append("trendy boutique tops for women")
+        queries.append("casual everyday layering tops")
+        queries.append("oversized knit pullovers women")
+        if clean_vendor:
+            queries.append(f"{clean_vendor} women's tops blouses")
+        queries.append("boutique fall clothing for women")
+    elif domain == "outerwear":
+        feature = attributes.get("outerwear_clothing_features") or "pockets"
+        if isinstance(feature, list): feature = feature[0]
+        queries.append("women's boutique jackets coats")
+        queries.append("stylish casual outerwear women")
+        queries.append("cozy fall winter jackets for women")
+        queries.append("trendy button front shackets women")
+        if clean_vendor:
+            queries.append(f"{clean_vendor} women's jackets")
+    elif domain == "one_piece":
+        op_style = attributes.get("one_piece_style") or "romper"
+        if isinstance(op_style, list): op_style = op_style[0]
+        queries.append(f"women's {op_style.lower()} outfits")
+        queries.append("chic casual jumpsuits for women")
+        queries.append("summer boutique rompers women")
+        if clean_vendor:
+            queries.append(f"{clean_vendor} {op_style.lower()}")
+    elif domain == "handbags":
+        queries.append("women's boutique crossbody handbags")
+        queries.append("stylish shoulder bags for women")
+        queries.append("everyday leather totes and purses")
+        queries.append("chic designer quality bags women")
+    else:
+        queries.append("women's boutique apparel usa")
+        queries.append("trendy women's casual fashion")
+        queries.append("flattering stylish clothing for women")
+
+    # Add general high-converting US boutique keywords
+    queries.append("free us shipping boutique clothing")
+    
+    # Deduplicate and clean queries
+    seen = set()
+    cleaned_queries = []
+    for q in queries:
+        q_norm = re.sub(r'\s+', ' ', q).strip().lower()
+        if q_norm and q_norm not in seen:
+            seen.add(q_norm)
+            cleaned_queries.append(q[:100])
+
+    boost_queries = cleaned_queries[:10]
+    custom_keywords = [q[:100] for q in cleaned_queries[:5]]
+    while len(custom_keywords) < 5:
+        custom_keywords.append(clean_title[:100])
+        
+    return boost_queries, custom_keywords
+
+# --- Local Heuristics / Rules Fallback ---
+
+def parse_with_heuristics(title, desc, category_name="", product_type=""):
+    """Locally extract attributes using category/domain aware rules if AI is limited."""
+    text = f"{title} {desc}".lower()
+    domain = classify_product_domain(product_type, category_name, title)
+    
+    # 1. Color matching (all domains)
     color = None
     colors = ["black", "white", "red", "blue", "green", "navy", "grey", "gray", "charcoal", 
-              "cream", "ivory", "sage", "pink", "olive", "floral", "leopard", "paisley", "denim", "tomate"]
+              "cream", "ivory", "sage", "pink", "olive", "floral", "leopard", "paisley", "denim", 
+              "khaki", "burgundy", "camel", "taupe", "rust", "tan", "mustard", "coral", "lavender", 
+              "mauve", "mocha", "brown", "beige", "tomate"]
     for c in colors:
         if c in text:
             color = c.capitalize()
             if color == "Grey": color = "Gray"
             break
             
-    # 2. Fabric matching (multiple allowed)
-    matched_fabrics = []
-    fabrics = ["linen", "cotton", "denim", "satin", "knit", "viscose", "velvet", "polyester", "acrylic", "wool", "rayon"]
-    for f in fabrics:
-        if f in text:
-            matched_fabrics.append(f.capitalize())
-    fabric = matched_fabrics if matched_fabrics else None
-            
-    # 3. Sleeve type matching
-    sleeve = None
-    if "sleeveless" in text:
-        sleeve = "Sleeveless"
-    elif "puff" in text:
-        sleeve = "Puff"
-    elif "short sleeve" in text or "short-sleeve" in text:
-        sleeve = "Short"
-    elif "long sleeve" in text or "long-sleeve" in text:
-        sleeve = "Long"
-    elif "cap sleeve" in text or "cap-sleeve" in text:
-        sleeve = "Cap"
-        
-    # 4. Neckline matching
+    # 2. Fabric matching (clothing domains)
+    fabric = None
+    if domain != "handbags":
+        matched_fabrics = []
+        fabrics = ["linen", "cotton", "denim", "satin", "knit", "viscose", "velvet", "polyester", 
+                   "acrylic", "wool", "rayon", "spandex", "elastane", "french terry", "chiffon", "silk", "modal", "fleece"]
+        for f in fabrics:
+            if f in text:
+                matched_fabrics.append(f.capitalize())
+        fabric = matched_fabrics if matched_fabrics else None
+
+    # 3. Care instructions (clothing domains)
+    care_instructions = None
+    if domain != "handbags":
+        matched_care = []
+        if "machine wash" in text:
+            matched_care.append("Machine washable")
+        if "tumble dry" in text:
+            matched_care.append("Tumble dry")
+        if "hand wash" in text:
+            matched_care.append("Hand wash")
+        if "dry clean" in text:
+            matched_care.append("Dry clean only")
+        care_instructions = matched_care if matched_care else None
+
+    # 4. Clothing features (clothing domains)
+    clothing_features = None
+    if domain != "handbags":
+        matched_features = []
+        if any(k in text for k in ["stretch", "stretchy", "spandex", "elastane"]):
+            matched_features.append("Stretchable")
+        if "tummy control" in text:
+            matched_features.append("Tummy control")
+        if "breathable" in text:
+            matched_features.append("Breathable design")
+        if "lightweight" in text:
+            matched_features.append("Lightweight")
+        if any(k in text for k in ["distressed", "destroyed"]):
+            matched_features.append("Distressed")
+        if "raw hem" in text:
+            matched_features.append("Raw hem")
+        if "acid wash" in text:
+            matched_features.append("Acid wash")
+        if "pocket" in text:
+            matched_features.append("Pockets")
+        clothing_features = matched_features if matched_features else None
+
+    # Domain-specific extractions
+    waist_rise = None
+    pants_length_type = None
+    fit = None
+    dress_style = None
+    skirt_length_type = None
+    dress_occasion = None
+    sleeve_length_type = None
     neckline = None
-    if "v-neck" in text or "v neck" in text:
-        neckline = "V-neck"
-    elif "round neck" in text or "round-neck" in text:
-        neckline = "Round"
-    elif "halter" in text:
-        neckline = "Halter"
-    elif "mock neck" in text or "mock-neck" in text:
-        neckline = "Mock"
-    elif "crew neck" in text or "crew-neck" in text:
-        neckline = "Crew"
-        
-    # 5. Skirt/Dress Length matching
-    length = None
-    if "mini" in text:
-        length = "Mini"
-    elif "midi" in text:
-        length = "Midi"
-    elif "maxi" in text:
-        length = "Maxi"
-    elif "knee length" in text or "knee-length" in text:
-        length = "Knee"
-        
-    # 6. Dress style matching
-    style = None
-    if "a-line" in text or "a line" in text:
-        style = "A-line"
-    elif "shift" in text:
-        style = "Shift"
-    elif "babydoll" in text:
-        style = "Babydoll"
-    elif "slip dress" in text or "slip-dress" in text:
-        style = "Slip"
-        
-    # 7. Care instructions (multiple allowed)
-    matched_care = []
-    if "machine wash" in text:
-        matched_care.append("Machine washable")
-    if "tumble dry" in text:
-        matched_care.append("Tumble dry")
-    if "hand wash" in text:
-        matched_care.append("Hand wash")
-    if "dry clean" in text:
-        matched_care.append("Dry clean only")
-    care_instructions = matched_care if matched_care else None
-
-    # 8. Clothing features (multiple allowed)
-    matched_features = []
-    if "stretch" in text or "spandex" in text or "elastane" in text:
-        matched_features.append("Stretchable")
-    if "breathable" in text:
-        matched_features.append("Breathable design")
-    if "lightweight" in text:
-        matched_features.append("Lightweight")
-    clothing_features = matched_features if matched_features else None
-
-    # 9. Dress occasion (multiple allowed)
-    matched_occasion = []
-    if "casual" in text:
-        matched_occasion.append("Casual")
-    if "formal" in text:
-        matched_occasion.append("Formal")
-    if "party" in text or "cocktail" in text or "celebrate" in text:
-        matched_occasion.append("Party")
-    if "everyday" in text or "daily" in text:
-        matched_occasion.append("Everyday")
-    dress_occasion = matched_occasion if matched_occasion else None
-
-    # 10. Handbag-specific heuristics (material & carry options)
+    outerwear_features = None
+    one_piece_style = None
     bag_case_material = None
-    if "leather" in text:
-        bag_case_material = ["Leather"]
-        if "faux leather" in text or "vegan leather" in text or "pu leather" in text:
-            bag_case_material = ["Faux leather"]
-    elif "nylon" in text:
-        bag_case_material = ["Nylon"]
-    elif "canvas" in text:
-        bag_case_material = ["Canvas"]
-    elif "polyester" in text:
-        bag_case_material = ["Polyester"]
-    elif "straw" in text:
-        bag_case_material = ["Straw"]
-    elif "velvet" in text:
-        bag_case_material = ["Velvet"]
-        
-    carry_options = []
-    if "shoulder strap" in text or "shoulder bag" in text or "shoulder" in text:
-        carry_options.append("Shoulder strap")
-    if "top handle" in text or "tote" in text or "handle" in text:
-        carry_options.append("Top handle")
-    if "crossbody" in text or "cross-body" in text:
-        carry_options.append("Crossbody strap")
-    if "wristlet" in text:
-        carry_options.append("Wristlet")
-    if "backpack" in text:
-        carry_options.append("Backpack strap")
-    if "clutch" in text:
-        carry_options.append("Clutch")
-    carry_options = carry_options if carry_options else None
-
-    # 11. Handbag closure heuristic
-    bag_case_closure = None
-    closures = ["zipper", "zip", "magnetic", "flap", "drawstring", "snap", "buckle", "open top", "kiss lock"]
-    for cl in closures:
-        if cl in text:
-            bag_case_closure = "Zipper" if cl in ["zipper", "zip"] else cl.capitalize()
-            break
-
-    # 12. Handbag features heuristic
-    bag_features = []
-    if "water resistant" in text or "water-resistant" in text or "waterproof" in text:
-        bag_features.append("Water resistant")
-    if "lightweight" in text:
-        bag_features.append("Lightweight")
-    if "adjustable strap" in text or "adjustable-strap" in text:
-        bag_features.append("Adjustable strap")
-    if "detachable strap" in text or "detachable-strap" in text or "removable strap" in text:
-        bag_features.append("Detachable strap")
-    if "convertible" in text:
-        bag_features.append("Convertible")
-    bag_features = bag_features if bag_features else None
-
-    # 13. Handbag storage features heuristic
-    bag_storage = []
-    if "laptop compartment" in text or "laptop pocket" in text:
-        bag_storage.append("Laptop compartment")
-    if "inner pocket" in text or "interior pocket" in text:
-        bag_storage.append("Inner pockets")
-    if "card slot" in text:
-        bag_storage.append("Card slots")
-    bag_storage = bag_storage if bag_storage else None
-
-    # 14. Handbag size heuristic
+    carry_options = None
     accessory_size = None
-    if "mini" in text:
-        accessory_size = "Mini"
-    elif "small" in text:
-        accessory_size = "Small"
-    elif "medium" in text:
-        accessory_size = "Medium"
-    elif "large" in text:
-        accessory_size = "Large"
+    bag_case_closure = None
+    bag_case_features = None
+    bag_case_storage_features = None
+
+    if domain == "pants_denim":
+        # Rise
+        if any(k in text for k in ["high rise", "high-rise", "high waist", "high-waisted"]):
+            waist_rise = "High"
+        elif any(k in text for k in ["mid rise", "mid-rise", "mid waist", "medium rise"]):
+            waist_rise = "Mid"
+        elif any(k in text for k in ["low rise", "low-rise", "low waist"]):
+            waist_rise = "Low"
+        elif "ultra high" in text:
+            waist_rise = "Ultra high"
+        else:
+            waist_rise = "High"
+            
+        # Fit
+        if any(k in text for k in ["wide leg", "wide-leg", "wide"]):
+            fit = "Wide"
+        elif any(k in text for k in ["flare", "flared", "bell bottom"]):
+            fit = "Flare"
+        elif any(k in text for k in ["bootcut", "boot cut", "boot-cut"]):
+            fit = "Bootcut"
+        elif any(k in text for k in ["straight leg", "straight-leg", "straight"]):
+            fit = "Straight"
+        elif any(k in text for k in ["skinny", "tight fit"]):
+            fit = "Skinny"
+        elif any(k in text for k in ["boyfriend", "relaxed fit", "slouchy"]):
+            fit = "Relaxed"
+        elif "cargo" in text:
+            fit = "Cargo"
+        elif "mom" in text:
+            fit = "Mom"
+        elif "oversized" in text:
+            fit = "Oversized"
+        elif "regular" in text:
+            fit = "Regular"
+            
+        # Length
+        if any(k in text for k in ["cropped", "crop"]):
+            pants_length_type = "Cropped"
+        elif any(k in text for k in ["ankle", "ankle length"]):
+            pants_length_type = "Ankle"
+        elif any(k in text for k in ["capri", "capris"]):
+            pants_length_type = "Capris"
+        else:
+            pants_length_type = "Long"
+
+    elif domain == "dresses":
+        # Style
+        if "a-line" in text or "a line" in text:
+            dress_style = "A-line"
+        elif "shift" in text:
+            dress_style = "Shift"
+        elif "babydoll" in text:
+            dress_style = "Babydoll"
+        elif "slip" in text:
+            dress_style = "Slip"
+        elif "wrap" in text:
+            dress_style = "Wrap"
+        elif "maxi" in text:
+            dress_style = "Maxi"
+        elif "midi" in text:
+            dress_style = "Midi"
+            
+        # Skirt length
+        if "mini" in text:
+            skirt_length_type = "Mini"
+        elif "midi" in text:
+            skirt_length_type = "Midi"
+        elif "maxi" in text:
+            skirt_length_type = "Maxi"
+        elif "knee length" in text or "knee-length" in text:
+            skirt_length_type = "Knee"
+            
+        # Neckline
+        if "v-neck" in text or "v neck" in text:
+            neckline = "V-neck"
+        elif "round neck" in text or "round-neck" in text:
+            neckline = "Round"
+        elif "halter" in text:
+            neckline = "Halter"
+        elif "mock neck" in text or "mock-neck" in text:
+            neckline = "Mock"
+        elif "square neck" in text or "square" in text:
+            neckline = "Square"
+        elif "sweetheart" in text:
+            neckline = "Sweetheart"
+            
+        # Sleeve
+        if "sleeveless" in text:
+            sleeve_length_type = "Sleeveless"
+        elif "short sleeve" in text or "short-sleeve" in text:
+            sleeve_length_type = "Short"
+        elif "long sleeve" in text or "long-sleeve" in text:
+            sleeve_length_type = "Long"
+        elif "spaghetti strap" in text:
+            sleeve_length_type = "Spaghetti strap"
+            
+        # Occasion
+        matched_occ = []
+        if "casual" in text: matched_occ.append("Casual")
+        if "party" in text or "cocktail" in text: matched_occ.append("Party")
+        if "formal" in text: matched_occ.append("Formal")
+        if "everyday" in text or "daily" in text: matched_occ.append("Everyday")
+        dress_occasion = matched_occ if matched_occ else ["Everyday"]
+
+    elif domain == "tops_sweaters":
+        # Sleeve
+        if "sleeveless" in text:
+            sleeve_length_type = "Sleeveless"
+        elif "short sleeve" in text or "short-sleeve" in text:
+            sleeve_length_type = "Short"
+        elif "long sleeve" in text or "long-sleeve" in text:
+            sleeve_length_type = "Long"
+        elif "3/4 sleeve" in text or "three quarter" in text:
+            sleeve_length_type = "3/4"
+        elif "puff" in text:
+            sleeve_length_type = "Puff"
+            
+        # Neckline
+        if "v-neck" in text or "v neck" in text:
+            neckline = "V-neck"
+        elif "round neck" in text or "round-neck" in text:
+            neckline = "Round"
+        elif "crew neck" in text or "crew-neck" in text:
+            neckline = "Crew"
+        elif "mock neck" in text or "mock-neck" in text:
+            neckline = "Mock"
+        elif "turtle" in text or "turtleneck" in text:
+            neckline = "Turtle"
+            
+        # Fit
+        if "oversized" in text or "oversize" in text:
+            fit = "Oversized"
+        elif "relaxed" in text:
+            fit = "Relaxed"
+        elif "slim" in text:
+            fit = "Slim"
+
+    elif domain == "outerwear":
+        matched_of = []
+        if "pocket" in text: matched_of.append("Pockets")
+        if "button" in text: matched_of.append("Button front")
+        if "zip" in text or "zipper" in text: matched_of.append("Zipper front")
+        if "hood" in text or "hooded" in text: matched_of.append("Hooded")
+        if "belt" in text: matched_of.append("Belted")
+        if "water resistant" in text or "waterproof" in text: matched_of.append("Water resistant")
+        outerwear_features = matched_of if matched_of else ["Pockets"]
+        sleeve_length_type = "Long"
+
+    elif domain == "one_piece":
+        if "romper" in text:
+            one_piece_style = "Romper"
+        elif "jumpsuit" in text:
+            one_piece_style = "Jumpsuit"
+        elif "overall" in text:
+            one_piece_style = "Overall"
+        else:
+            one_piece_style = "Jumpsuit"
+
+    elif domain == "handbags":
+        if "leather" in text:
+            bag_case_material = ["Faux leather" if any(k in text for k in ["faux", "vegan", "pu"]) else "Leather"]
+        elif "nylon" in text:
+            bag_case_material = ["Nylon"]
+        elif "canvas" in text:
+            bag_case_material = ["Canvas"]
+        elif "straw" in text:
+            bag_case_material = ["Straw"]
+            
+        co = []
+        if "crossbody" in text or "cross-body" in text: co.append("Crossbody strap")
+        if "shoulder" in text: co.append("Shoulder strap")
+        if "tote" in text or "top handle" in text: co.append("Top handle")
+        if "wristlet" in text: co.append("Wristlet")
+        if "clutch" in text: co.append("Clutch")
+        carry_options = co if co else None
         
+        closures = ["zipper", "zip", "magnetic", "flap", "snap", "buckle", "open top"]
+        for cl in closures:
+            if cl in text:
+                bag_case_closure = "Zipper" if cl in ["zipper", "zip"] else cl.capitalize()
+                break
+                
+        bf = []
+        if "water resistant" in text or "waterproof" in text: bf.append("Water resistant")
+        if "lightweight" in text: bf.append("Lightweight")
+        if "adjustable strap" in text: bf.append("Adjustable strap")
+        bag_case_features = bf if bf else None
+        
+        if "mini" in text: accessory_size = "Mini"
+        elif "small" in text: accessory_size = "Small"
+        elif "medium" in text: accessory_size = "Medium"
+        elif "large" in text: accessory_size = "Large"
+        else: accessory_size = "One Size"
+
     return {
         "color": color,
         "fabric": fabric,
+        "waist_rise": waist_rise,
+        "pants_length_type": pants_length_type,
+        "fit": fit,
+        "outerwear_clothing_features": outerwear_features,
+        "one_piece_style": one_piece_style,
+        "target_gender": "Female" if domain != "handbags" else None,
+        "age_group": "Adults" if domain != "handbags" else None,
+        "dress_style": dress_style,
+        "neckline": neckline,
+        "skirt_length_type": skirt_length_type,
+        "sleeve_length_type": sleeve_length_type,
+        "care_instructions": care_instructions,
+        "clothing_features": clothing_features,
+        "dress_occasion": dress_occasion,
         "bag_case_material": bag_case_material,
         "carry_options": carry_options,
         "accessory_size": accessory_size,
         "bag_case_closure": bag_case_closure,
-        "bag_case_features": bag_features,
-        "bag_case_storage_features": bag_storage,
-        "target_gender": "Female",  # Meeeshop defaults
-        "age_group": "Adults",
-        "dress_style": style,
-        "neckline": neckline,
-        "skirt_length_type": length,
-        "sleeve_length_type": sleeve,
-        "care_instructions": care_instructions,
-        "clothing_features": clothing_features,
-        "dress_occasion": dress_occasion
+        "bag_case_features": bag_case_features,
+        "bag_case_storage_features": bag_case_storage_features
     }
 
-def get_extracted_attributes(title, desc, category_name):
+def get_extracted_attributes(title, desc, category_name="", product_type=""):
     """Run AI first; if it returns None, instantly run local heuristics."""
-    category_label = category_name if category_name else "Clothing"
-    prompt = f"""Analyze this product's title and description:
+    category_label = category_name if category_name else (product_type if product_type else "Clothing")
+    domain = classify_product_domain(product_type, category_name, title)
+    
+    prompt = f"""Analyze this product's title and description for a US women's boutique store:
 Title: {title}
 Description: {desc}
 Category: {category_label}
+Domain: {domain}
 
-Suggest values for the following standard attributes if you can identify them from the text. Note that you can return a list of strings for attributes that support multiple values (like fabric, care_instructions, clothing_features, sleeve_length_type, carry_options, bag_case_material, bag_case_features, bag_case_storage_features) or a single string:
-1. target_gender (values: Female, Male, Unisex)
-2. age_group (values: Adults, Kids, Teens, Babies, Toddlers, Universal)
-3. color (e.g. Navy, Sage, Floral, Denim)
-4. fabric (e.g. Denim, Linen, Cotton, Viscose, Polyester) - list or string (for clothing only)
-5. bag_case_material (values: Leather, Faux leather, Canvas, Nylon, Polyester, Polyurethane, Straw, Velvet) - list or string (for bags/handbags only)
-6. carry_options (values: Shoulder strap, Top handle, Crossbody strap, Wristlet, Backpack strap, Clutch) - list or string (for bags/handbags only)
-7. accessory_size (values: One Size, Mini, Small, Medium, Large, Extra Large) - for bags/handbags only
-8. bag_case_closure (values: Zipper, Magnetic, Flap, Drawstring, Snap, Buckle, Open top, Kiss lock) - for bags/handbags only
-9. bag_case_features (values: Water resistant, Lightweight, Adjustable strap, Detachable strap, Convertible, Anti-theft) - list or string (for bags/handbags only)
-10. bag_case_storage_features (values: Laptop compartment, Tablet pocket, Inner pockets, Card slots, Key leash) - list or string (for bags/handbags only)
-11. dress_style (values: A-line, Babydoll, Blouson, Caftan, Drop waist, Empire waist, Flared, Gown, Jacket, Mermaid, Pencil, Peplum, Sheath, Shift, Shirt, Skater, Slip, Sweater, Tank, Trumpet, Wrap)
-12. neckline (values: V-neck, Split, Asymmetric, Bardot, Boat, Cowl, Halter, Hooded, Mandarin, Crew, Mock, Plunging, Sweetheart, Turtle, Wrap, Round, Square)
-13. skirt_length_type (values: Mini, Midi, Maxi, Knee, Short)
-14. sleeve_length_type (values: Short, Sleeveless, Spaghetti strap, Strapless, 3/4, Cap, Long) - list or string
-15. care_instructions (e.g. Machine washable, Tumble dry, Hand wash, Dry clean only, Dryer safe) - list or string
-16. clothing_features (e.g. Stretchable, Insulated, Moisture wicking, Quick drying, Reversible, UV protection) - list or string
-17. dress_occasion (values: Birthday, Casual, Dance, Everyday, Formal, Holiday, Pageant, Party, Portrait, Religious ceremony, School, Wedding) - list or string
+Identify standard attributes present in the text. Return category-appropriate values only (e.g. waist_rise/fit/pants_length_type for pants/jeans; dress_style/neckline/skirt_length_type for dresses; handbag attributes only for bags).
+Attributes and allowed values:
+1. target_gender (values: Female, Male, Unisex) - Default Female for women's clothing
+2. age_group (values: Adults, Kids, Teens, Universal) - Default Adults
+3. color (e.g. Navy, Sage, Floral, Denim, Black, White, Cream)
+4. fabric (e.g. Denim, Cotton, Linen, French terry, Viscose, Polyester, Spandex) - list or string
+5. waist_rise (values: High, Mid, Low, Ultra high) - for pants/jeans
+6. pants_length_type (values: Long, Cropped, Ankle, Capris) - for pants/jeans
+7. fit (values: Wide, Flare, Bootcut, Straight, Skinny, Relaxed, Cargo, Oversized, Regular, Slim) - for pants/jeans or tops
+8. sleeve_length_type (values: Short, Long, Sleeveless, Spaghetti strap, 3/4, Cap, Puff, Strapless) - list or string
+9. neckline (values: V-neck, Round, Crew, Mock, Halter, Square, Sweetheart, Turtle, Boat)
+10. dress_style (values: A-line, Babydoll, Shift, Slip, Wrap, Maxi, Midi, Tiered, Sweater, Tank)
+11. skirt_length_type (values: Mini, Midi, Maxi, Knee)
+12. dress_occasion (values: Everyday, Casual, Party, Formal, Wedding, Cocktail) - list or string
+13. outerwear_clothing_features (values: Pockets, Button front, Zipper front, Hooded, Belted, Water resistant) - list or string
+14. one_piece_style (values: Jumpsuit, Romper, Overall)
+15. care_instructions (values: Machine washable, Tumble dry, Hand wash, Dry clean only) - list or string
+16. clothing_features (values: Stretchable, Tummy control, Pockets, Breathable design, Lightweight, Distressed, Raw hem, Acid wash) - list or string
+17. bag_case_material (values: Leather, Faux leather, Canvas, Nylon, Straw) - for bags only
+18. carry_options (values: Crossbody strap, Shoulder strap, Top handle, Wristlet, Clutch) - for bags only
+19. accessory_size (values: One Size, Mini, Small, Medium, Large) - for bags only
+20. bag_case_closure (values: Zipper, Magnetic, Snap, Flap, Open top) - for bags only
+21. bag_case_features (values: Water resistant, Lightweight, Adjustable strap, Detachable strap) - for bags only
+22. bag_case_storage_features (values: Inner pockets, Card slots, Laptop compartment) - for bags only
 
-Return ONLY a valid JSON object with keys: color, fabric, bag_case_material, carry_options, accessory_size, bag_case_closure, bag_case_features, bag_case_storage_features, target_gender, age_group, dress_style, neckline, skirt_length_type, sleeve_length_type, care_instructions, clothing_features, dress_occasion. If you can't identify any value for a key, use null.
+Return ONLY a valid JSON object. If you cannot identify a value, use null.
 """
     try:
-        # Single try for AI
         print("  Calling AI for attribute extraction...")
-        ai_resp = generate(prompt, max_tokens=250, temperature=0.2)
+        ai_resp = generate(prompt, max_tokens=300, temperature=0.2)
         if ai_resp:
-            # Parse JSON
             match = re.search(r'\{[\s\S]*\}', ai_resp)
             if match:
                 parsed = json.loads(match.group(0))
@@ -1053,15 +1314,13 @@ Return ONLY a valid JSON object with keys: color, fabric, bag_case_material, car
     except Exception as e:
         print(f"  [Warning] AI extraction failed or rate-limited: {e}")
         
-    # Instant fallback to local template
     print("  ⚠ Falling back to Local Heuristics parser...")
-    return parse_with_heuristics(title, desc, category_label)
+    return parse_with_heuristics(title, desc, category_name, product_type)
 
 # --- Variant Image Matcher ---
 
 def find_matching_image(variant_title, options, product_media, unique_colors=None):
     """Find a product media image matching variant color option."""
-    # Find color option
     color_val = None
     for opt in options:
         name_lower = opt["name"].lower()
@@ -1072,7 +1331,6 @@ def find_matching_image(variant_title, options, product_media, unique_colors=Non
     if not color_val:
         return None
         
-    # Scan media
     for media_edge in product_media.get("edges", []):
         m = media_edge["node"]
         if m.get("mediaContentType") != "IMAGE":
@@ -1081,12 +1339,10 @@ def find_matching_image(variant_title, options, product_media, unique_colors=Non
         alt = (m.get("alt") or "").lower()
         url = (m.get("image", {}).get("url") or "").lower()
         
-        # Match by alt text or filename portion
         filename = url.split("/")[-1].split("?")[0]
         if color_val in alt or color_val.replace(" ", "-") in filename or color_val.replace(" ", "_") in filename:
             return m_id
             
-    # If no match and only one unique color across the product, return first image
     if unique_colors and len(unique_colors) == 1:
         for media_edge in product_media.get("edges", []):
             m = media_edge["node"]
@@ -1096,22 +1352,10 @@ def find_matching_image(variant_title, options, product_media, unique_colors=Non
     return None
 
 def get_batch_extracted_attributes(products_info):
-    """
-    Query AI with a batch of products to extract their category metafields.
-    products_info is a list of dicts:
-      {
-        "id": product GID (string),
-        "title": title (string),
-        "description": cleaned description (string, first 300 chars),
-        "category": category label (string)
-      }
-    Returns a dict mapping product GID -> attributes dict.
-    If the batch call fails or returns invalid JSON, returns an empty dict (allowing fallback).
-    """
+    """Query AI with a batch of products to extract category-specific metafields."""
     if not products_info:
         return {}
 
-    # Format the product info for the prompt
     formatted_products = []
     for p in products_info:
         desc_snippet = p["description"][:300] if p["description"] else ""
@@ -1119,68 +1363,32 @@ def get_batch_extracted_attributes(products_info):
             f"Product ID: {p['id']}\n"
             f"Title: {p['title']}\n"
             f"Category: {p['category']}\n"
+            f"Product Type: {p.get('product_type', '')}\n"
+            f"Domain: {p.get('domain', '')}\n"
             f"Description: {desc_snippet}\n"
             f"---"
         )
     products_text = "\n".join(formatted_products)
 
-    prompt = f"""You are an expert product data taxonomist. Analyze the following list of products:
+    prompt = f"""You are an expert product data taxonomist for a US women's boutique fashion store.
+Analyze the following products and extract standard attributes based on each product's Domain:
+- Pants/Jeans domain: extract waist_rise (High, Mid, Low), fit (Wide, Flare, Bootcut, Straight, Skinny, Relaxed, Cargo), pants_length_type (Long, Cropped, Ankle, Capris), fabric, clothing_features (Stretchable, Tummy control, Distressed, Raw hem). DO NOT return dress or handbag fields.
+- Dresses domain: extract dress_style (Maxi, Midi, Mini, A-line, Wrap, Slip, Babydoll), neckline, skirt_length_type, dress_occasion, sleeve_length_type, fabric. DO NOT return pants or handbag fields.
+- Tops/Sweaters domain: extract sleeve_length_type, neckline, fit (Oversized, Relaxed, Slim), fabric, clothing_features.
+- Outerwear domain: extract outerwear_clothing_features (Pockets, Button front, Zipper front, Hooded, Belted), sleeve_length_type, fabric.
+- One-Piece domain: extract one_piece_style (Jumpsuit, Romper, Overall), neckline, sleeve_length_type.
+- Handbags domain: extract bag_case_material, carry_options, accessory_size, bag_case_closure, bag_case_features.
 
+Products:
 {products_text}
 
-For each product, identify values for these standard attributes if they are present in the title or description. Attributes and their allowed/example values:
-1. target_gender (values: Female, Male, Unisex)
-2. age_group (values: Adults, Kids, Teens, Babies, Toddlers, Universal)
-3. color (e.g. Navy, Sage, Floral, Denim)
-4. fabric (e.g. Denim, Linen, Cotton, Viscose, Polyester) - list or string
-5. bag_case_material (values: Leather, Faux leather, Canvas, Nylon, Polyester, Polyurethane, Straw, Velvet) - list or string (for bags/handbags only)
-6. carry_options (values: Shoulder strap, Top handle, Crossbody strap, Wristlet, Backpack strap, Clutch) - list or string (for bags/handbags only)
-7. accessory_size (values: One Size, Mini, Small, Medium, Large, Extra Large) - for bags/handbags only
-8. bag_case_closure (values: Zipper, Magnetic, Flap, Drawstring, Snap, Buckle, Open top, Kiss lock) - for bags/handbags only
-9. bag_case_features (values: Water resistant, Lightweight, Adjustable strap, Detachable strap, Convertible, Anti-theft) - list or string (for bags/handbags only)
-10. bag_case_storage_features (values: Laptop compartment, Tablet pocket, Inner pockets, Card slots, Key leash) - list or string (for bags/handbags only)
-11. dress_style (values: A-line, Babydoll, Blouson, Caftan, Drop waist, Empire waist, Flared, Gown, Jacket, Mermaid, Pencil, Peplum, Sheath, Shift, Shirt, Skater, Slip, Sweater, Tank, Trumpet, Wrap)
-12. neckline (values: V-neck, Split, Asymmetric, Bardot, Boat, Cowl, Halter, Hooded, Mandarin, Crew, Mock, Plunging, Sweetheart, Turtle, Wrap, Round, Square)
-13. skirt_length_type (values: Mini, Midi, Maxi, Knee, Short)
-14. sleeve_length_type (values: Short, Sleeveless, Spaghetti strap, Strapless, 3/4, Cap, Long) - list or string
-15. care_instructions (e.g. Machine washable, Tumble dry, Hand wash, Dry clean only, Dryer safe) - list or string
-16. clothing_features (e.g. Stretchable, Insulated, Moisture wicking, Quick drying, Reversible, UV protection) - list or string
-17. dress_occasion (values: Birthday, Casual, Dance, Everyday, Formal, Holiday, Pageant, Party, Portrait, Religious ceremony, School, Wedding) - list or string
-
-Return ONLY a valid JSON object mapping each Product ID to its identified attributes. If you cannot identify a value for an attribute, use null.
-The output format must be a single JSON object where keys are the exact Product IDs and values are objects with keys: color, fabric, bag_case_material, carry_options, accessory_size, bag_case_closure, bag_case_features, bag_case_storage_features, target_gender, age_group, dress_style, neckline, skirt_length_type, sleeve_length_type, care_instructions, clothing_features, dress_occasion.
-
-Example Output Format:
-{{
-  "gid://shopify/Product/12345": {{
-    "color": "Navy",
-    "fabric": null,
-    "bag_case_material": ["Faux leather"],
-    "carry_options": ["Shoulder strap", "Top handle"],
-    "accessory_size": "Medium",
-    "bag_case_closure": "Zipper",
-    "bag_case_features": ["Detachable strap"],
-    "bag_case_storage_features": ["Inner pockets"],
-    "target_gender": "Female",
-    "age_group": "Adults",
-    "dress_style": null,
-    "neckline": null,
-    "skirt_length_type": null,
-    "sleeve_length_type": null,
-    "care_instructions": null,
-    "clothing_features": null,
-    "dress_occasion": null
-  }}
-}}
-Do not include any explanation or markdown formatting outside of the raw JSON code block.
+Return ONLY a valid JSON object mapping Product ID to its identified attributes dictionary. Use null for non-applicable or missing keys.
 """
     try:
         print(f"Calling AI for batch attribute extraction of {len(products_info)} product(s)...")
-        # Increase max_tokens for batch response: 300 per product
-        max_tokens = max(400, len(products_info) * 300)
+        max_tokens = max(500, len(products_info) * 350)
         ai_resp = generate(prompt, max_tokens=max_tokens, temperature=0.2)
         if ai_resp:
-            # Parse JSON
             match = re.search(r'\{[\s\S]*\}', ai_resp)
             if match:
                 parsed = json.loads(match.group(0))
@@ -1191,18 +1399,20 @@ Do not include any explanation or markdown formatting outside of the raw JSON co
 
     return {}
 
-# --- Main Automation Logic ---
+# --- Main Product Automation Logic ---
 
-def process_product(product, dry_run=True, skip_ai=False, pre_extracted_attrs=None):
-    """Process a single product: extract GPC metafields and variant images."""
+def process_product(product, dry_run=True, skip_ai=False, pre_extracted_attrs=None, force=False):
+    """Process a single product: extract taxonomy metafields, SEO search boost queries, and variant images."""
     p_id = product["id"]
     p_title = product["title"]
     p_handle = product["handle"]
     desc = product["descriptionHtml"] or ""
-    product_type = product["productType"] or ""
+    product_type = product.get("productType") or ""
+    vendor = product.get("vendor") or ""
     category_name = product.get("category", {}).get("name") if product.get("category") else None
+    domain = classify_product_domain(product_type, category_name, p_title)
     
-    print(f"\nProcessing product: {p_title} (Handle: {p_handle})")
+    print(f"\nProcessing product: {p_title} (Handle: {p_handle}, Type: '{product_type}', Domain: '{domain}')")
     
     category_id = product.get("category", {}).get("id") if product.get("category") else None
     if category_id and category_id not in loaded_categories:
@@ -1211,31 +1421,38 @@ def process_product(product, dry_run=True, skip_ai=False, pre_extracted_attrs=No
         standard_values_cache.update(cat_std_vals)
         print(f"  Loaded {len(cat_std_vals)} standard values for category '{product['category']['name']}'.")
 
+    # Map existing metafields on product to avoid unnecessary overwrites
+    existing_metafields = {}
+    for m_edge in product.get("metafields", {}).get("edges", []):
+        m = m_edge.get("node", {})
+        if m.get("namespace") and m.get("key") and m.get("value"):
+            existing_metafields[(m["namespace"], m["key"])] = m["value"]
+
     suggestions = {
         "product_id": p_id,
         "title": p_title,
         "handle": p_handle,
+        "domain": domain,
         "metafields": [],
         "variants": []
     }
     
     # 1. Fetch AI/Local Category Metafields
     if skip_ai:
-        print(f"  - Category metafields already set for '{p_title}'. Skipping AI/heuristics attribute extraction.")
+        print(f"  - Core category metafields already populated for '{p_title}'. Skipping AI/heuristics attribute extraction.")
         attrs = {}
     elif pre_extracted_attrs is not None:
         print(f"  - Using pre-extracted attributes from batch AI call.")
         attrs = pre_extracted_attrs
     else:
-        attrs = get_extracted_attributes(p_title, desc, category_name)
+        attrs = get_extracted_attributes(p_title, desc, category_name, product_type)
     print(f"  Extracted Attributes: {attrs}")
     
-    # Map to metafield list
+    # Map to standard taxonomy metafield list
     for key, val in attrs.items():
         if not val:
             continue
         
-        # Resolve to standard taxonomy key
         mapping = TAXONOMY_MAP.get(key)
         if not mapping:
             continue
@@ -1243,7 +1460,12 @@ def process_product(product, dry_run=True, skip_ai=False, pre_extracted_attrs=No
         std_key = mapping["key"]
         mo_type = mapping["type"]
         
-        # Check if this standard key definition exists on the store
+        # Check if already populated on product
+        if ("shopify", std_key) in existing_metafields and not force:
+            print(f"  - shopify.{std_key} already set on product. Skipping.")
+            continue
+        
+        # Check if definition exists on store
         if std_key not in shopify_definitions:
             continue
             
@@ -1268,9 +1490,37 @@ def process_product(product, dry_run=True, skip_ai=False, pre_extracted_attrs=No
                 "type": "list.metaobject_reference"
             })
             print(f"  ✓ Standard metafield resolved: shopify.{std_key} = {val} ({gids})")
+
+    # 2. Add Search Boost Queries & Custom Search Keywords for US Women Shoppers
+    boost_queries, custom_kw = generate_product_seo_keywords(p_title, desc, domain, vendor, attrs)
+    
+    if ("shopify--discovery--product_search_boost", "queries") not in existing_metafields or force:
+        suggestions["metafields"].append({
+            "namespace": "shopify--discovery--product_search_boost",
+            "key": "queries",
+            "value": json.dumps(boost_queries),
+            "type": "list.single_line_text_field"
+        })
+        print(f"  ✓ Added {len(boost_queries)} Shopify Discovery Search Boost Queries")
+
+    kw_keys = [
+        ("custom", "search_keyword_1"),
+        ("custom", "search-keyword_2"),
+        ("custom", "search-keyword_3"),
+        ("custom", "search-keyword_4"),
+        ("custom", "search-keyword_5")
+    ]
+    for (ns, k), kw_val in zip(kw_keys, custom_kw):
+        if (ns, k) not in existing_metafields or force:
+            suggestions["metafields"].append({
+                "namespace": ns,
+                "key": k,
+                "value": str(kw_val)[:100],
+                "type": "single_line_text_field"
+            })
+            print(f"  ✓ Added SEO keyword {ns}.{k} = '{kw_val}'")
             
-    # 2. Check Variant Images
-    # First, collect all unique colors in variants
+    # 3. Check Variant Images
     unique_colors = set()
     for v_edge in product.get("variants", {}).get("edges", []):
         v = v_edge["node"]
@@ -1288,7 +1538,6 @@ def process_product(product, dry_run=True, skip_ai=False, pre_extracted_attrs=No
         current_media_id = media_nodes[0]["id"] if media_nodes else None
         
         if not current_media_id:
-            # Try to match image
             matching_img_id = find_matching_image(v_title, v["selectedOptions"], product["media"], unique_colors)
             if matching_img_id:
                 print(f"  ✓ Found matching image for variant '{v_title}': {matching_img_id.split('/')[-1]}")
@@ -1385,44 +1634,29 @@ def apply_product_updates(suggestions):
 def fetch_current_metafields_and_variants(product_ids):
     """Fetch current state of products for backing up before updates."""
     # We query GraphQL for exact current values of the metafields and variant images
-    query = """
-    query GetBackupInfo($ids: [ID!]!) {
-      nodes(ids: $ids) {
-        ... on Product {
+    query = f"""
+    query GetBackupInfo($ids: [ID!]!) {{
+      nodes(ids: $ids) {{
+        ... on Product {{
           id
           title
           handle
-          metafields(first: 20, keys: [
-            "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
-            "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
-            "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
-            "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
-            "shopify.accessory-size", "shopify.bag-case-closure", "shopify.bag-case-features", "shopify.bag-case-storage-features"
-          ]) {
-            edges {
-              node {
+          {METAFIELDS_QUERY_FRAGMENT}
+          variants(first: 100) {{
+            edges {{
+              node {{
                 id
-                namespace
-                key
-                value
-              }
-            }
-          }
-          variants(first: 100) {
-            edges {
-              node {
-                id
-                media(first: 1) {
-                  nodes {
+                media(first: 1) {{
+                  nodes {{
                     id
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
+                  }}
+                }}
+              }}
+            }}
+          }}
+        }}
+      }}
+    }}
     """
     res = run_graphql(query, {"ids": product_ids})
     nodes = res.get("data", {}).get("nodes", [])
@@ -1649,6 +1883,7 @@ def main():
     
     parser.add_argument("--handle", help="Restrict run to a single product handle (for local validation)")
     parser.add_argument("--query", help="Scan products matching a custom Shopify query (e.g. 'product_type:Handbags')")
+    parser.add_argument("--scope", choices=["both", "products", "collections"], default="both", help="Execution scope: 'both', 'products', or 'collections'")
     parser.add_argument("--full", action="store_true", help="Trigger a full catalog scan (forced)")
     parser.add_argument("--weekly", action="store_true", help="Scan products created in the last 7 days")
     parser.add_argument("--daily", action="store_true", help="Scan products created in the last 24 hours")
@@ -1664,6 +1899,40 @@ def main():
         return
         
     init_taxonomy_cache()
+
+    col_stats = {"total_collections": 0, "updated_collections": 0, "skipped_collections": 0}
+    
+    # Run Collections SEO & Metafields if scope is 'collections' or 'both'
+    if args.scope in ["both", "collections"] and not args.handle:
+        try:
+            import bulk_update_collection_seo
+            print("\n==================================================")
+            print("Running Collection SEO & PAA Accordions Update...")
+            print("==================================================")
+            res_col = bulk_update_collection_seo.update_all_collections(dry_run=args.diagnose, force=args.full or args.weekly)
+            if isinstance(res_col, dict):
+                col_stats.update(res_col)
+        except Exception as e:
+            print(f"  [Collection SEO Notice]: {e}")
+
+    # If scope is 'collections' and no handle specified, we're done
+    if args.scope == "collections" and not args.handle:
+        print("\nCollection scope run complete.")
+        summary_data = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "action": "diagnose" if args.diagnose else "apply",
+            "mode": "force" if args.full else ("weekly" if args.weekly else "daily"),
+            "scope": args.scope,
+            "batch_index": args.batch_index,
+            "products_fetched": 0,
+            "products_processed": 0,
+            "products_updated": 0,
+            "collection_stats": col_stats,
+            "metafields_by_type": {}
+        }
+        with open("category_metafields_summary.json", "w", encoding="utf-8") as f:
+            json.dump(summary_data, f, indent=2)
+        return
     
     # Determine scan list
     products = []
@@ -1671,25 +1940,36 @@ def main():
         print(f"Loading single product or collection with handle: {args.handle}")
         prod = get_product_by_handle(args.handle)
         if prod:
-            products.append(prod)
+            if args.scope in ["both", "products"]:
+                products.append(prod)
+            else:
+                print(f"Handle '{args.handle}' is a Product, but scope is 'collections'. Skipping.")
+                return
         else:
             col, col_prods = get_collection_products_by_handle(args.handle)
             if col and col_prods:
                 print(f"✓ Smart Match: '{args.handle}' is a Collection ({col['title']}). Loaded {len(col_prods)} products for category metafield updates.")
-                products.extend(col_prods)
+                if args.scope in ["both", "products"]:
+                    products.extend(col_prods)
                 
-                # Also run Collection SEO & PAA Accordion update for this collection
-                try:
-                    import bulk_update_collection_seo
-                    print(f"✓ Running Collection SEO & PAA updates for '{col['title']}'...")
-                    bulk_update_collection_seo.update_all_collections(target_handle=args.handle, dry_run=args.diagnose, force=args.full or args.weekly)
-                except Exception as e:
-                    print(f"  [Collection SEO Notice]: {e}")
+                # Run Collection SEO & PAA Accordion update for this collection
+                if args.scope in ["both", "collections"]:
+                    try:
+                        import bulk_update_collection_seo
+                        print(f"✓ Running Collection SEO & PAA updates for '{col['title']}'...")
+                        res_col = bulk_update_collection_seo.update_all_collections(target_handle=args.handle, dry_run=args.diagnose, force=args.full or args.weekly)
+                        if isinstance(res_col, dict):
+                            col_stats.update(res_col)
+                    except Exception as e:
+                        print(f"  [Collection SEO Notice]: {e}")
+                
+                if args.scope == "collections":
+                    print(f"\nCollection '{col['title']}' update complete.")
+                    return
             else:
                 print(f"Error: Handle '{args.handle}' is neither a valid Product handle nor a Collection handle.")
                 sys.exit(1)
     elif args.query:
-        # Strip outer quotes if passed literally by shell escaping
         clean_query = args.query.strip().strip('"').strip("'")
         print(f"Loading products matching query: {clean_query}")
         products = get_products_by_query(clean_query)
@@ -1699,33 +1979,34 @@ def main():
         products = get_all_products()
         print(f"Fetched {len(products)} products.")
     elif args.weekly:
-        # Weekly Mode (last 7 days created)
         seven_days_ago = (time.time() - (7 * 24 * 3600))
         seven_days_ago_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seven_days_ago))
         print(f"Loading products created since: {seven_days_ago_iso}")
         products = get_recent_products(seven_days_ago_iso, query_field="created_at")
         print(f"Fetched {len(products)} recently created products.")
     else:
-        # Daily Mode (last 24 hours created, default/fallback)
         yesterday = (time.time() - (24 * 3600))
         yesterday_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(yesterday))
         print(f"Loading products created since: {yesterday_iso}")
         products = get_recent_products(yesterday_iso, query_field="created_at")
         print(f"Fetched {len(products)} recently created products.")
-        
-    # Auto-run Collection SEO & PAA FAQs update for store collections during batch/mode runs
-    if not args.handle:
-        try:
-            import bulk_update_collection_seo
-            print("\n==================================================")
-            print("Running Collection SEO & PAA Accordions Update...")
-            print("==================================================")
-            bulk_update_collection_seo.update_all_collections(dry_run=args.diagnose, force=args.full)
-        except Exception as e:
-            print(f"  [Collection SEO Notice]: {e}")
 
     if not products:
         print("No products found to process.")
+        summary_data = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "action": "diagnose" if args.diagnose else "apply",
+            "mode": "force" if args.full else ("weekly" if args.weekly else "daily"),
+            "scope": args.scope,
+            "batch_index": args.batch_index,
+            "products_fetched": 0,
+            "products_processed": 0,
+            "products_updated": 0,
+            "collection_stats": col_stats,
+            "metafields_by_type": {}
+        }
+        with open("category_metafields_summary.json", "w", encoding="utf-8") as f:
+            json.dump(summary_data, f, indent=2)
         return
 
     # Slice products if batching is enabled
@@ -1761,16 +2042,35 @@ def main():
             print(f"Skipping product (recently processed): {p['title']}")
             continue
 
-        # Check if product already has standard category metafields populated
         metafield_edges = p.get("metafields", {}).get("edges", []) if p.get("metafields") else []
-        has_metafields = False
-        for edge in metafield_edges:
-            m = edge.get("node", {})
-            if m.get("value"):
-                has_metafields = True
-                break
-
-        skip_ai = has_metafields and not args.full and not args.handle and not args.query
+        existing_keys = {
+            m.get("node", {}).get("key") 
+            for m in metafield_edges 
+            if m.get("node", {}).get("value")
+        }
+        
+        # Determine essential keys for product domain
+        p_type = p.get("productType") or ""
+        cat_name = p.get("category", {}).get("name") if p.get("category") else ""
+        domain = classify_product_domain(p_type, cat_name, p["title"])
+        
+        domain_essential_keys = {"color-pattern", "fabric"}
+        if domain == "pants_denim":
+            domain_essential_keys.update({"waist-rise", "fit", "pants-length-type"})
+        elif domain == "dresses":
+            domain_essential_keys.update({"dress-style", "skirt-dress-length-type", "neckline"})
+        elif domain == "tops_sweaters":
+            domain_essential_keys.update({"sleeve-length-type", "neckline"})
+        elif domain == "outerwear":
+            domain_essential_keys.update({"outerwear-clothing-features"})
+        elif domain == "one_piece":
+            domain_essential_keys.update({"one-piece-style"})
+        elif domain == "handbags":
+            domain_essential_keys = {"bag-case-material", "carry-options", "accessory-size"}
+            
+        has_search_boost = "queries" in existing_keys
+        is_complete = domain_essential_keys.issubset(existing_keys) and has_search_boost
+        skip_ai = is_complete and not args.full and not args.handle and not args.query
         products_to_process.append((p, skip_ai))
         
         if not skip_ai:
@@ -1781,7 +2081,9 @@ def main():
                 "id": p_id,
                 "title": p["title"],
                 "description": desc_clean[:300],
-                "category": p.get("category", {}).get("name") if p.get("category") else "Clothing"
+                "category": cat_name if cat_name else (p_type if p_type else "Clothing"),
+                "product_type": p_type,
+                "domain": domain
             })
 
     # Run batch AI call in chunks of 10 to avoid token limitations or output truncations
@@ -1798,6 +2100,8 @@ def main():
                 batch_results.update(chunk_results)
 
     all_suggestions = []
+    metafield_type_counts = {}
+    
     for p, skip_ai in products_to_process:
         p_id = p["id"]
         p_pre_extracted = None
@@ -1813,16 +2117,34 @@ def main():
                 title = p["title"]
                 desc_html = p.get("descriptionHtml") or ""
                 category_name = p.get("category", {}).get("name") if p.get("category") else "Clothing"
-                p_pre_extracted = parse_with_heuristics(title, desc_html, category_name)
+                p_type = p.get("productType") or ""
+                p_pre_extracted = parse_with_heuristics(title, desc_html, category_name, p_type)
                 
-        s = process_product(p, skip_ai=skip_ai, pre_extracted_attrs=p_pre_extracted)
+        s = process_product(p, dry_run=args.diagnose, skip_ai=skip_ai, pre_extracted_attrs=p_pre_extracted, force=args.full)
         processed_ids.add(p_id)
         if s["metafields"] or s["variants"]:
             all_suggestions.append(s)
+            for mf in s["metafields"]:
+                key_name = f"{mf['namespace']}.{mf['key']}"
+                metafield_type_counts[key_name] = metafield_type_counts.get(key_name, 0) + 1
             
+    summary_data = {
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "action": "diagnose" if args.diagnose else "apply",
+        "mode": "force" if args.full else ("weekly" if args.weekly else "daily"),
+        "scope": args.scope,
+        "batch_index": args.batch_index,
+        "products_fetched": len(products),
+        "products_processed": len(processed_ids),
+        "products_updated": len(all_suggestions),
+        "collection_stats": col_stats,
+        "metafields_by_type": metafield_type_counts
+    }
+    with open("category_metafields_summary.json", "w", encoding="utf-8") as f:
+        json.dump(summary_data, f, indent=2)
+
     if not all_suggestions:
         print("\nNo metadata or variant image updates are needed.")
-        # Save processed GIDs log if no updates are needed
         if not args.full and not args.handle:
             try:
                 stats = {
@@ -1838,7 +2160,6 @@ def main():
     print(f"\nFound updates for {len(all_suggestions)} products.")
     
     if args.diagnose:
-        # Write suggestions to preview file
         preview_file = "category_metafields_preview.json"
         with open(preview_file, "w", encoding="utf-8") as f:
             json.dump(all_suggestions, f, indent=2)
@@ -1847,7 +2168,6 @@ def main():
               (f"--handle {args.handle}" if args.handle else ""))
         
     elif args.apply:
-        # 1. Back up current state of target products before updating
         target_ids = [s["product_id"] for s in all_suggestions]
         print(f"\nBacking up current state of {len(target_ids)} products before applying changes...")
         backup_data = fetch_current_metafields_and_variants(target_ids)
@@ -1856,12 +2176,10 @@ def main():
             json.dump(backup_data, f, indent=2)
         print(f"Backup written to '{args.backup_file}'.")
         
-        # 2. Apply updates
         for s in all_suggestions:
             apply_product_updates(s)
         print("\nAll updates applied successfully.")
 
-        # Save processed GIDs log after successfully applying updates
         if not args.full and not args.handle:
             try:
                 stats = {
