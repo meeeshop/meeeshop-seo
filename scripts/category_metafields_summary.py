@@ -81,3 +81,4 @@ def write_summary(batch_label: str = ""):
 if __name__ == "__main__":
     batch = sys.argv[1] if len(sys.argv) > 1 else ""
     write_summary(batch)
+
