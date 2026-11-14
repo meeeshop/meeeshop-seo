@@ -45,6 +45,11 @@ TAXONOMY_MAP = {
         "key": "color-pattern",
         "type": "shopify--color-pattern"
     },
+    # Size
+    "size": {
+        "key": "size",
+        "type": "shopify--size"
+    },
     # Fabric
     "fabric": {
         "key": "fabric",
@@ -172,6 +177,7 @@ def init_taxonomy_cache():
     # 2. Fetch all metaobjects for target taxonomy types
     TAXONOMY_TYPES = [
         "shopify--color-pattern",
+        "shopify--size",
         "shopify--fabric",
         "shopify--waist-rise",
         "shopify--pants-length-type",
@@ -385,7 +391,23 @@ def resolve_metaobject_value(mo_type, val_cleaned):
         "zipper": "zipper front",
         "overalls": "overall",
         "rompers": "romper",
-        "jumpsuits": "jumpsuit"
+        "jumpsuits": "jumpsuit",
+        "s": "small (s)",
+        "small": "small (s)",
+        "m": "medium (m)",
+        "medium": "medium (m)",
+        "l": "large (l)",
+        "large": "large (l)",
+        "xl": "extra large (xl)",
+        "x-large": "extra large (xl)",
+        "extra large": "extra large (xl)",
+        "xxl": "double extra large (xxl)",
+        "2xl": "double extra large (xxl)",
+        "xs": "extra small (xs)",
+        "extra small": "extra small (xs)",
+        "3xl": "triple extra large (xxxl)",
+        "one size": "one size",
+        "os": "one size"
     }
     norm_val = normalizations.get(val_cleaned)
     if norm_val:
@@ -397,12 +419,17 @@ def resolve_metaobject_value(mo_type, val_cleaned):
     search_val = norm_val if norm_val else val_cleaned
     std_gid = standard_values_cache.get((mo_type, search_val))
     if not std_gid:
-        # Try finding standard value with substring or case match
+        # Try finding standard value with exact or parenthesized or safe substring match
         for (t, n), gid in standard_values_cache.items():
-            if t == mo_type and (search_val in n or n in search_val):
-                std_gid = gid
-                search_val = n
-                break
+            if t == mo_type:
+                if search_val == n or f"({search_val})" in n:
+                    std_gid = gid
+                    search_val = n
+                    break
+                elif len(search_val) > 3 and (search_val in n or n in search_val):
+                    std_gid = gid
+                    search_val = n
+                    break
                 
     if std_gid:
         # Create the metaobject in the store
@@ -462,7 +489,7 @@ def run_graphql(query, variables=None):
 
 METAFIELDS_QUERY_FRAGMENT = """
         metafields(first: 50, keys: [
-          "shopify.color-pattern", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
+          "shopify.color-pattern", "shopify.size", "shopify.fabric", "shopify.target-gender", "shopify.age-group",
           "shopify.sleeve-length-type", "shopify.one-piece-style", "shopify.dress-style", "shopify.neckline",
           "shopify.skirt-dress-length-type", "shopify.care-instructions", "shopify.clothing-features",
           "shopify.dress-occasion", "shopify.carry-options", "shopify.bag-case-material",
@@ -842,6 +869,8 @@ def classify_product_domain(product_type: str = "", category_name: str = "", tit
     
     if any(k in comb for k in ["handbag", "purse", "tote bag", "crossbody bag", "clutch", "backpack", "satchel", "wallet"]):
         return "handbags"
+    if any(k in comb for k in ["outfit set", "outfit sets", "matching set", "two piece", "two-piece", "2-piece", "2 piece", "co-ord", "coord", "pant set", "skirt set", "short set", "lounge set", "sweat set", "tracksuit"]):
+        return "outfit_sets"
     if any(k in comb for k in ["romper", "jumpsuit", "overall"]):
         return "one_piece"
     if any(k in comb for k in ["jacket", "coat", "blazer", "vest", "shacket", "parka", "puffer", "outerwear"]):
@@ -932,6 +961,14 @@ def generate_product_seo_keywords(title: str, desc: str, domain: str, vendor: st
         queries.append("summer boutique rompers women")
         if clean_vendor:
             queries.append(f"{clean_vendor} {op_style.lower()}")
+    elif domain == "outfit_sets":
+        queries.append("women's two piece matching sets")
+        queries.append("cute summer 2 piece outfits women")
+        queries.append("trendy matching lounge sets for women")
+        queries.append("chic women's boutique co-ord sets")
+        queries.append("flattering vacation outfit sets women")
+        if clean_vendor:
+            queries.append(f"{clean_vendor} matching sets")
     elif domain == "handbags":
         queries.append("women's boutique crossbody handbags")
         queries.append("stylish shoulder bags for women")
@@ -1448,6 +1485,19 @@ def process_product(product, dry_run=True, skip_ai=False, pre_extracted_attrs=No
         attrs = get_extracted_attributes(p_title, desc, category_name, product_type)
     print(f"  Extracted Attributes: {attrs}")
     
+    # Auto-extract available sizes from product variants if not already in attrs
+    if not attrs.get("size") and (("shopify", "size") not in existing_metafields or force):
+        variant_sizes = []
+        for v_edge in product.get("variants", {}).get("edges", []):
+            v_node = v_edge.get("node", {})
+            for opt in v_node.get("selectedOptions", []):
+                if "size" in opt.get("name", "").lower():
+                    s_val = opt.get("value", "").strip()
+                    if s_val and s_val not in variant_sizes:
+                        variant_sizes.append(s_val)
+        if variant_sizes:
+            attrs["size"] = variant_sizes
+
     # Map to standard taxonomy metafield list
     for key, val in attrs.items():
         if not val:
