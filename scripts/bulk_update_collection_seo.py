@@ -470,8 +470,9 @@ def update_all_collections(target_handle: str = None, dry_run: bool = False, for
     
     updated_count = 0
     skipped_count = 0
+    updated_collections = []
     
-    print(f"Loaded {len(edges)} total collections from Shopify. Beginning SEO updates...\n")
+    print(f"Loaded {len(edges)} total collections from Shopify. Beginning SEO & Metafield updates...\n")
     
     seo_mutation = """
     mutation collectionUpdate($input: CollectionInput!) {
@@ -484,6 +485,21 @@ def update_all_collections(target_handle: str = None, dry_run: bool = False, for
             title
             description
           }
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+    """
+
+    metafields_mutation = """
+    mutation metafieldsSet($metafields: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $metafields) {
+        metafields {
+          key
+          namespace
         }
         userErrors {
           field
@@ -541,13 +557,30 @@ def update_all_collections(target_handle: str = None, dry_run: bool = False, for
         seo_title = GoogleQuestionFetcher.remove_disallowed_terms(seo_title, allowed_brand=title)[:60]
         seo_desc = GoogleQuestionFetcher.remove_disallowed_terms(seo_desc, allowed_brand=title)[:155]
 
+        # Generate PAA / FAQ Content Accordion for US Women Shoppers
+        html_accordion = ""
+        if paa_pasf_seo_engine:
+            try:
+                html_accordion, _ = paa_pasf_seo_engine.generate_collection_faq_accordion(title)
+            except Exception as e:
+                print(f"[PAA Accordion Warning] {handle}: {e}")
+
         print(f"[TARGET COLLECTION]: {title} ({handle})")
         print(f"   SEO Title: {seo_title}")
         print(f"   SEO Desc : {seo_desc}")
+        print(f"   PAA FAQ Accordion Length: {len(html_accordion)} chars")
 
         if dry_run:
-            print(f"   [DRY-RUN / DIAGNOSE] Skipping Shopify API mutation.")
+            print(f"   [DRY-RUN / DIAGNOSE] Skipping live Shopify mutations.")
             updated_count += 1
+            updated_collections.append({
+                "id": gid,
+                "title": title,
+                "handle": handle,
+                "seo_title": seo_title,
+                "seo_desc": seo_desc,
+                "has_paa_accordion": bool(html_accordion)
+            })
             print("-" * 60)
             continue
 
@@ -561,23 +594,71 @@ def update_all_collections(target_handle: str = None, dry_run: bool = False, for
             }
         }
         
-        if paa_pasf_seo_engine:
-            paa_pasf_seo_engine.log_entity_update(f"collection:{handle}")
-        
+        # 1. Update Collection native SEO
         res = requests.post(GRAPHQL_ENDPOINT, headers=HEADERS, json={"query": seo_mutation, "variables": variables})
         res_json = res.json()
-        
         errors = res_json.get("data", {}).get("collectionUpdate", {}).get("userErrors", [])
         if errors:
-            print(f"[ERROR] updating {handle}: {errors}")
+            print(f"[ERROR] updating SEO for {handle}: {errors}")
+
+        # 2. Update Collection Metafields: global.title_tag, global.description_tag, custom.faq_content_paa
+        col_metafields = [
+            {
+                "ownerId": gid,
+                "namespace": "global",
+                "key": "title_tag",
+                "value": seo_title,
+                "type": "single_line_text_field"
+            },
+            {
+                "ownerId": gid,
+                "namespace": "global",
+                "key": "description_tag",
+                "value": seo_desc,
+                "type": "single_line_text_field"
+            }
+        ]
+        if html_accordion:
+            col_metafields.append({
+                "ownerId": gid,
+                "namespace": "custom",
+                "key": "faq_content_paa",
+                "value": html_accordion,
+                "type": "multi_line_text_field"
+            })
+
+        mf_res = requests.post(GRAPHQL_ENDPOINT, headers=HEADERS, json={"query": metafields_mutation, "variables": {"metafields": col_metafields}})
+        mf_json = mf_res.json()
+        mf_errors = mf_json.get("data", {}).get("metafieldsSet", {}).get("userErrors", [])
+        if mf_errors:
+            print(f"[ERROR] updating metafields for {handle}: {mf_errors}")
         else:
+            print(f"   [METAFIELDS UPDATED] global.title_tag, global.description_tag, custom.faq_content_paa")
+
+        if not errors and not mf_errors:
             updated_count += 1
+            updated_collections.append({
+                "id": gid,
+                "title": title,
+                "handle": handle,
+                "seo_title": seo_title,
+                "seo_desc": seo_desc,
+                "has_paa_accordion": bool(html_accordion)
+            })
+            if paa_pasf_seo_engine:
+                paa_pasf_seo_engine.log_entity_update(f"collection:{handle}")
             print(f"   [LIVE UPDATED SUCCESS]")
             print("-" * 60)
             
         time.sleep(0.15)
         
     print(f"\n[DONE] Finished! Total updated/processed: {updated_count}, Skipped (Locked): {skipped_count}")
+    return {
+        "total_collections": len(edges),
+        "updated_collections": updated_count,
+        "skipped_collections": skipped_count,
+        "collections": updated_collections
+    }
 
 
 if __name__ == "__main__":

@@ -23,6 +23,15 @@ on:
           - daily
           - weekly
           - force
+      scope:
+        description: 'Execution scope (both: products & collections, products only, collections only)'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - products
+          - collections
       handle:
         description: 'Collection or Product handle (optional, e.g. judy-blue-womens-jeans)'
         required: false
@@ -164,8 +173,16 @@ jobs:
           else
             ARGS+=("--apply")
           fi
+
+          # Scope (both, products, collections)
+          SCOPE="${{ github.event.inputs.scope }}"
+          if [ -n "$SCOPE" ]; then
+            ARGS+=("--scope" "$SCOPE")
+          else
+            ARGS+=("--scope" "both")
+          fi
           
-          # Mode/Scope
+          # Mode/Target
           MODE="${{ needs.setup.outputs.mode }}"
           if [ -n "${{ github.event.inputs.query }}" ]; then
             # Query overrides other scopes
@@ -185,6 +202,11 @@ jobs:
           echo "Running automate_category_metafields.py ${ARGS[@]}..."
           python scripts/automate_category_metafields.py "${ARGS[@]}"
 
+      - name: Generate GitHub Actions Step Summary
+        if: always()
+        run: |
+          python scripts/category_metafields_summary.py "${{ matrix.batch_index }}"
+
       - name: Upload backup or preview artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -193,6 +215,7 @@ jobs:
           path: |
             shopify_metafields_backup.json
             category_metafields_preview.json
+            category_metafields_summary.json
           if-no-files-found: ignore
           retention-days: 30
 
